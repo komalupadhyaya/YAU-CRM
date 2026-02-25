@@ -24,14 +24,17 @@ const allowedOrigins = [
 
 // Configure CORS middleware
 app.use(cors({
-  origin: function (origin, callback) {
-    // allow requests with no origin (like Postman)
+  origin: function(origin, callback) {
+    // allow requests with no origin (like Postman or server-to-server)
     if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) {
+
+    // allow if origin contains one of allowed origins (handles trailing slash)
+    if (allowedOrigins.some(o => origin.startsWith(o))) {
       return callback(null, true);
-    } else {
-      return callback(new Error('Not allowed by CORS'));
     }
+
+    console.log('Blocked CORS request from origin:', origin);
+    return callback(new Error('Not allowed by CORS'));
   },
   methods: ['GET','POST','PUT','DELETE','OPTIONS'],
   allowedHeaders: ['Content-Type','Authorization'],
