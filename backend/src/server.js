@@ -14,7 +14,7 @@ import importRoutes from './routes/import.js';
 
 const app = express();
 
-// Define allowed origins
+// Allowed origins
 const allowedOrigins = [
   process.env.FRONTEND_URL || 'https://yaucrm.vercel.app',
   'http://localhost:8080',
@@ -22,13 +22,15 @@ const allowedOrigins = [
   'http://localhost:3000'
 ];
 
-// Configure CORS middleware
+// ----------------------------
+// Global CORS middleware
+// ----------------------------
 app.use(cors({
   origin: function(origin, callback) {
-    // allow requests with no origin (like Postman or server-to-server)
+    // allow server-to-server / Postman requests with no origin
     if (!origin) return callback(null, true);
 
-    // allow if origin contains one of allowed origins (handles trailing slash)
+    // allow if origin matches any in allowedOrigins
     if (allowedOrigins.some(o => origin.startsWith(o))) {
       return callback(null, true);
     }
@@ -36,20 +38,38 @@ app.use(cors({
     console.log('Blocked CORS request from origin:', origin);
     return callback(new Error('Not allowed by CORS'));
   },
-  methods: ['GET','POST','PUT','DELETE','OPTIONS'],
-  allowedHeaders: ['Content-Type','Authorization'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
 }));
 
+// ----------------------------
+// Handle preflight requests globally
+// ----------------------------
+app.options('*', cors({
+  origin: allowedOrigins,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+}));
+
+// Body parser
 app.use(express.json());
 
+// ----------------------------
 // Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/campaigns', campaignRoutes);
-app.use('/api/schools', schoolRoutes);
-app.use('/api/notes', noteRoutes);
-app.use('/api/followups', followupRoutes);
-app.use('/api/import', importRoutes);
+// ----------------------------
+app.use('/auth', authRoutes);
+app.use('/campaigns', campaignRoutes);
+app.use('/schools', schoolRoutes);
+app.use('/notes', noteRoutes);
+app.use('/followups', followupRoutes);
+app.use('/import', importRoutes);
 
+// ----------------------------
+// Start server
+// ----------------------------
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`YAU CRM backend running on port ${PORT} with MongoDB (MERN)`));
+app.listen(PORT, () => {
+  console.log(`YAU CRM backend running on port ${PORT} with MongoDB (MERN)`);
+});
