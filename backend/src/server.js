@@ -2,9 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 
-dotenv.config(); // Must be called before anything that reads env vars
-
-import './db.js'; // Initialize MongoDB database (seeding admin)
+dotenv.config();
+import './db.js'; // MongoDB connection and admin seeding
 
 import authRoutes from './routes/auth.js';
 import campaignRoutes from './routes/campaigns.js';
@@ -15,9 +14,36 @@ import importRoutes from './routes/import.js';
 
 const app = express();
 
-app.use(cors({ origin: [process.env.FRONTEND_URL || 'https://yaucrm.vercel.app/', 'http://localhost:8080', 'http://localhost:5173', 'http://localhost:3000'] }));
+// Define allowed origins
+const allowedOrigins = [
+  process.env.FRONTEND_URL || 'https://yaucrm.vercel.app',
+  'http://localhost:8080',
+  'http://localhost:5173',
+  'http://localhost:3000'
+];
+
+// Configure CORS middleware
+app.use(cors({
+  origin: function (origin, callback) {
+    // allow requests with no origin (like Postman)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    } else {
+      return callback(new Error('Not allowed by CORS'));
+    }
+  },
+  methods: ['GET','POST','PUT','DELETE','OPTIONS'],
+  allowedHeaders: ['Content-Type','Authorization'],
+  credentials: true
+}));
+
+// Handle preflight requests globally
+app.options('*', cors());
+
 app.use(express.json());
 
+// Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/campaigns', campaignRoutes);
 app.use('/api/schools', schoolRoutes);
