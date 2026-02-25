@@ -1,0 +1,141 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+@layer base {
+  :root {
+    --background: 160 10% 97%;
+    --foreground: 200 20% 12%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 200 20% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 200 20% 12%;
+
+    --primary: 160 84% 39%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 160 15% 93%;
+    --secondary-foreground: 200 20% 12%;
+
+    --muted: 160 10% 92%;
+    --muted-foreground: 200 10% 46%;
+
+    --accent: 160 30% 94%;
+    --accent-foreground: 160 84% 30%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 160 84% 39%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    --border: 160 10% 90%;
+    --input: 160 10% 88%;
+    --ring: 160 84% 39%;
+
+    --radius: 0.875rem;
+
+    --sidebar-background: 200 25% 10%;
+    --sidebar-foreground: 200 10% 70%;
+    --sidebar-primary: 160 84% 45%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 200 20% 15%;
+    --sidebar-accent-foreground: 160 84% 55%;
+    --sidebar-border: 200 20% 16%;
+    --sidebar-ring: 160 84% 39%;
+    --sidebar-muted: 200 10% 45%;
+    --sidebar-heading: 0 0% 100%;
+  }
+
+  .dark {
+    --background: 200 25% 7%;
+    --foreground: 160 10% 92%;
+    --card: 200 25% 10%;
+    --card-foreground: 160 10% 92%;
+    --popover: 200 25% 10%;
+    --popover-foreground: 160 10% 92%;
+    --primary: 160 84% 45%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 200 20% 15%;
+    --secondary-foreground: 160 10% 92%;
+    --muted: 200 20% 15%;
+    --muted-foreground: 200 10% 55%;
+    --accent: 200 20% 15%;
+    --accent-foreground: 160 84% 55%;
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 200 20% 16%;
+    --input: 200 20% 16%;
+    --ring: 160 84% 45%;
+    --sidebar-background: 200 25% 6%;
+    --sidebar-foreground: 200 10% 60%;
+    --sidebar-primary: 160 84% 45%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 200 20% 12%;
+    --sidebar-accent-foreground: 160 84% 55%;
+    --sidebar-border: 200 20% 12%;
+    --sidebar-ring: 160 84% 45%;
+    --sidebar-muted: 200 10% 45%;
+    --sidebar-heading: 160 10% 92%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  }
+}
+
+@layer components {
+  .sidebar-item {
+    @apply flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-200;
+  }
+
+  .sidebar-item-active {
+    @apply bg-sidebar-accent text-sidebar-accent-foreground;
+  }
+
+  .sidebar-item-inactive {
+    @apply text-sidebar-foreground hover:text-sidebar-accent-foreground hover:bg-sidebar-accent/50;
+  }
+
+  .page-card {
+    @apply bg-card rounded-2xl shadow-sm border p-6;
+  }
+
+  .input-field {
+    @apply w-full border border-input rounded-xl px-4 py-3 text-sm bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/40 focus:border-primary transition-all duration-200;
+  }
+
+  .btn-primary {
+    @apply bg-primary text-primary-foreground px-5 py-2.5 rounded-xl text-sm font-semibold hover:brightness-110 active:scale-[0.98] transition-all duration-200 shadow-md shadow-primary/20;
+  }
+
+  .btn-secondary {
+    @apply bg-secondary text-secondary-foreground px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-muted transition-all duration-200;
+  }
+
+  .dropzone {
+    @apply border-2 border-dashed border-input p-12 text-center bg-card rounded-2xl cursor-pointer hover:border-primary hover:bg-accent/50 transition-all duration-300;
+  }
+
+  .stat-card {
+    @apply bg-card rounded-2xl shadow-sm border p-5;
+  }
+
+  .table-header {
+    @apply bg-secondary text-muted-foreground text-xs font-semibold uppercase tracking-wider;
+  }
+}
