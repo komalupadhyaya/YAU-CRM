@@ -5,9 +5,16 @@ import { Upload, CheckCircle2, AlertCircle, School, ArrowRight, RefreshCw, Plus,
 import { useDropzone } from "react-dropzone";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
 interface Campaign {
-  id: number;
+  _id: string;
   name: string;
 }
 
@@ -49,7 +56,7 @@ export default function Import() {
     try {
       const res = await api.post("/campaigns", { name: newCampaignName });
       setCampaigns([...campaigns, res.data]);
-      setSelectedCampaign(String(res.data.id));
+      setSelectedCampaign(String(res.data._id));
       setIsCreatingCampaign(false);
       setNewCampaignName("");
       toast.success("Campaign created successfully!");
@@ -85,66 +92,6 @@ export default function Import() {
     setResult(null);
   };
 
-  if (status === "success" && result) {
-    const campaignName = campaigns.find(c => String(c.id) === selectedCampaign)?.name || "Campaign";
-
-    return (
-      <AppLayout>
-        <div className="max-w-3xl mx-auto py-12 text-center">
-          <div className="w-20 h-20 bg-success/10 text-success rounded-full flex items-center justify-center mx-auto mb-6">
-            <CheckCircle2 size={40} />
-          </div>
-          <h1 className="text-3xl font-bold text-foreground mb-2">Import Successful</h1>
-          <p className="text-muted-foreground mb-10">We've finished processing your file for <strong>{campaignName}</strong>.</p>
-
-          <div className="grid grid-cols-3 gap-4 mb-10 text-center">
-            <div className="p-4 bg-card border rounded-2xl">
-              <p className="text-2xl font-bold text-success">{result.added || result.countAdded || 0}</p>
-              <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mt-1">Added</p>
-            </div>
-            <div className="p-4 bg-card border rounded-2xl">
-              <p className="text-2xl font-bold text-primary">{result.updated || result.countUpdated || 0}</p>
-              <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mt-1">Updated</p>
-            </div>
-            <div className="p-4 bg-card border rounded-2xl">
-              <p className="text-2xl font-bold text-warning">{result.skipped || result.countSkipped || 0}</p>
-              <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mt-1">Skipped</p>
-            </div>
-          </div>
-
-          {(result.errors && result.errors.length > 0) && (
-            <div className="bg-destructive/10 border border-destructive/20 rounded-2xl p-6 text-left mb-10">
-              <h3 className="text-destructive font-bold text-sm uppercase tracking-wider mb-4 flex items-center gap-2">
-                <AlertCircle size={16} /> Row-Level Issues
-              </h3>
-              <div className="space-y-2 max-h-[200px] overflow-y-auto pr-2 custom-scrollbar">
-                {result.errors.map((err: any, idx: number) => (
-                  <p key={idx} className="text-sm text-destructive/80">
-                    <span className="font-bold">Row {err.row}:</span> {err.reason || err.error}
-                  </p>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <button
-              onClick={() => navigate(`/schools?campaignId=${selectedCampaign}`)}
-              className="btn-primary flex items-center gap-2 px-8 py-4 text-base w-full sm:w-auto"
-            >
-              <School size={20} /> View Schools in {campaignName}
-            </button>
-            <button
-              onClick={reset}
-              className="btn-secondary flex items-center gap-2 px-8 py-4 text-base w-full sm:w-auto"
-            >
-              <RefreshCw size={20} /> Import Another File
-            </button>
-          </div>
-        </div>
-      </AppLayout>
-    );
-  }
 
   return (
     <AppLayout>
@@ -188,7 +135,7 @@ export default function Import() {
               >
                 <option value="">-- Choose Campaign --</option>
                 {campaigns.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
+                  <option key={c._id} value={c._id}>{c.name}</option>
                 ))}
                 <option value="new" className="font-bold text-primary">+ Create New Campaign</option>
               </select>
@@ -264,6 +211,67 @@ export default function Import() {
           )}
         </div>
       </div>
+      <Dialog open={status === "success"} onOpenChange={(open) => !open && reset()}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CheckCircle2 className="text-success" size={20} />
+              Import Successful
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4 text-center">
+            <p className="text-sm text-muted-foreground mb-6">
+              Finished processing for <strong>{campaigns.find(c => String(c._id) === selectedCampaign)?.name || "Campaign"}</strong>.
+            </p>
+
+            <div className="grid grid-cols-3 gap-3 mb-6">
+              <div className="p-3 bg-accent/30 border rounded-xl">
+                <p className="text-xl font-bold text-success">{result?.added || result?.countAdded || 0}</p>
+                <p className="text-[10px] text-muted-foreground uppercase font-bold">Added</p>
+              </div>
+              <div className="p-3 bg-accent/30 border rounded-xl">
+                <p className="text-xl font-bold text-primary">{result?.updated || result?.countUpdated || 0}</p>
+                <p className="text-[10px] text-muted-foreground uppercase font-bold">Updated</p>
+              </div>
+              <div className="p-3 bg-accent/30 border rounded-xl">
+                <p className="text-xl font-bold text-warning">{result?.skipped || result?.countSkipped || 0}</p>
+                <p className="text-[10px] text-muted-foreground uppercase font-bold">Skipped</p>
+              </div>
+            </div>
+
+            {(result?.errors && result.errors.length > 0) && (
+              <div className="bg-destructive/5 border border-destructive/10 rounded-xl p-4 text-left max-h-[150px] overflow-y-auto mb-6">
+                <h4 className="text-destructive font-bold text-[10px] uppercase tracking-wider mb-2 flex items-center gap-1">
+                  <AlertCircle size={12} /> Row-Level Issues
+                </h4>
+                {result.errors.map((err: any, idx: number) => (
+                  <p key={idx} className="text-xs text-destructive/80 mb-1 last:mb-0">
+                    <span className="font-bold">Row {err.row}:</span> {err.reason || err.error}
+                  </p>
+                ))}
+              </div>
+            )}
+          </div>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <button
+              onClick={() => {
+                const id = selectedCampaign;
+                reset();
+                navigate(`/schools?campaignId=${id}`);
+              }}
+              className="btn-primary w-full sm:flex-1"
+            >
+              View Schools
+            </button>
+            <button
+              onClick={reset}
+              className="btn-secondary w-full sm:flex-1"
+            >
+              Done
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 }

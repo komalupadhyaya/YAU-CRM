@@ -13,20 +13,20 @@ import {
 } from "@/components/ui/dialog";
 
 interface Note {
-  id: number;
+  _id: string;
   content: string;
-  created_at: string;
+  createdAt: string;
 }
 
 interface FollowUp {
-  id: number;
+  _id: string;
   follow_up_date: string;
   reason: string;
   status: string;
 }
 
 interface School {
-  id: number;
+  _id: string;
   name: string;
   type: string;
   grades: string;
@@ -119,7 +119,7 @@ export default function SchoolDetail() {
     } catch { }
   };
 
-  const markDone = async (fuId: number) => {
+  const markDone = async (fuId: string) => {
     try {
       await api.put(`/followups/${fuId}/complete`);
       toast.success("Follow-up completed");
@@ -231,10 +231,10 @@ export default function SchoolDetail() {
                 <p className="text-sm text-muted-foreground text-center py-4 border border-dashed border-border rounded-lg">No notes recorded yet.</p>
               ) : (
                 notes.map((n) => (
-                  <div key={n.id} className="p-3 bg-accent/50 rounded-lg border border-border">
+                  <div key={n._id} className="p-3 bg-accent/50 rounded-lg border border-border">
                     <p className="text-sm text-foreground mb-1">{n.content}</p>
                     <p className="text-[10px] text-muted-foreground uppercase tracking-wide">
-                      {new Date(n.created_at).toLocaleString()}
+                      {new Date(n.createdAt).toLocaleString()}
                     </p>
                   </div>
                 ))
@@ -263,14 +263,14 @@ export default function SchoolDetail() {
                 </p>
               ) : (
                 followUps.filter(f => f.status === 'pending').map((f) => (
-                  <div key={f.id} className="p-3 bg-accent/30 rounded-lg border border-border">
+                  <div key={f._id} className="p-3 bg-accent/30 rounded-lg border border-border">
                     <div className="flex items-start justify-between gap-2">
                       <div>
                         <p className="text-xs font-bold text-primary uppercase">{new Date(f.follow_up_date + 'T00:00:00').toLocaleDateString()}</p>
                         {f.reason && <p className="text-sm text-foreground mt-0.5">{f.reason}</p>}
                       </div>
                       <button
-                        onClick={() => markDone(f.id)}
+                        onClick={() => markDone(f._id)}
                         className="text-xs text-muted-foreground hover:text-success border border-border hover:border-success px-2 py-1 rounded transition-colors whitespace-nowrap"
                       >
                         Mark Done

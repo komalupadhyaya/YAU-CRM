@@ -6,9 +6,9 @@ import { Plus, Folder } from "lucide-react";
 import { toast } from "sonner";
 
 interface Campaign {
-  id: number;
+  _id: string;
   name: string;
-  created_at: string;
+  createdAt: string;
 }
 
 const Campaigns = () => {
@@ -68,8 +68,8 @@ const Campaigns = () => {
         ) : (
           campaigns.map((c) => (
             <Link
-              key={c.id}
-              to={`/schools?campaignId=${c.id}`}
+              key={c._id}
+              to={`/schools?campaignId=${c._id}`}
               className="page-card hover:border-primary transition-colors group"
             >
               <div className="flex items-start justify-between">
@@ -78,7 +78,7 @@ const Campaigns = () => {
                     {c.name}
                   </h3>
                   <p className="text-sm text-muted-foreground mt-1">
-                    Created {new Date(c.created_at).toLocaleDateString()}
+                    Created {new Date(c.createdAt).toLocaleDateString()}
                   </p>
                 </div>
                 <Folder className="text-muted-foreground group-hover:text-primary transition-colors" size={24} />

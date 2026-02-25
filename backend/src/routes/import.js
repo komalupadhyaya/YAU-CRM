@@ -25,10 +25,10 @@ router.post('/', upload.single('file'), async (req, res) => {
             return res.status(400).json({ error: 'Only .xlsx files are accepted' });
         }
 
-        const { campaignId } = req.body;
-        if (!campaignId) return res.status(400).json({ error: 'campaignId is required' });
+        const { campaign_id } = req.body;
+        if (!campaign_id) return res.status(400).json({ error: 'campaign_id is required' });
 
-        const campaign = await Campaign.findById(campaignId);
+        const campaign = await Campaign.findById(campaign_id);
         if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
 
         const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
@@ -62,19 +62,19 @@ router.post('/', upload.single('file'), async (req, res) => {
                 state: getVal(row, ['state']),
                 zip: getVal(row, ['zip code', 'zip']),
                 website: getVal(row, ['website']),
-                campaign_id: campaignId
+                campaign_id: campaign_id
             };
 
             let existing = null;
             if (schoolData.telephone) {
                 existing = await School.findOne({
-                    campaign_id: campaignId,
+                    campaign_id: campaign_id,
                     name: { $regex: new RegExp('^' + name + '$', 'i') },
                     telephone: schoolData.telephone
                 });
             } else if (schoolData.address) {
                 existing = await School.findOne({
-                    campaign_id: campaignId,
+                    campaign_id: campaign_id,
                     name: { $regex: new RegExp('^' + name + '$', 'i') },
                     address: { $regex: new RegExp('^' + schoolData.address + '$', 'i') }
                 });
