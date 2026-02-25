@@ -1,7 +1,7 @@
 import axios from "axios";
 import { toast } from "sonner";
 
-const API_URL = import.meta.env.VITE_API_URL || "https://yau-crm-production.up.railway.app/";
+const API_URL = import.meta.env.VITE_API_URL || "https://yau-crm-production.up.railway.app/api";
 
 const api = axios.create({
   baseURL: API_URL,

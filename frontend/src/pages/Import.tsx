@@ -45,7 +45,7 @@ export default function Import() {
     onDrop,
     accept: { "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"] },
     multiple: false,
-    disabled: status === "uploading",
+    disabled: status === "uploading" || !selectedCampaign,
   });
 
   const handleCreateCampaign = async () => {
