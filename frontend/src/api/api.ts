@@ -1,7 +1,12 @@
 import axios from "axios";
 import { toast } from "sonner";
 
-const API_URL = import.meta.env.VITE_API_URL || "https://yau-crm-production.up.railway.app/api";
+let API_URL = import.meta.env.VITE_API_URL || "https://yau-crm-production.up.railway.app";
+
+// Ensure URL ends with /api for consistency with backend routes
+if (!API_URL.endsWith("/api") && !API_URL.endsWith("/api/")) {
+  API_URL = API_URL.replace(/\/$/, "") + "/api";
+}
 
 const api = axios.create({
   baseURL: API_URL,
