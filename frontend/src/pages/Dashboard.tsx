@@ -13,25 +13,25 @@ import {
 } from "@/components/ui/dialog";
 
 interface Campaign {
-  id: number;
+  _id: string;
   name: string;
 }
 
 interface School {
-  id: number;
+  _id: string;
   name: string;
   telephone?: string;
 }
 
 interface FollowUp {
-  id: number;
+  _id: string;
   reason: string;
   follow_up_date: string;
-  school_id: number;
+  school_id_val: string;
   school_name: string;
   telephone?: string;
   campaign_name: string;
-  campaign_id: number;
+  campaign_id_val: string;
 }
 
 interface DashboardData {
@@ -52,7 +52,7 @@ export default function Dashboard() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [schools, setSchools] = useState<School[]>([]);
   const [schoolSearch, setSchoolSearch] = useState("");
-  const [selectedSchool, setSelectedSchool] = useState<number | null>(null);
+  const [selectedSchool, setSelectedSchool] = useState<string | null>(null);
   const [followUpDate, setFollowUpDate] = useState("");
   const [followUpReason, setFollowUpReason] = useState("");
 
@@ -83,7 +83,7 @@ export default function Dashboard() {
     }
   }, [schoolSearch, isModalOpen]);
 
-  const markDone = async (id: number) => {
+  const markDone = async (id: string) => {
     try {
       await api.put(`/followups/${id}/complete`);
       toast.success("Follow-up marked as done");
@@ -110,7 +110,7 @@ export default function Dashboard() {
   // Filter data based on selected campaign
   const filterList = (list: FollowUp[]) => {
     if (selectedCampaign === "all") return list;
-    return list.filter(f => String(f.campaign_id) === selectedCampaign);
+    return list.filter(f => String(f.campaign_id_val) === selectedCampaign);
   };
 
   const filteredData = rawData ? {
@@ -141,10 +141,10 @@ export default function Dashboard() {
       ) : (
         <div className="divide-y divide-border">
           {list.map((f) => (
-            <div key={f.id} className="py-4 group">
+            <div key={f._id} className="py-4 group">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1">
-                  <Link to={`/school/${f.school_id}`} className="font-medium text-foreground hover:text-primary transition-colors block">
+                  <Link to={`/school/${f.school_id_val}`} className="font-medium text-foreground hover:text-primary transition-colors block">
                     {f.school_name || "Unknown School"}
                   </Link>
                   <p className="text-sm text-foreground/80 mt-1">{f.reason || "No reason provided"}</p>
@@ -161,7 +161,7 @@ export default function Dashboard() {
                   </div>
                 </div>
                 <button
-                  onClick={() => markDone(f.id)}
+                  onClick={() => markDone(f._id)}
                   className="p-2 text-muted-foreground hover:text-success hover:bg-success/10 rounded-full transition-all"
                   title="Mark as Done"
                 >
@@ -202,7 +202,7 @@ export default function Dashboard() {
             >
               <option value="all">All Campaigns</option>
               {campaigns.map(c => (
-                <option key={c.id} value={c.id}>{c.name}</option>
+                <option key={c._id} value={c._id}>{c.name}</option>
               ))}
             </select>
           </div>
@@ -246,9 +246,9 @@ export default function Dashboard() {
                 <div className="mt-2 max-h-[200px] overflow-y-auto border rounded-xl divide-y">
                   {schools.map(s => (
                     <button
-                      key={s.id}
+                      key={s._id}
                       className="w-full text-left p-3 hover:bg-accent transition-colors text-sm"
-                      onClick={() => setSelectedSchool(s.id)}
+                      onClick={() => setSelectedSchool(s._id)}
                     >
                       {s.name} {s.telephone && <span className="text-xs text-muted-foreground ml-2">({s.telephone})</span>}
                     </button>
@@ -266,7 +266,7 @@ export default function Dashboard() {
                 <div className="flex items-center justify-between bg-accent/40 p-3 rounded-xl border">
                   <div>
                     <p className="text-xs text-muted-foreground font-bold uppercase tracking-wider">Target School</p>
-                    <p className="text-sm font-semibold">{schools.find(s => s.id === selectedSchool)?.name}</p>
+                    <p className="text-sm font-semibold">{schools.find(s => s._id === selectedSchool)?.name}</p>
                   </div>
                   <button className="text-xs text-primary hover:underline" onClick={() => setSelectedSchool(null)}>Change</button>
                 </div>

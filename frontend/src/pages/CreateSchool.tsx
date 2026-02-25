@@ -6,7 +6,7 @@ import { Save, ArrowLeft, Plus, X, Check } from "lucide-react";
 import { toast } from "sonner";
 
 interface Campaign {
-    id: number;
+    _id: string;
     name: string;
 }
 
@@ -44,7 +44,7 @@ export default function CreateSchool() {
             .then((r) => {
                 setCampaigns(r.data);
                 if (!initialCampaignId && r.data.length > 0) {
-                    setFormData(prev => ({ ...prev, campaign_id: String(r.data[0].id) }));
+                    setFormData(prev => ({ ...prev, campaign_id: String(r.data[0]._id) }));
                 }
             })
             .catch(() => toast.error("Failed to load campaigns"))
@@ -70,7 +70,7 @@ export default function CreateSchool() {
         try {
             const res = await api.post("/campaigns", { name: newCampaignName });
             setCampaigns([...campaigns, res.data]);
-            setFormData({ ...formData, campaign_id: String(res.data.id) });
+            setFormData({ ...formData, campaign_id: String(res.data._id) });
             setIsCreatingCampaign(false);
             setNewCampaignName("");
             toast.success("Campaign created successfully!");
@@ -89,7 +89,7 @@ export default function CreateSchool() {
         try {
             const res = await api.post("/schools", formData);
             toast.success("School created successfully!");
-            navigate("/school/" + res.data.id);
+            navigate("/school/" + res.data._id);
         } catch (err: any) {
             toast.error(err.response?.data?.error || "Failed to create school.");
         }
@@ -160,7 +160,7 @@ export default function CreateSchool() {
                                 >
                                     <option value="">-- Select a campaign --</option>
                                     {campaigns.map((c) => (
-                                        <option key={c.id} value={c.id}>{c.name}</option>
+                                        <option key={c._id} value={c._id}>{c.name}</option>
                                     ))}
                                     <option value="new" className="font-bold text-primary">+ Create New Campaign</option>
                                 </select>
