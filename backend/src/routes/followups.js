@@ -1,54 +1,100 @@
 import express from 'express';
-import db from '../db.js';
+import { Followup, School } from '../db.js';
 
 const router = express.Router();
 
 // POST /api/followups/:schoolId - create a follow-up
-router.post('/:schoolId', (req, res) => {
-    const { follow_up_date, reason } = req.body;
-    if (!follow_up_date) return res.status(400).json({ error: 'follow_up_date is required' });
-    const result = db.prepare('INSERT INTO followups (school_id, follow_up_date, reason) VALUES (?, ?, ?)').run(req.params.schoolId, follow_up_date, reason || '');
-    const fu = db.prepare('SELECT * FROM followups WHERE id = ?').get(result.lastInsertRowid);
-    res.json(fu);
+router.post('/:schoolId', async (req, res) => {
+    try {
+        const { follow_up_date, reason } = req.body;
+        if (!follow_up_date) return res.status(400).json({ error: 'follow_up_date is required' });
+
+        const fu = await Followup.create({
+            school_id: req.params.schoolId,
+            follow_up_date,
+            reason: reason || ''
+        });
+        res.json(fu);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // PUT /api/followups/:id/complete - mark as done
-router.put('/:id/complete', (req, res) => {
-    db.prepare("UPDATE followups SET status='done', completed_at=CURRENT_TIMESTAMP WHERE id=?").run(req.params.id);
-    res.json({ success: true });
+router.put('/:id/complete', async (req, res) => {
+    try {
+        const fu = await Followup.findByIdAndUpdate(req.params.id, {
+            status: 'done',
+            completed_at: new Date()
+        }, { new: true });
+
+        if (!fu) return res.status(404).json({ error: 'Follow-up not found' });
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // GET /api/followups/school/:schoolId - followups for a school
-router.get('/school/:schoolId', (req, res) => {
-    const followups = db.prepare(`
-        SELECT f.*, s.name as school_name, s.telephone, c.name as campaign_name
-        FROM followups f
-        JOIN schools s ON s.id = f.school_id
-        JOIN campaigns c ON c.id = s.campaign_id
-        WHERE f.school_id = ?
-        ORDER BY f.follow_up_date ASC
-    `).all(req.params.schoolId);
-    res.json(followups);
+router.get('/school/:schoolId', async (req, res) => {
+    try {
+        const followups = await Followup.find({ school_id: req.params.schoolId })
+            .populate({
+                path: 'school_id',
+                select: 'name telephone campaign_id',
+                populate: { path: 'campaign_id', select: 'name' }
+            })
+            .sort({ follow_up_date: 1 });
+
+        const flatFollowups = followups.map(f => {
+            const data = f.toJSON();
+            return {
+                ...data,
+                school_name: data.school_id?.name,
+                telephone: data.school_id?.telephone,
+                campaign_name: data.school_id?.campaign_id?.name
+            };
+        });
+
+        res.json(flatFollowups);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // GET /api/followups/dashboard - grouped follow-ups for dashboard
-router.get('/dashboard', (req, res) => {
-    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+router.get('/dashboard', async (req, res) => {
+    try {
+        const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
 
-    const all = db.prepare(`
-        SELECT f.*, s.name as school_name, s.id as school_id, s.telephone, c.name as campaign_name, c.id as campaign_id
-        FROM followups f
-        JOIN schools s ON s.id = f.school_id
-        JOIN campaigns c ON c.id = s.campaign_id
-        WHERE f.status = 'pending'
-        ORDER BY f.follow_up_date ASC
-    `).all();
+        const all = await Followup.find({ status: 'pending' })
+            .populate({
+                path: 'school_id',
+                select: 'name telephone campaign_id',
+                populate: { path: 'campaign_id', select: 'name' }
+            })
+            .sort({ follow_up_date: 1 });
 
-    const overdue = all.filter(f => f.follow_up_date < today);
-    const due = all.filter(f => f.follow_up_date === today);
-    const upcoming = all.filter(f => f.follow_up_date > today);
+        const flatAll = all.map(f => {
+            const data = f.toJSON();
+            return {
+                ...data,
+                school_name: data.school_id?.name,
+                school_id_val: data.school_id?._id,
+                telephone: data.school_id?.telephone,
+                campaign_name: data.school_id?.campaign_id?.name,
+                campaign_id_val: data.school_id?.campaign_id?._id
+            };
+        });
 
-    res.json({ overdue, due, upcoming, all });
+        const overdue = flatAll.filter(f => f.follow_up_date < today);
+        const due = flatAll.filter(f => f.follow_up_date === today);
+        const upcoming = flatAll.filter(f => f.follow_up_date > today);
+
+        res.json({ overdue, due, upcoming, all: flatAll });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 export default router;

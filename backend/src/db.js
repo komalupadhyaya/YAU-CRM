@@ -1,78 +1,77 @@
-import Database from 'better-sqlite3';
+import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dbPath = path.join(__dirname, '../../yaucrm.db');
+dotenv.config();
 
-const db = new Database(dbPath);
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/yaucrm';
 
-// Performance and integrity
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+mongoose.connect(MONGO_URI)
+    .then(() => console.log('MongoDB connected ✅'))
+    .catch(err => console.error('MongoDB connection error ❌:', err));
 
-// Create tables
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT UNIQUE NOT NULL,
-    password TEXT NOT NULL
-  );
+// --- Schemas ---
 
-  CREATE TABLE IF NOT EXISTS campaigns (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
+const UserSchema = new mongoose.Schema({
+    username: { type: String, unique: true, required: true },
+    password: { type: String, required: true }
+}, { timestamps: true });
 
-  CREATE TABLE IF NOT EXISTS schools (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    campaign_id INTEGER NOT NULL,
-    name TEXT,
-    type TEXT,
-    grades TEXT,
-    principal_name TEXT,
-    principal_email TEXT,
-    telephone TEXT,
-    start_time TEXT,
-    end_time TEXT,
-    address TEXT,
-    city TEXT,
-    state TEXT,
-    zip TEXT,
-    website TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (campaign_id) REFERENCES campaigns(id)
-  );
+const CampaignSchema = new mongoose.Schema({
+    name: { type: String, required: true }
+}, { timestamps: true });
 
-  CREATE TABLE IF NOT EXISTS notes (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    school_id INTEGER NOT NULL,
-    content TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (school_id) REFERENCES schools(id)
-  );
+const SchoolSchema = new mongoose.Schema({
+    campaign_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Campaign', required: true },
+    name: { type: String, required: true },
+    type: String,
+    grades: String,
+    principal_name: String,
+    principal_email: String,
+    telephone: String,
+    start_time: String,
+    end_time: String,
+    address: String,
+    city: String,
+    state: String,
+    zip: String,
+    website: String
+}, { timestamps: true });
 
-  CREATE TABLE IF NOT EXISTS followups (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    school_id INTEGER NOT NULL,
-    follow_up_date TEXT NOT NULL,
-    reason TEXT,
-    status TEXT DEFAULT 'pending',
-    completed_at DATETIME,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (school_id) REFERENCES schools(id)
-  );
-`);
+const NoteSchema = new mongoose.Schema({
+    school_id: { type: mongoose.Schema.Types.ObjectId, ref: 'School', required: true },
+    content: { type: String, required: true }
+}, { timestamps: true });
 
-// Seed default admin user if not already present
-const existingUser = db.prepare('SELECT id FROM users WHERE username = ?').get('admin');
-if (!existingUser) {
-    const hash = bcrypt.hashSync('admin123', 10);
-    db.prepare('INSERT INTO users (username, password) VALUES (?, ?)').run('admin', hash);
-    console.log('Created default admin user: admin / admin123');
-}
+const FollowupSchema = new mongoose.Schema({
+    school_id: { type: mongoose.Schema.Types.ObjectId, ref: 'School', required: true },
+    follow_up_date: { type: String, required: true }, // YYYY-MM-DD
+    reason: String,
+    status: { type: String, default: 'pending' },
+    completed_at: Date
+}, { timestamps: true });
 
-export default db;
+// --- Models ---
+
+export const User = mongoose.model('User', UserSchema);
+export const Campaign = mongoose.model('Campaign', CampaignSchema);
+export const School = mongoose.model('School', SchoolSchema);
+export const Note = mongoose.model('Note', NoteSchema);
+export const Followup = mongoose.model('Followup', FollowupSchema);
+
+// --- Seed Admin ---
+const seedAdmin = async () => {
+    try {
+        const adminExists = await User.findOne({ username: 'admin' });
+        if (!adminExists) {
+            const hash = bcrypt.hashSync('admin123', 10);
+            await User.create({ username: 'admin', password: hash });
+            console.log('Created default admin user: admin / admin123');
+        }
+    } catch (err) {
+        console.error('Error seeding admin:', err);
+    }
+};
+seedAdmin();
+
+export default mongoose.connection;
