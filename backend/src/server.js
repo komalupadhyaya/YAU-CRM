@@ -19,7 +19,7 @@ const app = express();
 // CORS
 // ----------------------------
 const allowedOrigins = [
-  'https://yaucrm-i861qp4qw-komalupadhyayas-projects.vercel.app/',
+  'https://yaucrm-i861qp4qw-komalupadhyayas-projects.vercel.app',
   process.env.FRONTEND_URL
 ];
 
