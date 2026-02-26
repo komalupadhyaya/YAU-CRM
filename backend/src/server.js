@@ -38,6 +38,7 @@ const FRONTEND = process.env.FRONTEND_URL || 'http://localhost:8080';
 
 const allowedOrigins = [
     'http://localhost:8080',
+    'https://yaucrm.vercel.app/',
     FRONTEND
 ];
 
