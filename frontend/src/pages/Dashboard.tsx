@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import api from "../api/api";
 import AppLayout from "../layout/AppLayout";
-import { AlertCircle, Clock, Calendar, CheckCircle, Phone, Filter, Search, Plus } from "lucide-react";
+import { AlertCircle, Clock, Calendar, CheckCircle, Phone, Filter, Search, Plus, School as SchoolIcon } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import {
@@ -56,6 +56,8 @@ export default function Dashboard() {
   const [followUpDate, setFollowUpDate] = useState("");
   const [followUpReason, setFollowUpReason] = useState("");
 
+  const [schoolCounts, setSchoolCounts] = useState({ totalSchools: 0, contactedSchools: 0 });
+
   const load = async () => {
     try {
       const [resData, resCampaigns] = await Promise.all([
@@ -68,6 +70,14 @@ export default function Dashboard() {
     setLoading(false);
   };
 
+  const loadCounts = async () => {
+    if (selectedCampaign === "all") return;
+    try {
+      const res = await api.get(`/schools/campaign/${selectedCampaign}/school-counts`);
+      setSchoolCounts(res.data);
+    } catch { }
+  };
+
   useEffect(() => {
     load();
     if (searchParams.get("action") === "new-followup") {
@@ -76,6 +86,10 @@ export default function Dashboard() {
       setSearchParams(searchParams);
     }
   }, [searchParams]);
+
+  useEffect(() => {
+    loadCounts();
+  }, [selectedCampaign]);
 
   useEffect(() => {
     if (isModalOpen && schoolSearch.length >= 2) {
@@ -121,7 +135,7 @@ export default function Dashboard() {
   } : null;
 
   const StatCard = ({ title, count, icon: Icon, color }: { title: string; count: number; icon: any; color: string }) => (
-    <div className="stat-card">
+    <div className="stat-card dark:bg-card">
       <div className="flex items-center justify-between mb-3">
         <span className="text-sm font-medium text-muted-foreground">{title}</span>
         <Icon size={18} className={color} />
@@ -131,10 +145,10 @@ export default function Dashboard() {
   );
 
   const FollowUpCard = ({ title, list, emptyMsg }: { title: string; list: FollowUp[]; emptyMsg: string }) => (
-    <div className="page-card">
+    <div className="page-card dark:bg-card">
       <h2 className="font-semibold text-foreground mb-4 flex items-center justify-between">
         {title}
-        <span className="text-xs px-2 py-0.5 bg-accent rounded-full text-muted-foreground">{list.length}</span>
+        <span className="text-xs px-2 py-0.5 bg-accent dark:bg-accent/20 rounded-full text-muted-foreground">{list.length}</span>
       </h2>
       {list.length === 0 ? (
         <p className="text-sm text-muted-foreground py-4 text-center border border-dashed border-border rounded-lg">{emptyMsg}</p>
@@ -142,13 +156,13 @@ export default function Dashboard() {
         <div className="divide-y divide-border">
           {list.map((f) => (
             <div key={f._id} className="py-4 group">
-              <div className="flex items-start justify-between gap-3">
+              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                 <div className="flex-1">
-                  <Link to={`/school/${f.school_id_val}`} className="font-medium text-foreground hover:text-primary transition-colors block">
+                  <Link to={`/campaigns`} className="font-medium text-foreground hover:text-primary transition-colors block">
                     {f.school_name || "Unknown School"}
                   </Link>
-                  <p className="text-sm text-foreground/80 mt-1">{f.reason || "No reason provided"}</p>
-                  <div className="flex items-center gap-4 mt-2">
+                  <p className="text-sm text-foreground/80 dark:text-foreground/70 mt-1">{f.reason || "No reason provided"}</p>
+                  <div className="flex flex-wrap items-center gap-3 mt-2">
                     <span className="flex items-center gap-1 text-[10px] text-muted-foreground uppercase font-bold tracking-tight">
                       <Calendar size={10} /> {new Date(f.follow_up_date + 'T00:00:00').toLocaleDateString()}
                     </span>
@@ -162,7 +176,7 @@ export default function Dashboard() {
                 </div>
                 <button
                   onClick={() => markDone(f._id)}
-                  className="p-2 text-muted-foreground hover:text-success hover:bg-success/10 rounded-full transition-all"
+                  className="p-2 text-muted-foreground hover:text-success hover:bg-success/10 rounded-full transition-all self-end sm:self-start"
                   title="Mark as Done"
                 >
                   <CheckCircle size={20} />
@@ -185,10 +199,10 @@ export default function Dashboard() {
           <p className="text-sm text-muted-foreground">Your pending outreach tasks.</p>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
           <button
             onClick={() => setIsModalOpen(true)}
-            className="btn-primary flex items-center gap-2 text-sm px-4 py-2 h-10"
+            className="btn-primary flex items-center justify-center gap-2 text-sm px-4 h-10"
           >
             <Plus size={16} /> New Follow-up
           </button>
@@ -196,7 +210,7 @@ export default function Dashboard() {
           <div className="flex items-center gap-2 bg-card border rounded-xl px-3 py-1.5 shadow-sm h-10">
             <Filter size={14} className="text-muted-foreground" />
             <select
-              className="bg-transparent text-sm font-medium focus:outline-none min-w-[150px]"
+              className="bg-transparent text-sm font-medium focus:outline-none min-w-[150px] dark:bg-card"
               value={selectedCampaign}
               onChange={(e) => setSelectedCampaign(e.target.value)}
             >
@@ -209,11 +223,33 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
         <StatCard title="Overdue" count={filteredData?.overdue.length || 0} icon={AlertCircle} color="text-destructive" />
         <StatCard title="Due Today" count={filteredData?.due.length || 0} icon={Clock} color="text-warning" />
         <StatCard title="Upcoming" count={filteredData?.upcoming.length || 0} icon={Calendar} color="text-primary" />
       </div>
+
+      {/* Outreach Progress (New) */}
+      {selectedCampaign !== "all" && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+          <div className="stat-card bg-primary/5 dark:bg-primary/10 border-primary/20">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-sm font-medium text-primary/80">Total Schools</span>
+              <SchoolIcon size={18} className="text-primary" />
+            </div>
+            <div className="text-3xl font-bold text-foreground">{schoolCounts.totalSchools}</div>
+            <p className="text-xs text-muted-foreground mt-1">Schools in this campaign</p>
+          </div>
+          <div className="stat-card bg-success/5 dark:bg-success/10 border-success/20">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-sm font-medium text-success/80">Contacted Schools</span>
+              <CheckCircle size={18} className="text-success" />
+            </div>
+            <div className="text-3xl font-bold text-foreground">{schoolCounts.contactedSchools}</div>
+            <p className="text-xs text-muted-foreground mt-1">Schools with status other than "Not Contacted"</p>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <FollowUpCard title="Overdue" list={filteredData?.overdue || []} emptyMsg="No overdue follow-ups." />
@@ -226,9 +262,9 @@ export default function Dashboard() {
 
       {/* New Follow-up Modal */}
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent className="w-[90vw] max-w-lg md:w-full dark:bg-card">
           <DialogHeader>
-            <DialogTitle>Quick Follow-up</DialogTitle>
+            <DialogTitle className="dark:text-foreground">Quick Follow-up</DialogTitle>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             {!selectedSchool ? (
@@ -243,11 +279,11 @@ export default function Dashboard() {
                     onChange={e => setSchoolSearch(e.target.value)}
                   />
                 </div>
-                <div className="mt-2 max-h-[200px] overflow-y-auto border rounded-xl divide-y">
+                <div className="mt-2 max-h-[200px] overflow-y-auto border rounded-xl divide-y dark:border-border/20">
                   {schools.map(s => (
                     <button
                       key={s._id}
-                      className="w-full text-left p-3 hover:bg-accent transition-colors text-sm"
+                      className="w-full text-left p-3 hover:bg-accent dark:hover:bg-accent/20 transition-colors text-sm dark:text-foreground"
                       onClick={() => setSelectedSchool(s._id)}
                     >
                       {s.name} {s.telephone && <span className="text-xs text-muted-foreground ml-2">({s.telephone})</span>}
@@ -263,10 +299,10 @@ export default function Dashboard() {
               </div>
             ) : (
               <>
-                <div className="flex items-center justify-between bg-accent/40 p-3 rounded-xl border">
+                <div className="flex items-center justify-between bg-accent/40 dark:bg-accent/10 p-3 rounded-xl border dark:border-border/20">
                   <div>
                     <p className="text-xs text-muted-foreground font-bold uppercase tracking-wider">Target School</p>
-                    <p className="text-sm font-semibold">{schools.find(s => s._id === selectedSchool)?.name}</p>
+                    <p className="text-sm font-semibold dark:text-foreground">{schools.find(s => s._id === selectedSchool)?.name}</p>
                   </div>
                   <button className="text-xs text-primary hover:underline" onClick={() => setSelectedSchool(null)}>Change</button>
                 </div>
@@ -275,7 +311,7 @@ export default function Dashboard() {
                   <label className="text-sm font-medium">Follow-up Date</label>
                   <input
                     type="date"
-                    className="input-field"
+                    className="input-field dark:color-scheme-dark"
                     value={followUpDate}
                     onChange={(e) => setFollowUpDate(e.target.value)}
                   />
@@ -292,7 +328,7 @@ export default function Dashboard() {
               </>
             )}
           </div>
-          <DialogFooter>
+          <DialogFooter className="gap-2 sm:gap-0">
             <button className="btn-secondary" onClick={() => setIsModalOpen(false)}>Cancel</button>
             <button
               className="btn-primary"

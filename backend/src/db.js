@@ -35,7 +35,24 @@ const SchoolSchema = new mongoose.Schema({
     city: String,
     state: String,
     zip: String,
-    website: String
+    website: String,
+    status: {
+        type: String,
+        enum: [
+            "Not Contacted",
+            "Attempted Call",
+            "Spoke to Staff",
+            "Info Sent",
+            "Meeting Scheduled",
+            "Not Interested",
+            "Active"
+        ],
+        default: "Not Contacted"
+    },
+    last_contacted: {
+        type: Date,
+        default: null
+    }
 }, { timestamps: true });
 
 const NoteSchema = new mongoose.Schema({

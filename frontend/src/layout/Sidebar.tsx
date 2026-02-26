@@ -4,8 +4,7 @@ import { useSidebar } from "./SidebarContext";
 
 const navItems = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/campaigns", label: "Campaigns", icon: Megaphone },
-  { to: "/schools", label: "Schools", icon: School },
+  { to: "/campaigns", label: "CRM Workspace", icon: Megaphone },
   { to: "/import", label: "Import", icon: Upload },
 ];
 
@@ -53,7 +52,7 @@ export default function Sidebar() {
             className="text-sidebar-muted hover:text-sidebar-foreground rounded-lg hover:bg-sidebar-accent/40 transition-colors flex-shrink-0"
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           >
-            {collapsed ? <ChevronRight className="text-white" size={20} /> : <Menu size={20} className="text-white" />}
+            {collapsed ? <ChevronRight className="text-white dark:text-sidebar-foreground" size={20} /> : <Menu size={20} className="text-white dark:text-sidebar-foreground" />}
           </button>
         </div>
 
@@ -106,10 +105,10 @@ export default function Sidebar() {
       {/* Mobile sidebar (slide-in overlay) */}
       <aside
         className={`
-          fixed top-0 left-0 z-30 h-full w-64
+          fixed top-0 left-0 z-50 h-full w-64
           md:hidden flex flex-col
           bg-sidebar border-r border-sidebar-border
-          transition-transform duration-300 ease-in-out
+          transition-transform duration-300 ease-in-out shadow-2xl
           ${mobileOpen ? "translate-x-0" : "-translate-x-full"}
         `}
       >

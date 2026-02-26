@@ -1,5 +1,5 @@
 import express from 'express';
-import { Note } from '../db.js';
+import { Note, School } from '../db.js';
 
 const router = express.Router();
 
@@ -23,6 +23,13 @@ router.post('/:schoolId', async (req, res) => {
             school_id: req.params.schoolId,
             content: content.trim()
         });
+
+        // Auto update last_contacted
+        await School.findByIdAndUpdate(
+            req.params.schoolId,
+            { last_contacted: new Date() }
+        );
+
         res.json(note);
     } catch (err) {
         res.status(500).json({ error: err.message });

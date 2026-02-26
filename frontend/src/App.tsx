@@ -12,33 +12,44 @@ import CreateSchool from "./pages/CreateSchool";
 import Campaigns from "./pages/Campaigns";
 
 import RequireAuth from "./components/RequireAuth";
-
 import NotFound from "./pages/NotFound";
+import { useThemeStore } from "./store/themeStore";
+import { useEffect } from "react";
 
 const queryClient = new QueryClient();
 
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/dashboard" element={<RequireAuth><Dashboard /></RequireAuth>} />
-          <Route path="/schools" element={<RequireAuth><Schools /></RequireAuth>} />
-          <Route path="/school/:id" element={<RequireAuth><SchoolDetail /></RequireAuth>} />
-          <Route path="/schools/create" element={<RequireAuth><CreateSchool /></RequireAuth>} />
-          <Route path="/import" element={<RequireAuth><Import /></RequireAuth>} />
+const App = () => {
+  const { theme } = useThemeStore();
 
-          <Route path="/campaigns" element={<RequireAuth><Campaigns /></RequireAuth>} />
-          <Route path="/" element={<Login />} />
+  useEffect(() => {
+    const root = window.document.documentElement;
+    root.classList.remove("light", "dark");
+    root.classList.add(theme);
+  }, [theme]);
 
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </BrowserRouter>
-    </TooltipProvider>
-  </QueryClientProvider>
-);
+  return (
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <Toaster />
+        <Sonner />
+        <BrowserRouter>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/dashboard" element={<RequireAuth><Dashboard /></RequireAuth>} />
+            <Route path="/schools" element={<RequireAuth><Schools /></RequireAuth>} />
+            <Route path="/school/:id" element={<RequireAuth><SchoolDetail /></RequireAuth>} />
+            <Route path="/schools/create" element={<RequireAuth><CreateSchool /></RequireAuth>} />
+            <Route path="/import" element={<RequireAuth><Import /></RequireAuth>} />
+
+            <Route path="/campaigns" element={<RequireAuth><Campaigns /></RequireAuth>} />
+            <Route path="/" element={<Login />} />
+
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </BrowserRouter>
+      </TooltipProvider>
+    </QueryClientProvider>
+  );
+};
 
 export default App;
