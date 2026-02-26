@@ -3,6 +3,8 @@ import { toast } from "sonner";
 
 let API_URL = import.meta.env.VITE_API_URL || "https://yau-crm-production.up.railway.app";
 
+// let API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+
 // Ensure URL ends with /api for consistency with backend routes
 if (!API_URL.endsWith("/api") && !API_URL.endsWith("/api/")) {
   API_URL = API_URL.replace(/\/$/, "") + "/api";

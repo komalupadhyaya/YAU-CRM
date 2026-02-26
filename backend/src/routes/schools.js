@@ -70,4 +70,37 @@ router.put('/:id', async (req, res) => {
     }
 });
 
+// PATCH /api/schools/:id - update school status
+router.patch('/:id', async (req, res) => {
+    try {
+        const { status } = req.body;
+        if (!status) return res.status(400).json({ error: 'status is required' });
+
+        const school = await School.findByIdAndUpdate(req.params.id, {
+            status
+        }, { new: true });
+
+        if (!school) return res.status(404).json({ error: 'School not found' });
+        res.json(school);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /api/schools/campaign/:campaignId/school-counts - dashboard stats
+router.get('/campaign/:campaignId/school-counts', async (req, res) => {
+    try {
+        const campaign_id = req.params.campaignId;
+        const totalSchools = await School.countDocuments({ campaign_id });
+        const contactedSchools = await School.countDocuments({
+            campaign_id,
+            status: { $ne: 'Not Contacted' }
+        });
+
+        res.json({ totalSchools, contactedSchools });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 export default router;

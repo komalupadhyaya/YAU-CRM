@@ -101,7 +101,7 @@ export default function Import() {
       </div>
 
       <div className="max-w-2xl mx-auto space-y-6">
-        <div className="page-card">
+        <div className="page-card dark:bg-card">
           <h2 className="font-semibold text-foreground mb-4">1. Select Target Campaign</h2>
           {isCreatingCampaign ? (
             <div className="flex gap-2">
@@ -116,14 +116,14 @@ export default function Import() {
               <button type="button" onClick={handleCreateCampaign} className="p-2 bg-primary text-white rounded-xl">
                 <Check size={20} />
               </button>
-              <button type="button" onClick={() => setIsCreatingCampaign(false)} className="p-2 bg-accent rounded-xl">
+              <button type="button" onClick={() => setIsCreatingCampaign(false)} className="p-2 bg-accent dark:bg-accent/20 rounded-xl">
                 <X size={20} />
               </button>
             </div>
           ) : (
             <div className="relative">
               <select
-                className="input-field pr-10"
+                className="input-field pr-10 dark:bg-card"
                 value={selectedCampaign}
                 onChange={(e) => {
                   if (e.target.value === "new") {
@@ -143,21 +143,21 @@ export default function Import() {
           )}
         </div>
 
-        <div className="page-card">
+        <div className="page-card dark:bg-card">
           <h2 className="font-semibold text-foreground mb-4">2. Upload Excel File</h2>
           <div
             {...getRootProps()}
-            className={`border-2 border-dashed rounded-2xl p-12 text-center transition-all cursor-pointer ${isDragActive ? "border-primary bg-primary/5 ring-4 ring-primary/10" : "border-border hover:border-primary/50 hover:bg-accent/50"
+            className={`border-2 border-dashed rounded-2xl p-8 md:p-12 text-center transition-all cursor-pointer ${isDragActive ? "border-primary bg-primary/5 ring-4 ring-primary/10" : "border-border hover:border-primary/50 hover:bg-accent/50 dark:hover:bg-accent/10"
               } ${!selectedCampaign ? "opacity-50 cursor-not-allowed" : ""}`}
           >
             <input {...getInputProps()} />
-            <div className="w-16 h-16 bg-accent rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <div className="w-16 h-16 bg-accent dark:bg-accent/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
               <Upload className="text-muted-foreground" size={32} />
             </div>
             {file ? (
               <div className="flex flex-col items-center">
                 <FileSpreadsheet className="text-success mb-2" size={32} />
-                <p className="font-semibold text-foreground">{file.name}</p>
+                <p className="font-semibold text-foreground break-all">{file.name}</p>
                 <p className="text-xs text-muted-foreground mt-1">{(file.size / 1024).toFixed(1)} KB</p>
                 <button
                   onClick={(e) => { e.stopPropagation(); setFile(null); }}
@@ -211,10 +211,11 @@ export default function Import() {
           )}
         </div>
       </div>
+
       <Dialog open={status === "success"} onOpenChange={(open) => !open && reset()}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="w-[95vw] max-w-[500px] dark:bg-card">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
+            <DialogTitle className="flex items-center gap-2 dark:text-foreground">
               <CheckCircle2 className="text-success" size={20} />
               Import Successful
             </DialogTitle>
@@ -225,15 +226,15 @@ export default function Import() {
             </p>
 
             <div className="grid grid-cols-3 gap-3 mb-6">
-              <div className="p-3 bg-accent/30 border rounded-xl">
+              <div className="p-3 bg-accent/30 dark:bg-accent/10 border rounded-xl">
                 <p className="text-xl font-bold text-success">{result?.added || result?.countAdded || 0}</p>
                 <p className="text-[10px] text-muted-foreground uppercase font-bold">Added</p>
               </div>
-              <div className="p-3 bg-accent/30 border rounded-xl">
+              <div className="p-3 bg-accent/30 dark:bg-accent/10 border rounded-xl">
                 <p className="text-xl font-bold text-primary">{result?.updated || result?.countUpdated || 0}</p>
                 <p className="text-[10px] text-muted-foreground uppercase font-bold">Updated</p>
               </div>
-              <div className="p-3 bg-accent/30 border rounded-xl">
+              <div className="p-3 bg-accent/30 dark:bg-accent/10 border rounded-xl">
                 <p className="text-xl font-bold text-warning">{result?.skipped || result?.countSkipped || 0}</p>
                 <p className="text-[10px] text-muted-foreground uppercase font-bold">Skipped</p>
               </div>
@@ -252,16 +253,16 @@ export default function Import() {
               </div>
             )}
           </div>
-          <DialogFooter className="flex-col sm:flex-row gap-2">
+          <DialogFooter className="flex flex-col sm:flex-row gap-2">
             <button
               onClick={() => {
                 const id = selectedCampaign;
                 reset();
-                navigate(`/schools?campaignId=${id}`);
+                navigate(`/campaigns`);
               }}
               className="btn-primary w-full sm:flex-1"
             >
-              View Schools
+              View Workspace
             </button>
             <button
               onClick={reset}

@@ -127,18 +127,18 @@ export default function SchoolDetail() {
     } catch { }
   };
 
-  if (!school) return <AppLayout><div className="p-12 text-center animate-pulse">Loading school details...</div></AppLayout>;
+  if (!school) return <AppLayout><div className="p-12 text-center animate-pulse dark:text-muted-foreground">Loading school details...</div></AppLayout>;
 
   return (
     <AppLayout>
-      <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-6 transition-colors">
+      <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-muted-foreground hover:text-foreground dark:hover:text-foreground mb-6 transition-colors">
         <ArrowLeft size={16} /> Back
       </button>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
-          <div className="page-card">
-            <div className="flex items-center justify-between mb-6">
+          <div className="page-card dark:bg-card">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
               <h1 className="text-2xl font-bold text-foreground">
                 {isEditing ? "Edit School" : school.name}
               </h1>
@@ -169,7 +169,7 @@ export default function SchoolDetail() {
                   <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">{label}</label>
                   {isEditing ? (
                     <input
-                      className="input-field"
+                      className="input-field dark:bg-card"
                       value={(editData as any)[key] || ""}
                       onChange={e => setEditData({ ...editData, [key]: e.target.value })}
                     />
@@ -183,10 +183,10 @@ export default function SchoolDetail() {
                 <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Address</label>
                 {isEditing ? (
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                    <input className="input-field md:col-span-2" placeholder="Street" value={editData.address || ""} onChange={e => setEditData({ ...editData, address: e.target.value })} />
-                    <input className="input-field" placeholder="City" value={editData.city || ""} onChange={e => setEditData({ ...editData, city: e.target.value })} />
-                    <input className="input-field" placeholder="State" value={editData.state || ""} onChange={e => setEditData({ ...editData, state: e.target.value })} />
-                    <input className="input-field" placeholder="Zip" value={editData.zip || ""} onChange={e => setEditData({ ...editData, zip: e.target.value })} />
+                    <input className="input-field md:col-span-2 dark:bg-card" placeholder="Street" value={editData.address || ""} onChange={e => setEditData({ ...editData, address: e.target.value })} />
+                    <input className="input-field dark:bg-card" placeholder="City" value={editData.city || ""} onChange={e => setEditData({ ...editData, city: e.target.value })} />
+                    <input className="input-field dark:bg-card" placeholder="State" value={editData.state || ""} onChange={e => setEditData({ ...editData, state: e.target.value })} />
+                    <input className="input-field dark:bg-card" placeholder="Zip" value={editData.zip || ""} onChange={e => setEditData({ ...editData, zip: e.target.value })} />
                   </div>
                 ) : (
                   <p className="text-foreground">{[school.address, school.city, school.state, school.zip].filter(Boolean).join(", ") || "N/A"}</p>
@@ -197,9 +197,9 @@ export default function SchoolDetail() {
                 <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">School Hours</label>
                 {isEditing ? (
                   <div className="flex gap-2">
-                    <input type="time" className="input-field" value={editData.start_time || ""} onChange={e => setEditData({ ...editData, start_time: e.target.value })} />
+                    <input type="time" className="input-field dark:bg-card" value={editData.start_time || ""} onChange={e => setEditData({ ...editData, start_time: e.target.value })} />
                     <span className="flex items-center text-muted-foreground">to</span>
-                    <input type="time" className="input-field" value={editData.end_time || ""} onChange={e => setEditData({ ...editData, end_time: e.target.value })} />
+                    <input type="time" className="input-field dark:bg-card" value={editData.end_time || ""} onChange={e => setEditData({ ...editData, end_time: e.target.value })} />
                   </div>
                 ) : (
                   <p className="text-foreground">{school.start_time || "--:--"} – {school.end_time || "--:--"}</p>
@@ -209,7 +209,7 @@ export default function SchoolDetail() {
           </div>
 
           {/* Communication Log / Notes */}
-          <div className="page-card">
+          <div className="page-card dark:bg-card">
             <div className="flex items-center gap-2 mb-4">
               <History size={18} className="text-primary" />
               <h2 className="font-semibold text-foreground">Communication Log</h2>
@@ -231,7 +231,7 @@ export default function SchoolDetail() {
                 <p className="text-sm text-muted-foreground text-center py-4 border border-dashed border-border rounded-lg">No notes recorded yet.</p>
               ) : (
                 notes.map((n) => (
-                  <div key={n._id} className="p-3 bg-accent/50 rounded-lg border border-border">
+                  <div key={n._id} className="p-3 bg-accent/50 dark:bg-accent/10 rounded-lg border border-border dark:border-border/20">
                     <p className="text-sm text-foreground mb-1">{n.content}</p>
                     <p className="text-[10px] text-muted-foreground uppercase tracking-wide">
                       {new Date(n.createdAt).toLocaleString()}
@@ -245,7 +245,7 @@ export default function SchoolDetail() {
 
         {/* Sidebar */}
         <div className="space-y-6">
-          <div className="page-card border-l-4 border-l-primary/50">
+          <div className="page-card dark:bg-card border-l-4 border-l-primary/50">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <CalendarPlus size={18} className="text-primary" />
@@ -263,7 +263,7 @@ export default function SchoolDetail() {
                 </p>
               ) : (
                 followUps.filter(f => f.status === 'pending').map((f) => (
-                  <div key={f._id} className="p-3 bg-accent/30 rounded-lg border border-border">
+                  <div key={f._id} className="p-3 bg-accent/30 dark:bg-accent/10 rounded-lg border border-border dark:border-border/20">
                     <div className="flex items-start justify-between gap-2">
                       <div>
                         <p className="text-xs font-bold text-primary uppercase">{new Date(f.follow_up_date + 'T00:00:00').toLocaleDateString()}</p>
@@ -296,9 +296,9 @@ export default function SchoolDetail() {
 
       {/* Follow-up Modal */}
       <Dialog open={isFollowUpModalOpen} onOpenChange={setIsFollowUpModalOpen}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent className="w-[90vw] max-w-md dark:bg-card">
           <DialogHeader>
-            <DialogTitle>Set Follow-up</DialogTitle>
+            <DialogTitle className="dark:text-foreground">Set Follow-up</DialogTitle>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
@@ -306,7 +306,7 @@ export default function SchoolDetail() {
               <input
                 id="date"
                 type="date"
-                className="input-field"
+                className="input-field dark:bg-card dark:color-scheme-dark"
                 value={followUpDate}
                 onChange={(e) => setFollowUpDate(e.target.value)}
                 required

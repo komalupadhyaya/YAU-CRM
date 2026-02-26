@@ -29,6 +29,13 @@ router.put('/:id/complete', async (req, res) => {
         }, { new: true });
 
         if (!fu) return res.status(404).json({ error: 'Follow-up not found' });
+
+        // Auto update last_contacted
+        await School.findByIdAndUpdate(
+            fu.school_id,
+            { last_contacted: new Date() }
+        );
+
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
