@@ -98,11 +98,12 @@ export default function Dashboard() {
       const stats: Record<string, number> = {
         "Not Contacted": 0,
         "Attempted Call": 0,
-        "Spoke to Staff": 0,
-        "Info Sent": 0,
+        "Left Voicemail": 0,
+        "Spoke to Office": 0,
         "Meeting Scheduled": 0,
-        "Not Interested": 0,
-        "Active": 0
+        "Proposal Sent": 0,
+        "Signed": 0,
+        "Not Interested": 0
       };
       schools.forEach(s => {
         if (stats[s.status] !== undefined) stats[s.status]++;

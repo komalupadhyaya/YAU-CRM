@@ -17,6 +17,27 @@ router.get('/', async (req, res) => {
     }
 });
 
+// GET /api/schools/campaign-summaries - bulk stats for all campaigns
+router.get('/campaign-summaries', async (req, res) => {
+    try {
+        const summaries = await School.aggregate([
+            {
+                $group: {
+                    _id: "$campaign_id",
+                    totalSchools: { $sum: 1 },
+                    meetingsScheduled: {
+                        $sum: { $cond: [{ $eq: ["$status", "Meeting Scheduled"] }, 1, 0] }
+                    }
+                }
+            }
+        ]);
+        res.json(summaries || []);
+    } catch (err) {
+        console.error("Campaign summaries aggregation error:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // GET /api/schools/campaign/:campaignId - schools in a campaign
 router.get('/campaign/:campaignId', async (req, res) => {
     try {
@@ -30,6 +51,10 @@ router.get('/campaign/:campaignId', async (req, res) => {
 // GET /api/schools/:id - single school detail
 router.get('/:id', async (req, res) => {
     try {
+        // Safety: check if id is a valid ObjectId string
+        if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
+            return res.status(400).json({ error: 'Invalid ID format' });
+        }
         const school = await School.findById(req.params.id);
         if (!school) return res.status(404).json({ error: 'School not found' });
         res.json(school);
@@ -87,26 +112,20 @@ router.patch('/:id', async (req, res) => {
     }
 });
 
-// GET /api/schools/campaign-summaries - bulk stats for all campaigns
-router.get('/campaign-summaries', async (req, res) => {
+// GET /api/schools/campaign/:campaignId/school-counts - dashboard stats
+router.get('/campaign/:campaignId/school-counts', async (req, res) => {
     try {
-        const summaries = await School.aggregate([
-            {
-                $group: {
-                    _id: "$campaign_id",
-                    totalSchools: { $sum: 1 },
-                    meetingsScheduled: {
-                        $sum: { $cond: [{ $eq: ["$status", "Meeting Scheduled"] }, 1, 0] }
-                    }
-                }
-            }
-        ]);
-        res.json(summaries);
+        const campaign_id = req.params.campaignId;
+        const totalSchools = await School.countDocuments({ campaign_id });
+        const contactedSchools = await School.countDocuments({
+            campaign_id,
+            status: { $ne: 'Not Contacted' }
+        });
+
+        res.json({ totalSchools, contactedSchools });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
-
-// GET /api/schools/campaign/:campaignId/school-counts - dashboard stats
 
 export default router;
