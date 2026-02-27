@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import api from "../api/api";
 import AppLayout from "../layout/AppLayout";
-import { AlertCircle, Clock, Calendar, CheckCircle, Phone, Filter, Search, Plus, School as SchoolIcon } from "lucide-react";
-import { Link, useSearchParams } from "react-router-dom";
+import { AlertCircle, Clock, Calendar, CheckCircle, Phone, Filter, Search, Plus, School as SchoolIcon, Megaphone } from "lucide-react";
+import { Link, useSearchParams, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -39,9 +39,12 @@ interface DashboardData {
   due: FollowUp[];
   upcoming: FollowUp[];
   all: FollowUp[];
+  totalCampaigns?: number;
+  totalSchools?: number;
 }
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [rawData, setRawData] = useState<DashboardData | null>(null);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -57,6 +60,9 @@ export default function Dashboard() {
   const [followUpReason, setFollowUpReason] = useState("");
 
   const [schoolCounts, setSchoolCounts] = useState({ totalSchools: 0, contactedSchools: 0 });
+  const [pipelineData, setPipelineData] = useState<Record<string, number>>({});
+  const [campaignStats, setCampaignStats] = useState<any[]>([]);
+  const [activeTaskTab, setActiveTaskTab] = useState<"overdue" | "due" | "upcoming">("due");
 
   const load = async () => {
     try {
@@ -71,10 +77,32 @@ export default function Dashboard() {
   };
 
   const loadCounts = async () => {
-    if (selectedCampaign === "all") return;
+    if (selectedCampaign === "all") {
+      setPipelineData({});
+      return;
+    }
     try {
-      const res = await api.get(`/schools/campaign/${selectedCampaign}/school-counts`);
-      setSchoolCounts(res.data);
+      const [resCounts, resSchools] = await Promise.all([
+        api.get(`/schools/campaign/${selectedCampaign}/school-counts`),
+        api.get(`/schools/campaign/${selectedCampaign}`)
+      ]);
+      setSchoolCounts(resCounts.data);
+
+      // Aggregate pipeline data
+      const schools: any[] = resSchools.data;
+      const stats: Record<string, number> = {
+        "Not Contacted": 0,
+        "Attempted Call": 0,
+        "Spoke to Staff": 0,
+        "Info Sent": 0,
+        "Meeting Scheduled": 0,
+        "Not Interested": 0,
+        "Active": 0
+      };
+      schools.forEach(s => {
+        if (stats[s.status] !== undefined) stats[s.status]++;
+      });
+      setPipelineData(stats);
     } catch { }
   };
 
@@ -135,12 +163,12 @@ export default function Dashboard() {
   } : null;
 
   const StatCard = ({ title, count, icon: Icon, color }: { title: string; count: number; icon: any; color: string }) => (
-    <div className="stat-card dark:bg-card">
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-sm font-medium text-muted-foreground">{title}</span>
-        <Icon size={18} className={color} />
+    <div className="stat-card border-none bg-accent/20 dark:bg-card/40 flex flex-col items-center text-center p-6 transition-all hover:bg-accent/30">
+      <div className="w-10 h-10 rounded-full bg-background dark:bg-background/20 flex items-center justify-center mb-3">
+        <Icon size={20} className={color} />
       </div>
-      <div className="text-3xl font-bold text-foreground">{count}</div>
+      <div className="text-2xl font-bold text-foreground">{count}</div>
+      <span className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground mt-1">{title}</span>
     </div>
   );
 
@@ -193,71 +221,237 @@ export default function Dashboard() {
 
   return (
     <AppLayout>
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
-          <p className="text-sm text-muted-foreground">Your pending outreach tasks.</p>
-        </div>
-
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-          <button
-            onClick={() => setIsModalOpen(true)}
-            className="btn-primary flex items-center justify-center gap-2 text-sm px-4 h-10"
-          >
-            <Plus size={16} /> New Follow-up
-          </button>
-
-          <div className="flex items-center gap-2 bg-card border rounded-xl px-3 py-1.5 shadow-sm h-10">
-            <Filter size={14} className="text-muted-foreground" />
-            <select
-              className="bg-transparent text-sm font-medium focus:outline-none min-w-[150px] dark:bg-card"
-              value={selectedCampaign}
-              onChange={(e) => setSelectedCampaign(e.target.value)}
+      {/* Top Controls Bar */}
+      <div className="bg-card border rounded-2xl p-4 mb-6 shadow-sm">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={() => navigate("/campaigns?action=new-campaign")}
+              className="bg-primary hover:bg-primary/90 text-primary-foreground px-6 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 transition-all active:scale-[0.98] shadow-lg shadow-primary/20"
             >
-              <option value="all">All Campaigns</option>
-              {campaigns.map(c => (
-                <option key={c._id} value={c._id}>{c.name}</option>
+              <Plus size={18} /> Create New Campaign
+            </button>
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="btn-secondary h-11 px-6 font-semibold flex items-center gap-2"
+            >
+              <Clock size={18} /> New Follow-Up
+            </button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="relative flex-1 min-w-[200px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
+              <input
+                placeholder="Search schools..."
+                className="input-field pl-10 h-11"
+              />
+            </div>
+
+            <div className="flex items-center gap-2 h-11 px-3 bg-accent/30 border rounded-xl min-w-[150px]">
+              <Filter size={14} className="text-muted-foreground" />
+              <select
+                className="bg-transparent text-xs font-bold uppercase tracking-wider focus:outline-none flex-1"
+                value={selectedCampaign}
+                onChange={(e) => setSelectedCampaign(e.target.value)}
+              >
+                <option value="all">All Campaigns</option>
+                {campaigns.map(c => (
+                  <option key={c._id} value={c._id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center gap-2 h-11 px-3 bg-accent/30 border rounded-xl min-w-[120px]">
+              <Filter size={14} className="text-muted-foreground" />
+              <select className="bg-transparent text-xs font-bold uppercase tracking-wider focus:outline-none flex-1">
+                <option value="me">Assigned to Me</option>
+                <option value="all">All Reps</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-col lg:flex-row gap-6">
+        {/* LEFT COLUMN (70%) */}
+        <div className="flex-1 lg:w-[70%] min-w-0 space-y-6">
+          {/* KPI Row */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+            <StatCard title="Total Campaigns" count={campaigns.length} icon={Megaphone} color="text-primary" />
+            <StatCard title="Total Schools" count={selectedCampaign === "all" ? 0 : schoolCounts.totalSchools} icon={SchoolIcon} color="text-blue-500" />
+            <StatCard title="Overdue" count={filteredData?.overdue.length || 0} icon={AlertCircle} color="text-primary/70" />
+            <StatCard title="Due Today" count={filteredData?.due.length || 0} icon={Clock} color="text-primary/70" />
+            <StatCard title="Upcoming" count={filteredData?.upcoming.length || 0} icon={Calendar} color="text-primary/70" />
+          </div>
+
+          {/* Campaign Overview */}
+          <div className="page-card dark:bg-card">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-lg font-bold text-foreground">Campaign Performance</h2>
+              <Link to="/campaigns" className="text-xs text-primary font-bold uppercase tracking-wider hover:underline flex items-center gap-1">
+                View All <Plus size={12} />
+              </Link>
+            </div>
+
+            <div className="space-y-4">
+              {campaigns.slice(0, 3).map(c => (
+                <div key={c._id} className="group relative bg-accent/10 dark:bg-accent/5 rounded-2xl p-4 transition-all hover:bg-accent/20">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-bold text-foreground truncate">{c.name}</h3>
+                      <div className="flex items-center gap-4 mt-2">
+                        <div className="flex flex-col">
+                          <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-tighter">Schools</span>
+                          <span className="text-sm font-semibold">{c._id === selectedCampaign ? schoolCounts.totalSchools : "..."}</span>
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-tighter">Outreach</span>
+                          <span className="text-sm font-semibold">{c._id === selectedCampaign ? `${Math.round((schoolCounts.contactedSchools / (schoolCounts.totalSchools || 1)) * 100)}%` : "..."}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setSelectedCampaign(c._id)}
+                      className="w-10 h-10 rounded-full bg-background dark:bg-card border flex items-center justify-center text-muted-foreground group-hover:bg-primary group-hover:text-primary-foreground transition-all shadow-sm"
+                    >
+                      <Plus size={18} />
+                    </button>
+                  </div>
+                </div>
               ))}
-            </select>
+            </div>
+          </div>
+
+          {/* Pipeline Overview */}
+          <div className="page-card dark:bg-card">
+            <h2 className="text-lg font-bold text-foreground mb-6">Strategic Pipeline</h2>
+            {selectedCampaign === "all" ? (
+              <div className="p-8 text-center border-2 border-dashed rounded-2xl">
+                <p className="text-sm text-muted-foreground">Select a campaign to view the strategic pipeline visualization.</p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {[
+                  { label: "Not Contacted", key: "Not Contacted", color: "bg-muted-foreground/20" },
+                  { label: "Attempted Call", key: "Attempted Call", color: "bg-orange-400" },
+                  { label: "Left Voicemail", key: "Left Voicemail", color: "bg-orange-500", count: 0 },
+                  { label: "Spoke to Office", key: "Spoke to Staff", color: "bg-blue-400" },
+                  { label: "Meeting Scheduled", key: "Meeting Scheduled", color: "bg-emerald-500" },
+                  { label: "Proposal Sent", key: "Info Sent", color: "bg-indigo-500" },
+                  { label: "Signed", key: "Active", color: "bg-primary" },
+                  { label: "Not Interested", key: "Not Interested", color: "bg-destructive/40" }
+                ].map((s) => {
+                  const count = s.count !== undefined ? s.count : (pipelineData[s.key] || 0);
+                  const percentage = Math.round((count / (schoolCounts.totalSchools || 1)) * 100);
+                  return (
+                    <div key={s.label} className="group">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                          <div className={`w-2 h-2 rounded-full ${s.color}`} />
+                          {s.label}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold">{count}</span>
+                          <span className="text-[10px] text-muted-foreground">({percentage}%)</span>
+                        </div>
+                      </div>
+                      <div className="h-2 w-full bg-accent dark:bg-accent/20 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full ${s.color} transition-all duration-1000`}
+                          style={{ width: `${percentage}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
-      </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-        <StatCard title="Overdue" count={filteredData?.overdue.length || 0} icon={AlertCircle} color="text-destructive" />
-        <StatCard title="Due Today" count={filteredData?.due.length || 0} icon={Clock} color="text-warning" />
-        <StatCard title="Upcoming" count={filteredData?.upcoming.length || 0} icon={Calendar} color="text-primary" />
-      </div>
-
-      {/* Outreach Progress (New) */}
-      {selectedCampaign !== "all" && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-          <div className="stat-card bg-primary/5 dark:bg-primary/10 border-primary/20">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-sm font-medium text-primary/80">Total Schools</span>
-              <SchoolIcon size={18} className="text-primary" />
+        {/* RIGHT COLUMN (30%) */}
+        <div className="w-full lg:w-[30%] space-y-6">
+          {/* Tasks & Follow-Ups */}
+          <div className="page-card dark:bg-card p-0 overflow-hidden">
+            <div className="p-4 border-b">
+              <h2 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Tasks & Follow-Ups</h2>
             </div>
-            <div className="text-3xl font-bold text-foreground">{schoolCounts.totalSchools}</div>
-            <p className="text-xs text-muted-foreground mt-1">Schools in this campaign</p>
+            <div className="flex border-b">
+              {[
+                { id: "overdue", label: "Overdue", color: "text-destructive" },
+                { id: "due", label: "Today", color: "text-foreground" },
+                { id: "upcoming", label: "Upcoming", color: "text-muted-foreground" }
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTaskTab(tab.id as any)}
+                  className={`flex-1 py-3 text-[10px] font-bold uppercase tracking-tighter transition-all border-b-2 ${activeTaskTab === tab.id
+                      ? "border-primary text-primary"
+                      : "border-transparent text-muted-foreground hover:bg-accent/10"
+                    }`}
+                >
+                  {tab.label} ({filteredData?.[tab.id as keyof typeof filteredData]?.length || 0})
+                </button>
+              ))}
+            </div>
+
+            <div className="max-h-[400px] overflow-y-auto p-2 space-y-2">
+              {(filteredData?.[activeTaskTab] || []).length === 0 ? (
+                <div className="py-8 text-center">
+                  <p className="text-xs text-muted-foreground">No tasks in this category.</p>
+                </div>
+              ) : (
+                (filteredData?.[activeTaskTab] || []).map((f) => (
+                  <div key={f._id} className="bg-accent/5 dark:bg-accent/5 border rounded-xl p-3 group transition-all hover:border-primary/30">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <Link to={`/school/${f.school_id_val}`} className="text-xs font-bold hover:text-primary truncate block">
+                          {f.school_name}
+                        </Link>
+                        <p className="text-[10px] text-muted-foreground line-clamp-1 mt-0.5">{f.reason || "Scheduled follow-up"}</p>
+                        <div className="flex items-center gap-2 mt-2">
+                          <span className="text-[9px] font-medium bg-background px-1.5 py-0.5 rounded border">Rep: Admin</span>
+                          <span className="text-[9px] text-muted-foreground">{new Date(f.follow_up_date + 'T00:00:00').toLocaleDateString()}</span>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => markDone(f._id)}
+                        className="w-8 h-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-success hover:bg-success/10 transition-all shrink-0"
+                      >
+                        <CheckCircle size={16} />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
-          <div className="stat-card bg-success/5 dark:bg-success/10 border-success/20">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-sm font-medium text-success/80">Contacted Schools</span>
-              <CheckCircle size={18} className="text-success" />
+
+          {/* Quick Actions */}
+          <div className="page-card dark:bg-card">
+            <h2 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-4">Quick Actions</h2>
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { label: "Add School", icon: Plus, onClick: () => navigate("/schools/create"), color: "bg-blue-500/10 text-blue-500" },
+                { label: "Log Call", icon: Phone, onClick: () => setIsModalOpen(true), color: "bg-orange-500/10 text-orange-500" },
+                { label: "Send Email", icon: AlertCircle, onClick: () => toast.info("Email integration coming soon"), color: "bg-indigo-500/10 text-indigo-500" },
+                { label: "Export Report", icon: Search, onClick: () => toast.info("Report generated"), color: "bg-emerald-500/10 text-emerald-500" }
+              ].map((action) => (
+                <button
+                  key={action.label}
+                  onClick={action.onClick}
+                  className="flex flex-col items-center justify-center p-4 rounded-2xl bg-accent/5 hover:bg-accent/20 border transition-all space-y-2 group"
+                >
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center transition-all group-hover:scale-110 ${action.color}`}>
+                    <action.icon size={18} />
+                  </div>
+                  <span className="text-[10px] font-bold uppercase tracking-tighter text-foreground">{action.label}</span>
+                </button>
+              ))}
             </div>
-            <div className="text-3xl font-bold text-foreground">{schoolCounts.contactedSchools}</div>
-            <p className="text-xs text-muted-foreground mt-1">Schools with status other than "Not Contacted"</p>
           </div>
         </div>
-      )}
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <FollowUpCard title="Overdue" list={filteredData?.overdue || []} emptyMsg="No overdue follow-ups." />
-        <FollowUpCard title="Due Today" list={filteredData?.due || []} emptyMsg="Nothing scheduled for today." />
-      </div>
-
-      <div className="mt-8">
-        <FollowUpCard title="Upcoming" list={filteredData?.upcoming || []} emptyMsg="Pipeline is clear." />
       </div>
 
       {/* New Follow-up Modal */}
