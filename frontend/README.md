@@ -1,73 +1,58 @@
-# Welcome to your Lovable project
+# YAU-CRM
 
-## Project info
+Enterprise-grade CRM for managing school campaigns, follow-ups, and student leads.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## Technologies Used
 
-## How can I edit this code?
+- **Frontend**: React, Vite, TypeScript, Tailwind CSS, shadcn/ui
+- **State Management**: Zustand
+- **Backend**: Node.js, Express, MongoDB
+- **Styling**: Tailwind CSS with custom theme support
 
-There are several ways of editing your application.
+## Features
 
-**Use Lovable**
+- **3-Panel CRM Workspace**: Seamlessly manage campaigns, schools, and activities in a single view.
+- **Dynamic Follow-ups**: Stay on top of your outreach with a built-in notification system.
+- **Import/Export**: Easily migrate data using Excel templates.
+- **Dark Mode Support**: Persistent light and dark themes for better accessibility.
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+## Getting Started
 
-Changes made via Lovable will be committed automatically to this repo.
+### Prerequisites
 
-**Use your preferred IDE**
+- Node.js (v18+)
+- MongoDB (Running locally or on Atlas)
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+### Setup
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+1. **Clone the repository**:
+   ```bash
+   git clone <repository-url>
+   cd YAU
+   ```
 
-Follow these steps:
+2. **Install Frontend Dependencies**:
+   ```bash
+   cd frontend
+   npm install
+   ```
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+3. **Install Backend Dependencies**:
+   ```bash
+   cd ../backend
+   npm install
+   ```
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+4. **Environment Variables**:
+   Create a `.env` file in the `backend` folder:
+   ```env
+   PORT=5000
+   MONGO_URI=mongodb://localhost:27017/yau-crm
+   JWT_SECRET=your_secret_key
+   ```
 
-# Step 3: Install the necessary dependencies.
-npm i
+5. **Run the Application**:
+   - Backend: `npm run dev` (from `/backend`)
+   - Frontend: `npm run dev` (from `/frontend`)
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
-```
-
-**Edit a file directly in GitHub**
-
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
-
-**Use GitHub Codespaces**
-
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
-
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+Access the app at `http://localhost:8080`.
