@@ -87,20 +87,26 @@ router.patch('/:id', async (req, res) => {
     }
 });
 
-// GET /api/schools/campaign/:campaignId/school-counts - dashboard stats
-router.get('/campaign/:campaignId/school-counts', async (req, res) => {
+// GET /api/schools/campaign-summaries - bulk stats for all campaigns
+router.get('/campaign-summaries', async (req, res) => {
     try {
-        const campaign_id = req.params.campaignId;
-        const totalSchools = await School.countDocuments({ campaign_id });
-        const contactedSchools = await School.countDocuments({
-            campaign_id,
-            status: { $ne: 'Not Contacted' }
-        });
-
-        res.json({ totalSchools, contactedSchools });
+        const summaries = await School.aggregate([
+            {
+                $group: {
+                    _id: "$campaign_id",
+                    totalSchools: { $sum: 1 },
+                    meetingsScheduled: {
+                        $sum: { $cond: [{ $eq: ["$status", "Meeting Scheduled"] }, 1, 0] }
+                    }
+                }
+            }
+        ]);
+        res.json(summaries);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
+
+// GET /api/schools/campaign/:campaignId/school-counts - dashboard stats
 
 export default router;

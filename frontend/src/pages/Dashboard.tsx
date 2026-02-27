@@ -61,17 +61,19 @@ export default function Dashboard() {
 
   const [schoolCounts, setSchoolCounts] = useState({ totalSchools: 0, contactedSchools: 0 });
   const [pipelineData, setPipelineData] = useState<Record<string, number>>({});
-  const [campaignStats, setCampaignStats] = useState<any[]>([]);
+  const [campaignSummaries, setCampaignSummaries] = useState<any[]>([]);
   const [activeTaskTab, setActiveTaskTab] = useState<"overdue" | "due" | "upcoming">("due");
 
   const load = async () => {
     try {
-      const [resData, resCampaigns] = await Promise.all([
+      const [resData, resCampaigns, resSummaries] = await Promise.all([
         api.get("/followups/dashboard"),
-        api.get("/campaigns")
+        api.get("/campaigns"),
+        api.get("/schools/campaign-summaries")
       ]);
       setRawData(resData.data);
       setCampaigns(resCampaigns.data);
+      setCampaignSummaries(resSummaries.data);
     } catch { }
     setLoading(false);
   };
@@ -82,11 +84,14 @@ export default function Dashboard() {
       return;
     }
     try {
-      const [resCounts, resSchools] = await Promise.all([
+      const [resCounts, resSchools, resSummaries] = await Promise.all([
+        // We still need local counts for the KPI row when a campaign is selected
         api.get(`/schools/campaign/${selectedCampaign}/school-counts`),
-        api.get(`/schools/campaign/${selectedCampaign}`)
+        api.get(`/schools/campaign/${selectedCampaign}`),
+        api.get("/schools/campaign-summaries")
       ]);
       setSchoolCounts(resCounts.data);
+      setCampaignSummaries(resSummaries.data);
 
       // Aggregate pipeline data
       const schools: any[] = resSchools.data;
@@ -288,38 +293,54 @@ export default function Dashboard() {
           {/* Campaign Overview */}
           <div className="page-card dark:bg-card">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-lg font-bold text-foreground">Campaign Performance</h2>
+              <h2 className="text-lg font-bold text-foreground">Campaign Acquisition Overview</h2>
               <Link to="/campaigns" className="text-xs text-primary font-bold uppercase tracking-wider hover:underline flex items-center gap-1">
                 View All <Plus size={12} />
               </Link>
             </div>
 
             <div className="space-y-4">
-              {campaigns.slice(0, 3).map(c => (
-                <div key={c._id} className="group relative bg-accent/10 dark:bg-accent/5 rounded-2xl p-4 transition-all hover:bg-accent/20">
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-bold text-foreground truncate">{c.name}</h3>
-                      <div className="flex items-center gap-4 mt-2">
-                        <div className="flex flex-col">
-                          <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-tighter">Schools</span>
-                          <span className="text-sm font-semibold">{c._id === selectedCampaign ? schoolCounts.totalSchools : "..."}</span>
+              {campaigns.length === 0 ? (
+                <div className="p-8 text-center border-2 border-dashed rounded-2xl">
+                  <p className="text-sm text-muted-foreground">No campaigns yet. Create your first campaign to begin school acquisition.</p>
+                </div>
+              ) : (
+                campaigns.slice(0, 5).map(c => {
+                  const summary = campaignSummaries.find(s => s._id === c._id) || { totalSchools: 0, meetingsScheduled: 0 };
+                  const followUpsDue = rawData?.all.filter(f => String(f.campaign_id_val) === c._id).length || 0;
+
+                  return (
+                    <div key={c._id} className="group relative bg-accent/10 dark:bg-accent/5 rounded-2xl p-4 transition-all hover:bg-accent/20 border border-transparent hover:border-primary/20">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-bold text-foreground truncate text-base">{c.name}</h3>
+                          <div className="grid grid-cols-3 gap-6 mt-3">
+                            <div className="flex flex-col">
+                              <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-tighter">Schools</span>
+                              <span className="text-sm font-semibold">{summary.totalSchools}</span>
+                            </div>
+                            <div className="flex flex-col">
+                              <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-tighter">Meetings</span>
+                              <span className="text-sm font-semibold text-primary">{summary.meetingsScheduled}</span>
+                            </div>
+                            <div className="flex flex-col">
+                              <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-tighter">Follow-ups</span>
+                              <span className="text-sm font-semibold">{followUpsDue}</span>
+                            </div>
+                          </div>
                         </div>
-                        <div className="flex flex-col">
-                          <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-tighter">Outreach</span>
-                          <span className="text-sm font-semibold">{c._id === selectedCampaign ? `${Math.round((schoolCounts.contactedSchools / (schoolCounts.totalSchools || 1)) * 100)}%` : "..."}</span>
-                        </div>
+                        <button
+                          onClick={() => setSelectedCampaign(c._id)}
+                          className="w-10 h-10 rounded-full bg-background dark:bg-card border flex items-center justify-center text-muted-foreground group-hover:bg-primary group-hover:text-primary-foreground transition-all shadow-sm"
+                          title="View Campaign Details"
+                        >
+                          <Plus size={18} />
+                        </button>
                       </div>
                     </div>
-                    <button
-                      onClick={() => setSelectedCampaign(c._id)}
-                      className="w-10 h-10 rounded-full bg-background dark:bg-card border flex items-center justify-center text-muted-foreground group-hover:bg-primary group-hover:text-primary-foreground transition-all shadow-sm"
-                    >
-                      <Plus size={18} />
-                    </button>
-                  </div>
-                </div>
-              ))}
+                  );
+                })
+              )}
             </div>
           </div>
 
