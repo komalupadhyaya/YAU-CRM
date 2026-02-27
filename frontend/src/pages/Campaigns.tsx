@@ -372,8 +372,8 @@ const Campaigns = () => {
                     value={statusFilter}
                     onChange={e => setStatusFilter(e.target.value)}
                   >
-                    <option value="all">All Statuses</option>
-                    {STATUS_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                    <option className="dark:bg-accent" value="all">All Statuses</option>
+                    {STATUS_OPTIONS.map(opt => <option className="dark:bg-accent" key={opt} value={opt}>{opt}</option>)}
                   </select>
                 </div>
               </div>
