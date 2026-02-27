@@ -255,9 +255,9 @@ export default function Dashboard() {
                 value={selectedCampaign}
                 onChange={(e) => setSelectedCampaign(e.target.value)}
               >
-                <option value="all">All Campaigns</option>
+                <option className="dark:bg-accent" value="all">All Campaigns</option>
                 {campaigns.map(c => (
-                  <option key={c._id} value={c._id}>{c.name}</option>
+                  <option className="dark:bg-accent" key={c._id} value={c._id}>{c.name}</option>
                 ))}
               </select>
             </div>
@@ -265,8 +265,8 @@ export default function Dashboard() {
             <div className="flex items-center gap-2 h-11 px-3 bg-accent/30 border rounded-xl min-w-[120px]">
               <Filter size={14} className="text-muted-foreground" />
               <select className="bg-transparent text-xs font-bold uppercase tracking-wider focus:outline-none flex-1">
-                <option value="me">Assigned to Me</option>
-                <option value="all">All Reps</option>
+                <option className="dark:bg-accent" value="me">Assigned to Me</option>
+                <option className="dark:bg-accent" value="all">All Reps</option>
               </select>
             </div>
           </div>
@@ -387,8 +387,8 @@ export default function Dashboard() {
                   key={tab.id}
                   onClick={() => setActiveTaskTab(tab.id as any)}
                   className={`flex-1 py-3 text-[10px] font-bold uppercase tracking-tighter transition-all border-b-2 ${activeTaskTab === tab.id
-                      ? "border-primary text-primary"
-                      : "border-transparent text-muted-foreground hover:bg-accent/10"
+                    ? "border-primary text-primary"
+                    : "border-transparent text-muted-foreground hover:bg-accent/10"
                     }`}
                 >
                   {tab.label} ({filteredData?.[tab.id as keyof typeof filteredData]?.length || 0})
