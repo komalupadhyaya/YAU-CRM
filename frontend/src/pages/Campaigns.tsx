@@ -80,11 +80,12 @@ interface FollowUp {
 const STATUS_OPTIONS = [
   "Not Contacted",
   "Attempted Call",
-  "Spoke to Staff",
-  "Info Sent",
+  "Left Voicemail",
+  "Spoke to Office",
   "Meeting Scheduled",
-  "Not Interested",
-  "Active"
+  "Proposal Sent",
+  "Signed",
+  "Not Interested"
 ];
 
 const Campaigns = () => {

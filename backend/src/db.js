@@ -41,11 +41,12 @@ const SchoolSchema = new mongoose.Schema({
         enum: [
             "Not Contacted",
             "Attempted Call",
-            "Spoke to Staff",
-            "Info Sent",
+            "Left Voicemail",
+            "Spoke to Office",
             "Meeting Scheduled",
-            "Not Interested",
-            "Active"
+            "Proposal Sent",
+            "Signed",
+            "Not Interested"
         ],
         default: "Not Contacted"
     },
