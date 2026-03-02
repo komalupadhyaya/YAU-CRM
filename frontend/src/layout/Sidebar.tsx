@@ -1,21 +1,61 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { LayoutDashboard, School, Upload, ChevronLeft, ChevronRight, X, Megaphone, Menu, Clock, Plus } from "lucide-react";
+import {
+  LayoutDashboard,
+  Megaphone,
+  School,
+  Clock,
+  CheckSquare,
+  BarChart3,
+  Users,
+  Settings,
+  HelpCircle,
+  Menu,
+  X,
+  ChevronRight,
+  Plus
+} from "lucide-react";
 import { useSidebar } from "./SidebarContext";
 
-const navItems = [
+const topNavItems = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/campaigns", label: "CRM Workspace", icon: Megaphone },
-  { to: "/import", label: "Import", icon: Upload },
+  { to: "/campaigns", label: "Campaigns", icon: Megaphone },
+  { to: "/schools", label: "Schools / Leads", icon: School },
+  { to: "/followups", label: "Follow Ups", icon: Clock },
+  { to: "/tasks", label: "Tasks", icon: CheckSquare },
+  { to: "/reports", label: "Reports", icon: BarChart3 },
+  { to: "/team", label: "Team", icon: Users },
 ];
 
-const quickActions = [
-  { label: "New Follow-up", icon: Clock, onClick: (navigate: any) => navigate("/dashboard?action=new-followup") },
+const bottomNavItems = [
+  { to: "/settings", label: "Settings", icon: Settings },
+  { to: "/help", label: "Help & Support", icon: HelpCircle },
 ];
+
+
+const quickActions: any[] = [];
 
 export default function Sidebar() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const { collapsed, mobileOpen, toggleCollapsed, closeMobile } = useSidebar();
+
+  const renderNavItems = (items: typeof topNavItems, isMobile = false) => {
+    return items.map(({ to, label, icon: Icon }) => {
+      const active = pathname === to || pathname.startsWith(to + "/");
+      return (
+        <Link
+          key={to}
+          to={to}
+          title={collapsed && !isMobile ? label : undefined}
+          onClick={isMobile ? closeMobile : undefined}
+          className={`sidebar-item ${active ? "sidebar-item-active" : "sidebar-item-inactive"} ${collapsed && !isMobile ? "justify-center px-0" : ""}`}
+        >
+          <Icon size={18} className="flex-shrink-0" />
+          {(!collapsed || isMobile) && <span>{label}</span>}
+        </Link>
+      );
+    });
+  };
 
   // On mobile: sidebar is a fixed overlay slide-in panel
   // On desktop: sidebar collapses to icon-only
@@ -56,50 +96,21 @@ export default function Sidebar() {
           </button>
         </div>
 
-        {/* Nav */}
-        <nav className="flex-1 py-4 px-2 space-y-1">
+        {/* Top Nav */}
+        <nav className="flex-1 py-4 px-2 space-y-1 overflow-y-auto overflow-x-hidden">
           {!collapsed && (
             <p className="text-[10px] uppercase tracking-widest text-sidebar-muted font-semibold px-3 mb-2">Menu</p>
           )}
-          {navItems.map(({ to, label, icon: Icon }) => {
-            const active = pathname === to || pathname.startsWith(to + "/");
-            return (
-              <Link
-                key={to}
-                to={to}
-                title={collapsed ? label : undefined}
-                className={`sidebar-item ${active ? "sidebar-item-active" : "sidebar-item-inactive"} ${collapsed ? "justify-center px-0" : ""}`}
-              >
-                <Icon size={18} className="flex-shrink-0" />
-                {!collapsed && <span>{label}</span>}
-              </Link>
-            );
-          })}
-
-          <div className="pt-4 mt-4 border-t border-sidebar-border/50">
-            {!collapsed && (
-              <p className="text-[10px] uppercase tracking-widest text-sidebar-muted font-semibold px-3 mb-2">Actions</p>
-            )}
-            {quickActions.map(({ label, icon: Icon, onClick }) => (
-              <button
-                key={label}
-                onClick={() => { onClick(navigate); closeMobile(); }}
-                title={collapsed ? label : undefined}
-                className={`sidebar-item sidebar-item-inactive w-full ${collapsed ? "justify-center px-0" : ""}`}
-              >
-                <div className="relative">
-                  <Icon size={18} className="flex-shrink-0" />
-                  <Plus size={8} className="absolute -top-1 -right-1 bg-primary text-white rounded-full" />
-                </div>
-                {!collapsed && <span>{label}</span>}
-              </button>
-            ))}
-          </div>
+          {renderNavItems(topNavItems)}
         </nav>
 
-        {!collapsed && (
-          <div className="text-[11px] text-sidebar-muted px-4 py-3">© 2025 YAU CRM</div>
-        )}
+        {/* Bottom Nav */}
+        <nav className="pb-4 px-2 pt-4 border-t border-sidebar-border/40 space-y-1 flex-shrink-0">
+          {renderNavItems(bottomNavItems)}
+          {!collapsed && (
+            <div className="text-[11px] text-sidebar-muted px-4 pt-4 border-t border-sidebar-border/10 mt-2">© 2025 YAU CRM</div>
+          )}
+        </nav>
       </aside>
 
       {/* Mobile sidebar (slide-in overlay) */}
@@ -124,42 +135,17 @@ export default function Sidebar() {
           </button>
         </div>
 
-        <nav className="flex-1 py-4 px-2 space-y-1">
+        {/* Mobile Top Nav */}
+        <nav className="flex-1 py-4 px-2 space-y-1 overflow-y-auto">
           <p className="text-[10px] uppercase tracking-widest text-sidebar-muted font-semibold px-3 mb-2">Menu</p>
-          {navItems.map(({ to, label, icon: Icon }) => {
-            const active = pathname === to || pathname.startsWith(to + "/");
-            return (
-              <Link
-                key={to}
-                to={to}
-                onClick={closeMobile}
-                className={`sidebar-item ${active ? "sidebar-item-active" : "sidebar-item-inactive"}`}
-              >
-                <Icon size={18} className="flex-shrink-0" />
-                <span>{label}</span>
-              </Link>
-            );
-          })}
-
-          <div className="pt-4 mt-4 border-t border-sidebar-border/50">
-            <p className="text-[10px] uppercase tracking-widest text-sidebar-muted font-semibold px-3 mb-2">Actions</p>
-            {quickActions.map(({ label, icon: Icon, onClick }) => (
-              <button
-                key={label}
-                onClick={() => { onClick(navigate); closeMobile(); }}
-                className="sidebar-item sidebar-item-inactive w-full"
-              >
-                <div className="relative">
-                  <Icon size={18} className="flex-shrink-0" />
-                  <Plus size={8} className="absolute -top-1 -right-1 bg-primary text-white rounded-full" />
-                </div>
-                <span>{label}</span>
-              </button>
-            ))}
-          </div>
+          {renderNavItems(topNavItems, true)}
         </nav>
 
-        <div className="text-[11px] text-sidebar-muted px-4 py-3">© 2025 YAU CRM</div>
+        {/* Mobile Bottom Nav */}
+        <nav className="pb-4 px-2 pt-4 border-t border-sidebar-border/40 space-y-1 flex-shrink-0">
+          {renderNavItems(bottomNavItems, true)}
+          <div className="text-[11px] text-sidebar-muted px-4 pt-4 border-t border-sidebar-border/10 mt-2">© 2025 YAU CRM</div>
+        </nav>
       </aside>
     </>
   );

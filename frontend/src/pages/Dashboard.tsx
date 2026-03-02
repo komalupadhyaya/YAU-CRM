@@ -47,6 +47,10 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [rawData, setRawData] = useState<DashboardData | null>(null);
+  const [pipelineData, setPipelineData] = useState<Record<string, number>>({});
+  const [campaignSummaries, setCampaignSummaries] = useState<any[]>([]);
+  const [activeTaskTab, setActiveTaskTab] = useState<"overdue" | "due" | "upcoming">("due");
+  const [dashboardMetrics, setDashboardMetrics] = useState<any>(null);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [selectedCampaign, setSelectedCampaign] = useState<string>("all");
   const [loading, setLoading] = useState(true);
@@ -59,57 +63,33 @@ export default function Dashboard() {
   const [followUpDate, setFollowUpDate] = useState("");
   const [followUpReason, setFollowUpReason] = useState("");
 
-  const [schoolCounts, setSchoolCounts] = useState({ totalSchools: 0, contactedSchools: 0 });
-  const [pipelineData, setPipelineData] = useState<Record<string, number>>({});
-  const [campaignSummaries, setCampaignSummaries] = useState<any[]>([]);
-  const [activeTaskTab, setActiveTaskTab] = useState<"overdue" | "due" | "upcoming">("due");
-
   const load = async () => {
     try {
-      const [resData, resCampaigns, resSummaries] = await Promise.all([
+      const campaignId = selectedCampaign === "all" ? "" : selectedCampaign;
+      const [resConsolidated, resDetailedFollowups, resCampaigns] = await Promise.all([
+        api.get(`/dashboard${campaignId ? `?campaignId=${campaignId}` : ""}`),
         api.get("/followups/dashboard"),
-        api.get("/campaigns"),
-        api.get("/schools/campaign-summaries")
+        api.get("/campaigns")
       ]);
-      setRawData(resData.data);
+
+      setDashboardMetrics(resConsolidated.data);
+      setRawData(resDetailedFollowups.data);
       setCampaigns(resCampaigns.data);
-      setCampaignSummaries(resSummaries.data);
-    } catch { }
-    setLoading(false);
-  };
+      setCampaignSummaries(resConsolidated.data.campaignSummaries);
 
-  const loadCounts = async () => {
-    if (selectedCampaign === "all") {
-      setPipelineData({});
-      return;
+      if (campaignId) {
+        const breakdown: Record<string, number> = {};
+        resConsolidated.data.schools.byStatus.forEach((s: any) => {
+          breakdown[s.status] = s.count;
+        });
+        setPipelineData(breakdown);
+      } else {
+        setPipelineData({});
+      }
+    } catch (err) {
+      console.error(err);
     }
-    try {
-      const [resCounts, resSchools, resSummaries] = await Promise.all([
-        // We still need local counts for the KPI row when a campaign is selected
-        api.get(`/schools/campaign/${selectedCampaign}/school-counts`),
-        api.get(`/schools/campaign/${selectedCampaign}`),
-        api.get("/schools/campaign-summaries")
-      ]);
-      setSchoolCounts(resCounts.data);
-      setCampaignSummaries(resSummaries.data);
-
-      // Aggregate pipeline data
-      const schools: any[] = resSchools.data;
-      const stats: Record<string, number> = {
-        "Not Contacted": 0,
-        "Attempted Call": 0,
-        "Left Voicemail": 0,
-        "Spoke to Office": 0,
-        "Meeting Scheduled": 0,
-        "Proposal Sent": 0,
-        "Signed": 0,
-        "Not Interested": 0
-      };
-      schools.forEach(s => {
-        if (stats[s.status] !== undefined) stats[s.status]++;
-      });
-      setPipelineData(stats);
-    } catch { }
+    setLoading(false);
   };
 
   useEffect(() => {
@@ -119,15 +99,11 @@ export default function Dashboard() {
       searchParams.delete("action");
       setSearchParams(searchParams);
     }
-  }, [searchParams]);
-
-  useEffect(() => {
-    loadCounts();
-  }, [selectedCampaign]);
+  }, [searchParams, selectedCampaign]);
 
   useEffect(() => {
     if (isModalOpen && schoolSearch.length >= 2) {
-      api.get(`/schools?q=${schoolSearch}`).then(r => setSchools(r.data));
+      api.get(`/schools?q=${schoolSearch}&limit=50`).then(r => setSchools(r.data.data ?? r.data));
     }
   }, [schoolSearch, isModalOpen]);
 
@@ -155,7 +131,7 @@ export default function Dashboard() {
     } catch { }
   };
 
-  // Filter data based on selected campaign
+  // Filter list for the detailed panels
   const filterList = (list: FollowUp[]) => {
     if (selectedCampaign === "all") return list;
     return list.filter(f => String(f.campaign_id_val) === selectedCampaign);
@@ -284,14 +260,15 @@ export default function Dashboard() {
         <div className="flex-1 lg:w-[70%] min-w-0 space-y-6">
           {/* KPI Row */}
           <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-            <StatCard title="Total Campaigns" count={campaigns.length} icon={Megaphone} color="text-primary" />
-            <StatCard title="Total Schools" count={selectedCampaign === "all" ? 0 : schoolCounts.totalSchools} icon={SchoolIcon} color="text-blue-500" />
-            <StatCard title="Overdue" count={filteredData?.overdue.length || 0} icon={AlertCircle} color="text-primary/70" />
-            <StatCard title="Due Today" count={filteredData?.due.length || 0} icon={Clock} color="text-primary/70" />
-            <StatCard title="Upcoming" count={filteredData?.upcoming.length || 0} icon={Calendar} color="text-primary/70" />
+            <StatCard title="Total Campaigns" count={dashboardMetrics?.campaigns?.total || 0} icon={Megaphone} color="text-primary" />
+            <StatCard title="Total Schools" count={dashboardMetrics?.schools?.total || 0} icon={SchoolIcon} color="text-blue-500" />
+            <StatCard title="Overdue" count={dashboardMetrics?.followups?.overdue || 0} icon={AlertCircle} color="text-primary/70" />
+            <StatCard title="Due Today" count={dashboardMetrics?.followups?.dueToday || 0} icon={Clock} color="text-primary/70" />
+            <StatCard title="Upcoming" count={dashboardMetrics?.followups?.upcoming || 0} icon={Calendar} color="text-primary/70" />
           </div>
 
           {/* Campaign Overview */}
+
           <div className="page-card dark:bg-card">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-lg font-bold text-foreground">Campaign Acquisition Overview</h2>
@@ -365,7 +342,8 @@ export default function Dashboard() {
                   { label: "Not Interested", key: "Not Interested", color: "bg-destructive/40" }
                 ].map((s) => {
                   const count = s.count !== undefined ? s.count : (pipelineData[s.key] || 0);
-                  const percentage = Math.round((count / (schoolCounts.totalSchools || 1)) * 100);
+                  const total = dashboardMetrics?.schools?.total || 1;
+                  const percentage = Math.round((count / total) * 100);
                   return (
                     <div key={s.label} className="group">
                       <div className="flex items-center justify-between mb-2">

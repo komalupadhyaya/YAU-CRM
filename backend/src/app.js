@@ -7,6 +7,11 @@ import schoolRoutes from './routes/school.routes.js';
 import noteRoutes from './routes/note.routes.js';
 import followupRoutes from './routes/followup.routes.js';
 import importRoutes from './routes/import.routes.js';
+import dashboardRoutes from './routes/dashboard.routes.js';
+import reportsRoutes from './routes/reports.routes.js';
+import teamRoutes from './routes/team.routes.js';
+import settingsRoutes from './routes/settings.routes.js';
+import tasksRoutes from './routes/tasks.routes.js';
 import errorHandler from './middleware/error.middleware.js';
 
 const app = express();
@@ -220,6 +225,11 @@ app.use('/api/schools', schoolRoutes);
 app.use('/api/notes', noteRoutes);
 app.use('/api/followups', followupRoutes);
 app.use('/api/import', importRoutes);
+app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/reports', reportsRoutes);
+app.use('/api/team', teamRoutes);
+app.use('/api/settings', settingsRoutes);
+app.use('/api/tasks', tasksRoutes);
 
 // Error Handling Middleware
 app.use(errorHandler);
