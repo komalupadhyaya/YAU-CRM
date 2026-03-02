@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import Followup from '../models/followup.model.js';
 import School from '../models/school.model.js';
 
@@ -65,6 +66,93 @@ export const getFollowupsBySchool = async (req, res, next) => {
         });
 
         res.json(flatFollowups);
+    } catch (err) {
+        next(err);
+    }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/followups/grouped  –  Follow-ups task view (overdue/today/upcoming)
+// ─────────────────────────────────────────────────────────────────────────────
+export const getGroupedFollowups = async (req, res, next) => {
+    try {
+        const todayStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+        const { campaignId, schoolId } = req.query;
+
+        // Base match: only pending follow-ups
+        const matchStage = { status: 'pending' };
+
+        if (schoolId && schoolId.match(/^[0-9a-fA-F]{24}$/)) {
+            matchStage.school_id = new mongoose.Types.ObjectId(schoolId);
+        }
+
+        const pipeline = [
+            { $match: matchStage },
+            // Join school info
+            {
+                $lookup: {
+                    from: 'schools',
+                    localField: 'school_id',
+                    foreignField: '_id',
+                    as: 'school'
+                }
+            },
+            { $unwind: '$school' },
+            // Optional campaign filter
+            ...(campaignId && campaignId.match(/^[0-9a-fA-F]{24}$/) ? [
+                { $match: { 'school.campaign_id': new mongoose.Types.ObjectId(campaignId) } }
+            ] : []),
+            // Join campaign info
+            {
+                $lookup: {
+                    from: 'campaigns',
+                    localField: 'school.campaign_id',
+                    foreignField: '_id',
+                    as: 'campaign'
+                }
+            },
+            {
+                $unwind: {
+                    path: '$campaign',
+                    preserveNullAndEmptyArrays: true
+                }
+            },
+            // Determine the bucket (overdue, dueToday, upcoming)
+            {
+                $addFields: {
+                    bucket: {
+                        $switch: {
+                            branches: [
+                                { case: { $lt: ['$follow_up_date', todayStr] }, then: 'overdue' },
+                                { case: { $eq: ['$follow_up_date', todayStr] }, then: 'dueToday' },
+                                { case: { $gt: ['$follow_up_date', todayStr] }, then: 'upcoming' }
+                            ],
+                            default: 'unknown'
+                        }
+                    }
+                }
+            },
+            // Group into three arrays by bucket
+            {
+                $facet: {
+                    overdue: [
+                        { $match: { bucket: 'overdue' } },
+                        { $sort: { follow_up_date: 1 } }
+                    ],
+                    dueToday: [
+                        { $match: { bucket: 'dueToday' } },
+                        { $sort: { createdAt: 1 } }
+                    ],
+                    upcoming: [
+                        { $match: { bucket: 'upcoming' } },
+                        { $sort: { follow_up_date: 1 } }
+                    ]
+                }
+            }
+        ];
+
+        const [result] = await Followup.aggregate(pipeline);
+        res.json(result || { overdue: [], dueToday: [], upcoming: [] });
     } catch (err) {
         next(err);
     }

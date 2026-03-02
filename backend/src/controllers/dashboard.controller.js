@@ -1,9 +1,142 @@
+import mongoose from 'mongoose';
+import Campaign from '../models/campaign.model.js';
 import School from '../models/school.model.js';
 import Followup from '../models/followup.model.js';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/dashboard  –  Consolidated real-time CRM snapshot
+// Supports query params: ?campaignId
+// ─────────────────────────────────────────────────────────────────────────────
+export const getConsolidatedDashboard = async (req, res, next) => {
+    try {
+        const { campaignId } = req.query;
+        const now = new Date();
+        const todayStr = now.toISOString().slice(0, 10);
+
+        // Build status match for school-related aggregations
+        const schoolMatch = {};
+        if (campaignId) {
+            schoolMatch.campaign_id = new mongoose.Types.ObjectId(campaignId);
+        }
+
+        // Run all aggregations in parallel
+        const [
+            totalCampaigns,
+            schoolAgg,
+            followupAgg,
+            campaignSummaries
+        ] = await Promise.all([
+            // 1. Total campaigns (honors filter for consistency)
+            Campaign.countDocuments(campaignId ? { _id: campaignId } : {}),
+
+            // 2. Total schools + grouped by status
+            School.aggregate([
+                { $match: schoolMatch },
+                {
+                    $group: {
+                        _id: '$status',
+                        count: { $sum: 1 }
+                    }
+                }
+            ]),
+
+            // 3. Follow-up grouping (overdue / dueToday / upcoming)
+            // If campaignId provided, we must join with schools to filter
+            Followup.aggregate([
+                { $match: { status: 'pending' } },
+                ...(campaignId ? [
+                    {
+                        $lookup: {
+                            from: 'schools',
+                            localField: 'school_id',
+                            foreignField: '_id',
+                            as: 'school'
+                        }
+                    },
+                    { $unwind: '$school' },
+                    { $match: { 'school.campaign_id': new mongoose.Types.ObjectId(campaignId) } }
+                ] : []),
+                {
+                    $group: {
+                        _id: null,
+                        overdue: {
+                            $sum: {
+                                $cond: [{ $lt: ['$follow_up_date', todayStr] }, 1, 0]
+                            }
+                        },
+                        dueToday: {
+                            $sum: {
+                                $cond: [{ $eq: ['$follow_up_date', todayStr] }, 1, 0]
+                            }
+                        },
+                        upcoming: {
+                            $sum: {
+                                $cond: [{ $gt: ['$follow_up_date', todayStr] }, 1, 0]
+                            }
+                        }
+                    }
+                }
+            ]),
+
+            // 4. Acquisition Summaries (for the overview list)
+            School.aggregate([
+                {
+                    $group: {
+                        _id: '$campaign_id',
+                        totalSchools: { $sum: 1 },
+                        meetingsScheduled: {
+                            $sum: { $cond: [{ $eq: ['$status', 'Meeting Scheduled'] }, 1, 0] }
+                        }
+                    }
+                }
+            ])
+        ]);
+
+        // ── Process school aggregation ────────────────────────────────────────
+        let totalSchools = 0;
+        const byStatus = schoolAgg.map(s => {
+            totalSchools += s.count;
+            return { status: s._id || 'Unknown', count: s.count };
+        });
+
+        // ── Process follow-up aggregation ─────────────────────────────────────
+        const fuCounts = followupAgg[0] || { overdue: 0, dueToday: 0, upcoming: 0 };
+
+        res.json({
+            campaigns: {
+                total: totalCampaigns
+            },
+            schools: {
+                total: totalSchools,
+                byStatus
+            },
+            followups: {
+                overdue: fuCounts.overdue,
+                dueToday: fuCounts.dueToday,
+                upcoming: fuCounts.upcoming
+            },
+            pipeline: {
+                statusBreakdown: byStatus
+            },
+            campaignSummaries: campaignSummaries || []
+        });
+    } catch (err) {
+        next(err);
+    }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LEGACY – kept to avoid breaking existing routes that depend on these handlers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/followups/dashboard
+ * Returns the full list of pending follow-ups grouped into overdue/due/upcoming arrays.
+ * Used by the frontend Dashboard for the detailed task panel.
+ */
 export const getDashboardStats = async (req, res, next) => {
     try {
-        const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+        const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
 
         const all = await Followup.find({ status: 'pending' })
             .populate({
@@ -35,15 +168,19 @@ export const getDashboardStats = async (req, res, next) => {
     }
 };
 
+/**
+ * GET /api/schools/campaign-summaries
+ * Used by the Campaign Acquisition Overview on the Dashboard.
+ */
 export const getCampaignSummaries = async (req, res, next) => {
     try {
         const summaries = await School.aggregate([
             {
                 $group: {
-                    _id: "$campaign_id",
+                    _id: '$campaign_id',
                     totalSchools: { $sum: 1 },
                     meetingsScheduled: {
-                        $sum: { $cond: [{ $eq: ["$status", "Meeting Scheduled"] }, 1, 0] }
+                        $sum: { $cond: [{ $eq: ['$status', 'Meeting Scheduled'] }, 1, 0] }
                     }
                 }
             }
@@ -54,6 +191,10 @@ export const getCampaignSummaries = async (req, res, next) => {
     }
 };
 
+/**
+ * GET /api/schools/campaign/:campaignId/school-counts
+ * Returns total and contacted schools for a given campaign.
+ */
 export const getCampaignCounts = async (req, res, next) => {
     try {
         const campaign_id = req.params.campaignId;

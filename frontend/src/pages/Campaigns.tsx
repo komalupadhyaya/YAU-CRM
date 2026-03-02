@@ -437,7 +437,7 @@ const Campaigns = () => {
                         <span className="text-xs text-muted-foreground flex items-center gap-1"><MapPin size={12} /> {selectedSchool.city}</span>
                       </div>
                     </div>
-                    <button onClick={() => setIsFollowUpModalOpen(true)} className="btn-secondary h-8 px-3 text-xs flex items-center gap-1.5"><Plus size={14} /> Follow-up</button>
+                    <button onClick={() => setIsFollowUpModalOpen(true)} className="p-1 hover:bg-accent rounded text-primary transition-colors"><Plus size={14} /></button>
                   </div>
                 </div>
 

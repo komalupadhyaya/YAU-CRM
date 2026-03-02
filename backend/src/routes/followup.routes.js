@@ -6,6 +6,7 @@ const router = express.Router();
 
 // Literal routes first
 router.get('/dashboard', dashboardController.getDashboardStats);
+router.get('/grouped', followupController.getGroupedFollowups);
 
 router.get('/school/:schoolId', followupController.getFollowupsBySchool);
 

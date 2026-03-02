@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "../api/api";
 import AppLayout from "../layout/AppLayout";
-import { CalendarPlus, Save, ArrowLeft, History, Info, ExternalLink } from "lucide-react";
+import { CalendarPlus, Save, ArrowLeft, History, Info, ExternalLink, Edit } from "lucide-react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -151,7 +151,7 @@ export default function SchoolDetail() {
                     </button>
                   </>
                 ) : (
-                  <button onClick={() => setIsEditing(true)} className="btn-secondary">Edit Details</button>
+                  <button onClick={() => setIsEditing(true)} className="btn-secondary"><Edit size={16} /></button>
                 )}
               </div>
             </div>
