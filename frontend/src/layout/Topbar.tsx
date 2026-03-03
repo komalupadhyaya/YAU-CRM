@@ -14,15 +14,18 @@ export default function Topbar() {
   };
 
   return (
-    <div className="h-14 bg-card border-b border-border flex items-center justify-end px-4 md:px-6 flex-shrink-0 transition-colors duration-200">
-      {/* Hamburger — visible on mobile only */}
-      <button
-        onClick={toggleMobile}
-        className="md:hidden p-2 text-muted-foreground hover:text-foreground rounded-xl hover:bg-accent transition-colors"
-        aria-label="Toggle menu"
-      >
-        <Menu size={20} />
-      </button>
+    <div className="h-14 bg-card border-b border-border flex items-center justify-between px-4 md:px-6 flex-shrink-0 transition-colors duration-200">
+
+      {/* Left side — Hamburger */}
+      <div className="flex items-center">
+        <button
+          onClick={toggleMobile}
+          className="md:hidden p-2 text-muted-foreground hover:text-foreground rounded-xl hover:bg-accent transition-colors"
+          aria-label="Toggle menu"
+        >
+          <Menu size={20} />
+        </button>
+      </div>
 
       {/* Right side actions */}
       <div className="flex items-center gap-2">

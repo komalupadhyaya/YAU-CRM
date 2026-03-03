@@ -45,7 +45,7 @@ export default function Team() {
         <AppLayout>
             <div className="space-y-6 max-w-5xl mx-auto pb-12">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight text-white">Team Management</h1>
+                    <h1 className="text-3xl font-bold tracking-tight">Team Management</h1>
                     <p className="text-muted-foreground">Internal CRM users and access roles.</p>
                 </div>
 
@@ -81,8 +81,8 @@ export default function Team() {
                                                     {(user.name || user.username).charAt(0).toUpperCase()}
                                                 </div>
                                                 <div>
-                                                    <p className="font-medium text-sm text-white">{user.name || "N/A"}</p>
-                                                    <p className="text-[10px] text-muted-foreground">@{user.username}</p>
+                                                    <p className="font-medium text-sm">{user.username || "N/A"}</p>
+                                                    <p className="text-[10px] text-muted-foreground">@{user.role}</p>
                                                 </div>
                                             </div>
                                         </TableCell>
@@ -96,8 +96,8 @@ export default function Team() {
                                             <div className="flex items-center gap-2">
                                                 <Shield size={14} className={user.role === 'admin' ? 'text-primary' : 'text-muted-foreground'} />
                                                 <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${user.role === 'admin'
-                                                        ? 'bg-primary/10 text-primary border-primary/20'
-                                                        : 'bg-secondary text-secondary-foreground border-sidebar-border'
+                                                    ? 'bg-primary/10 text-primary border-primary/20'
+                                                    : 'bg-secondary text-secondary-foreground border-sidebar-border'
                                                     }`}>
                                                     {user.role}
                                                 </span>
