@@ -92,7 +92,7 @@ export default function Sidebar() {
             className="text-sidebar-muted hover:text-sidebar-foreground rounded-lg hover:bg-sidebar-accent/40 transition-colors flex-shrink-0"
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           >
-            {collapsed ? <ChevronRight className="text-white dark:text-sidebar-foreground" size={20} /> : <Menu size={20} className="text-white dark:text-sidebar-foreground" />}
+            {collapsed ? <ChevronRight className="dark:text-sidebar-foreground" size={20} /> : <Menu size={20} className="dark:text-sidebar-foreground" />}
           </button>
         </div>
 

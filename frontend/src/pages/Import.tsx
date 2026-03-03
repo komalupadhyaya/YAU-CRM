@@ -113,7 +113,7 @@ export default function Import() {
                 onChange={e => setNewCampaignName(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleCreateCampaign())}
               />
-              <button type="button" onClick={handleCreateCampaign} className="p-2 bg-primary text-white rounded-xl">
+              <button type="button" onClick={handleCreateCampaign} className="p-2 bg-primary rounded-xl">
                 <Check size={20} />
               </button>
               <button type="button" onClick={() => setIsCreatingCampaign(false)} className="p-2 bg-accent dark:bg-accent/20 rounded-xl">
@@ -203,7 +203,7 @@ export default function Import() {
               <p className="text-sm">There was an error processing your file. Please check the format and try again.</p>
               <button
                 onClick={() => setStatus("idle")}
-                className="text-xs font-bold uppercase tracking-widest bg-destructive text-white px-4 py-2 rounded-lg hover:bg-destructive/90 transition-colors mt-1"
+                className="text-xs font-bold uppercase tracking-widest bg-destructive px-4 py-2 rounded-lg hover:bg-destructive/90 transition-colors mt-1"
               >
                 Try Again
               </button>

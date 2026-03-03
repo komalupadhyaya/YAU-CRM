@@ -100,7 +100,7 @@ export default function Tasks() {
                     {/* Create Task Form */}
                     <div className="lg:col-span-1">
                         <div className="bg-card border rounded-xl p-6 shadow-sm sticky top-6">
-                            <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                            <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
                                 <Plus size={18} className="text-primary" />
                                 New Task
                             </h2>
@@ -150,7 +150,7 @@ export default function Tasks() {
                                         <div key={task._id} className="bg-card border border-sidebar-border rounded-lg p-4 group hover:shadow-md transition-shadow">
                                             <div className="flex items-start justify-between gap-4">
                                                 <div className="flex-1">
-                                                    <h3 className="font-semibold text-white">{task.title}</h3>
+                                                    <h3 className="font-semibold">{task.title}</h3>
                                                     {task.description && <p className="text-sm text-muted-foreground mt-1">{task.description}</p>}
                                                     <div className="flex items-center gap-3 mt-3">
                                                         <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
@@ -187,7 +187,7 @@ export default function Tasks() {
 
                         {/* Completed Section */}
                         <div className="space-y-4 opacity-70">
-                            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                            <h2 className="text-lg font-bold flex items-center gap-2">
                                 <CheckCircle2 size={18} className="text-green-500" />
                                 Completed
                                 <span className="text-xs bg-green-500/10 text-green-500 px-2 py-0.5 rounded-full border border-green-500/20">
