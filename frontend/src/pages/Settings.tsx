@@ -78,7 +78,7 @@ export default function Settings() {
             <div className="space-y-8 max-w-4xl mx-auto pb-12">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div>
-                        <h1 className="text-3xl font-bold tracking-tight text-white">Settings</h1>
+                        <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
                         <p className="text-muted-foreground">Configure your global CRM preferences and status workflows.</p>
                     </div>
                     <Button className="gap-2" onClick={handleSave} disabled={saving}>
@@ -92,7 +92,7 @@ export default function Settings() {
                     <div className="space-y-4">
                         <div className="flex items-center gap-2">
                             <Sliders size={20} className="text-primary" />
-                            <h2 className="text-xl font-bold text-white">CRM Preferences</h2>
+                            <h2 className="text-xl font-bold">CRM Preferences</h2>
                         </div>
                         <div className="bg-card border rounded-xl p-6 shadow-sm space-y-4">
                             <div className="space-y-2">
@@ -121,7 +121,7 @@ export default function Settings() {
                     <div className="space-y-4">
                         <div className="flex items-center gap-2">
                             <ListRestart size={20} className="text-primary" />
-                            <h2 className="text-xl font-bold text-white">Lead Status Labels</h2>
+                            <h2 className="text-xl font-bold">Lead Status Labels</h2>
                         </div>
                         <div className="bg-card border rounded-xl p-6 shadow-sm space-y-4">
                             <div className="space-y-3">

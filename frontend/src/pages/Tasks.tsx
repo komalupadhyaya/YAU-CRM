@@ -89,7 +89,7 @@ export default function Tasks() {
         <AppLayout>
             <div className="space-y-8 max-w-5xl mx-auto pb-12">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight text-white flex items-center gap-2">
+                    <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
                         <CheckSquare className="text-primary" />
                         Internal Tasks
                     </h1>
@@ -133,7 +133,7 @@ export default function Tasks() {
                     <div className="lg:col-span-2 space-y-8">
                         {/* Pending Section */}
                         <div className="space-y-4">
-                            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                            <h2 className="text-lg font-bold flex items-center gap-2">
                                 <Clock size={18} className="text-orange-500" />
                                 Pending Tasks
                                 <span className="text-xs bg-orange-500/10 text-orange-500 px-2 py-0.5 rounded-full border border-orange-500/20">

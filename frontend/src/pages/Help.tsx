@@ -11,7 +11,7 @@ export default function Help() {
                         <HelpCircle size={28} />
                     </div>
                     <div>
-                        <h1 className="text-3xl font-bold tracking-tight text-white">Help & Support</h1>
+                        <h1 className="text-3xl font-bold tracking-tight">Help & Support</h1>
                         <p className="text-muted-foreground">Resources and support to help you get the most out of YAU CRM.</p>
                     </div>
                 </div>
@@ -21,7 +21,7 @@ export default function Help() {
                     <div className="bg-card border border-sidebar-border rounded-xl p-6 shadow-sm flex flex-col">
                         <div className="flex items-center gap-3 mb-4 text-primary">
                             <BookOpen size={24} />
-                            <h2 className="text-xl font-bold text-white">Training</h2>
+                            <h2 className="text-xl font-bold">Training</h2>
                         </div>
                         <p className="text-sm text-muted-foreground mb-6 flex-grow">
                             Access guides and documentation to help you navigate YAU CRM.
@@ -43,7 +43,7 @@ export default function Help() {
                     <div className="bg-card border border-sidebar-border rounded-xl p-6 shadow-sm flex flex-col">
                         <div className="flex items-center gap-3 mb-4 text-primary">
                             <Video size={24} />
-                            <h2 className="text-xl font-bold text-white">Videos</h2>
+                            <h2 className="text-xl font-bold">Videos</h2>
                         </div>
                         <p className="text-sm text-muted-foreground mb-6 flex-grow">
                             Watch step-by-step tutorials for using key CRM features.
@@ -65,7 +65,7 @@ export default function Help() {
                     <div className="bg-card border border-sidebar-border rounded-xl p-6 shadow-sm flex flex-col">
                         <div className="flex items-center gap-3 mb-4 text-primary">
                             <Mail size={24} />
-                            <h2 className="text-xl font-bold text-white">Contact</h2>
+                            <h2 className="text-xl font-bold">Contact</h2>
                         </div>
                         <p className="text-sm text-muted-foreground mb-4">
                             Need help? Reach out to our support team for assistance.
@@ -86,7 +86,7 @@ export default function Help() {
 
                 {/* FAQ Placeholder / Quick Tips */}
                 <div className="bg-primary/5 border border-primary/10 rounded-2xl p-8 mt-4">
-                    <h3 className="text-lg font-bold text-white mb-2">Quick Tip</h3>
+                    <h3 className="text-lg font-bold mb-2">Quick Tip</h3>
                     <p className="text-sm text-muted-foreground max-w-2xl">
                         Did you know you can export all your Lead data as CSV from the Reports section?
                         Simply navigate to <strong>Reports</strong> and click <strong>Export Schools</strong> to get a full download of your database.
