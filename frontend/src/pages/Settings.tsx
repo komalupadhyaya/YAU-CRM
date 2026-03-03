@@ -96,7 +96,7 @@ export default function Settings() {
                         </div>
                         <div className="bg-card border rounded-xl p-6 shadow-sm space-y-4">
                             <div className="space-y-2">
-                                <Label htmlFor="followup-days" className="text-sm font-medium text-white">Default Follow-up Interval</Label>
+                                <Label htmlFor="followup-days" className="text-sm font-medium">Default Follow-up Interval</Label>
                                 <div className="flex items-center gap-2">
                                     <Input
                                         id="followup-days"

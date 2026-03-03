@@ -137,7 +137,7 @@ export default function CreateSchool() {
                                     onChange={e => setNewCampaignName(e.target.value)}
                                     onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleCreateCampaign())}
                                 />
-                                <button type="button" onClick={handleCreateCampaign} className="p-2 bg-primary text-white rounded-xl hover:bg-primary/90 transition-colors">
+                                <button type="button" onClick={handleCreateCampaign} className="p-2 bg-primary rounded-xl hover:bg-primary/90 transition-colors">
                                     <Check size={20} />
                                 </button>
                                 <button type="button" onClick={() => setIsCreatingCampaign(false)} className="p-2 bg-accent rounded-xl hover:bg-accent/80 transition-colors">
