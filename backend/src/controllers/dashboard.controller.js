@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import Campaign from '../models/campaign.model.js';
 import School from '../models/school.model.js';
 import Followup from '../models/followup.model.js';
+import Settings from '../models/settings.model.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/dashboard  –  Consolidated real-time CRM snapshot
@@ -24,7 +25,8 @@ export const getConsolidatedDashboard = async (req, res, next) => {
             totalCampaigns,
             schoolAgg,
             followupAgg,
-            campaignSummaries
+            campaignSummaries,
+            settings
         ] = await Promise.all([
             // 1. Total campaigns (honors filter for consistency)
             Campaign.countDocuments(campaignId ? { _id: campaignId } : {}),
@@ -41,7 +43,6 @@ export const getConsolidatedDashboard = async (req, res, next) => {
             ]),
 
             // 3. Follow-up grouping (overdue / dueToday / upcoming)
-            // If campaignId provided, we must join with schools to filter
             Followup.aggregate([
                 { $match: { status: 'pending' } },
                 ...(campaignId ? [
@@ -78,7 +79,7 @@ export const getConsolidatedDashboard = async (req, res, next) => {
                 }
             ]),
 
-            // 4. Acquisition Summaries (for the overview list)
+            // 4. Acquisition Summaries
             School.aggregate([
                 {
                     $group: {
@@ -89,15 +90,31 @@ export const getConsolidatedDashboard = async (req, res, next) => {
                         }
                     }
                 }
-            ])
+            ]),
+
+            // 5. Fetch Status Labels from Settings
+            Settings.findOne()
         ]);
 
-        // ── Process school aggregation ────────────────────────────────────────
+        // ── Process school aggregation with dynamic labels ────────────────────
+        const statusLabels = settings?.statusLabels || [
+            "Not Contacted",
+            "Spoke to Office",
+            "Meeting Scheduled",
+            "Closed"
+        ];
+
         let totalSchools = 0;
-        const byStatus = schoolAgg.map(s => {
+        const aggMap = {};
+        schoolAgg.forEach(s => {
+            aggMap[s._id] = s.count;
             totalSchools += s.count;
-            return { status: s._id || 'Unknown', count: s.count };
         });
+
+        const byStatus = statusLabels.map(label => ({
+            status: label,
+            count: aggMap[label] || 0
+        }));
 
         // ── Process follow-up aggregation ─────────────────────────────────────
         const fuCounts = followupAgg[0] || { overdue: 0, dueToday: 0, upcoming: 0 };
@@ -174,13 +191,17 @@ export const getDashboardStats = async (req, res, next) => {
  */
 export const getCampaignSummaries = async (req, res, next) => {
     try {
+        const settings = await Settings.findOne();
+        const statusLabels = settings?.statusLabels || [];
+        const meetingLabel = statusLabels.find(l => l.toLowerCase().includes("meeting")) || "Meeting Scheduled";
+
         const summaries = await School.aggregate([
             {
                 $group: {
                     _id: '$campaign_id',
                     totalSchools: { $sum: 1 },
                     meetingsScheduled: {
-                        $sum: { $cond: [{ $eq: ['$status', 'Meeting Scheduled'] }, 1, 0] }
+                        $sum: { $cond: [{ $eq: ['$status', meetingLabel] }, 1, 0] }
                     }
                 }
             }
@@ -197,11 +218,15 @@ export const getCampaignSummaries = async (req, res, next) => {
  */
 export const getCampaignCounts = async (req, res, next) => {
     try {
+        const settings = await Settings.findOne();
+        const statusLabels = settings?.statusLabels || ["Not Contacted"];
+        const initialStatus = statusLabels[0];
+
         const campaign_id = req.params.campaignId;
         const totalSchools = await School.countDocuments({ campaign_id });
         const contactedSchools = await School.countDocuments({
             campaign_id,
-            status: { $ne: 'Not Contacted' }
+            status: { $ne: initialStatus }
         });
 
         res.json({ totalSchools, contactedSchools });

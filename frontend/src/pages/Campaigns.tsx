@@ -77,16 +77,6 @@ interface FollowUp {
   status: string;
 }
 
-const STATUS_OPTIONS = [
-  "Not Contacted",
-  "Attempted Call",
-  "Left Voicemail",
-  "Spoke to Office",
-  "Meeting Scheduled",
-  "Proposal Sent",
-  "Signed",
-  "Not Interested"
-];
 
 const Campaigns = () => {
   const { selectedCampaign, setSelectedCampaign } = useCampaignStore();
@@ -104,6 +94,7 @@ const Campaigns = () => {
   const [campaignSearch, setCampaignSearch] = useState("");
   const [schoolSearch, setSchoolSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [statusLabels, setStatusLabels] = useState<string[]>([]);
   const [noteContent, setNoteContent] = useState("");
 
   // Create Campaign Modal
@@ -170,6 +161,7 @@ const Campaigns = () => {
 
   useEffect(() => {
     fetchCampaigns();
+    api.get("/settings").then(res => setStatusLabels(res.data.statusLabels || []));
   }, []);
 
   useEffect(() => {
@@ -374,7 +366,7 @@ const Campaigns = () => {
                     onChange={e => setStatusFilter(e.target.value)}
                   >
                     <option className="dark:bg-accent" value="all">All Statuses</option>
-                    {STATUS_OPTIONS.map(opt => <option className="dark:bg-accent" key={opt} value={opt}>{opt}</option>)}
+                    {statusLabels.map(opt => <option className="dark:bg-accent" key={opt} value={opt}>{opt}</option>)}
                   </select>
                 </div>
               </div>
@@ -493,7 +485,7 @@ const Campaigns = () => {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {STATUS_OPTIONS.map(opt => <SelectItem key={opt} value={opt}>{opt}</SelectItem>)}
+                        {statusLabels.map(opt => <SelectItem key={opt} value={opt}>{opt}</SelectItem>)}
                       </SelectContent>
                     </Select>
                     {selectedSchool.last_contacted && (
