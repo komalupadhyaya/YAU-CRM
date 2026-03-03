@@ -40,6 +40,7 @@ interface School {
   website: string;
   start_time: string;
   end_time: string;
+  status: string;
 }
 
 export default function SchoolDetail() {
@@ -51,6 +52,7 @@ export default function SchoolDetail() {
   const [noteContent, setNoteContent] = useState("");
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState<Partial<School>>({});
+  const [statusLabels, setStatusLabels] = useState<string[]>([]);
 
   // Follow-up Modal State
   const [isFollowUpModalOpen, setIsFollowUpModalOpen] = useState(false);
@@ -59,15 +61,17 @@ export default function SchoolDetail() {
 
   const loadAll = async () => {
     try {
-      const [schoolRes, notesRes, followUpsRes] = await Promise.all([
+      const [schoolRes, notesRes, followUpsRes, settingsRes] = await Promise.all([
         api.get("/schools/" + id),
         api.get("/notes/" + id),
         api.get("/followups/school/" + id),
+        api.get("/settings"),
       ]);
       setSchool(schoolRes.data);
       setEditData(schoolRes.data);
       setNotes(notesRes.data);
       setFollowUps(followUpsRes.data);
+      setStatusLabels(settingsRes.data.statusLabels || []);
     } catch { }
   };
 
@@ -88,7 +92,7 @@ export default function SchoolDetail() {
 
   const addNote = async () => {
     if (!noteContent.trim()) {
-      toast.error("Note content cannot be empty.");
+      toast.error("Nostatuste content cannot be empty.");
       return;
     }
     try {
@@ -190,6 +194,28 @@ export default function SchoolDetail() {
                   </div>
                 ) : (
                   <p className="text-foreground">{[school.address, school.city, school.state, school.zip].filter(Boolean).join(", ") || "N/A"}</p>
+                )}
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Status</label>
+                {isEditing ? (
+                  <select
+                    className="input-field dark:bg-card"
+                    value={editData.status || ""}
+                    onChange={e => setEditData({ ...editData, status: e.target.value })}
+                  >
+                    {statusLabels.map(label => (
+                      <option key={label} value={label}>{label}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${school.status === 'Signed' || school.status === 'Active' ? 'bg-green-500/10 text-green-500 border-green-500/20' :
+                    school.status === 'Meeting Scheduled' ? 'bg-blue-500/10 text-blue-500 border-blue-500/20' :
+                      'bg-yellow-500/10 text-yellow-500 border-yellow-500/20'
+                    }`}>
+                    {school.status}
+                  </span>
                 )}
               </div>
 

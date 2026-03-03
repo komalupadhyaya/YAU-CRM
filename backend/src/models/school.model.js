@@ -17,16 +17,6 @@ const SchoolSchema = new mongoose.Schema({
     website: String,
     status: {
         type: String,
-        enum: [
-            "Not Contacted",
-            "Attempted Call",
-            "Left Voicemail",
-            "Spoke to Office",
-            "Meeting Scheduled",
-            "Proposal Sent",
-            "Signed",
-            "Not Interested"
-        ],
         default: "Not Contacted"
     },
     last_contacted: {

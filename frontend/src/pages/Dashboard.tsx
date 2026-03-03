@@ -331,25 +331,31 @@ export default function Dashboard() {
               </div>
             ) : (
               <div className="space-y-6">
-                {[
-                  { label: "Not Contacted", key: "Not Contacted", color: "bg-muted-foreground/20" },
-                  { label: "Attempted Call", key: "Attempted Call", color: "bg-orange-400" },
-                  { label: "Left Voicemail", key: "Left Voicemail", color: "bg-orange-500", count: 0 },
-                  { label: "Spoke to Office", key: "Spoke to Staff", color: "bg-blue-400" },
-                  { label: "Meeting Scheduled", key: "Meeting Scheduled", color: "bg-emerald-500" },
-                  { label: "Proposal Sent", key: "Info Sent", color: "bg-indigo-500" },
-                  { label: "Signed", key: "Active", color: "bg-primary" },
-                  { label: "Not Interested", key: "Not Interested", color: "bg-destructive/40" }
-                ].map((s) => {
-                  const count = s.count !== undefined ? s.count : (pipelineData[s.key] || 0);
+                {(dashboardMetrics?.pipeline?.statusBreakdown || []).map((s: any) => {
+                  const count = s.count || 0;
                   const total = dashboardMetrics?.schools?.total || 1;
                   const percentage = Math.round((count / total) * 100);
+
+                  // Color mapping helper
+                  const getColor = (label: string) => {
+                    const l = label.toLowerCase();
+                    if (l.includes("not contacted")) return "bg-muted-foreground/20";
+                    if (l.includes("attempted")) return "bg-orange-400";
+                    if (l.includes("voicemail")) return "bg-orange-500";
+                    if (l.includes("office") || l.includes("staff") || l.includes("spoke")) return "bg-blue-400";
+                    if (l.includes("meeting")) return "bg-emerald-500";
+                    if (l.includes("proposal") || l.includes("info sent")) return "bg-indigo-500";
+                    if (l.includes("signed") || l.includes("active")) return "bg-primary";
+                    if (l.includes("not interested") || l.includes("lost")) return "bg-destructive/40";
+                    return "bg-primary/40"; // Default
+                  };
+
                   return (
-                    <div key={s.label} className="group">
+                    <div key={s.status} className="group">
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                          <div className={`w-2 h-2 rounded-full ${s.color}`} />
-                          {s.label}
+                          <div className={`w-2 h-2 rounded-full ${getColor(s.status)}`} />
+                          {s.status}
                         </span>
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-bold">{count}</span>

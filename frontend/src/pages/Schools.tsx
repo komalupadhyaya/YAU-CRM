@@ -33,6 +33,7 @@ export default function Schools() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
+  const [statusLabels, setStatusLabels] = useState<string[]>([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
 
@@ -54,6 +55,10 @@ export default function Schools() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    api.get("/settings").then(res => setStatusLabels(res.data.statusLabels || []));
+  }, []);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -94,12 +99,9 @@ export default function Schools() {
             onChange={(e) => { setStatus(e.target.value); setPage(1); }}
           >
             <option value="all">All Statuses</option>
-            <option value="Not Contacted">Not Contacted</option>
-            <option value="Spoke to Office">Spoke to Office</option>
-            <option value="Meeting Scheduled">Meeting Scheduled</option>
-            <option value="Left Voicemail">Left Voicemail</option>
-            <option value="Signed">Signed</option>
-            <option value="Lost">Lost</option>
+            {statusLabels.map(label => (
+              <option key={label} value={label}>{label}</option>
+            ))}
           </select>
         </div>
 
