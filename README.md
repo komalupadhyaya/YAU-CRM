@@ -5,7 +5,7 @@
 |-------------|-----------------|
 | Frontend    | React + TypeScript (Vite) |
 | Backend     | Node.js + Express |
-| Database    | SQLite (local file `yaucrm.db`) |
+| Database    | MongoDB |
 | Auth        | JWT (shared username/password) |
 
 ## Default Login Credentials
@@ -22,7 +22,6 @@ cd backend
 npm install
 npm run dev
 # Runs on http://localhost:5000
-# SQLite database is created automatically at /backend/yaucrm.db
 ```
 
 ### 2. Frontend
