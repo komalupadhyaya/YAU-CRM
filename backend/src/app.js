@@ -17,7 +17,7 @@ import errorHandler from './middleware/error.middleware.js';
 const app = express();
 
 const allowedOrigins = [
-    'https://yaucrm-i861qp4qw-komalupadhyayas-projects.vercel.app',
+    'https://crm.yauapp.com',
     process.env.FRONTEND_URL || 'http://localhost:8080'
 ];
 
