@@ -1,9 +1,9 @@
 import Campaign from '../models/campaign.model.js';
-import School from '../models/school.model.js';
+import Lead from '../models/lead.model.js';
 import Followup from '../models/followup.model.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /api/campaigns  –  list all campaigns (unchanged)
+// GET /api/campaigns  –  list all campaigns
 // ─────────────────────────────────────────────────────────────────────────────
 export const getCampaigns = async (req, res, next) => {
     try {
@@ -15,7 +15,7 @@ export const getCampaigns = async (req, res, next) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /api/campaigns  –  create a campaign (unchanged)
+// POST /api/campaigns  –  create a campaign
 // ─────────────────────────────────────────────────────────────────────────────
 export const createCampaign = async (req, res, next) => {
     try {
@@ -38,7 +38,6 @@ export const getCampaignById = async (req, res, next) => {
     try {
         const { id } = req.params;
 
-        // Basic ObjectId guard
         if (!id.match(/^[0-9a-fA-F]{24}$/)) {
             res.status(400);
             throw new Error('Invalid campaign ID format');
@@ -50,10 +49,8 @@ export const getCampaignById = async (req, res, next) => {
             throw new Error('Campaign not found');
         }
 
-        // Run both aggregations in parallel — single round-trip pair
-        const [schoolAgg, followupAgg] = await Promise.all([
-            // Schools: total + status breakdown, all scoped to this campaign
-            School.aggregate([
+        const [leadAgg, followupAgg] = await Promise.all([
+            Lead.aggregate([
                 { $match: { campaign_id: campaign._id } },
                 {
                     $group: {
@@ -63,21 +60,19 @@ export const getCampaignById = async (req, res, next) => {
                 }
             ]),
 
-            // Follow-ups scoped to schools belonging to this campaign only.
-            // $lookup joins school doc; $match filters by campaign_id on the joined doc.
             Followup.aggregate([
                 {
                     $lookup: {
-                        from: 'schools',
-                        localField: 'school_id',
+                        from: 'leads',
+                        localField: 'lead_id',
                         foreignField: '_id',
-                        as: 'school'
+                        as: 'lead'
                     }
                 },
-                { $unwind: '$school' },
+                { $unwind: '$lead' },
                 {
                     $match: {
-                        'school.campaign_id': campaign._id
+                        'lead.campaign_id': campaign._id
                     }
                 },
                 {
@@ -86,22 +81,20 @@ export const getCampaignById = async (req, res, next) => {
             ])
         ]);
 
-        // ── Process school aggregation ────────────────────────────────────────
-        let totalSchools = 0;
-        const schoolStatusBreakdown = schoolAgg.map(s => {
-            totalSchools += s.count;
+        let totalLeads = 0;
+        const leadStatusBreakdown = leadAgg.map(s => {
+            totalLeads += s.count;
             return { status: s._id || 'Unknown', count: s.count };
         });
 
-        // ── Process follow-up aggregation ─────────────────────────────────────
         const totalFollowups = followupAgg[0]?.total ?? 0;
 
         res.json({
             campaign: campaign.toJSON(),
             metrics: {
-                totalSchools,
+                totalLeads, // totalSchools -> totalLeads
                 totalFollowups,
-                schoolStatusBreakdown
+                leadStatusBreakdown // schoolStatusBreakdown -> leadStatusBreakdown
             }
         });
     } catch (err) {

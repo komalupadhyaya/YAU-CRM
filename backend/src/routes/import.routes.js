@@ -5,6 +5,6 @@ import * as importController from '../controllers/import.controller.js';
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
-router.post('/', upload.single('file'), importController.importSchools);
+router.post('/', upload.single('file'), importController.importLeads);
 
 export default router;

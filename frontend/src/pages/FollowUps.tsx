@@ -11,7 +11,7 @@ interface FollowUp {
     reason: string;
     follow_up_date: string;
     status: string;
-    school: {
+    lead: {
         _id: string;
         name: string;
         telephone?: string;
@@ -57,8 +57,8 @@ export default function FollowUps() {
                 </div>
                 <div>
                     <h3 className="font-semibold text-sm">
-                        <Link to={`/school/${item.school._id}`} className="hover:text-primary transition-colors">
-                            {item.school.name}
+                        <Link to={`/lead/${item.lead._id}`} className="hover:text-primary transition-colors">
+                            {item.lead.name}
                         </Link>
                     </h3>
                     <p className="text-xs text-muted-foreground">{item.reason}</p>
@@ -70,16 +70,16 @@ export default function FollowUps() {
                             <Calendar size={10} />
                             {item.follow_up_date}
                         </span>
-                        {item.school.telephone && (
+                        {item.lead.telephone && (
                             <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
                                 <Phone size={10} />
-                                {item.school.telephone}
+                                {item.lead.telephone}
                             </span>
                         )}
                     </div>
                 </div>
             </div>
-            <Link to={`/school/${item.school._id}`}>
+            <Link to={`/lead/${item.lead._id}`}>
                 <Button variant="ghost" size="sm" className="gap-1 text-xs">
                     <Eye size={12} />
                 </Button>

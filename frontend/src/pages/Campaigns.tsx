@@ -16,10 +16,17 @@ import {
   ExternalLink,
   ChevronRight,
   Folder,
-  School as SchoolIcon
+  Users,
+  Building,
+  CheckCircle,
+  AlertCircle,
+  FileSpreadsheet,
+  Upload,
+  RefreshCw,
+  ArrowRight
 } from "lucide-react";
 import { useCampaignStore } from "../store/campaignStore";
-import { useSchoolStore } from "../store/schoolStore";
+import { useLeadStore } from "../store/schoolStore";
 import { toast } from "sonner";
 import {
   Select,
@@ -43,16 +50,17 @@ interface Campaign {
   createdAt: string;
 }
 
-interface School {
+interface Lead {
   _id: string;
   name: string;
   type?: string;
-  grades?: string;
-  principal_name?: string;
-  principal_email?: string;
+  category_group?: string; // was grades
+  main_contact_name?: string; // was principal_name
+  main_contact_email?: string; // was principal_email
   telephone?: string;
   start_time?: string;
   end_time?: string;
+  address_number?: string; // new
   address?: string;
   city?: string;
   state?: string;
@@ -80,19 +88,19 @@ interface FollowUp {
 
 const Campaigns = () => {
   const { selectedCampaign, setSelectedCampaign } = useCampaignStore();
-  const { selectedSchool, setSelectedSchool } = useSchoolStore();
+  const { selectedLead, setSelectedLead } = useLeadStore();
 
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [schools, setSchools] = useState<School[]>([]);
+  const [leads, setLeads] = useState<Lead[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
   const [followUps, setFollowUps] = useState<FollowUp[]>([]);
 
   const [loadingCampaigns, setLoadingCampaigns] = useState(true);
-  const [loadingSchools, setLoadingSchools] = useState(false);
+  const [loadingLeads, setLoadingLeads] = useState(false);
   const [loadingDetails, setLoadingDetails] = useState(false);
 
   const [campaignSearch, setCampaignSearch] = useState("");
-  const [schoolSearch, setSchoolSearch] = useState("");
+  const [leadSearch, setLeadSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [statusLabels, setStatusLabels] = useState<string[]>([]);
   const [noteContent, setNoteContent] = useState("");
@@ -101,21 +109,28 @@ const Campaigns = () => {
   const [isCreateCampaignOpen, setIsCreateCampaignOpen] = useState(false);
   const [newCampaignName, setNewCampaignName] = useState("");
 
-  // Create School Modal
-  const [isCreateSchoolOpen, setIsCreateSchoolOpen] = useState(false);
-  const [schoolFormData, setSchoolFormData] = useState({
+  // Create Lead Modal
+  const [isCreateLeadOpen, setIsCreateLeadOpen] = useState(false);
+  const [leadFormData, setLeadFormData] = useState({
     name: "",
     type: "",
-    grades: "",
-    principal_name: "",
-    principal_email: "",
+    category_group: "",
+    main_contact_name: "",
+    main_contact_email: "",
     telephone: "",
     city: "",
     state: "",
     address: "",
+    address_number: "",
     zip: "",
     website: ""
   });
+
+  // Import Modal State
+  const [isImportOpen, setIsImportOpen] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importStatus, setImportStatus] = useState<"idle" | "uploading" | "success" | "error">("idle");
+  const [importResult, setImportResult] = useState<any>(null);
 
   // Follow-up Modal
   const [isFollowUpModalOpen, setIsFollowUpModalOpen] = useState(false);
@@ -133,25 +148,25 @@ const Campaigns = () => {
     setLoadingCampaigns(false);
   };
 
-  const fetchSchools = useCallback(async (compId: string) => {
-    setLoadingSchools(true);
+  const fetchLeads = useCallback(async (compId: string) => {
+    setLoadingLeads(true);
     try {
-      const r = await api.get(`/schools/campaign/${compId}`);
-      setSchools(r.data);
-      // Deselect school if it's not in the new campaign
-      if (selectedSchool && !r.data.find((s: School) => s._id === selectedSchool._id)) {
-        setSelectedSchool(null);
+      const r = await api.get(`/leads/campaign/${compId}`);
+      setLeads(r.data);
+      // Deselect lead if it's not in the new campaign
+      if (selectedLead && !r.data.find((s: Lead) => s._id === selectedLead._id)) {
+        setSelectedLead(null);
       }
     } catch { }
-    setLoadingSchools(false);
-  }, [selectedSchool, setSelectedSchool]);
+    setLoadingLeads(false);
+  }, [selectedLead, setSelectedLead]);
 
-  const fetchDetails = useCallback(async (schoolId: string) => {
+  const fetchDetails = useCallback(async (leadId: string) => {
     setLoadingDetails(true);
     try {
       const [notesRes, followUpsRes] = await Promise.all([
-        api.get(`/notes/${schoolId}`),
-        api.get(`/followups/school/${schoolId}`),
+        api.get(`/notes/${leadId}`),
+        api.get(`/followups/lead/${leadId}`),
       ]);
       setNotes(notesRes.data);
       setFollowUps(followUpsRes.data);
@@ -166,18 +181,18 @@ const Campaigns = () => {
 
   useEffect(() => {
     if (selectedCampaign) {
-      fetchSchools(selectedCampaign._id);
+      fetchLeads(selectedCampaign._id);
     } else {
-      setSchools([]);
-      setSelectedSchool(null);
+      setLeads([]);
+      setSelectedLead(null);
     }
   }, [selectedCampaign?._id]);
 
   useEffect(() => {
-    if (selectedSchool) {
-      fetchDetails(selectedSchool._id);
+    if (selectedLead) {
+      fetchDetails(selectedLead._id);
     }
-  }, [selectedSchool?._id, fetchDetails]);
+  }, [selectedLead?._id, fetchDetails]);
 
   // --- Handlers ---
 
@@ -193,55 +208,73 @@ const Campaigns = () => {
     } catch { }
   };
 
-  const createSchool = async () => {
-    if (!selectedCampaign || !schoolFormData.name.trim()) return;
+  const createLead = async () => {
+    if (!selectedCampaign || !leadFormData.name.trim()) return;
     try {
-      const res = await api.post("/schools", {
-        ...schoolFormData,
+      const res = await api.post("/leads", {
+        ...leadFormData,
         campaign_id: selectedCampaign._id
       });
-      toast.success("School created");
-      setIsCreateSchoolOpen(false);
-      setSchoolFormData({
-        name: "", type: "", grades: "", principal_name: "", principal_email: "",
-        telephone: "", city: "", state: "", address: "", zip: "", website: ""
+      toast.success("Lead created");
+      setIsCreateLeadOpen(false);
+      setLeadFormData({
+        name: "", type: "", category_group: "", main_contact_name: "", main_contact_email: "",
+        telephone: "", city: "", state: "", address: "", address_number: "", zip: "", website: ""
       });
-      await fetchSchools(selectedCampaign._id);
-      setSelectedSchool(res.data);
+      await fetchLeads(selectedCampaign._id);
+      setSelectedLead(res.data);
     } catch { }
   };
 
-  const handleStatusChange = async (newStatus: string) => {
-    if (!selectedSchool) return;
+  const handleImport = async () => {
+    if (!importFile || !selectedCampaign) return;
+    const formData = new FormData();
+    formData.append("file", importFile);
+    
+    setImportStatus("uploading");
     try {
-      const res = await api.patch(`/schools/${selectedSchool._id}`, { status: newStatus });
-      setSelectedSchool(res.data);
-      setSchools(prev => prev.map(s => s._id === res.data._id ? res.data : s));
+      const res = await api.post(`/campaigns/${selectedCampaign._id}/import`, formData);
+      setImportResult(res.data);
+      setImportStatus("success");
+      toast.success("Import successful");
+      await fetchLeads(selectedCampaign._id);
+    } catch {
+      setImportStatus("error");
+      toast.error("Import failed");
+    }
+  };
+
+  const handleStatusChange = async (newStatus: string) => {
+    if (!selectedLead) return;
+    try {
+      const res = await api.patch(`/leads/${selectedLead._id}`, { status: newStatus });
+      setSelectedLead(res.data);
+      setLeads(prev => prev.map(s => s._id === res.data._id ? res.data : s));
       toast.success(`Status updated to ${newStatus}`);
     } catch { }
   };
 
   const addNote = async () => {
-    if (!selectedSchool || !noteContent.trim()) return;
+    if (!selectedLead || !noteContent.trim()) return;
     try {
-      await api.post(`/notes/${selectedSchool._id}`, { content: noteContent });
+      await api.post(`/notes/${selectedLead._id}`, { content: noteContent });
       toast.success("Note added");
       setNoteContent("");
 
-      const [notesRes, schoolRes] = await Promise.all([
-        api.get(`/notes/${selectedSchool._id}`),
-        api.get(`/schools/${selectedSchool._id}`)
+      const [notesRes, leadRes] = await Promise.all([
+        api.get(`/notes/${selectedLead._id}`),
+        api.get(`/leads/${selectedLead._id}`)
       ]);
       setNotes(notesRes.data);
-      setSelectedSchool(schoolRes.data);
-      setSchools(prev => prev.map(s => s._id === schoolRes.data._id ? schoolRes.data : s));
+      setSelectedLead(leadRes.data);
+      setLeads(prev => prev.map(s => s._id === leadRes.data._id ? leadRes.data : s));
     } catch { }
   };
 
   const submitFollowUp = async () => {
-    if (!selectedSchool || !followUpDate) return;
+    if (!selectedLead || !followUpDate) return;
     try {
-      await api.post(`/followups/${selectedSchool._id}`, {
+      await api.post(`/followups/${selectedLead._id}`, {
         follow_up_date: followUpDate,
         reason: followUpReason
       });
@@ -250,24 +283,24 @@ const Campaigns = () => {
       setFollowUpDate("");
       setFollowUpReason("");
 
-      const r = await api.get(`/followups/school/${selectedSchool._id}`);
+      const r = await api.get(`/followups/lead/${selectedLead._id}`);
       setFollowUps(r.data);
     } catch { }
   };
 
   const markFollowupDone = async (fuId: string) => {
-    if (!selectedSchool) return;
+    if (!selectedLead) return;
     try {
       await api.put(`/followups/${fuId}/complete`);
       toast.success("Follow-up completed");
 
-      const [fuRes, schoolRes] = await Promise.all([
-        api.get(`/followups/school/${selectedSchool._id}`),
-        api.get(`/schools/${selectedSchool._id}`)
+      const [fuRes, leadRes] = await Promise.all([
+        api.get(`/followups/lead/${selectedLead._id}`),
+        api.get(`/leads/${selectedLead._id}`)
       ]);
       setFollowUps(fuRes.data);
-      setSelectedSchool(schoolRes.data);
-      setSchools(prev => prev.map(s => s._id === schoolRes.data._id ? schoolRes.data : s));
+      setSelectedLead(leadRes.data);
+      setLeads(prev => prev.map(s => s._id === leadRes.data._id ? leadRes.data : s));
     } catch { }
   };
 
@@ -276,9 +309,9 @@ const Campaigns = () => {
     c.name.toLowerCase().includes(campaignSearch.toLowerCase())
   );
 
-  const filteredSchools = schools.filter(s => {
-    const matchesSearch = s.name.toLowerCase().includes(schoolSearch.toLowerCase()) ||
-      s.city?.toLowerCase().includes(schoolSearch.toLowerCase());
+  const filteredLeads = leads.filter(s => {
+    const matchesSearch = s.name.toLowerCase().includes(leadSearch.toLowerCase()) ||
+      s.city?.toLowerCase().includes(leadSearch.toLowerCase());
     const matchesStatus = statusFilter === "all" || s.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
@@ -325,14 +358,14 @@ const Campaigns = () => {
           </div>
         </div>
 
-        {/* --- PANEL 2: Schools --- */}
+        {/* --- PANEL 2: Leads --- */}
         <div className="w-full md:w-80 flex flex-col bg-card border rounded-xl shadow-sm overflow-hidden shrink-0">
           {!selectedCampaign ? (
             <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-muted-foreground transition-all duration-300 ease-in-out">
               <div className="w-12 h-12 bg-accent rounded-full flex items-center justify-center mb-3">
                 <ChevronRight size={24} />
               </div>
-              <p className="text-xs font-medium">Select a campaign to view schools</p>
+              <p className="text-xs font-medium">Select a campaign to view leads</p>
             </div>
           ) : (
             <>
@@ -340,10 +373,18 @@ const Campaigns = () => {
                 <div className="flex items-center justify-between">
                   <h2 className="font-bold text-sm truncate">{selectedCampaign.name}</h2>
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] bg-accent px-1.5 py-0.5 rounded-full font-bold text-muted-foreground">{filteredSchools.length}</span>
+                    <span className="text-[10px] bg-accent px-1.5 py-0.5 rounded-full font-bold text-muted-foreground">{filteredLeads.length}</span>
                     <button
-                      onClick={() => setIsCreateSchoolOpen(true)}
+                      onClick={() => setIsImportOpen(true)}
                       className="p-1 hover:bg-accent rounded text-primary transition-colors"
+                      title="Import Excel/CSV"
+                    >
+                      <Upload size={16} />
+                    </button>
+                    <button
+                      onClick={() => setIsCreateLeadOpen(true)}
+                      className="p-1 hover:bg-accent rounded text-primary transition-colors"
+                      title="Add Lead"
                     >
                       <Plus size={16} />
                     </button>
@@ -352,10 +393,10 @@ const Campaigns = () => {
                 <div className="relative">
                   <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" size={12} />
                   <input
-                    placeholder="Search schools..."
+                    placeholder="Search leads..."
                     className="w-full bg-accent/50 border-none rounded-lg pl-8 pr-2 py-1.5 text-xs focus:ring-1 ring-primary outline-none"
-                    value={schoolSearch}
-                    onChange={e => setSchoolSearch(e.target.value)}
+                    value={leadSearch}
+                    onChange={e => setLeadSearch(e.target.value)}
                   />
                 </div>
                 <div className="flex items-center gap-2">
@@ -371,16 +412,16 @@ const Campaigns = () => {
                 </div>
               </div>
               <div className="flex-1 overflow-y-auto divide-y divide-border/50 max-h-[400px] md:max-h-none">
-                {loadingSchools ? (
-                  <div className="p-8 text-center text-[10px] text-muted-foreground animate-pulse">Loading schools...</div>
-                ) : filteredSchools.length === 0 ? (
-                  <div className="p-8 text-center text-[10px] text-muted-foreground">No schools found.</div>
+                {loadingLeads ? (
+                  <div className="p-8 text-center text-[10px] text-muted-foreground animate-pulse">Loading leads...</div>
+                ) : filteredLeads.length === 0 ? (
+                  <div className="p-8 text-center text-[10px] text-muted-foreground">No leads found.</div>
                 ) : (
-                  filteredSchools.map(s => (
+                  filteredLeads.map(s => (
                     <button
                       key={s._id}
-                      onClick={() => setSelectedSchool(s)}
-                      className={`w-full text-left p-3.5 hover:bg-gray-50 dark:hover:bg-accent/20 cursor-pointer transition-all duration-200 border-l-2 ${selectedSchool?._id === s._id ? "bg-accent border-primary" : "border-transparent"}`}
+                      onClick={() => setSelectedLead(s)}
+                      className={`w-full text-left p-3.5 hover:bg-gray-50 dark:hover:bg-accent/20 cursor-pointer transition-all duration-200 border-l-2 ${selectedLead?._id === s._id ? "bg-accent border-primary" : "border-transparent"}`}
                     >
                       <div className="font-semibold text-xs truncate">{s.name}</div>
                       <div className="flex items-center justify-between mt-1">
@@ -408,13 +449,13 @@ const Campaigns = () => {
 
         {/* --- PANEL 3: Details & News --- */}
         <div className="flex-1 flex flex-col min-w-0 min-h-[500px] md:min-h-0">
-          {!selectedSchool ? (
+          {!selectedLead ? (
             <div className="flex-1 bg-card border rounded-xl shadow-sm flex flex-col items-center justify-center text-muted-foreground p-12 text-center transition-all duration-300 ease-in-out">
-              <div className="w-16 h-16 bg-accent rounded-full flex items-center justify-center mb-4">
-                <SchoolIcon size={32} />
+              <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center text-primary mb-4">
+                <Building size={32} />
               </div>
-              <h3 className="font-bold text-foreground">No School Selected</h3>
-              <p className="text-xs max-w-xs mt-2">Select a school to view profile and notes</p>
+              <h3 className="font-bold text-foreground">No Lead Selected</h3>
+              <p className="text-xs max-w-xs mt-2">Select a lead to view profile and notes</p>
             </div>
           ) : (
             <div className="flex-1 flex flex-col lg:flex-row gap-4 overflow-hidden">
@@ -423,10 +464,10 @@ const Campaigns = () => {
                 <div className="bg-card border rounded-xl p-4 shadow-sm shrink-0">
                   <div className="flex items-start justify-between">
                     <div>
-                      <h1 className="text-xl font-bold text-foreground leading-tight">{selectedSchool.name}</h1>
+                      <h1 className="text-xl font-bold text-foreground leading-tight">{selectedLead.name}</h1>
                       <div className="flex items-center gap-3 mt-1.5">
-                        <span className="text-xs text-muted-foreground flex items-center gap-1"><Info size={12} /> {selectedSchool.type || "School"}</span>
-                        <span className="text-xs text-muted-foreground flex items-center gap-1"><MapPin size={12} /> {selectedSchool.city}</span>
+                        <span className="text-xs text-muted-foreground flex items-center gap-1"><Info size={12} /> {selectedLead.type || "Lead"}</span>
+                        <span className="text-xs text-muted-foreground flex items-center gap-1"><MapPin size={12} /> {selectedLead.city}</span>
                       </div>
                     </div>
                     <button onClick={() => setIsFollowUpModalOpen(true)} className="p-1 hover:bg-accent rounded text-primary transition-colors"><Plus size={14} /></button>
@@ -480,7 +521,7 @@ const Campaigns = () => {
                 <div className="bg-card border rounded-xl p-4 shadow-sm space-y-4">
                   <h3 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Relationship</h3>
                   <div className="space-y-3">
-                    <Select value={selectedSchool.status} onValueChange={handleStatusChange}>
+                    <Select value={selectedLead.status} onValueChange={handleStatusChange}>
                       <SelectTrigger className="h-8 text-xs md:w-full dark:bg-card">
                         <SelectValue />
                       </SelectTrigger>
@@ -488,9 +529,9 @@ const Campaigns = () => {
                         {statusLabels.map(opt => <SelectItem key={opt} value={opt}>{opt}</SelectItem>)}
                       </SelectContent>
                     </Select>
-                    {selectedSchool.last_contacted && (
+                    {selectedLead.last_contacted && (
                       <div className="text-xs text-gray-400 flex items-center gap-1.5 bg-accent/20 dark:bg-accent/10 p-2 rounded-lg">
-                        <Clock size={12} /> Last contacted: {new Date(selectedSchool.last_contacted).toLocaleDateString()}
+                        <Clock size={12} /> Last contacted: {new Date(selectedLead.last_contacted).toLocaleDateString()}
                       </div>
                     )}
                   </div>
@@ -501,19 +542,19 @@ const Campaigns = () => {
                   <div className="space-y-3.5">
                     <div className="flex items-center gap-3 text-xs">
                       <div className="p-1.5 bg-accent dark:bg-accent/10 rounded text-muted-foreground"><Phone size={14} /></div>
-                      <span className="truncate">{selectedSchool.telephone || "N/A"}</span>
+                      <span className="truncate">{selectedLead.telephone || "N/A"}</span>
                     </div>
                     <div className="flex items-center gap-3 text-xs">
                       <div className="p-1.5 bg-accent dark:bg-accent/10 rounded text-muted-foreground"><Mail size={14} /></div>
-                      <span className="truncate">{selectedSchool.principal_email || "N/A"}</span>
+                      <span className="truncate">{selectedLead.main_contact_email || "N/A"}</span>
                     </div>
                     <div className="flex items-center gap-3 text-xs">
                       <div className="p-1.5 bg-accent dark:bg-accent/10 rounded text-muted-foreground"><Globe size={14} /></div>
-                      {selectedSchool.website ? <a href={selectedSchool.website} target="_blank" className="text-primary hover:underline truncate">Website</a> : <span>N/A</span>}
+                      {selectedLead.website ? <a href={selectedLead.website} target="_blank" className="text-primary hover:underline truncate">Website</a> : <span>N/A</span>}
                     </div>
                     <div className="flex items-start gap-3 text-xs">
                       <div className="p-1.5 bg-accent dark:bg-accent/10 rounded text-muted-foreground shrink-0"><MapPin size={14} /></div>
-                      <span className="leading-tight">{selectedSchool.address}<br />{selectedSchool.city}, {selectedSchool.state}</span>
+                      <span className="leading-tight">{selectedLead.address_number} {selectedLead.address}<br />{selectedLead.city}, {selectedLead.state} {selectedLead.zip}</span>
                     </div>
                   </div>
                 </div>
@@ -581,17 +622,17 @@ const Campaigns = () => {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isCreateSchoolOpen} onOpenChange={setIsCreateSchoolOpen}>
+      <Dialog open={isCreateLeadOpen} onOpenChange={setIsCreateLeadOpen}>
         <DialogContent className="sm:max-w-2xl dark:bg-card">
-          <DialogHeader><DialogTitle className="dark:text-foreground">Add School to {selectedCampaign?.name}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle className="dark:text-foreground">Add Lead to {selectedCampaign?.name}</DialogTitle></DialogHeader>
           <div className="grid grid-cols-2 gap-4 py-2 overflow-y-auto max-h-[70vh] p-1">
             <div className="col-span-2 space-y-1">
-              <label className="text-xs font-medium">School Name *</label>
+              <label className="text-xs font-medium">Name / Organization *</label>
               <input
                 className="input-field"
                 placeholder="Name"
-                value={schoolFormData.name}
-                onChange={e => setSchoolFormData({ ...schoolFormData, name: e.target.value })}
+                value={leadFormData.name}
+                onChange={e => setLeadFormData({ ...leadFormData, name: e.target.value })}
               />
             </div>
             <div className="space-y-1">
@@ -599,44 +640,73 @@ const Campaigns = () => {
               <input
                 className="input-field"
                 placeholder="Public/Private"
-                value={schoolFormData.type}
-                onChange={e => setSchoolFormData({ ...schoolFormData, type: e.target.value })}
+                value={leadFormData.type}
+                onChange={e => setLeadFormData({ ...leadFormData, type: e.target.value })}
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium">Grades</label>
+              <label className="text-xs font-medium">Category / Group</label>
               <input
                 className="input-field"
-                placeholder="PK-5"
-                value={schoolFormData.grades}
-                onChange={e => setSchoolFormData({ ...schoolFormData, grades: e.target.value })}
+                placeholder="Category"
+                value={leadFormData.category_group}
+                onChange={e => setLeadFormData({ ...leadFormData, category_group: e.target.value })}
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium">Principal Name</label>
+              <label className="text-xs font-medium">Main Contact Name</label>
               <input
                 className="input-field"
                 placeholder="John Doe"
-                value={schoolFormData.principal_name}
-                onChange={e => setSchoolFormData({ ...schoolFormData, principal_name: e.target.value })}
+                value={leadFormData.main_contact_name}
+                onChange={e => setLeadFormData({ ...leadFormData, main_contact_name: e.target.value })}
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium">Principal Email</label>
+              <label className="text-xs font-medium">Main Contact Email</label>
               <input
                 className="input-field"
-                placeholder="email@school.edu"
-                value={schoolFormData.principal_email}
-                onChange={e => setSchoolFormData({ ...schoolFormData, principal_email: e.target.value })}
+                placeholder="email@example.com"
+                value={leadFormData.main_contact_email}
+                onChange={e => setLeadFormData({ ...leadFormData, main_contact_email: e.target.value })}
               />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium">Phone Number</label>
+              <input
+                className="input-field"
+                placeholder="(555) 000-0000"
+                value={leadFormData.telephone}
+                onChange={e => setLeadFormData({ ...leadFormData, telephone: e.target.value })}
+              />
+            </div>
+            <div className="col-span-2 grid grid-cols-4 gap-2">
+              <div className="col-span-1 space-y-1">
+                <label className="text-xs font-medium">Number</label>
+                <input
+                  className="input-field"
+                  placeholder="123"
+                  value={leadFormData.address_number}
+                  onChange={e => setLeadFormData({ ...leadFormData, address_number: e.target.value })}
+                />
+              </div>
+              <div className="col-span-3 space-y-1">
+                <label className="text-xs font-medium">Address</label>
+                <input
+                  className="input-field"
+                  placeholder="Street"
+                  value={leadFormData.address}
+                  onChange={e => setLeadFormData({ ...leadFormData, address: e.target.value })}
+                />
+              </div>
             </div>
             <div className="space-y-1">
               <label className="text-xs font-medium">City</label>
               <input
                 className="input-field"
                 placeholder="City"
-                value={schoolFormData.city}
-                onChange={e => setSchoolFormData({ ...schoolFormData, city: e.target.value })}
+                value={leadFormData.city}
+                onChange={e => setLeadFormData({ ...leadFormData, city: e.target.value })}
               />
             </div>
             <div className="space-y-1">
@@ -644,15 +714,131 @@ const Campaigns = () => {
               <input
                 className="input-field"
                 placeholder="ST"
-                value={schoolFormData.state}
-                onChange={e => setSchoolFormData({ ...schoolFormData, state: e.target.value })}
+                value={leadFormData.state}
+                onChange={e => setLeadFormData({ ...leadFormData, state: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium">Zip</label>
+              <input
+                className="input-field"
+                placeholder="12345"
+                value={leadFormData.zip}
+                onChange={e => setLeadFormData({ ...leadFormData, zip: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium">Website</label>
+              <input
+                className="input-field"
+                placeholder="https://example.com"
+                value={leadFormData.website}
+                onChange={e => setLeadFormData({ ...leadFormData, website: e.target.value })}
               />
             </div>
           </div>
           <DialogFooter>
-            <button className="btn-secondary" onClick={() => setIsCreateSchoolOpen(false)}>Cancel</button>
-            <button className="btn-primary" disabled={!schoolFormData.name.trim()} onClick={createSchool}>Create School</button>
+            <button className="btn-secondary" onClick={() => setIsCreateLeadOpen(false)}>Cancel</button>
+            <button className="btn-primary" disabled={!leadFormData.name.trim()} onClick={createLead}>Create Lead</button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Import Modal */}
+      <Dialog open={isImportOpen} onOpenChange={(open) => {
+        setIsImportOpen(open);
+        if (!open) {
+          setImportFile(null);
+          setImportStatus("idle");
+          setImportResult(null);
+        }
+      }}>
+        <DialogContent className="sm:max-w-md dark:bg-card">
+          <DialogHeader>
+            <DialogTitle className="dark:text-foreground">Import Leads to {selectedCampaign?.name}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {importStatus === "success" ? (
+              <div className="text-center space-y-4">
+                <div className="w-12 h-12 bg-success/10 rounded-full flex items-center justify-center mx-auto text-success">
+                  <ArrowRight size={24} />
+                </div>
+                <div>
+                  <p className="font-bold">Import Successful!</p>
+                  <p className="text-xs text-muted-foreground mt-1">Processed {importResult?.totalRows} rows</p>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                  <div className="p-4 bg-background rounded-xl border">
+                    <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest mb-1">Total Leads</p>
+                    <p className="text-2xl font-bold">{importResult?.imported}</p>
+                  </div>
+                  <div className="p-2 bg-accent/5 rounded-lg">
+                    <p className="text-lg font-bold text-warning">{importResult?.duplicates}</p>
+                    <p className="text-[8px] uppercase font-bold text-muted-foreground">Skipped</p>
+                  </div>
+                  <div className="p-2 bg-accent/5 rounded-lg">
+                    <p className="text-lg font-bold text-destructive">{importResult?.skipped}</p>
+                    <p className="text-[8px] uppercase font-bold text-muted-foreground">Errors</p>
+                  </div>
+                </div>
+                {importResult?.errors?.length > 0 && (
+                  <div className="text-left text-[10px] bg-destructive/5 p-2 rounded max-h-[100px] overflow-y-auto">
+                    {importResult.errors.map((e: any, i: number) => (
+                      <p key={i} className="text-destructive font-medium">Row {e.row}: {e.reason}</p>
+                    ))}
+                  </div>
+                )}
+                <button className="btn-primary w-full" onClick={() => setIsImportOpen(false)}>Done</button>
+              </div>
+            ) : (
+              <>
+                <div 
+                  className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${importFile ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"}`}
+                  onClick={() => document.getElementById('import-input')?.click()}
+                >
+                  <input 
+                    id="import-input"
+                    type="file" 
+                    className="hidden" 
+                    accept=".xlsx,.csv" 
+                    onChange={(e) => setImportFile(e.target.files?.[0] || null)}
+                  />
+                  <div className="w-12 h-12 bg-accent/10 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <Upload className="text-muted-foreground" size={24} />
+                  </div>
+                  {importFile ? (
+                    <div>
+                      <p className="text-sm font-bold truncate px-4">{importFile.name}</p>
+                      <button className="text-[10px] text-destructive font-bold uppercase mt-2" onClick={(e) => { e.stopPropagation(); setImportFile(null); }}>Remove</button>
+                    </div>
+                  ) : (
+                    <div>
+                      <p className="text-sm font-bold">Click to upload spreadsheet</p>
+                      <p className="text-xs text-muted-foreground mt-1">Supports .xlsx and .csv</p>
+                    </div>
+                  )}
+                </div>
+                <div className="bg-accent/5 p-3 rounded-lg border">
+                  <h4 className="text-[10px] font-bold uppercase text-muted-foreground mb-2">Supported Columns</h4>
+                  <p className="text-[9px] text-muted-foreground leading-relaxed">
+                    Name/Organization, Type, Category/Group, Main Contact Name, Main Contact Email, Telephone, Start Time, End Time, Number, Address, City, Zip, Website, Contacted Status, Notes
+                  </p>
+                </div>
+                <DialogFooter>
+                  <button className="btn-secondary" onClick={() => setIsImportOpen(false)}>Cancel</button>
+                  <button 
+                    className="btn-primary" 
+                    disabled={!importFile || importStatus === "uploading"}
+                    onClick={handleImport}
+                  >
+                    {importStatus === "uploading" ? (
+                      <><RefreshCw size={14} className="animate-spin mr-2" /> Working...</>
+                    ) : "Start Import"}
+                  </button>
+                </DialogFooter>
+              </>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
 

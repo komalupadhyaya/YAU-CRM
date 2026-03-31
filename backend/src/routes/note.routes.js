@@ -3,7 +3,7 @@ import * as noteController from '../controllers/note.controller.js';
 
 const router = express.Router();
 
-router.get('/:schoolId', noteController.getNotesBySchool);
+router.get('/:schoolId', noteController.getNotesByLead);
 router.post('/:schoolId', noteController.createNote);
 
 export default router;

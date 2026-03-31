@@ -10,7 +10,7 @@ interface Campaign {
     name: string;
 }
 
-export default function CreateSchool() {
+export default function CreateLead() {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const initialCampaignId = searchParams.get("campaignId") || "";
@@ -24,12 +24,13 @@ export default function CreateSchool() {
         campaign_id: initialCampaignId,
         name: "",
         type: "",
-        grades: "",
-        principal_name: "",
-        principal_email: "",
+        category_group: "", // was grades
+        main_contact_name: "", // was principal_name
+        main_contact_email: "", // was principal_email
         telephone: "",
         start_time: "",
         end_time: "",
+        address_number: "", // new
         address: "",
         city: "",
         state: "",
@@ -53,10 +54,10 @@ export default function CreateSchool() {
 
     const validate = () => {
         const newErrors: Record<string, string> = {};
-        if (!formData.name.trim()) newErrors.name = "School name is required";
+        if (!formData.name.trim()) newErrors.name = "Name / Organization is required";
         if (!formData.campaign_id) newErrors.campaign_id = "Please select a campaign";
-        if (formData.principal_email && !/\S+@\S+\.\S+/.test(formData.principal_email)) {
-            newErrors.principal_email = "Invalid email format";
+        if (formData.main_contact_email && !/\S+@\S+\.\S+/.test(formData.main_contact_email)) {
+            newErrors.main_contact_email = "Invalid email format";
         }
         setErrors(newErrors);
         return Object.keys(newErrors).length === 0;
@@ -87,11 +88,11 @@ export default function CreateSchool() {
         }
 
         try {
-            const res = await api.post("/schools", formData);
-            toast.success("School created successfully!");
-            navigate("/school/" + res.data._id);
+            const res = await api.post("/leads", formData);
+            toast.success("Lead created successfully!");
+            navigate("/lead/" + res.data._id);
         } catch (err: any) {
-            toast.error(err.response?.data?.error || "Failed to create school.");
+            toast.error(err.response?.data?.error || "Failed to create lead.");
         }
     };
 
@@ -117,9 +118,9 @@ export default function CreateSchool() {
 
             <div className="max-w-4xl mx-auto pb-12">
                 <div className="flex items-center justify-between mb-6">
-                    <h1 className="text-2xl font-bold text-foreground">Add New School</h1>
+                    <h1 className="text-2xl font-bold text-foreground">Add New Lead</h1>
                     <button onClick={handleSubmit} className="btn-primary flex items-center gap-2">
-                        <Save size={16} /> Save School
+                        <Save size={16} /> Save Lead
                     </button>
                 </div>
 
@@ -170,13 +171,13 @@ export default function CreateSchool() {
                     </div>
 
                     <div className="page-card grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <h2 className="md:col-span-2 font-semibold text-foreground mb-2">School Details</h2>
+                        <h2 className="md:col-span-2 font-semibold text-foreground mb-2">Lead Details</h2>
                         <div className="md:col-span-2">
-                            <label className="block text-sm font-medium text-foreground mb-1.5">School Name *</label>
+                            <label className="block text-sm font-medium text-foreground mb-1.5">Name / Organization *</label>
                             <input
                                 name="name"
                                 className={`input-field ${errors.name ? "border-destructive focus:ring-destructive/20" : ""}`}
-                                placeholder="Enter school name"
+                                placeholder="Enter name or organization"
                                 value={formData.name}
                                 onChange={handleChange}
                             />
@@ -184,13 +185,13 @@ export default function CreateSchool() {
                         </div>
 
                         <div>
-                            <label className="block text-sm font-medium text-foreground mb-1.5">School Type</label>
-                            <input name="type" className="input-field" placeholder="e.g. Public, Private, Charter" value={formData.type} onChange={handleChange} />
+                            <label className="block text-sm font-medium text-foreground mb-1.5">Lead Type</label>
+                            <input name="type" className="input-field" placeholder="e.g. Public, Private, Parent" value={formData.type} onChange={handleChange} />
                         </div>
 
                         <div>
-                            <label className="block text-sm font-medium text-foreground mb-1.5">Grades</label>
-                            <input name="grades" className="input-field" placeholder="e.g. PK–5, 6-8, 9-12" value={formData.grades} onChange={handleChange} />
+                            <label className="block text-sm font-medium text-foreground mb-1.5">Category / Group</label>
+                            <input name="category_group" className="input-field" placeholder="e.g. PK–5, Partner, etc." value={formData.category_group} onChange={handleChange} />
                         </div>
 
                         <div>
@@ -199,35 +200,35 @@ export default function CreateSchool() {
                         </div>
 
                         <div>
-                            <label className="block text-sm font-medium text-foreground mb-1.5">Principal / POC Name</label>
-                            <input name="principal_name" className="input-field" placeholder="Enter principal name" value={formData.principal_name} onChange={handleChange} />
+                            <label className="block text-sm font-medium text-foreground mb-1.5">Main Contact Name</label>
+                            <input name="main_contact_name" className="input-field" placeholder="Enter contact name" value={formData.main_contact_name} onChange={handleChange} />
                         </div>
 
                         <div>
-                            <label className="block text-sm font-medium text-foreground mb-1.5">Principal Email</label>
+                            <label className="block text-sm font-medium text-foreground mb-1.5">Main Contact Email</label>
                             <input
-                                name="principal_email"
+                                name="main_contact_email"
                                 type="email"
-                                className={`input-field ${errors.principal_email ? "border-destructive focus:ring-destructive/20" : ""}`}
-                                placeholder="principal@school.edu"
-                                value={formData.principal_email}
+                                className={`input-field ${errors.main_contact_email ? "border-destructive focus:ring-destructive/20" : ""}`}
+                                placeholder="contact@example.com"
+                                value={formData.main_contact_email}
                                 onChange={handleChange}
                             />
-                            {errors.principal_email && <p className="text-xs text-destructive mt-1">{errors.principal_email}</p>}
+                            {errors.main_contact_email && <p className="text-xs text-destructive mt-1">{errors.main_contact_email}</p>}
                         </div>
 
                         <div>
                             <label className="block text-sm font-medium text-foreground mb-1.5">Website</label>
-                            <input name="website" className="input-field" placeholder="https://www.school.edu" value={formData.website} onChange={handleChange} />
+                            <input name="website" className="input-field" placeholder="https://www.example.com" value={formData.website} onChange={handleChange} />
                         </div>
 
                         <div className="grid grid-cols-2 gap-4">
                             <div>
-                                <label className="block text-sm font-medium text-foreground mb-1.5">School Start Time</label>
+                                <label className="block text-sm font-medium text-foreground mb-1.5">Start Time</label>
                                 <input name="start_time" type="time" className="input-field" value={formData.start_time} onChange={handleChange} />
                             </div>
                             <div>
-                                <label className="block text-sm font-medium text-foreground mb-1.5">School End Time</label>
+                                <label className="block text-sm font-medium text-foreground mb-1.5">End Time</label>
                                 <input name="end_time" type="time" className="input-field" value={formData.end_time} onChange={handleChange} />
                             </div>
                         </div>
@@ -235,9 +236,13 @@ export default function CreateSchool() {
 
                     <div className="page-card grid grid-cols-1 md:grid-cols-2 gap-6">
                         <h2 className="md:col-span-2 font-semibold text-foreground mb-2">Address Details</h2>
-                        <div className="md:col-span-2">
-                            <label className="block text-sm font-medium text-foreground mb-1.5">Street Address</label>
-                            <input name="address" className="input-field" placeholder="123 Education Lane" value={formData.address} onChange={handleChange} />
+                        <div className="col-span-1">
+                            <label className="block text-sm font-medium text-foreground mb-1.5">Number</label>
+                            <input name="address_number" className="input-field" placeholder="123" value={formData.address_number} onChange={handleChange} />
+                        </div>
+                        <div className="col-span-1">
+                            <label className="block text-sm font-medium text-foreground mb-1.5">Street Name</label>
+                            <input name="address" className="input-field" placeholder="Main St" value={formData.address} onChange={handleChange} />
                         </div>
 
                         <div>
@@ -260,7 +265,7 @@ export default function CreateSchool() {
                     <div className="pt-4 border-t border-border flex justify-end gap-3">
                         <button type="button" onClick={() => navigate(-1)} className="btn-secondary">Cancel</button>
                         <button type="submit" className="btn-primary flex items-center gap-2">
-                            <Save size={18} /> Create School
+                            <Save size={18} /> Create Lead
                         </button>
                     </div>
                 </form>

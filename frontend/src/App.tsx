@@ -5,10 +5,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
-import Schools from "./pages/Schools";
-import SchoolDetail from "./pages/SchoolDetail";
-import Import from "./pages/Import";
-import CreateSchool from "./pages/CreateSchool";
+import LeadDetail from "./pages/LeadDetail";
+import CreateLead from "./pages/CreateLead";
 import Campaigns from "./pages/Campaigns";
 import FollowUps from "./pages/FollowUps"
 import Reports from "./pages/Reports";
@@ -42,9 +40,8 @@ const App = () => {
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/dashboard" element={<RequireAuth><Dashboard /></RequireAuth>} />
-            <Route path="/schools" element={<RequireAuth><Schools /></RequireAuth>} />
-            <Route path="/school/:id" element={<RequireAuth><SchoolDetail /></RequireAuth>} />
-            <Route path="/schools/create" element={<RequireAuth><CreateSchool /></RequireAuth>} />
+            <Route path="/lead/:id" element={<RequireAuth><LeadDetail /></RequireAuth>} />
+            <Route path="/leads/create" element={<RequireAuth><CreateLead /></RequireAuth>} />
             <Route path="/campaigns" element={<RequireAuth><Campaigns /></RequireAuth>} />
             <Route path="/followups" element={<RequireAuth><FollowUps /></RequireAuth>} />
             <Route path="/reports" element={<RequireAuth><Reports /></RequireAuth>} />

@@ -4,7 +4,7 @@ import { toast } from "sonner";
 const API_URL =
   import.meta.env.VITE_API_URL ||
   (import.meta.env.PROD
-    ? "https://yau-crm-production.up.railway.app/api"
+    ? "https://api.yauapp.com/api"
     : "http://localhost:5000/api");
 
 const api = axios.create({

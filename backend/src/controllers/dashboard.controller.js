@@ -1,12 +1,11 @@
 import mongoose from 'mongoose';
 import Campaign from '../models/campaign.model.js';
-import School from '../models/school.model.js';
+import Lead from '../models/lead.model.js';
 import Followup from '../models/followup.model.js';
 import Settings from '../models/settings.model.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/dashboard  –  Consolidated real-time CRM snapshot
-// Supports query params: ?campaignId
 // ─────────────────────────────────────────────────────────────────────────────
 export const getConsolidatedDashboard = async (req, res, next) => {
     try {
@@ -14,26 +13,22 @@ export const getConsolidatedDashboard = async (req, res, next) => {
         const now = new Date();
         const todayStr = now.toISOString().slice(0, 10);
 
-        // Build status match for school-related aggregations
-        const schoolMatch = {};
+        const leadMatch = {};
         if (campaignId) {
-            schoolMatch.campaign_id = new mongoose.Types.ObjectId(campaignId);
+            leadMatch.campaign_id = new mongoose.Types.ObjectId(campaignId);
         }
 
-        // Run all aggregations in parallel
         const [
             totalCampaigns,
-            schoolAgg,
+            leadAgg,
             followupAgg,
             campaignSummaries,
             settings
         ] = await Promise.all([
-            // 1. Total campaigns (honors filter for consistency)
             Campaign.countDocuments(campaignId ? { _id: campaignId } : {}),
 
-            // 2. Total schools + grouped by status
-            School.aggregate([
-                { $match: schoolMatch },
+            Lead.aggregate([
+                { $match: leadMatch },
                 {
                     $group: {
                         _id: '$status',
@@ -42,20 +37,19 @@ export const getConsolidatedDashboard = async (req, res, next) => {
                 }
             ]),
 
-            // 3. Follow-up grouping (overdue / dueToday / upcoming)
             Followup.aggregate([
                 { $match: { status: 'pending' } },
                 ...(campaignId ? [
                     {
                         $lookup: {
-                            from: 'schools',
-                            localField: 'school_id',
+                            from: 'leads',
+                            localField: 'lead_id',
                             foreignField: '_id',
-                            as: 'school'
+                            as: 'lead'
                         }
                     },
-                    { $unwind: '$school' },
-                    { $match: { 'school.campaign_id': new mongoose.Types.ObjectId(campaignId) } }
+                    { $unwind: '$lead' },
+                    { $match: { 'lead.campaign_id': new mongoose.Types.ObjectId(campaignId) } }
                 ] : []),
                 {
                     $group: {
@@ -79,12 +73,11 @@ export const getConsolidatedDashboard = async (req, res, next) => {
                 }
             ]),
 
-            // 4. Acquisition Summaries
-            School.aggregate([
+            Lead.aggregate([
                 {
                     $group: {
                         _id: '$campaign_id',
-                        totalSchools: { $sum: 1 },
+                        totalLeads: { $sum: 1 },
                         meetingsScheduled: {
                             $sum: { $cond: [{ $eq: ['$status', 'Meeting Scheduled'] }, 1, 0] }
                         }
@@ -92,11 +85,9 @@ export const getConsolidatedDashboard = async (req, res, next) => {
                 }
             ]),
 
-            // 5. Fetch Status Labels from Settings
             Settings.findOne()
         ]);
 
-        // ── Process school aggregation with dynamic labels ────────────────────
         const statusLabels = settings?.statusLabels || [
             "Not Contacted",
             "Spoke to Office",
@@ -104,11 +95,11 @@ export const getConsolidatedDashboard = async (req, res, next) => {
             "Closed"
         ];
 
-        let totalSchools = 0;
+        let totalLeads = 0;
         const aggMap = {};
-        schoolAgg.forEach(s => {
+        leadAgg.forEach(s => {
             aggMap[s._id] = s.count;
-            totalSchools += s.count;
+            totalLeads += s.count;
         });
 
         const byStatus = statusLabels.map(label => ({
@@ -116,15 +107,14 @@ export const getConsolidatedDashboard = async (req, res, next) => {
             count: aggMap[label] || 0
         }));
 
-        // ── Process follow-up aggregation ─────────────────────────────────────
         const fuCounts = followupAgg[0] || { overdue: 0, dueToday: 0, upcoming: 0 };
 
         res.json({
             campaigns: {
                 total: totalCampaigns
             },
-            schools: {
-                total: totalSchools,
+            leads: {
+                total: totalLeads,
                 byStatus
             },
             followups: {
@@ -142,22 +132,13 @@ export const getConsolidatedDashboard = async (req, res, next) => {
     }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// LEGACY – kept to avoid breaking existing routes that depend on these handlers
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * GET /api/followups/dashboard
- * Returns the full list of pending follow-ups grouped into overdue/due/upcoming arrays.
- * Used by the frontend Dashboard for the detailed task panel.
- */
 export const getDashboardStats = async (req, res, next) => {
     try {
-        const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
+        const today = new Date().toISOString().slice(0, 10);
 
         const all = await Followup.find({ status: 'pending' })
             .populate({
-                path: 'school_id',
+                path: 'lead_id',
                 select: 'name telephone campaign_id',
                 populate: { path: 'campaign_id', select: 'name' }
             })
@@ -167,11 +148,11 @@ export const getDashboardStats = async (req, res, next) => {
             const data = f.toJSON();
             return {
                 ...data,
-                school_name: data.school_id?.name,
-                school_id_val: data.school_id?._id,
-                telephone: data.school_id?.telephone,
-                campaign_name: data.school_id?.campaign_id?.name,
-                campaign_id_val: data.school_id?.campaign_id?._id
+                lead_name: data.lead_id?.name, // school_name -> lead_name
+                lead_id_val: data.lead_id?._id, // school_id_val -> lead_id_val
+                telephone: data.lead_id?.telephone,
+                campaign_name: data.lead_id?.campaign_id?.name,
+                campaign_id_val: data.lead_id?.campaign_id?._id
             };
         });
 
@@ -185,21 +166,17 @@ export const getDashboardStats = async (req, res, next) => {
     }
 };
 
-/**
- * GET /api/schools/campaign-summaries
- * Used by the Campaign Acquisition Overview on the Dashboard.
- */
 export const getCampaignSummaries = async (req, res, next) => {
     try {
         const settings = await Settings.findOne();
         const statusLabels = settings?.statusLabels || [];
         const meetingLabel = statusLabels.find(l => l.toLowerCase().includes("meeting")) || "Meeting Scheduled";
 
-        const summaries = await School.aggregate([
+        const summaries = await Lead.aggregate([
             {
                 $group: {
                     _id: '$campaign_id',
-                    totalSchools: { $sum: 1 },
+                    totalLeads: { $sum: 1 },
                     meetingsScheduled: {
                         $sum: { $cond: [{ $eq: ['$status', meetingLabel] }, 1, 0] }
                     }
@@ -212,10 +189,6 @@ export const getCampaignSummaries = async (req, res, next) => {
     }
 };
 
-/**
- * GET /api/schools/campaign/:campaignId/school-counts
- * Returns total and contacted schools for a given campaign.
- */
 export const getCampaignCounts = async (req, res, next) => {
     try {
         const settings = await Settings.findOne();
@@ -223,13 +196,13 @@ export const getCampaignCounts = async (req, res, next) => {
         const initialStatus = statusLabels[0];
 
         const campaign_id = req.params.campaignId;
-        const totalSchools = await School.countDocuments({ campaign_id });
-        const contactedSchools = await School.countDocuments({
+        const totalLeads = await Lead.countDocuments({ campaign_id });
+        const contactedLeads = await Lead.countDocuments({
             campaign_id,
             status: { $ne: initialStatus }
         });
 
-        res.json({ totalSchools, contactedSchools });
+        res.json({ totalLeads, contactedLeads });
     } catch (err) {
         next(err);
     }

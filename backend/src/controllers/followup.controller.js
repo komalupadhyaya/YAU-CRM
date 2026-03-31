@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 import Followup from '../models/followup.model.js';
-import School from '../models/school.model.js';
+import Lead from '../models/lead.model.js';
 
 export const createFollowup = async (req, res, next) => {
     try {
@@ -11,7 +11,7 @@ export const createFollowup = async (req, res, next) => {
         }
 
         const fu = await Followup.create({
-            school_id: req.params.schoolId,
+            lead_id: req.params.schoolId, // keep param name for now or update routes
             follow_up_date,
             reason: reason || ''
         });
@@ -34,8 +34,8 @@ export const completeFollowup = async (req, res, next) => {
         }
 
         // Auto update last_contacted
-        await School.findByIdAndUpdate(
-            fu.school_id,
+        await Lead.findByIdAndUpdate(
+            fu.lead_id,
             { last_contacted: new Date() }
         );
 
@@ -47,9 +47,9 @@ export const completeFollowup = async (req, res, next) => {
 
 export const getFollowupsBySchool = async (req, res, next) => {
     try {
-        const followups = await Followup.find({ school_id: req.params.schoolId })
+        const followups = await Followup.find({ lead_id: req.params.schoolId })
             .populate({
-                path: 'school_id',
+                path: 'lead_id',
                 select: 'name telephone campaign_id',
                 populate: { path: 'campaign_id', select: 'name' }
             })
@@ -59,9 +59,9 @@ export const getFollowupsBySchool = async (req, res, next) => {
             const data = f.toJSON();
             return {
                 ...data,
-                school_name: data.school_id?.name,
-                telephone: data.school_id?.telephone,
-                campaign_name: data.school_id?.campaign_id?.name
+                lead_name: data.lead_id?.name, // school_name -> lead_name
+                telephone: data.lead_id?.telephone,
+                campaign_name: data.lead_id?.campaign_id?.name
             };
         });
 
@@ -71,9 +71,6 @@ export const getFollowupsBySchool = async (req, res, next) => {
     }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/followups/grouped  –  Follow-ups task view (overdue/today/upcoming)
-// ─────────────────────────────────────────────────────────────────────────────
 export const getGroupedFollowups = async (req, res, next) => {
     try {
         const todayStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
@@ -83,30 +80,30 @@ export const getGroupedFollowups = async (req, res, next) => {
         const matchStage = { status: 'pending' };
 
         if (schoolId && schoolId.match(/^[0-9a-fA-F]{24}$/)) {
-            matchStage.school_id = new mongoose.Types.ObjectId(schoolId);
+            matchStage.lead_id = new mongoose.Types.ObjectId(schoolId);
         }
 
         const pipeline = [
             { $match: matchStage },
-            // Join school info
+            // Join lead info
             {
                 $lookup: {
-                    from: 'schools',
-                    localField: 'school_id',
+                    from: 'leads',
+                    localField: 'lead_id',
                     foreignField: '_id',
-                    as: 'school'
+                    as: 'lead'
                 }
             },
-            { $unwind: '$school' },
+            { $unwind: '$lead' },
             // Optional campaign filter
             ...(campaignId && campaignId.match(/^[0-9a-fA-F]{24}$/) ? [
-                { $match: { 'school.campaign_id': new mongoose.Types.ObjectId(campaignId) } }
+                { $match: { 'lead.campaign_id': new mongoose.Types.ObjectId(campaignId) } }
             ] : []),
             // Join campaign info
             {
                 $lookup: {
                     from: 'campaigns',
-                    localField: 'school.campaign_id',
+                    localField: 'lead.campaign_id',
                     foreignField: '_id',
                     as: 'campaign'
                 }
@@ -117,7 +114,7 @@ export const getGroupedFollowups = async (req, res, next) => {
                     preserveNullAndEmptyArrays: true
                 }
             },
-            // Determine the bucket (overdue, dueToday, upcoming)
+            // Determine the bucket
             {
                 $addFields: {
                     bucket: {
@@ -132,7 +129,6 @@ export const getGroupedFollowups = async (req, res, next) => {
                     }
                 }
             },
-            // Group into three arrays by bucket
             {
                 $facet: {
                     overdue: [

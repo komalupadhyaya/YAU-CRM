@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import api from "../api/api";
 import AppLayout from "../layout/AppLayout";
-import { BarChart3, Download, FileSpreadsheet, PieChart, TrendingUp, Users, School as SchoolIcon, Megaphone } from "lucide-react";
+import { BarChart3, Download, FileSpreadsheet, PieChart, TrendingUp, Users, Building, Megaphone } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,7 +15,7 @@ import {
 
 interface OverviewData {
     campaigns: { total: number };
-    schools: {
+    leads: {
         total: number;
         byStatus: { status: string; count: number }[];
     };
@@ -31,7 +31,7 @@ interface OverviewData {
 interface CampaignPerformance {
     campaignId: string;
     campaignName: string;
-    totalSchools: number;
+    totalLeads: number;
     totalFollowups: number;
     completedFollowups: number;
     pendingFollowups: number;
@@ -91,9 +91,9 @@ export default function Reports() {
                         <p className="text-muted-foreground">Comprehensive CRM performance overview and data exports.</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                        <Button variant="outline" size="sm" className="gap-2" onClick={() => handleExport('schools')}>
+                        <Button variant="outline" size="sm" className="gap-2" onClick={() => handleExport('leads')}>
                             <FileSpreadsheet size={16} />
-                            Export Schools
+                            Export Leads / Organizations
                         </Button>
                         <Button variant="outline" size="sm" className="gap-2" onClick={() => handleExport('followups')}>
                             <FileSpreadsheet size={16} />
@@ -122,11 +122,11 @@ export default function Reports() {
                     <div className="bg-card border rounded-xl p-6 shadow-sm">
                         <div className="flex items-center gap-3 mb-4">
                             <div className="p-2 bg-blue-500/10 text-blue-500 rounded-lg">
-                                <SchoolIcon size={20} />
+                                <Building size={20} />
                             </div>
-                            <h3 className="font-semibold text-sm">Schools / Leads</h3>
+                            <h3 className="font-semibold text-sm">Leads / Organizations</h3>
                         </div>
-                        <p className="text-3xl font-bold">{overview?.schools.total}</p>
+                        <p className="text-3xl font-bold">{overview?.leads.total}</p>
                         <p className="text-xs text-muted-foreground mt-1">Across all campaigns</p>
                     </div>
 
@@ -166,7 +166,7 @@ export default function Reports() {
                             <TableHeader>
                                 <TableRow>
                                     <TableHead>Campaign Name</TableHead>
-                                    <TableHead>Total Schools</TableHead>
+                                    <TableHead>Total Leads</TableHead>
                                     <TableHead>Total Tasks</TableHead>
                                     <TableHead>Completed</TableHead>
                                     <TableHead>Pending</TableHead>
@@ -177,7 +177,7 @@ export default function Reports() {
                                 {performance.map((p) => (
                                     <TableRow key={p.campaignId}>
                                         <TableCell className="font-medium">{p.campaignName}</TableCell>
-                                        <TableCell>{p.totalSchools}</TableCell>
+                                        <TableCell>{p.totalLeads}</TableCell>
                                         <TableCell>{p.totalFollowups}</TableCell>
                                         <TableCell className="text-green-500 font-medium">{p.completedFollowups}</TableCell>
                                         <TableCell className="text-orange-500 font-medium">{p.pendingFollowups}</TableCell>

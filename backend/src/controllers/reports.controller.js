@@ -1,5 +1,5 @@
 import Campaign from '../models/campaign.model.js';
-import School from '../models/school.model.js';
+import Lead from '../models/lead.model.js';
 import Followup from '../models/followup.model.js';
 import { jsonToCsv } from '../utils/csv.utils.js';
 import mongoose from 'mongoose';
@@ -14,11 +14,11 @@ export const getReportsOverview = async (req, res, next) => {
 
         const [
             campaignTotal,
-            schoolAgg,
+            leadAgg,
             followupAgg
         ] = await Promise.all([
             Campaign.countDocuments(),
-            School.aggregate([
+            Lead.aggregate([
                 {
                     $group: {
                         _id: '$status',
@@ -65,7 +65,7 @@ export const getReportsOverview = async (req, res, next) => {
             ])
         ]);
 
-        const totalSchools = schoolAgg.reduce((sum, s) => sum + s.count, 0);
+        const totalLeads = leadAgg.reduce((sum, s) => sum + s.count, 0);
         const fuCounts = followupAgg[0] || {
             totalPending: 0, totalCompleted: 0,
             overdue: 0, dueToday: 0, upcoming: 0
@@ -73,9 +73,9 @@ export const getReportsOverview = async (req, res, next) => {
 
         res.json({
             campaigns: { total: campaignTotal },
-            schools: {
-                total: totalSchools,
-                byStatus: schoolAgg.map(s => ({ status: s._id || 'Unknown', count: s.count }))
+            leads: {
+                total: totalLeads,
+                byStatus: leadAgg.map(s => ({ status: s._id || 'Unknown', count: s.count }))
             },
             followups: fuCounts
         });
@@ -93,18 +93,18 @@ export const getCampaignPerformance = async (req, res, next) => {
         const performance = await Campaign.aggregate([
             {
                 $lookup: {
-                    from: 'schools',
+                    from: 'leads',
                     localField: '_id',
                     foreignField: 'campaign_id',
-                    as: 'schools'
+                    as: 'leads'
                 }
             },
             {
                 $lookup: {
                     from: 'followups',
-                    let: { schoolIds: '$schools._id' },
+                    let: { leadIds: '$leads._id' },
                     pipeline: [
-                        { $match: { $expr: { $in: ['$school_id', '$$schoolIds'] } } },
+                        { $match: { $expr: { $in: ['$lead_id', '$$leadIds'] } } },
                         {
                             $group: {
                                 _id: null,
@@ -121,7 +121,7 @@ export const getCampaignPerformance = async (req, res, next) => {
                 $project: {
                     campaignId: '$_id',
                     campaignName: '$name',
-                    totalSchools: { $size: '$schools' },
+                    totalLeads: { $size: '$leads' },
                     totalFollowups: { $ifNull: [{ $arrayElemAt: ['$fuStats.total', 0] }, 0] },
                     completedFollowups: { $ifNull: [{ $arrayElemAt: ['$fuStats.completed', 0] }, 0] },
                     pendingFollowups: { $ifNull: [{ $arrayElemAt: ['$fuStats.pending', 0] }, 0] }
@@ -137,7 +137,6 @@ export const getCampaignPerformance = async (req, res, next) => {
 
 /**
  * GET /api/reports/followup-activity
- * Activity trends grouped by date.
  */
 export const getFollowupActivity = async (req, res, next) => {
     try {
@@ -156,14 +155,14 @@ export const getFollowupActivity = async (req, res, next) => {
             ...(campaignId ? [
                 {
                     $lookup: {
-                        from: 'schools',
-                        localField: 'school_id',
+                        from: 'leads',
+                        localField: 'lead_id',
                         foreignField: '_id',
-                        as: 'school'
+                        as: 'lead'
                     }
                 },
-                { $unwind: '$school' },
-                { $match: { 'school.campaign_id': new mongoose.Types.ObjectId(campaignId) } }
+                { $unwind: '$lead' },
+                { $match: { 'lead.campaign_id': new mongoose.Types.ObjectId(campaignId) } }
             ] : []),
             {
                 $group: {
@@ -192,7 +191,6 @@ export const getFollowupActivity = async (req, res, next) => {
 
 /**
  * GET /api/reports/export
- * CSV export for schools, followups, or campaigns.
  */
 export const exportData = async (req, res, next) => {
     try {
@@ -201,8 +199,8 @@ export const exportData = async (req, res, next) => {
         let fields = [];
         let filename = `report_${type}_${new Date().toISOString().slice(0, 10)}.csv`;
 
-        if (type === 'schools') {
-            data = await School.aggregate([
+        if (type === 'leads') { // schools -> leads
+            data = await Lead.aggregate([
                 {
                     $lookup: {
                         from: 'campaigns',
@@ -215,9 +213,9 @@ export const exportData = async (req, res, next) => {
                 {
                     $lookup: {
                         from: 'followups',
-                        let: { schoolId: '$_id' },
+                        let: { leadId: '$_id' },
                         pipeline: [
-                            { $match: { $expr: { $eq: ['$school_id', '$$schoolId'] } } },
+                            { $match: { $expr: { $eq: ['$lead_id', '$$leadId'] } } },
                             { $sort: { follow_up_date: -1 } },
                             { $limit: 1 }
                         ],
@@ -231,30 +229,30 @@ export const exportData = async (req, res, next) => {
                         status: 1,
                         campaignName: '$campaign.name',
                         lastContactedDate: { $arrayElemAt: ['$lastFU.follow_up_date', 0] },
-                        principal_name: 1,
-                        principal_email: 1,
+                        main_contact_name: 1,
+                        main_contact_email: 1,
                         telephone: 1,
                         city: 1,
                         state: 1
                     }
                 }
             ]);
-            fields = ['name', 'status', 'campaignName', 'lastContactedDate', 'principal_name', 'principal_email', 'telephone', 'city', 'state'];
+            fields = ['name', 'status', 'campaignName', 'lastContactedDate', 'main_contact_name', 'main_contact_email', 'telephone', 'city', 'state'];
         } else if (type === 'followups') {
             data = await Followup.aggregate([
                 {
                     $lookup: {
-                        from: 'schools',
-                        localField: 'school_id',
+                        from: 'leads',
+                        localField: 'lead_id',
                         foreignField: '_id',
-                        as: 'school'
+                        as: 'lead'
                     }
                 },
-                { $unwind: '$school' },
+                { $unwind: '$lead' },
                 {
                     $lookup: {
                         from: 'campaigns',
-                        localField: 'school.campaign_id',
+                        localField: 'lead.campaign_id',
                         foreignField: '_id',
                         as: 'campaign'
                     }
@@ -265,30 +263,30 @@ export const exportData = async (req, res, next) => {
                         _id: 0,
                         follow_up_date: 1,
                         status: 1,
-                        schoolName: '$school.name',
+                        leadName: '$lead.name', // schoolName -> leadName
                         campaignName: '$campaign.name',
                         reason: 1,
                         completed_at: 1
                     }
                 }
             ]);
-            fields = ['follow_up_date', 'status', 'schoolName', 'campaignName', 'reason', 'completed_at'];
+            fields = ['follow_up_date', 'status', 'leadName', 'campaignName', 'reason', 'completed_at'];
         } else if (type === 'campaigns') {
             data = await Campaign.aggregate([
                 {
                     $lookup: {
-                        from: 'schools',
+                        from: 'leads',
                         localField: '_id',
                         foreignField: 'campaign_id',
-                        as: 'schools'
+                        as: 'leads'
                     }
                 },
                 {
                     $lookup: {
                         from: 'followups',
-                        let: { schoolIds: '$schools._id' },
+                        let: { leadIds: '$leads._id' },
                         pipeline: [
-                            { $match: { $expr: { $in: ['$school_id', '$$schoolIds'] } } },
+                            { $match: { $expr: { $in: ['$lead_id', '$$leadIds'] } } },
                             { $count: 'count' }
                         ],
                         as: 'fuCount'
@@ -298,12 +296,12 @@ export const exportData = async (req, res, next) => {
                     $project: {
                         _id: 0,
                         name: 1,
-                        totalSchools: { $size: '$schools' },
+                        totalLeads: { $size: '$leads' },
                         totalFollowups: { $ifNull: [{ $arrayElemAt: ['$fuCount.count', 0] }, 0] }
                     }
                 }
             ]);
-            fields = ['name', 'totalSchools', 'totalFollowups'];
+            fields = ['name', 'totalLeads', 'totalFollowups'];
         } else {
             res.status(400);
             throw new Error('Invalid export type');
