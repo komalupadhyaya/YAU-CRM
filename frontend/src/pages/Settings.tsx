@@ -135,7 +135,7 @@ export default function Settings() {
                                         <Button
                                             variant="ghost"
                                             size="icon"
-                                            className="opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive hover:bg-destructive/10"
+                                            className="group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive hover:bg-destructive/10"
                                             onClick={() => removeStatus(idx)}
                                         >
                                             <Trash2 size={16} />

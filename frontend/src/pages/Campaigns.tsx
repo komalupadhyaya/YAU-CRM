@@ -230,7 +230,7 @@ const Campaigns = () => {
     if (!importFile || !selectedCampaign) return;
     const formData = new FormData();
     formData.append("file", importFile);
-    
+
     setImportStatus("uploading");
     try {
       const res = await api.post(`/campaigns/${selectedCampaign._id}/import`, formData);
@@ -569,7 +569,7 @@ const Campaigns = () => {
                         <div key={f._id} className="p-2 border rounded-lg bg-accent/5 dark:bg-accent/5 group">
                           <div className="flex items-center justify-between">
                             <span className="text-[9px] font-bold text-primary">{f.follow_up_date}</span>
-                            <button onClick={() => markFollowupDone(f._id)} className="text-[8px] text-muted-foreground hover:text-success opacity-0 group-hover:opacity-100 transition-all">Done</button>
+                            <button onClick={() => markFollowupDone(f._id)} className="text-[8px] text-muted-foreground hover:text-success group-hover:opacity-100 transition-all">Done</button>
                           </div>
                           <p className="text-[10px] text-foreground/80 mt-1 line-clamp-1">{f.reason}</p>
                         </div>
@@ -792,15 +792,15 @@ const Campaigns = () => {
               </div>
             ) : (
               <>
-                <div 
+                <div
                   className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${importFile ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"}`}
                   onClick={() => document.getElementById('import-input')?.click()}
                 >
-                  <input 
+                  <input
                     id="import-input"
-                    type="file" 
-                    className="hidden" 
-                    accept=".xlsx,.csv" 
+                    type="file"
+                    className="hidden"
+                    accept=".xlsx,.csv"
                     onChange={(e) => setImportFile(e.target.files?.[0] || null)}
                   />
                   <div className="w-12 h-12 bg-accent/10 rounded-full flex items-center justify-center mx-auto mb-3">
@@ -826,8 +826,8 @@ const Campaigns = () => {
                 </div>
                 <DialogFooter>
                   <button className="btn-secondary" onClick={() => setIsImportOpen(false)}>Cancel</button>
-                  <button 
-                    className="btn-primary" 
+                  <button
+                    className="btn-primary"
                     disabled={!importFile || importStatus === "uploading"}
                     onClick={handleImport}
                   >
