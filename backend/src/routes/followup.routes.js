@@ -8,7 +8,8 @@ const router = express.Router();
 router.get('/dashboard', dashboardController.getDashboardStats);
 router.get('/grouped', followupController.getGroupedFollowups);
 
-router.get('/school/:schoolId', followupController.getFollowupsBySchool);
+// Changed /school/ to /lead/
+router.get('/lead/:schoolId', followupController.getFollowupsBySchool);
 
 router.post('/:schoolId', followupController.createFollowup);
 

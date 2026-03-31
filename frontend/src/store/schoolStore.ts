@@ -1,15 +1,16 @@
 import { create } from 'zustand';
 
-interface School {
+interface Lead {
     _id: string;
     name: string;
     type?: string;
-    grades?: string;
-    principal_name?: string;
-    principal_email?: string;
+    category_group?: string;
+    main_contact_name?: string;
+    main_contact_email?: string;
     telephone?: string;
     start_time?: string;
     end_time?: string;
+    address_number?: string;
     address?: string;
     city?: string;
     state?: string;
@@ -21,12 +22,12 @@ interface School {
     updatedAt: string;
 }
 
-interface SchoolState {
-    selectedSchool: School | null;
-    setSelectedSchool: (school: School | null) => void;
+interface LeadState {
+    selectedLead: Lead | null;
+    setSelectedLead: (lead: Lead | null) => void;
 }
 
-export const useSchoolStore = create<SchoolState>((set) => ({
-    selectedSchool: null,
-    setSelectedSchool: (school) => set({ selectedSchool: school }),
+export const useLeadStore = create<LeadState>((set) => ({
+    selectedLead: null,
+    setSelectedLead: (lead) => set({ selectedLead: lead }),
 }));

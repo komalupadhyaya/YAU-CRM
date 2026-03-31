@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import api from "../api/api";
 import AppLayout from "../layout/AppLayout";
-import { AlertCircle, Clock, Calendar, CheckCircle, Phone, Filter, Search, Plus, School as SchoolIcon, Megaphone } from "lucide-react";
+import { AlertCircle, Clock, Calendar, CheckCircle, Phone, Filter, Search, Plus, Building, Megaphone } from "lucide-react";
 import { Link, useSearchParams, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import {
@@ -17,7 +17,7 @@ interface Campaign {
   name: string;
 }
 
-interface School {
+interface Lead {
   _id: string;
   name: string;
   telephone?: string;
@@ -27,8 +27,8 @@ interface FollowUp {
   _id: string;
   reason: string;
   follow_up_date: string;
-  school_id_val: string;
-  school_name: string;
+  lead_id_val: string;
+  lead_name: string; // lead name
   telephone?: string;
   campaign_name: string;
   campaign_id_val: string;
@@ -40,7 +40,7 @@ interface DashboardData {
   upcoming: FollowUp[];
   all: FollowUp[];
   totalCampaigns?: number;
-  totalSchools?: number;
+  totalLeads?: number;
 }
 
 export default function Dashboard() {
@@ -57,9 +57,9 @@ export default function Dashboard() {
 
   // New Follow-up Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [schools, setSchools] = useState<School[]>([]);
-  const [schoolSearch, setSchoolSearch] = useState("");
-  const [selectedSchool, setSelectedSchool] = useState<string | null>(null);
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [leadSearch, setLeadSearch] = useState("");
+  const [selectedLeadResult, setSelectedLeadResult] = useState<string | null>(null);
   const [followUpDate, setFollowUpDate] = useState("");
   const [followUpReason, setFollowUpReason] = useState("");
 
@@ -79,7 +79,7 @@ export default function Dashboard() {
 
       if (campaignId) {
         const breakdown: Record<string, number> = {};
-        resConsolidated.data.schools.byStatus.forEach((s: any) => {
+        resConsolidated.data.leads.byStatus.forEach((s: any) => {
           breakdown[s.status] = s.count;
         });
         setPipelineData(breakdown);
@@ -102,10 +102,10 @@ export default function Dashboard() {
   }, [searchParams, selectedCampaign]);
 
   useEffect(() => {
-    if (isModalOpen && schoolSearch.length >= 2) {
-      api.get(`/schools?q=${schoolSearch}&limit=50`).then(r => setSchools(r.data.data ?? r.data));
+    if (isModalOpen && leadSearch.length >= 2) {
+      api.get(`/leads?q=${leadSearch}&limit=50`).then(r => setLeads(r.data.data ?? r.data));
     }
-  }, [schoolSearch, isModalOpen]);
+  }, [leadSearch, isModalOpen]);
 
   const markDone = async (id: string) => {
     try {
@@ -116,15 +116,15 @@ export default function Dashboard() {
   };
 
   const submitFollowUp = async () => {
-    if (!selectedSchool || !followUpDate) return;
+    if (!selectedLeadResult || !followUpDate) return;
     try {
-      await api.post(`/followups/${selectedSchool}`, {
+      await api.post(`/followups/${selectedLeadResult}`, {
         follow_up_date: followUpDate,
         reason: followUpReason
       });
       toast.success("Follow-up scheduled");
       setIsModalOpen(false);
-      setSelectedSchool(null);
+      setSelectedLeadResult(null);
       setFollowUpDate("");
       setFollowUpReason("");
       load();
@@ -169,7 +169,7 @@ export default function Dashboard() {
               <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                 <div className="flex-1">
                   <Link to={`/campaigns`} className="font-medium text-foreground hover:text-primary transition-colors block">
-                    {f.school_name || "Unknown School"}
+                    {f.lead_name || "Unknown Lead"}
                   </Link>
                   <p className="text-sm text-foreground/80 dark:text-foreground/70 mt-1">{f.reason || "No reason provided"}</p>
                   <div className="flex flex-wrap items-center gap-3 mt-2">
@@ -225,7 +225,7 @@ export default function Dashboard() {
             <div className="relative flex-1 min-w-[200px]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
               <input
-                placeholder="Search schools..."
+                placeholder="Search leads..."
                 className="input-field pl-10 h-11"
               />
             </div>
@@ -261,7 +261,7 @@ export default function Dashboard() {
           {/* KPI Row */}
           <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-4">
             <StatCard title="Total Campaigns" count={dashboardMetrics?.campaigns?.total || 0} icon={Megaphone} color="text-primary" />
-            <StatCard title="Total Schools" count={dashboardMetrics?.schools?.total || 0} icon={SchoolIcon} color="text-blue-500" />
+            <StatCard title="Total Leads" count={dashboardMetrics?.leads?.total || 0} icon={Building} color="text-blue-500" />
             <StatCard title="Overdue" count={dashboardMetrics?.followups?.overdue || 0} icon={AlertCircle} color="text-primary/70" />
             <StatCard title="Due Today" count={dashboardMetrics?.followups?.dueToday || 0} icon={Clock} color="text-primary/70" />
             <StatCard title="Upcoming" count={dashboardMetrics?.followups?.upcoming || 0} icon={Calendar} color="text-primary/70" />
@@ -280,11 +280,11 @@ export default function Dashboard() {
             <div className="space-y-4">
               {campaigns.length === 0 ? (
                 <div className="p-8 text-center border-2 border-dashed rounded-2xl">
-                  <p className="text-sm text-muted-foreground">No campaigns yet. Create your first campaign to begin school acquisition.</p>
+                  <p className="text-sm text-muted-foreground">No campaigns yet. Create your first campaign to begin acquisition.</p>
                 </div>
               ) : (
                 campaigns.slice(0, 5).map(c => {
-                  const summary = campaignSummaries.find(s => s._id === c._id) || { totalSchools: 0, meetingsScheduled: 0 };
+                  const summary = campaignSummaries.find(s => s._id === c._id) || { totalLeads: 0, meetingsScheduled: 0 };
                   const followUpsDue = rawData?.all.filter(f => String(f.campaign_id_val) === c._id).length || 0;
 
                   return (
@@ -294,8 +294,8 @@ export default function Dashboard() {
                           <h3 className="font-bold text-foreground truncate text-base">{c.name}</h3>
                           <div className="grid grid-cols-3 gap-6 mt-3">
                             <div className="flex flex-col">
-                              <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-tighter">Schools</span>
-                              <span className="text-sm font-semibold">{summary.totalSchools}</span>
+                                <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-tighter">Leads</span>
+                              <span className="text-sm font-semibold">{summary.totalLeads}</span>
                             </div>
                             <div className="flex flex-col">
                               <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-tighter">Meetings</span>
@@ -412,8 +412,8 @@ export default function Dashboard() {
                   <div key={f._id} className="bg-accent/5 dark:bg-accent/5 border rounded-xl p-3 group transition-all hover:border-primary/30">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <Link to={`/school/${f.school_id_val}`} className="text-xs font-bold hover:text-primary truncate block">
-                          {f.school_name}
+                        <Link to={`/lead/${f.lead_id_val}`} className="text-xs font-bold hover:text-primary truncate block">
+                          {f.lead_name}
                         </Link>
                         <p className="text-[10px] text-muted-foreground line-clamp-1 mt-0.5">{f.reason || "Scheduled follow-up"}</p>
                         <div className="flex items-center gap-2 mt-2">
@@ -439,7 +439,7 @@ export default function Dashboard() {
             <h2 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-4">Quick Actions</h2>
             <div className="grid grid-cols-2 gap-3">
               {[
-                { label: "Add School", icon: Plus, onClick: () => navigate("/schools/create"), color: "bg-blue-500/10 text-blue-500" },
+                { label: "Add Lead", icon: Plus, onClick: () => navigate("/leads/create"), color: "bg-blue-500/10 text-blue-500" },
                 { label: "Log Call", icon: Phone, onClick: () => setIsModalOpen(true), color: "bg-orange-500/10 text-orange-500" },
                 { label: "Send Email", icon: AlertCircle, onClick: () => toast.info("Email integration coming soon"), color: "bg-indigo-500/10 text-indigo-500" },
                 { label: "Export Report", icon: Search, onClick: () => toast.info("Report generated"), color: "bg-emerald-500/10 text-emerald-500" }
@@ -467,32 +467,32 @@ export default function Dashboard() {
             <DialogTitle className="dark:text-foreground">Quick Follow-up</DialogTitle>
           </DialogHeader>
           <div className="grid gap-4 py-4">
-            {!selectedSchool ? (
+            {!selectedLeadResult ? (
               <div className="grid gap-2">
-                <label className="text-sm font-medium">Search School</label>
+                <label className="text-sm font-medium">Search Lead</label>
                 <div className="relative">
                   <Search size={16} className="absolute left-3 top-2.5 text-muted-foreground" />
                   <input
                     className="input-field pl-10"
-                    placeholder="Type school name..."
-                    value={schoolSearch}
-                    onChange={e => setSchoolSearch(e.target.value)}
+                    placeholder="Type name / organization..."
+                    value={leadSearch}
+                    onChange={e => setLeadSearch(e.target.value)}
                   />
                 </div>
                 <div className="mt-2 max-h-[200px] overflow-y-auto border rounded-xl divide-y dark:border-border/20">
-                  {schools.map(s => (
+                  {leads.map(s => (
                     <button
                       key={s._id}
                       className="w-full text-left p-3 hover:bg-accent dark:hover:bg-accent/20 transition-colors text-sm dark:text-foreground"
-                      onClick={() => setSelectedSchool(s._id)}
+                      onClick={() => setSelectedLeadResult(s._id)}
                     >
                       {s.name} {s.telephone && <span className="text-xs text-muted-foreground ml-2">({s.telephone})</span>}
                     </button>
                   ))}
-                  {schoolSearch.length >= 2 && schools.length === 0 && (
-                    <p className="p-3 text-xs text-muted-foreground text-center">No schools found.</p>
+                  {leadSearch.length >= 2 && leads.length === 0 && (
+                    <p className="p-3 text-xs text-muted-foreground text-center">No results found.</p>
                   )}
-                  {schoolSearch.length < 2 && (
+                  {leadSearch.length < 2 && (
                     <p className="p-3 text-xs text-muted-foreground text-center">Type at least 2 characters to search.</p>
                   )}
                 </div>
@@ -501,10 +501,10 @@ export default function Dashboard() {
               <>
                 <div className="flex items-center justify-between bg-accent/40 dark:bg-accent/10 p-3 rounded-xl border dark:border-border/20">
                   <div>
-                    <p className="text-xs text-muted-foreground font-bold uppercase tracking-wider">Target School</p>
-                    <p className="text-sm font-semibold dark:text-foreground">{schools.find(s => s._id === selectedSchool)?.name}</p>
+                    <p className="text-xs text-muted-foreground font-bold uppercase tracking-wider">Target Lead</p>
+                    <p className="text-sm font-semibold dark:text-foreground">{leads.find(s => s._id === selectedLeadResult)?.name}</p>
                   </div>
-                  <button className="text-xs text-primary hover:underline" onClick={() => setSelectedSchool(null)}>Change</button>
+                  <button className="text-xs text-primary hover:underline" onClick={() => setSelectedLeadResult(null)}>Change</button>
                 </div>
 
                 <div className="grid gap-2">
@@ -532,7 +532,7 @@ export default function Dashboard() {
             <button className="btn-secondary" onClick={() => setIsModalOpen(false)}>Cancel</button>
             <button
               className="btn-primary"
-              disabled={!selectedSchool || !followUpDate}
+              disabled={!selectedLeadResult || !followUpDate}
               onClick={submitFollowUp}
             >
               Schedule Follow-up

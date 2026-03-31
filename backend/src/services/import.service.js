@@ -1,15 +1,10 @@
 import XLSX from 'xlsx';
 import Campaign from '../models/campaign.model.js';
-import School from '../models/school.model.js';
+import Lead from '../models/lead.model.js';
 import { getVal } from '../utils/import.utils.js';
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * Parse a file buffer into an array of row objects.
- * Supports .xlsx and .csv — detected via the `mimetype` or `originalname`.
  */
 function parseBuffer(buffer, originalname) {
     const ext = originalname.split('.').pop().toLowerCase();
@@ -17,33 +12,18 @@ function parseBuffer(buffer, originalname) {
     const input = ext === 'csv' ? buffer.toString('utf8') : buffer;
     const workbook = XLSX.read(input, { type });
     const sheetName = workbook.SheetNames[0];
-    // defval: '' ensures missing cells come back as empty string, not undefined
     return XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: '' });
 }
 
 /**
- * Normalise a school name for duplicate comparison:
- * trim whitespace + collapse internal spaces + lowercase.
+ * Normalise a name for duplicate comparison.
  */
 function normaliseName(name) {
     return String(name).trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// processImport
-// ─────────────────────────────────────────────────────────────────────────────
-
 /**
- * Parse an Excel/CSV buffer and bulk-insert schools under a campaign.
- *
- * Duplicate rule (non-destructive):
- *   A school is a duplicate when normalised(name) + campaign_id already exists.
- *   Duplicates are SKIPPED (not updated) and counted separately.
- *
- * @param {Buffer}  fileBuffer   Raw file buffer
- * @param {string}  campaignId   MongoDB ObjectId string
- * @param {string}  originalname Filename (used to detect .csv vs .xlsx)
- * @returns {{ totalRows, imported, skipped, duplicates, errors }}
+ * Parse an Excel/CSV buffer and bulk-insert leads under a campaign.
  */
 export const processImport = async (fileBuffer, campaignId, originalname = 'upload.xlsx') => {
     const campaign = await Campaign.findById(campaignId);
@@ -60,56 +40,62 @@ export const processImport = async (fileBuffer, campaignId, originalname = 'uplo
 
     for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
-        const rowNum = i + 2; // 1-indexed + header row
+        const rowNum = i + 2;
 
         try {
-            // ── Required field: school name ───────────────────────────────────
-            const rawName = getVal(row, ['school name', 'name', 'school']);
+            const rawName = getVal(row, ['name', 'organization', 'lead', 'lead name', 'school name', 'school']);
             if (!rawName) {
-                errors.push({ row: rowNum, reason: 'Missing School Name' });
+                errors.push({ row: rowNum, reason: 'Missing Name / Organization' });
                 continue;
             }
             const normName = normaliseName(rawName);
 
-            // ── Duplicate check (case-insensitive + trimmed) ──────────────────
-            // Uses a regex anchored to the normalised name so DB collation doesn't matter.
             const nameRegex = new RegExp(`^${normName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
-            const duplicate = await School.findOne({
+            const duplicate = await Lead.findOne({
                 campaign_id: campaignId,
                 name: nameRegex
             });
 
             if (duplicate) {
                 duplicates++;
-                continue; // skip — non-destructive
+                continue;
             }
 
-            // ── Build school data object ──────────────────────────────────────
-            const schoolData = {
-                name: rawName.trim(), // preserve original casing for display
+            const leadData = {
+                name: rawName.trim(),
                 campaign_id: campaignId,
-                type: getVal(row, ['school type', 'type']),
-                grades: getVal(row, ['grades']),
-                principal_name: getVal(row, ['principal name', 'principal title', 'poc name', 'contact name']),
-                principal_email: getVal(row, ['principal email', 'email']),
+                type: getVal(row, ['type', 'lead type', 'lead type']),
+                category_group: getVal(row, ['category/group', 'category', 'group', 'grades']),
+                main_contact_name: getVal(row, ['main contact name', 'contact name', 'principal name', 'principal title', 'poc name']),
+                main_contact_email: getVal(row, ['main contact email', 'contact email', 'principal email', 'email']),
                 telephone: getVal(row, ['telephone', 'phone', 'phone number']),
-                start_time: getVal(row, ['school start time', 'start time']),
-                end_time: getVal(row, ['school end time', 'end time']),
-                address: getVal(row, ['address']),
+                start_time: getVal(row, ['start time', 'lead start time']),
+                end_time: getVal(row, ['end time', 'lead end time']),
+                address_number: getVal(row, ['number', 'address number']),
+                address: getVal(row, ['address', 'street']),
                 city: getVal(row, ['city']),
                 state: getVal(row, ['state']),
                 zip: getVal(row, ['zip code', 'zip']),
-                website: getVal(row, ['website'])
+                website: getVal(row, ['website']),
+                status: getVal(row, ['contacted status', 'status']) || "Not Contacted"
             };
 
-            await School.create(schoolData);
+            const createdLead = await Lead.create(leadData);
             imported++;
+
+            const rawNotes = getVal(row, ['notes', 'notes by dates']);
+            if (rawNotes) {
+                const Note = (await import('../models/note.model.js')).default;
+                await Note.create({
+                    lead_id: createdLead._id,
+                    content: rawNotes
+                });
+            }
         } catch (rowErr) {
-            // One bad row should never abort the whole import
             errors.push({ row: rowNum, reason: rowErr.message || 'Unknown error' });
         }
     }
 
-    const skipped = errors.length; // rows with validation/parse errors
+    const skipped = errors.length;
     return { totalRows, imported, skipped, duplicates, errors };
 };

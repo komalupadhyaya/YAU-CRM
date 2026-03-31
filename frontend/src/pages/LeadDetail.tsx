@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useLeadStore } from "../store/schoolStore";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "../api/api";
 import AppLayout from "../layout/AppLayout";
@@ -25,14 +26,15 @@ interface FollowUp {
   status: string;
 }
 
-interface School {
+interface Lead {
   _id: string;
   name: string;
   type: string;
-  grades: string;
-  principal_name: string;
-  principal_email: string;
+  category_group: string; // was grades
+  main_contact_name: string; // was principal_name
+  main_contact_email: string; // was principal_email
   telephone: string;
+  address_number: string; // new
   address: string;
   city: string;
   state: string;
@@ -43,15 +45,16 @@ interface School {
   status: string;
 }
 
-export default function SchoolDetail() {
+export default function LeadDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const [school, setSchool] = useState<School | null>(null);
+  const { setSelectedLead } = useLeadStore();
+  const [lead, setLead] = useState<Lead | null>(null);
   const [notes, setNotes] = useState<Note[]>([]);
   const [followUps, setFollowUps] = useState<FollowUp[]>([]);
   const [noteContent, setNoteContent] = useState("");
   const [isEditing, setIsEditing] = useState(false);
-  const [editData, setEditData] = useState<Partial<School>>({});
+  const [editData, setEditData] = useState<Partial<Lead>>({});
   const [statusLabels, setStatusLabels] = useState<string[]>([]);
 
   // Follow-up Modal State
@@ -61,14 +64,14 @@ export default function SchoolDetail() {
 
   const loadAll = async () => {
     try {
-      const [schoolRes, notesRes, followUpsRes, settingsRes] = await Promise.all([
-        api.get("/schools/" + id),
+      const [leadRes, notesRes, followUpsRes, settingsRes] = await Promise.all([
+        api.get("/leads/" + id),
         api.get("/notes/" + id),
-        api.get("/followups/school/" + id),
+        api.get("/followups/lead/" + id),
         api.get("/settings"),
       ]);
-      setSchool(schoolRes.data);
-      setEditData(schoolRes.data);
+      setLead(leadRes.data);
+      setEditData(leadRes.data);
       setNotes(notesRes.data);
       setFollowUps(followUpsRes.data);
       setStatusLabels(settingsRes.data.statusLabels || []);
@@ -77,22 +80,23 @@ export default function SchoolDetail() {
 
   useEffect(() => { loadAll(); }, [id]);
 
-  const saveSchool = async () => {
+  const saveLead = async () => {
     if (!editData.name?.trim()) {
-      toast.error("School name is required");
+      toast.error("Name is required");
       return;
     }
     try {
-      const res = await api.put("/schools/" + id, editData);
-      setSchool(res.data);
+      const res = await api.put("/leads/" + id, editData);
+      setSelectedLead(res.data);
+      setLead(res.data);
       setIsEditing(false);
-      toast.success("School details updated");
+      toast.success("Lead details updated");
     } catch { }
   };
 
   const addNote = async () => {
     if (!noteContent.trim()) {
-      toast.error("Nostatuste content cannot be empty.");
+      toast.error("Note content cannot be empty.");
       return;
     }
     try {
@@ -131,7 +135,7 @@ export default function SchoolDetail() {
     } catch { }
   };
 
-  if (!school) return <AppLayout><div className="p-12 text-center animate-pulse dark:text-muted-foreground">Loading school details...</div></AppLayout>;
+  if (!lead) return <AppLayout><div className="p-12 text-center animate-pulse dark:text-muted-foreground">Loading details...</div></AppLayout>;
 
   return (
     <AppLayout>
@@ -144,13 +148,13 @@ export default function SchoolDetail() {
           <div className="page-card dark:bg-card">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
               <h1 className="text-2xl font-bold text-foreground">
-                {isEditing ? "Edit School" : school.name}
+                {isEditing ? "Edit Lead" : lead.name}
               </h1>
               <div className="flex gap-2">
                 {isEditing ? (
                   <>
-                    <button onClick={() => { setIsEditing(false); setEditData(school); }} className="btn-secondary">Cancel</button>
-                    <button onClick={saveSchool} className="btn-primary flex items-center gap-2">
+                    <button onClick={() => { setIsEditing(false); setEditData(lead); }} className="btn-secondary">Cancel</button>
+                    <button onClick={saveLead} className="btn-primary flex items-center gap-2">
                       <Save size={16} /> Save Changes
                     </button>
                   </>
@@ -162,10 +166,10 @@ export default function SchoolDetail() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               {[
-                { label: "School Type", key: "type" },
-                { label: "Grades", key: "grades" },
-                { label: "Principal / POC", key: "principal_name" },
-                { label: "Principal Email", key: "principal_email" },
+                { label: "Lead Type", key: "type" },
+                { label: "Category / Group", key: "category_group" },
+                { label: "Main Contact Name", key: "main_contact_name" },
+                { label: "Main Contact Email", key: "main_contact_email" },
                 { label: "Telephone", key: "telephone" },
                 { label: "Website", key: "website" },
               ].map(({ label, key }) => (
@@ -178,7 +182,7 @@ export default function SchoolDetail() {
                       onChange={e => setEditData({ ...editData, [key]: e.target.value })}
                     />
                   ) : (
-                    <p className="text-foreground">{(school as any)[key] || "N/A"}</p>
+                    <p className="text-foreground">{(lead as any)[key] || "N/A"}</p>
                   )}
                 </div>
               ))}
@@ -186,14 +190,15 @@ export default function SchoolDetail() {
               <div className="md:col-span-2">
                 <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Address</label>
                 {isEditing ? (
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                    <input className="input-field md:col-span-2 dark:bg-card" placeholder="Street" value={editData.address || ""} onChange={e => setEditData({ ...editData, address: e.target.value })} />
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+                    <input className="input-field md:col-span-1 dark:bg-card" placeholder="No." value={editData.address_number || ""} onChange={e => setEditData({ ...editData, address_number: e.target.value })} />
+                    <input className="input-field md:col-span-1 dark:bg-card" placeholder="Street" value={editData.address || ""} onChange={e => setEditData({ ...editData, address: e.target.value })} />
                     <input className="input-field dark:bg-card" placeholder="City" value={editData.city || ""} onChange={e => setEditData({ ...editData, city: e.target.value })} />
                     <input className="input-field dark:bg-card" placeholder="State" value={editData.state || ""} onChange={e => setEditData({ ...editData, state: e.target.value })} />
                     <input className="input-field dark:bg-card" placeholder="Zip" value={editData.zip || ""} onChange={e => setEditData({ ...editData, zip: e.target.value })} />
                   </div>
                 ) : (
-                  <p className="text-foreground">{[school.address, school.city, school.state, school.zip].filter(Boolean).join(", ") || "N/A"}</p>
+                  <p className="text-foreground">{[lead.address_number, lead.address, lead.city, lead.state, lead.zip].filter(Boolean).join(" ") || "N/A"}</p>
                 )}
               </div>
 
@@ -210,17 +215,17 @@ export default function SchoolDetail() {
                     ))}
                   </select>
                 ) : (
-                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${school.status === 'Signed' || school.status === 'Active' ? 'bg-green-500/10 text-green-500 border-green-500/20' :
-                    school.status === 'Meeting Scheduled' ? 'bg-blue-500/10 text-blue-500 border-blue-500/20' :
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${lead.status === 'Signed' || lead.status === 'Active' ? 'bg-green-500/10 text-green-500 border-green-500/20' :
+                    lead.status === 'Meeting Scheduled' ? 'bg-blue-500/10 text-blue-500 border-blue-500/20' :
                       'bg-yellow-500/10 text-yellow-500 border-yellow-500/20'
                     }`}>
-                    {school.status}
+                    {lead.status}
                   </span>
                 )}
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">School Hours</label>
+                <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Hours</label>
                 {isEditing ? (
                   <div className="flex gap-2">
                     <input type="time" className="input-field dark:bg-card" value={editData.start_time || ""} onChange={e => setEditData({ ...editData, start_time: e.target.value })} />
@@ -228,7 +233,7 @@ export default function SchoolDetail() {
                     <input type="time" className="input-field dark:bg-card" value={editData.end_time || ""} onChange={e => setEditData({ ...editData, end_time: e.target.value })} />
                   </div>
                 ) : (
-                  <p className="text-foreground">{school.start_time || "--:--"} – {school.end_time || "--:--"}</p>
+                  <p className="text-foreground">{lead.start_time || "--:--"} – {lead.end_time || "--:--"}</p>
                 )}
               </div>
             </div>
@@ -314,7 +319,7 @@ export default function SchoolDetail() {
               <span className="text-xs font-bold uppercase tracking-wider text-primary">Context</span>
             </div>
             <p className="text-sm text-foreground">
-              All follow-ups for this school also appear on the Dashboard, grouped by due date.
+              All follow-ups for this lead also appear on the Dashboard, grouped by due date.
             </p>
           </div>
         </div>

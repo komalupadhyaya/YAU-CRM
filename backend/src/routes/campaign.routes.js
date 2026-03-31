@@ -6,17 +6,16 @@ import * as importController from '../controllers/import.controller.js';
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
-// List all campaigns (unchanged)
+// List all campaigns
 router.get('/', campaignController.getCampaigns);
 
-// Create a campaign (unchanged)
+// Create a campaign
 router.post('/', campaignController.createCampaign);
 
 // Campaign detail + metrics
-// IMPORTANT: this must appear BEFORE any routes that might shadow /:id
 router.get('/:id', campaignController.getCampaignById);
 
 // Campaign-scoped Excel/CSV import
-router.post('/:id/import', upload.single('file'), importController.importSchoolsForCampaign);
+router.post('/:id/import', upload.single('file'), importController.importLeadsForCampaign);
 
 export default router;

@@ -3,7 +3,7 @@ import cors from 'cors';
 import mongoose from 'mongoose';
 import authRoutes from './routes/auth.routes.js';
 import campaignRoutes from './routes/campaign.routes.js';
-import schoolRoutes from './routes/school.routes.js';
+import leadRoutes from './routes/lead.routes.js';
 import noteRoutes from './routes/note.routes.js';
 import followupRoutes from './routes/followup.routes.js';
 import importRoutes from './routes/import.routes.js';
@@ -221,7 +221,7 @@ app.get('/', (req, res) => {
 // ----------------------------
 app.use('/api/auth', authRoutes);
 app.use('/api/campaigns', campaignRoutes);
-app.use('/api/schools', schoolRoutes);
+app.use('/api/leads', leadRoutes);
 app.use('/api/notes', noteRoutes);
 app.use('/api/followups', followupRoutes);
 app.use('/api/import', importRoutes);

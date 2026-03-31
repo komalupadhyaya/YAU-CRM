@@ -1,10 +1,10 @@
 import mongoose from 'mongoose';
-import School from '../models/school.model.js';
+import Lead from '../models/lead.model.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /api/schools  –  Paginated master list with search / filter / enrichment
+// GET /api/leads  –  Paginated master list with search / filter / enrichment
 // ─────────────────────────────────────────────────────────────────────────────
-export const getSchools = async (req, res, next) => {
+export const getLeads = async (req, res, next) => {
     try {
         // ── Query params ──────────────────────────────────────────────────────
         const search = (req.query.search || req.query.q || '').trim(); // ?search= or ?q= (alias)
@@ -29,17 +29,13 @@ export const getSchools = async (req, res, next) => {
             const regex = { $regex: search, $options: 'i' };
             matchStage.$or = [
                 { name: regex },
-                { principal_name: regex },
-                { principal_email: regex },
+                { main_contact_name: regex },
+                { main_contact_email: regex },
                 { telephone: regex }
             ];
         }
 
         // ── Aggregation pipeline ──────────────────────────────────────────────
-        // Uses $facet to run the paginated data slice and the total count in
-        // a single round-trip. The follow-up $lookup uses a sub-pipeline with
-        // $sort + $limit: 1, so it loads at most ONE follow-up doc per school —
-        // never the full array.
         const pipeline = [
             { $match: matchStage },
 
@@ -55,18 +51,17 @@ export const getSchools = async (req, res, next) => {
             {
                 $unwind: {
                     path: '$campaign',
-                    preserveNullAndEmptyArrays: true   // schools with no campaign still appear
+                    preserveNullAndEmptyArrays: true
                 }
             },
 
-            // 2. Enrich with latest follow-up date — sub-pipeline fetches ONLY the
-            //    single most recent follow-up (sorted desc), never the full array.
+            // 2. Enrich with latest follow-up date
             {
                 $lookup: {
                     from: 'followups',
-                    let: { schoolId: '$_id' },
+                    let: { leadId: '$_id' },
                     pipeline: [
-                        { $match: { $expr: { $eq: ['$school_id', '$$schoolId'] } } },
+                        { $match: { $expr: { $eq: ['$lead_id', '$$leadId'] } } },
                         { $sort: { follow_up_date: -1 } },
                         { $limit: 1 },
                         { $project: { follow_up_date: 1, _id: 0 } }
@@ -103,7 +98,7 @@ export const getSchools = async (req, res, next) => {
             }
         ];
 
-        const [result] = await School.aggregate(pipeline);
+        const [result] = await Lead.aggregate(pipeline);
 
         const total = result.totalCount[0]?.count ?? 0;
         const totalPages = Math.ceil(total / limit);
@@ -118,45 +113,45 @@ export const getSchools = async (req, res, next) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /api/schools/campaign/:campaignId  –  All schools for a campaign (unchanged)
+// GET /api/leads/campaign/:campaignId  –  All leads for a campaign
 // ─────────────────────────────────────────────────────────────────────────────
-export const getSchoolsByCampaign = async (req, res, next) => {
+export const getLeadsByCampaign = async (req, res, next) => {
     try {
-        const schools = await School.find({ campaign_id: req.params.campaignId }).sort({ name: 1 });
-        res.json(schools);
+        const leads = await Lead.find({ campaign_id: req.params.campaignId }).sort({ name: 1 });
+        res.json(leads);
     } catch (err) {
         next(err);
     }
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /api/schools/:id  –  Single school (unchanged)
+// GET /api/leads/:id  –  Single lead
 // ─────────────────────────────────────────────────────────────────────────────
-export const getSchoolById = async (req, res, next) => {
+export const getLeadById = async (req, res, next) => {
     try {
         if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
             res.status(400);
             throw new Error('Invalid ID format');
         }
-        const school = await School.findById(req.params.id);
-        if (!school) {
+        const lead = await Lead.findById(req.params.id);
+        if (!lead) {
             res.status(404);
-            throw new Error('School not found');
+            throw new Error('Lead not found');
         }
-        res.json(school);
+        res.json(lead);
     } catch (err) {
         next(err);
     }
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /api/schools  –  Create school (unchanged)
+// POST /api/leads  –  Create lead
 // ─────────────────────────────────────────────────────────────────────────────
-export const createSchool = async (req, res, next) => {
+export const createLead = async (req, res, next) => {
     try {
         const {
-            campaign_id, name, type, grades, principal_name, principal_email,
-            telephone, start_time, end_time, address, city, state, zip, website
+            campaign_id, name, type, category_group, main_contact_name, main_contact_email,
+            telephone, start_time, end_time, address_number, address, city, state, zip, website
         } = req.body;
 
         if (!name || !campaign_id) {
@@ -164,56 +159,53 @@ export const createSchool = async (req, res, next) => {
             throw new Error('name and campaign_id are required');
         }
 
-        const school = await School.create({
-            campaign_id, name, type, grades, principal_name, principal_email,
-            telephone, start_time, end_time, address, city, state, zip, website
+        const lead = await Lead.create({
+            campaign_id, name, type, category_group, main_contact_name, main_contact_email,
+            telephone, start_time, end_time, address_number, address, city, state, zip, website
         });
-        res.json(school);
+        res.json(lead);
     } catch (err) {
         next(err);
     }
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PUT /api/schools/:id  –  Full edit of school details (unchanged)
+// PUT /api/leads/:id  –  Full edit of lead details
 // ─────────────────────────────────────────────────────────────────────────────
-export const updateSchool = async (req, res, next) => {
+export const updateLead = async (req, res, next) => {
     try {
         const {
-            name, type, grades, principal_name, principal_email,
-            telephone, start_time, end_time, address, city, state, zip, website
+            name, type, category_group, main_contact_name, main_contact_email,
+            telephone, start_time, end_time, address_number, address, city, state, zip, website
         } = req.body;
 
-        // campaign_id is intentionally excluded from editable fields here —
-        // it must only change if explicitly provided and validated elsewhere.
         if (name !== undefined && !name.trim()) {
             res.status(400);
-            throw new Error('School name cannot be empty');
+            throw new Error('Lead name cannot be empty');
         }
 
         const updatePayload = {
-            name, type, grades, principal_name, principal_email,
-            telephone, start_time, end_time, address, city, state, zip, website
+            name, type, category_group, main_contact_name, main_contact_email,
+            telephone, start_time, end_time, address_number, address, city, state, zip, website
         };
-        // Strip keys that are explicitly undefined (not sent by client)
         Object.keys(updatePayload).forEach(k => updatePayload[k] === undefined && delete updatePayload[k]);
 
-        const school = await School.findByIdAndUpdate(req.params.id, updatePayload, { new: true });
+        const lead = await Lead.findByIdAndUpdate(req.params.id, updatePayload, { new: true });
 
-        if (!school) {
+        if (!lead) {
             res.status(404);
-            throw new Error('School not found');
+            throw new Error('Lead not found');
         }
-        res.json(school);
+        res.json(lead);
     } catch (err) {
         next(err);
     }
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PATCH /api/schools/:id  –  Status-only update (unchanged)
+// PATCH /api/leads/:id  –  Status-only update
 // ─────────────────────────────────────────────────────────────────────────────
-export const updateSchoolStatus = async (req, res, next) => {
+export const updateLeadStatus = async (req, res, next) => {
     try {
         const { status } = req.body;
         if (!status) {
@@ -221,17 +213,17 @@ export const updateSchoolStatus = async (req, res, next) => {
             throw new Error('status is required');
         }
 
-        const school = await School.findByIdAndUpdate(
+        const lead = await Lead.findByIdAndUpdate(
             req.params.id,
             { status },
             { new: true }
         );
 
-        if (!school) {
+        if (!lead) {
             res.status(404);
-            throw new Error('School not found');
+            throw new Error('Lead not found');
         }
-        res.json(school);
+        res.json(lead);
     } catch (err) {
         next(err);
     }

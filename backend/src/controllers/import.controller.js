@@ -2,9 +2,8 @@ import * as importService from '../services/import.service.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/import  –  LEGACY endpoint (untouched, still fully functional)
-// campaign_id comes from req.body; accepts .xlsx only
 // ─────────────────────────────────────────────────────────────────────────────
-export const importSchools = async (req, res, next) => {
+export const importLeads = async (req, res, next) => { // importSchools -> importLeads
     try {
         if (!req.file) {
             res.status(400);
@@ -34,9 +33,8 @@ export const importSchools = async (req, res, next) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/campaigns/:id/import  –  Campaign-scoped upload
-// campaign_id comes from URL param; accepts .xlsx and .csv
 // ─────────────────────────────────────────────────────────────────────────────
-export const importSchoolsForCampaign = async (req, res, next) => {
+export const importLeadsForCampaign = async (req, res, next) => { // importSchoolsForCampaign -> importLeadsForCampaign
     try {
         if (!req.file) {
             res.status(400);

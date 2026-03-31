@@ -19,7 +19,6 @@ import { useSidebar } from "./SidebarContext";
 const topNavItems = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/campaigns", label: "Campaigns", icon: Megaphone },
-  { to: "/schools", label: "Schools / Leads", icon: School },
   { to: "/followups", label: "Follow Ups", icon: Clock },
   { to: "/tasks", label: "Tasks", icon: CheckSquare },
   { to: "/reports", label: "Reports", icon: BarChart3 },
