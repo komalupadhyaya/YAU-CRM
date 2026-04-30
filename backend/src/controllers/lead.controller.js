@@ -1,5 +1,7 @@
 import mongoose from 'mongoose';
 import Lead from '../models/lead.model.js';
+import Contact from '../models/contact.model.js';
+import Note from '../models/note.model.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/leads  –  Paginated master list with search / filter / enrichment
@@ -16,7 +18,6 @@ export const getLeads = async (req, res, next) => {
 
         // ── $match stage ──────────────────────────────────────────────────────
         const matchStage = {};
-
         if (status) {
             matchStage.status = status;
         }
@@ -133,12 +134,16 @@ export const getLeadById = async (req, res, next) => {
             res.status(400);
             throw new Error('Invalid ID format');
         }
-        const lead = await Lead.findById(req.params.id);
+        const lead = await Lead.findById(req.params.id).populate('campaign_id', 'name').lean();
         if (!lead) {
             res.status(404);
             throw new Error('Lead not found');
         }
-        res.json(lead);
+        
+        // Fetch contacts for this lead
+        const contacts = await Contact.find({ lead_id: lead._id }).sort({ is_primary: -1, createdAt: 1 }).lean();
+        
+        res.json({ ...lead, contacts });
     } catch (err) {
         next(err);
     }
@@ -150,20 +155,53 @@ export const getLeadById = async (req, res, next) => {
 export const createLead = async (req, res, next) => {
     try {
         const {
-            campaign_id, name, type, category_group, main_contact_name, main_contact_email,
-            telephone, start_time, end_time, address_number, address, city, state, zip, website
+            campaign_id, name, type, category_group, telephone, start_time, end_time, address_number, address, city, state, zip, website,
+            // Primary Contact Person
+            main_contact_name, main_contact_email, contact_title, contact_department, contact_direct_phone, contact_extension,
+            contact_email, contact_best_time, contact_preferred_method,
+            // Secondary Contact
+            secondary_contact_name, secondary_contact_title, secondary_contact_phone, secondary_contact_extension, secondary_contact_email
         } = req.body;
 
-        if (!name || !campaign_id) {
+        if (!name || !campaign_id || !main_contact_name || !contact_title || !contact_department || !contact_direct_phone || !contact_email || !contact_best_time || !contact_preferred_method) {
             res.status(400);
-            throw new Error('name and campaign_id are required');
+            throw new Error('All primary contact details, organization name, and campaign are required');
         }
 
         const lead = await Lead.create({
-            campaign_id, name, type, category_group, main_contact_name, main_contact_email,
-            telephone, start_time, end_time, address_number, address, city, state, zip, website
+            campaign_id, name, type, category_group, telephone, start_time, end_time, address_number, address, city, state, zip, website
         });
-        res.json(lead);
+
+        // Create primary contact if name is provided
+        if (main_contact_name) {
+            await Contact.create({
+                lead_id: lead._id,
+                name: main_contact_name,
+                email: contact_email || main_contact_email,
+                title: contact_title,
+                department: contact_department,
+                direct_phone: contact_direct_phone,
+                extension: contact_extension,
+                best_time: contact_best_time,
+                preferred_method: contact_preferred_method,
+                is_primary: true
+            });
+        }
+
+        // Create secondary contact if name is provided
+        if (secondary_contact_name) {
+            await Contact.create({
+                lead_id: lead._id,
+                name: secondary_contact_name,
+                title: secondary_contact_title,
+                direct_phone: secondary_contact_phone,
+                extension: secondary_contact_extension,
+                email: secondary_contact_email,
+                is_primary: false
+            });
+        }
+
+        res.status(201).json(lead);
     } catch (err) {
         next(err);
     }
@@ -175,8 +213,12 @@ export const createLead = async (req, res, next) => {
 export const updateLead = async (req, res, next) => {
     try {
         const {
-            name, type, category_group, main_contact_name, main_contact_email,
-            telephone, start_time, end_time, address_number, address, city, state, zip, website
+            name, type, category_group, telephone, start_time, end_time, address_number, address, city, state, zip, website, campaign_id, status,
+            // Primary Contact Person
+            main_contact_name, main_contact_email, contact_title, contact_department, contact_direct_phone, contact_extension,
+            contact_email, contact_best_time, contact_preferred_method,
+            // Secondary Contact
+            secondary_contact_name, secondary_contact_title, secondary_contact_phone, secondary_contact_extension, secondary_contact_email
         } = req.body;
 
         if (name !== undefined && !name.trim()) {
@@ -185,18 +227,54 @@ export const updateLead = async (req, res, next) => {
         }
 
         const updatePayload = {
-            name, type, category_group, main_contact_name, main_contact_email,
-            telephone, start_time, end_time, address_number, address, city, state, zip, website
+            name, type, category_group, telephone, start_time, end_time, address_number, address, city, state, zip, website, campaign_id, status
         };
         Object.keys(updatePayload).forEach(k => updatePayload[k] === undefined && delete updatePayload[k]);
 
-        const lead = await Lead.findByIdAndUpdate(req.params.id, updatePayload, { new: true });
+        const lead = await Lead.findByIdAndUpdate(req.params.id, updatePayload, { new: true }).populate('campaign_id', 'name');
 
         if (!lead) {
             res.status(404);
             throw new Error('Lead not found');
         }
-        res.json(lead);
+
+        // Handle Primary Contact Update
+        if (main_contact_name) {
+            await Contact.findOneAndUpdate(
+                { lead_id: lead._id, is_primary: true },
+                {
+                    name: main_contact_name,
+                    email: contact_email || main_contact_email,
+                    title: contact_title,
+                    department: contact_department,
+                    direct_phone: contact_direct_phone,
+                    extension: contact_extension,
+                    best_time: contact_best_time,
+                    preferred_method: contact_preferred_method,
+                    is_primary: true
+                },
+                { upsert: true, new: true }
+            );
+        }
+
+        // Handle Secondary Contact Update
+        if (secondary_contact_name) {
+            await Contact.findOneAndUpdate(
+                { lead_id: lead._id, is_primary: false },
+                {
+                    name: secondary_contact_name,
+                    title: secondary_contact_title,
+                    direct_phone: secondary_contact_phone,
+                    extension: secondary_contact_extension,
+                    email: secondary_contact_email,
+                    is_primary: false
+                },
+                { upsert: true, new: true }
+            );
+        }
+
+        const contacts = await Contact.find({ lead_id: lead._id }).sort({ is_primary: -1, createdAt: 1 }).lean();
+        res.json({ ...lead.toObject(), contacts });
     } catch (err) {
         next(err);
     }
@@ -223,6 +301,14 @@ export const updateLeadStatus = async (req, res, next) => {
             res.status(404);
             throw new Error('Lead not found');
         }
+
+        // Log status change
+        await Note.create({
+            lead_id: req.params.id,
+            type: 'status_change',
+            content: `Status updated to: ${status}`
+        });
+
         res.json(lead);
     } catch (err) {
         next(err);

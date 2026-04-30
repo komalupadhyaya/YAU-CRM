@@ -34,5 +34,4 @@ const test = async () => {
         process.exit(0);
     }
 };
-
 test();

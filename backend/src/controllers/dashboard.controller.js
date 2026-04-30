@@ -56,17 +56,22 @@ export const getConsolidatedDashboard = async (req, res, next) => {
                         _id: null,
                         overdue: {
                             $sum: {
-                                $cond: [{ $lt: ['$follow_up_date', todayStr] }, 1, 0]
+                                $cond: [{ $lt: ['$date_time', new Date(now.getFullYear(), now.getMonth(), now.getDate())] }, 1, 0]
                             }
                         },
                         dueToday: {
                             $sum: {
-                                $cond: [{ $eq: ['$follow_up_date', todayStr] }, 1, 0]
+                                $cond: [
+                                    { $and: [
+                                        { $gte: ['$date_time', new Date(now.getFullYear(), now.getMonth(), now.getDate())] },
+                                        { $lt: ['$date_time', new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)] }
+                                    ]}, 1, 0
+                                ]
                             }
                         },
                         upcoming: {
                             $sum: {
-                                $cond: [{ $gt: ['$follow_up_date', todayStr] }, 1, 0]
+                                $cond: [{ $gte: ['$date_time', new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)] }, 1, 0]
                             }
                         }
                     }
@@ -134,7 +139,9 @@ export const getConsolidatedDashboard = async (req, res, next) => {
 
 export const getDashboardStats = async (req, res, next) => {
     try {
-        const today = new Date().toISOString().slice(0, 10);
+        const now = new Date();
+        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
 
         const all = await Followup.find({ status: 'pending' })
             .populate({
@@ -142,23 +149,26 @@ export const getDashboardStats = async (req, res, next) => {
                 select: 'name telephone campaign_id',
                 populate: { path: 'campaign_id', select: 'name' }
             })
-            .sort({ follow_up_date: 1 });
+            .sort({ date_time: 1 });
 
         const flatAll = all.map(f => {
             const data = f.toJSON();
             return {
                 ...data,
-                lead_name: data.lead_id?.name, // school_name -> lead_name
-                lead_id_val: data.lead_id?._id, // school_id_val -> lead_id_val
+                lead_name: data.lead_id?.name,
+                lead_id_val: data.lead_id?._id,
                 telephone: data.lead_id?.telephone,
                 campaign_name: data.lead_id?.campaign_id?.name,
                 campaign_id_val: data.lead_id?.campaign_id?._id
             };
         });
 
-        const overdue = flatAll.filter(f => f.follow_up_date < today);
-        const due = flatAll.filter(f => f.follow_up_date === today);
-        const upcoming = flatAll.filter(f => f.follow_up_date > today);
+        const overdue = flatAll.filter(f => new Date(f.date_time) < startOfToday);
+        const due = flatAll.filter(f => {
+            const dt = new Date(f.date_time);
+            return dt >= startOfToday && dt < endOfToday;
+        });
+        const upcoming = flatAll.filter(f => new Date(f.date_time) >= endOfToday);
 
         res.json({ overdue, due, upcoming, all: flatAll });
     } catch (err) {

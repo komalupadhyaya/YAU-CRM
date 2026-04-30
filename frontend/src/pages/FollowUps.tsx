@@ -8,8 +8,10 @@ import { Button } from "@/components/ui/button";
 
 interface FollowUp {
     _id: string;
-    reason: string;
-    follow_up_date: string;
+    notes: string;
+    date_time: string;
+    type: string;
+    priority: string;
     status: string;
     lead: {
         _id: string;
@@ -48,46 +50,60 @@ export default function FollowUps() {
         loadFollowUps();
     }, []);
 
-    const TaskCard = ({ item }: { item: FollowUp }) => (
-        <div className="flex items-center justify-between p-4 bg-card border rounded-lg hover:shadow-md transition-shadow">
-            <div className="flex items-start gap-4">
-                <div className={`p-2 rounded-full ${item.status === 'done' ? 'bg-green-500/10 text-green-500' : 'bg-primary/10 text-primary'
-                    }`}>
-                    <Clock size={18} />
-                </div>
-                <div>
-                    <h3 className="font-semibold text-sm">
-                        <Link to={`/lead/${item.lead._id}`} className="hover:text-primary transition-colors">
-                            {item.lead.name}
-                        </Link>
-                    </h3>
-                    <p className="text-xs text-muted-foreground">{item.reason}</p>
-                    <div className="flex items-center gap-3 mt-2">
-                        <span className="flex items-center gap-1 text-[10px] bg-secondary px-2 py-0.5 rounded-full text-secondary-foreground border">
-                            {item.campaign.name}
-                        </span>
-                        <span className="flex items-center gap-1 text-[10px] font-medium text-muted-foreground">
-                            <Calendar size={10} />
-                            {item.follow_up_date}
-                        </span>
-                        {item.lead.telephone && (
-                            <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                                <Phone size={10} />
-                                {item.lead.telephone}
+    const TaskCard = ({ item, variant }: { item: FollowUp, variant: 'overdue' | 'today' | 'upcoming' }) => {
+        const statusStyles = {
+            overdue: "border-l-destructive bg-destructive/5",
+            today: "border-l-warning bg-warning/5",
+            upcoming: "border-l-success bg-success/5"
+        }[variant] || "border-l-border bg-card";
+
+        return (
+            <div className={`flex items-center justify-between p-4 border rounded-lg border-l-4 hover:shadow-md transition-shadow ${statusStyles}`}>
+                <div className="flex items-start gap-4">
+                    <div className={`p-2 rounded-full ${item.status === 'done' ? 'bg-green-500/10 text-green-500' : 'bg-primary/10 text-primary'
+                        }`}>
+                        <Clock size={18} />
+                    </div>
+                    <div>
+                        <h3 className="font-semibold text-sm flex items-center gap-2">
+                            <span className="text-[9px] font-bold uppercase tracking-wider bg-primary/10 text-primary px-1.5 py-0.5 rounded">{item.type || 'Task'}</span>
+                            <Link to={`/lead/${item.lead._id}`} className="hover:text-primary transition-colors">
+                                {item.lead?.name || 'Unknown Lead'}
+                            </Link>
+                        </h3>
+                        <p className="text-xs text-muted-foreground mt-1">{item.notes}</p>
+                        <div className="flex items-center gap-3 mt-2">
+                            <span className="flex items-center gap-1 text-[10px] bg-secondary px-2 py-0.5 rounded-full text-secondary-foreground border">
+                                {item.campaign?.name || 'No Campaign'}
                             </span>
-                        )}
+                            <span className="flex items-center gap-1 text-[10px] font-medium text-muted-foreground">
+                                <Calendar size={10} />
+                                {new Date(item.date_time).toLocaleString()}
+                            </span>
+                            {item.lead?.telephone && (
+                                <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                                    <Phone size={10} />
+                                    {item.lead.telephone}
+                                </span>
+                            )}
+                            {item.priority && (
+                                <span className={`text-[10px] font-bold uppercase ${item.priority === 'High' ? 'text-destructive' : 'text-muted-foreground'}`}>
+                                    {item.priority}
+                                </span>
+                            )}
+                        </div>
                     </div>
                 </div>
+                <Link to={`/lead/${item.lead._id}`}>
+                    <Button variant="ghost" size="sm" className="gap-1 text-xs">
+                        <Eye size={12} />
+                    </Button>
+                </Link>
             </div>
-            <Link to={`/lead/${item.lead._id}`}>
-                <Button variant="ghost" size="sm" className="gap-1 text-xs">
-                    <Eye size={12} />
-                </Button>
-            </Link>
-        </div>
-    );
+        );
+    };
 
-    const TaskSection = ({ title, items, icon: Icon, color }: { title: string, items: FollowUp[], icon: any, color: string }) => (
+    const TaskSection = ({ title, items, icon: Icon, color, variant }: { title: string, items: FollowUp[], icon: any, color: string, variant: 'overdue' | 'today' | 'upcoming' }) => (
         <div className="space-y-4">
             <div className="flex items-center gap-2">
                 <div className={`p-1.5 rounded-md ${color}`}>
@@ -104,7 +120,7 @@ export default function FollowUps() {
                         No {title.toLowerCase()} follow-ups.
                     </div>
                 ) : (
-                    items.map(item => <TaskCard key={item._id} item={item} />)
+                    items.map(item => <TaskCard key={item._id} item={item} variant={variant} />)
                 )}
             </div>
         </div>
@@ -126,18 +142,21 @@ export default function FollowUps() {
                         items={data?.overdue || []}
                         icon={AlertCircle}
                         color="bg-red-500/10 text-red-500"
+                        variant="overdue"
                     />
                     <TaskSection
                         title="Due Today"
                         items={data?.dueToday || []}
                         icon={Clock}
-                        color="bg-orange-500/10 text-orange-500"
+                        color="bg-warning/10 text-warning"
+                        variant="today"
                     />
                     <TaskSection
                         title="Upcoming"
                         items={data?.upcoming || []}
                         icon={Calendar}
-                        color="bg-blue-500/10 text-blue-500"
+                        color="bg-success/10 text-success"
+                        variant="upcoming"
                     />
                 </div>
             </div>
