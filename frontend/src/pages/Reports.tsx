@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import api from "../api/api";
 import AppLayout from "../layout/AppLayout";
 import { BarChart3, Download, FileSpreadsheet, PieChart, TrendingUp, Users, Building, Megaphone } from "lucide-react";
@@ -41,6 +42,7 @@ export default function Reports() {
     const [overview, setOverview] = useState<OverviewData | null>(null);
     const [performance, setPerformance] = useState<CampaignPerformance[]>([]);
     const [loading, setLoading] = useState(true);
+    const navigate = useNavigate();
 
     const loadData = async () => {
         try {
@@ -175,8 +177,14 @@ export default function Reports() {
                             </TableHeader>
                             <TableBody>
                                 {performance.map((p) => (
-                                    <TableRow key={p.campaignId}>
-                                        <TableCell className="font-medium">{p.campaignName}</TableCell>
+                                <TableRow key={p.campaignId} className="group">
+                                    <TableCell 
+                                        className="font-medium cursor-pointer text-foreground group-hover:text-primary transition-colors flex items-center gap-2"
+                                        onClick={() => navigate(`/campaigns?campaignId=${p.campaignId}`)}
+                                    >
+                                        <Megaphone size={14} className="text-muted-foreground group-hover:text-primary opacity-50 group-hover:opacity-100 transition-all" />
+                                        {p.campaignName}
+                                    </TableCell>
                                         <TableCell>{p.totalLeads}</TableCell>
                                         <TableCell>{p.totalFollowups}</TableCell>
                                         <TableCell className="text-green-500 font-medium">{p.completedFollowups}</TableCell>
