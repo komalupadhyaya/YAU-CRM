@@ -20,15 +20,24 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    const status = error.response?.status;
     const message =
       error.response?.data?.error ||
       error.message ||
       "An unexpected error occurred";
 
-    if (
-      error.response?.status !== 401 ||
-      !window.location.pathname.includes("/login")
-    ) {
+    // Handle 401 Unauthorized
+    if (status === 401) {
+      // Clear token and redirect to login if not already there
+      localStorage.removeItem("token");
+      if (!window.location.pathname.includes("/login")) {
+        window.location.href = "/login";
+        return Promise.reject(error); // Stop here
+      }
+    }
+
+    // Only show toast if not a 401 or if it's an explicit error
+    if (status !== 401) {
       toast.error(message);
     }
 

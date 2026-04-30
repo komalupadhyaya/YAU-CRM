@@ -25,10 +25,12 @@ export interface Lead {
 
 interface LeadState {
     selectedLead: Lead | null;
-    setSelectedLead: (lead: Lead | null) => void;
+    setSelectedLead: (lead: Lead | null | ((prev: Lead | null) => Lead | null)) => void;
 }
 
 export const useLeadStore = create<LeadState>((set) => ({
     selectedLead: null,
-    setSelectedLead: (lead) => set({ selectedLead: lead }),
+    setSelectedLead: (lead) => set((state) => ({ 
+        selectedLead: typeof lead === 'function' ? lead(state.selectedLead) : lead 
+    })),
 }));

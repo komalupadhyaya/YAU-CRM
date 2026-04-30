@@ -199,18 +199,15 @@ const Campaigns = () => {
     setLoadingCampaigns(false);
   };
 
-  const fetchLeads = useCallback(async (compId: string) => {
-    setLoadingLeads(true);
+  const fetchLeads = useCallback(async (compId: string, silent = false) => {
+    if (!silent) setLoadingLeads(true);
     try {
       const r = await api.get(`/leads/campaign/${compId}`);
-      setLeads(r.data);
-      // Deselect lead if it's not in the new campaign
-      if (selectedLead && !r.data.find((s: Lead) => s._id === selectedLead._id)) {
-        setSelectedLead(null);
-      }
+      // Only update if data is different to prevent flickering
+      setLeads(prev => JSON.stringify(prev) === JSON.stringify(r.data) ? prev : r.data);
     } catch { }
-    setLoadingLeads(false);
-  }, [selectedLead, setSelectedLead]);
+    if (!silent) setLoadingLeads(false);
+  }, []); // Removed selectedLead dependency
 
   const fetchDetails = useCallback(async (leadId: string, silent = false) => {
     if (!silent) setLoadingDetails(true);
@@ -220,17 +217,26 @@ const Campaigns = () => {
         api.get(`/followups/lead/${leadId}`),
         api.get(`/leads/${leadId}`)
       ]);
-      setNotes(notesRes.data);
-      setFollowUps(followUpsRes.data);
-      // Update the selected lead with the one that has contacts
-      setSelectedLead(leadRes.data);
+      
+      // Update states only if they changed to prevent re-render loops
+      setNotes(prev => JSON.stringify(prev) === JSON.stringify(notesRes.data) ? prev : notesRes.data);
+      setFollowUps(prev => JSON.stringify(prev) === JSON.stringify(followUpsRes.data) ? prev : followUpsRes.data);
+      
+      // Use functional update to avoid dependency on selectedLead
+      setSelectedLead((prev: Lead | null) => {
+        const newData = leadRes.data as Lead;
+        if (!prev || prev._id !== newData._id) return newData;
+        return JSON.stringify(prev) === JSON.stringify(newData) ? prev : newData;
+      });
     } catch { }
     if (!silent) setLoadingDetails(false);
   }, [setSelectedLead]);
 
   useEffect(() => {
     fetchCampaigns();
-    api.get("/settings").then(res => setStatusLabels(res.data.statusLabels || []));
+    api.get("/settings")
+      .then(res => setStatusLabels(res.data.statusLabels || []))
+      .catch(() => { /* Silent fail or redirect to login */ });
   }, []);
 
   useEffect(() => {
@@ -243,17 +249,11 @@ const Campaigns = () => {
   }, [selectedCampaign?._id]);
 
   useEffect(() => {
-    if (selectedLead) {
+    if (selectedLead?._id) {
+      // Only fetch when lead changes
       fetchDetails(selectedLead._id);
-      
-      // Auto-poll for new notes/recordings every 10 seconds
-      const pollInterval = setInterval(() => {
-        fetchDetails(selectedLead._id, true); // true for silent load
-      }, 10000);
-      
-      return () => clearInterval(pollInterval);
     }
-  }, [selectedLead?._id, fetchDetails]);
+  }, [selectedLead?._id]); // No more setInterval here
 
   // --- Handlers ---
 
@@ -405,10 +405,9 @@ const Campaigns = () => {
   const handleStatusChange = async (newStatus: string) => {
     if (!selectedLead) return;
     try {
-      const res = await api.patch(`/leads/${selectedLead._id}`, { status: newStatus });
-      setSelectedLead(res.data);
-      setLeads(prev => prev.map(s => s._id === res.data._id ? res.data : s));
+      await api.patch(`/leads/${selectedLead._id}`, { status: newStatus });
       toast.success(`Status updated to ${newStatus}`);
+      fetchDetails(selectedLead._id, true);
     } catch { }
   };
 
@@ -419,14 +418,7 @@ const Campaigns = () => {
       await api.post(`/notes/${selectedLead._id}`, { content: noteContent });
       toast.success("Note added");
       setNoteContent("");
-
-      const [notesRes, leadRes] = await Promise.all([
-        api.get(`/notes/${selectedLead._id}`),
-        api.get(`/leads/${selectedLead._id}`)
-      ]);
-      setNotes(notesRes.data);
-      setSelectedLead(leadRes.data);
-      setLeads(prev => prev.map(s => s._id === leadRes.data._id ? leadRes.data : s));
+      fetchDetails(selectedLead._id, true);
     } catch { } finally {
       setIsSubmitting(false);
     }
@@ -437,8 +429,7 @@ const Campaigns = () => {
       await api.delete(`/notes/${id}`);
       toast.success("Note deleted");
       if (selectedLead) {
-        const r = await api.get(`/notes/${selectedLead._id}`);
-        setNotes(r.data);
+        fetchDetails(selectedLead._id, true);
       }
     } catch { }
   };
@@ -448,8 +439,8 @@ const Campaigns = () => {
     try {
       await api.delete(`/notes/lead/${selectedLead._id}`);
       toast.success("All notes deleted");
-      setNotes([]);
       setIsDeleteAllConfirmOpen(false);
+      fetchDetails(selectedLead._id, true);
     } catch { }
   };
 
@@ -498,8 +489,7 @@ const Campaigns = () => {
       setFollowUpPriority("Medium");
       setFuErrors({});
 
-      const r = await api.get(`/followups/lead/${selectedLead._id}`);
-      setFollowUps(r.data);
+      fetchDetails(selectedLead._id, true);
     } catch (err: any) {
       if (err.response?.status === 409) {
           if (window.confirm("Conflict detected: Another follow-up is scheduled at this time. Schedule anyway?")) {
@@ -528,14 +518,7 @@ const Campaigns = () => {
       toast.success("Follow-up completed");
       setIsConfirmDoneOpen(false);
       setTaskToComplete(null);
-
-      const [fuRes, leadRes] = await Promise.all([
-        api.get(`/followups/lead/${selectedLead._id}`),
-        api.get(`/leads/${selectedLead._id}`)
-      ]);
-      setFollowUps(fuRes.data);
-      setSelectedLead(leadRes.data);
-      setLeads(prev => prev.map(s => s._id === leadRes.data._id ? leadRes.data : s));
+      fetchDetails(selectedLead._id, true);
     } catch { } finally {
       setIsSubmitting(false);
     }
@@ -580,16 +563,7 @@ const Campaigns = () => {
       setCallNotes("");
       setCallDuration("");
       
-      // Refresh details
-      const [notesRes, leadRes, fuRes] = await Promise.all([
-        api.get(`/notes/${selectedLead._id}`),
-        api.get(`/leads/${selectedLead._id}`),
-        api.get(`/followups/lead/${selectedLead._id}`)
-      ]);
-      setNotes(notesRes.data);
-      setSelectedLead(leadRes.data);
-      setFollowUps(fuRes.data);
-      setLeads(prev => prev.map(s => s._id === leadRes.data._id ? leadRes.data : s));
+      fetchDetails(selectedLead._id, true);
       
       if (res.data.followup_needed) {
         handleOpenFollowUpModal();

@@ -140,8 +140,10 @@ export default function LeadDetail() {
   const [meetingCc, setMeetingCc] = useState<string[]>([]);
   const [meetingCcInput, setMeetingCcInput] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
 
   const loadAll = async (silent = false) => {
+    if (!silent) setInitialLoading(true);
     try {
       const [leadRes, notesRes, followUpsRes, settingsRes, campaignsRes] = await Promise.all([
         api.get("/leads/" + id),
@@ -151,19 +153,23 @@ export default function LeadDetail() {
         api.get("/campaigns"),
       ]);
       const leadData = leadRes.data;
-      setLead(leadData);
       
+      // Update states only if they actually changed to prevent flickering
+      setLead(prev => JSON.stringify(prev) === JSON.stringify(leadData) ? prev : leadData);
+      setNotes(prev => JSON.stringify(prev) === JSON.stringify(notesRes.data) ? prev : notesRes.data);
+      setFollowUps(prev => JSON.stringify(prev) === JSON.stringify(followUpsRes.data) ? prev : followUpsRes.data);
+      setStatusLabels(prev => JSON.stringify(prev) === JSON.stringify(settingsRes.data.statusLabels) ? prev : (settingsRes.data.statusLabels || []));
+      setCampaigns(prev => JSON.stringify(prev) === JSON.stringify(campaignsRes.data) ? prev : (campaignsRes.data || []));
+
       const getPrefix = (phone: string) => {
         if (!phone?.startsWith('+')) return "+1";
         const found = countryCodes.find(c => phone.startsWith(c.dialCode));
         return found ? found.dialCode : "+1";
       };
 
-      // Detect prefix from lead telephone if it exists
-      if (!isEditing) {
+      // Only populate edit data if we aren't already editing and it's the first load
+      if (!isEditing && initialLoading) {
         setPhonePrefix(getPrefix(leadData.telephone));
-
-        // Populate edit data with lead AND contact info
         const primary = leadData.contacts?.find((c: any) => c.is_primary);
         const secondary = leadData.contacts?.find((c: any) => !c.is_primary);
         
@@ -194,29 +200,14 @@ export default function LeadDetail() {
           secondary_contact_email: secondary?.email || "",
         });
       }
-      
-      setNotes(notesRes.data);
-      setFollowUps(followUpsRes.data);
-      setStatusLabels(settingsRes.data.statusLabels || []);
-      setCampaigns(campaignsRes.data || []);
-    } catch { }
+    } catch { } finally {
+      setInitialLoading(false);
+    }
   };
 
   useEffect(() => {
     loadAll();
-    
-    // Auto-poll for new notes/recordings every 10 seconds, but ONLY if not editing
-    let pollInterval: any;
-    if (!isEditing) {
-      pollInterval = setInterval(() => {
-        loadAll();
-      }, 10000);
-    }
-    
-    return () => {
-      if (pollInterval) clearInterval(pollInterval);
-    };
-  }, [id, isEditing]);
+  }, [id]); // No more setInterval, updates only on lead change or action
 
   const saveLead = async () => {
     if (isSubmitting) return;
@@ -263,8 +254,7 @@ export default function LeadDetail() {
       setNoteError(false);
       setIsNoteModalOpen(false);
       setSelectedContactForNote(null);
-      const r = await api.get("/notes/" + id);
-      setNotes(r.data);
+      await loadAll();
     } catch { } finally {
       setIsSubmitting(false);
     }
@@ -280,8 +270,7 @@ export default function LeadDetail() {
     try {
       await api.delete(`/notes/${noteToDelete}`);
       toast.success("Note deleted");
-      const r = await api.get("/notes/" + id);
-      setNotes(r.data);
+      await loadAll();
       setIsDeleteNoteModalOpen(false);
       setNoteToDelete(null);
     } catch {
@@ -539,7 +528,7 @@ export default function LeadDetail() {
     }
   };
 
-  if (!lead) return <AppLayout><div className="p-12 text-center animate-pulse dark:text-muted-foreground">Loading details...</div></AppLayout>;
+  if (initialLoading) return <AppLayout><div className="p-12 text-center animate-pulse dark:text-muted-foreground">Loading details...</div></AppLayout>;
 
   return (
     <AppLayout>
