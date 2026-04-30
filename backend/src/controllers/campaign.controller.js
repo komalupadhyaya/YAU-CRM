@@ -24,6 +24,13 @@ export const createCampaign = async (req, res, next) => {
             res.status(400);
             throw new Error('Campaign name is required');
         }
+
+        const existing = await Campaign.findOne({ name: { $regex: new RegExp(`^${name}$`, 'i') } });
+        if (existing) {
+            res.status(400);
+            throw new Error('A campaign with this name already exists');
+        }
+
         const campaign = await Campaign.create({ name });
         res.json(campaign);
     } catch (err) {

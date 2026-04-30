@@ -34,3 +34,25 @@ export const createNote = async (req, res, next) => {
         next(err);
     }
 };
+
+export const deleteNote = async (req, res, next) => {
+    try {
+        const note = await Note.findByIdAndDelete(req.params.id);
+        if (!note) {
+            res.status(404);
+            throw new Error('Note not found');
+        }
+        res.json({ message: 'Note deleted' });
+    } catch (err) {
+        next(err);
+    }
+};
+
+export const deleteAllNotes = async (req, res, next) => {
+    try {
+        await Note.deleteMany({ lead_id: req.params.schoolId });
+        res.json({ message: 'All notes deleted' });
+    } catch (err) {
+        next(err);
+    }
+};

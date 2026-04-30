@@ -8,9 +8,17 @@ const SettingsSchema = new mongoose.Schema({
         type: [String],
         default: [
             "Not Contacted",
-            "Spoke to Office",
+            "Attempted Contact",
+            "Spoke to Front Office",
+            "Spoke to Decision Maker",
+            "Waiting on Reply",
+            "Follow-Up Needed",
             "Meeting Scheduled",
-            "Closed"
+            "Proposal Sent",
+            "Interested",
+            "Not Interested",
+            "Program Confirmed",
+            "On Hold"
         ]
     }
 }, { timestamps: true });

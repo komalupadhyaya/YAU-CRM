@@ -12,14 +12,20 @@ import reportsRoutes from './routes/reports.routes.js';
 import teamRoutes from './routes/team.routes.js';
 import settingsRoutes from './routes/settings.routes.js';
 import tasksRoutes from './routes/tasks.routes.js';
+import contactRoutes from './routes/contact.routes.js';
+import emailRoutes from './routes/email.routes.js';
+import webhookRoutes from './routes/webhook.routes.js';
+import justcallRoutes from './routes/justcall.routes.js';
 import errorHandler from './middleware/error.middleware.js';
 
 const app = express();
 
 const allowedOrigins = [
     'https://crm.yauapp.com',
-    process.env.FRONTEND_URL || 'http://localhost:8080'
-];
+    'http://localhost:8080',
+    'http://127.0.0.1:8080',
+    process.env.FRONTEND_URL
+].filter(Boolean);
 
 app.use(cors({
     origin: function (origin, callback) {
@@ -35,6 +41,7 @@ app.use(cors({
 }));
 
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // ----------------------------
 // ROOT ROUTE
@@ -230,6 +237,10 @@ app.use('/api/reports', reportsRoutes);
 app.use('/api/team', teamRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/tasks', tasksRoutes);
+app.use('/api/contacts', contactRoutes);
+app.use('/api/emails', emailRoutes);
+app.use('/api/webhooks', webhookRoutes);
+app.use('/api/justcall', justcallRoutes);
 
 // Error Handling Middleware
 app.use(errorHandler);

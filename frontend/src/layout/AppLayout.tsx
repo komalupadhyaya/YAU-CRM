@@ -2,6 +2,7 @@ import { ReactNode } from "react";
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
 import { SidebarProvider, useSidebar } from "./SidebarContext";
+import { FollowUpProvider } from "../context/FollowUpContext";
 
 function Inner({ children }: { children: ReactNode }) {
   const { mobileOpen, closeMobile } = useSidebar();
@@ -14,9 +15,7 @@ function Inner({ children }: { children: ReactNode }) {
           onClick={closeMobile}
         />
       )}
-
       <Sidebar />
-
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         <Topbar />
         <div className="flex-1 overflow-auto p-4 md:p-6 bg-background">
@@ -30,7 +29,9 @@ function Inner({ children }: { children: ReactNode }) {
 export default function AppLayout({ children }: { children: ReactNode }) {
   return (
     <SidebarProvider>
-      <Inner>{children}</Inner>
+      <FollowUpProvider>
+        <Inner>{children}</Inner>
+      </FollowUpProvider>
     </SidebarProvider>
   );
 }

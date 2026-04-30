@@ -15,6 +15,7 @@ import {
   Plus
 } from "lucide-react";
 import { useSidebar } from "./SidebarContext";
+import { useFollowUp } from "../context/FollowUpContext";
 
 const topNavItems = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -37,20 +38,45 @@ export default function Sidebar() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const { collapsed, mobileOpen, toggleCollapsed, closeMobile } = useSidebar();
+  const { dueTodayCount, dueTodayNames } = useFollowUp();
 
   const renderNavItems = (items: typeof topNavItems, isMobile = false) => {
     return items.map(({ to, label, icon: Icon }) => {
       const active = pathname === to || pathname.startsWith(to + "/");
+      const showBadge = to === "/followups" && dueTodayCount > 0;
+      
+      let tooltipContent = label;
+      if (to === "/followups" && dueTodayCount > 0) {
+        tooltipContent = `${label} (${dueTodayCount} due today: ${dueTodayNames.join(", ")})`;
+      }
+
       return (
         <Link
           key={to}
           to={to}
-          title={collapsed && !isMobile ? label : undefined}
+          title={isMobile ? undefined : tooltipContent}
           onClick={isMobile ? closeMobile : undefined}
-          className={`sidebar-item ${active ? "sidebar-item-active" : "sidebar-item-inactive"} ${collapsed && !isMobile ? "justify-center px-0" : ""}`}
+          className={`sidebar-item relative ${active ? "sidebar-item-active" : "sidebar-item-inactive"} ${collapsed && !isMobile ? "justify-center px-0" : ""}`}
         >
-          <Icon size={18} className="flex-shrink-0" />
-          {(!collapsed || isMobile) && <span>{label}</span>}
+          <div className="relative">
+            <Icon size={18} className="flex-shrink-0" />
+            {showBadge && collapsed && !isMobile && (
+              <span className="absolute -top-1 -right-1 flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-destructive opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-destructive"></span>
+              </span>
+            )}
+          </div>
+          {(!collapsed || isMobile) && (
+            <div className="flex items-center justify-between flex-1">
+              <span>{label}</span>
+              {showBadge && (
+                <span className="bg-destructive text-destructive-foreground text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                  {dueTodayCount}
+                </span>
+              )}
+            </div>
+          )}
         </Link>
       );
     });
@@ -107,7 +133,7 @@ export default function Sidebar() {
         <nav className="pb-4 px-2 pt-4 border-t border-sidebar-border/40 space-y-1 flex-shrink-0">
           {renderNavItems(bottomNavItems)}
           {!collapsed && (
-            <div className="text-[11px] text-sidebar-muted px-4 pt-4 border-t border-sidebar-border/10 mt-2">© 2025 YAU CRM</div>
+            <div className="text-[11px] text-sidebar-muted px-4 pt-4 border-t border-sidebar-border/10 mt-2">© {new Date().getFullYear()} YAU CRM</div>
           )}
         </nav>
       </aside>
@@ -143,7 +169,7 @@ export default function Sidebar() {
         {/* Mobile Bottom Nav */}
         <nav className="pb-4 px-2 pt-4 border-t border-sidebar-border/40 space-y-1 flex-shrink-0">
           {renderNavItems(bottomNavItems, true)}
-          <div className="text-[11px] text-sidebar-muted px-4 pt-4 border-t border-sidebar-border/10 mt-2">© 2025 YAU CRM</div>
+          <div className="text-[11px] text-sidebar-muted px-4 pt-4 border-t border-sidebar-border/10 mt-2">© {new Date().getFullYear()} YAU CRM</div>
         </nav>
       </aside>
     </>
