@@ -58,6 +58,7 @@ export default function CreateLead() {
     });
     const [customTitle, setCustomTitle] = useState("");
     const [secondaryCustomTitle, setSecondaryCustomTitle] = useState("");
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     const [showSecondary, setShowSecondary] = useState(false);
 
@@ -128,11 +129,14 @@ export default function CreateLead() {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (isSubmitting) return;
+
         if (!validate()) {
             toast.error("Please fill in all required fields marked with *");
             return;
         }
 
+        setIsSubmitting(true);
         try {
             const finalTitle = formData.contact_title === "Other" ? customTitle.trim() : formData.contact_title;
             const finalSecondaryTitle = formData.secondary_contact_title === "Other" ? secondaryCustomTitle.trim() : formData.secondary_contact_title;
@@ -150,6 +154,7 @@ export default function CreateLead() {
             navigate("/lead/" + res.data._id);
         } catch (err: any) {
             toast.error(err.response?.data?.error || "Failed to create lead.");
+            setIsSubmitting(false);
         }
     };
 
@@ -176,8 +181,12 @@ export default function CreateLead() {
             <div className="max-w-4xl mx-auto pb-12">
                 <div className="flex items-center justify-between mb-6">
                     <h1 className="text-2xl font-bold text-foreground">Add New Lead</h1>
-                    <button onClick={handleSubmit} className="btn-primary flex items-center gap-2">
-                        <Save size={16} /> Save Lead
+                    <button 
+                        onClick={handleSubmit} 
+                        disabled={isSubmitting}
+                        className={`btn-primary flex items-center gap-2 ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                        <Save size={16} /> {isSubmitting ? "Saving..." : "Save Lead"}
                     </button>
                 </div>
 
@@ -630,8 +639,12 @@ export default function CreateLead() {
 
                     <div className="pt-4 border-t border-border flex justify-end gap-3">
                         <button type="button" onClick={() => navigate(-1)} className="btn-secondary border border-border">Cancel</button>
-                        <button type="submit" className="btn-primary flex items-center gap-2">
-                            <Save size={18} /> Create Lead
+                        <button 
+                            type="submit" 
+                            disabled={isSubmitting}
+                            className={`btn-primary flex items-center gap-2 ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                            <Save size={18} /> {isSubmitting ? "Creating..." : "Create Lead"}
                         </button>
                     </div>
                 </form>

@@ -139,6 +139,7 @@ export default function LeadDetail() {
   const [selectedContactForNote, setSelectedContactForNote] = useState<Contact | null>(null);
   const [meetingCc, setMeetingCc] = useState<string[]>([]);
   const [meetingCcInput, setMeetingCcInput] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const loadAll = async (silent = false) => {
     try {
@@ -218,10 +219,12 @@ export default function LeadDetail() {
   }, [id, isEditing]);
 
   const saveLead = async () => {
+    if (isSubmitting) return;
     if (!editData.name?.trim()) {
       toast.error("Name is required");
       return;
     }
+    setIsSubmitting(true);
     try {
       const payload = {
         ...editData,
@@ -236,15 +239,19 @@ export default function LeadDetail() {
       toast.success("Lead and contacts updated successfully");
     } catch { 
       toast.error("Failed to update lead details");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const addNote = async () => {
+    if (isSubmitting) return;
     if (!noteContent.trim()) {
       setNoteError(true);
       toast.error("Please fill the notes first");
       return;
     }
+    setIsSubmitting(true);
     try {
       const content = selectedContactForNote 
         ? `NOTE for ${selectedContactForNote.name}: ${noteContent}`
@@ -258,7 +265,9 @@ export default function LeadDetail() {
       setSelectedContactForNote(null);
       const r = await api.get("/notes/" + id);
       setNotes(r.data);
-    } catch { }
+    } catch { } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const confirmDeleteNote = (noteId: string) => {
@@ -292,6 +301,7 @@ export default function LeadDetail() {
   };
 
   const submitFollowUp = async (contactId?: string, force = false) => {
+    if (isSubmitting) return;
     const errors: Record<string, string> = {};
     const now = new Date();
 
@@ -318,6 +328,7 @@ export default function LeadDetail() {
       return;
     }
 
+    setIsSubmitting(true);
     try {
       const finalAssigned = assignedTo === "self" ? "Me" : customAssignedTo.trim();
       await api.post("/followups/" + id, { 
@@ -339,15 +350,20 @@ export default function LeadDetail() {
           const conflicts = err.response.data.conflicts || [];
           const conflictNames = conflicts.map((c: any) => c.summary).join(", ");
           if (window.confirm(`Calendar Conflict: "${conflictNames || 'Existing Event'}" detected. Schedule anyway?`)) {
+              setIsSubmitting(false); // Reset to allow retry
               submitFollowUp(contactId, true);
+              return;
           }
       } else {
           toast.error(err.response?.data?.message || "Failed to schedule follow-up");
       }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const scheduleMeeting = async (force = false) => {
+    if (isSubmitting) return;
     const errors: Record<string, string> = {};
     if (!meetingData.title.trim()) errors.title = "Meeting title is required";
     if (!meetingData.date_time) errors.date_time = "Date and time are required";
@@ -358,6 +374,7 @@ export default function LeadDetail() {
       return;
     }
 
+    setIsSubmitting(true);
     try {
       const res = await api.post("/followups/" + id, {
         date_time: meetingData.date_time,
@@ -379,11 +396,15 @@ export default function LeadDetail() {
       if (err.response?.status === 409) {
         const conflict = err.response.data.conflicts[0];
         if (window.confirm(`Conflict detected: "${conflict.summary}" at ${new Date(conflict.start).toLocaleTimeString()}. Schedule anyway?`)) {
+          setIsSubmitting(false);
           scheduleMeeting(true);
+          return;
         }
       } else {
         toast.error(err.response?.data?.message || err.message || "Failed to schedule meeting");
       }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -402,6 +423,8 @@ export default function LeadDetail() {
   };
 
   const logCall = async () => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
     try {
       const res = await api.post(`/justcall/log-call`, { 
         lead_id: id,
@@ -421,10 +444,13 @@ export default function LeadDetail() {
       }
     } catch { 
       toast.error("Failed to log call");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const sendSms = async () => {
+    if (isSubmitting) return;
     const errors: Record<string, string> = {};
     if (!smsData.message.trim()) errors.message = "Message is required";
 
@@ -434,6 +460,7 @@ export default function LeadDetail() {
       return;
     }
 
+    setIsSubmitting(true);
     try {
       const phone = selectedContactForSms?.direct_phone || lead?.telephone;
       if (!phone) {
@@ -454,10 +481,13 @@ export default function LeadDetail() {
       loadAll();
     } catch (err: any) {
       toast.error(err.response?.data?.message || "Failed to send SMS");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const sendEmail = async () => {
+    if (isSubmitting) return;
     const errors: Record<string, string> = {};
     if (!emailData.subject.trim()) errors.subject = "Subject is required";
     if (!emailData.body.trim()) errors.body = "Message body is required";
@@ -468,6 +498,7 @@ export default function LeadDetail() {
       return;
     }
 
+    setIsSubmitting(true);
     try {
       await api.post("/emails/send", {
         lead_id: id,
@@ -484,6 +515,8 @@ export default function LeadDetail() {
       loadAll();
     } catch (err: any) {
       toast.error(err.response?.data?.message || "Failed to send email");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -493,14 +526,17 @@ export default function LeadDetail() {
   };
 
   const handleConfirmDone = async () => {
-    if (!taskToComplete) return;
+    if (!taskToComplete || isSubmitting) return;
+    setIsSubmitting(true);
     try {
       await api.put(`/followups/${taskToComplete}/complete`);
       toast.success("Follow-up completed");
       setIsConfirmDoneOpen(false);
       setTaskToComplete(null);
       loadAll();
-    } catch { }
+    } catch { } finally {
+      setIsSubmitting(false);
+    }
   };
 
   if (!lead) return <AppLayout><div className="p-12 text-center animate-pulse dark:text-muted-foreground">Loading details...</div></AppLayout>;
@@ -522,8 +558,12 @@ export default function LeadDetail() {
                 {isEditing ? (
                   <>
                     <button onClick={() => { setIsEditing(false); setEditData(lead); }} className="btn-secondary">Cancel</button>
-                    <button onClick={() => saveLead()} className="btn-primary flex items-center gap-2">
-                      <Save size={16} /> Save Changes
+                    <button 
+                      onClick={() => saveLead()} 
+                      disabled={isSubmitting}
+                      className={`btn-primary flex items-center gap-2 ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                      <Save size={16} /> {isSubmitting ? "Saving..." : "Save Changes"}
                     </button>
                   </>
                 ) : (
@@ -1178,7 +1218,13 @@ export default function LeadDetail() {
               setIsFollowUpModalOpen(false);
               setFuErrors({});
             }}>Cancel</button>
-            <button className="btn-primary" onClick={() => submitFollowUp()}>Save Follow-up</button>
+            <button 
+              disabled={isSubmitting}
+              className={`btn-primary ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`} 
+              onClick={() => submitFollowUp()}
+            >
+              {isSubmitting ? "Saving..." : "Save Follow-up"}
+            </button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1314,7 +1360,13 @@ export default function LeadDetail() {
               setMeetingCcInput("");
               setMeetingErrors({});
             }}>Cancel</button>
-            <button className="btn-primary" onClick={() => scheduleMeeting()}>Schedule & Send Invite</button>
+            <button 
+              disabled={isSubmitting}
+              className={`btn-primary ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`} 
+              onClick={() => scheduleMeeting()}
+            >
+              {isSubmitting ? "Scheduling..." : "Schedule & Send Invite"}
+            </button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1438,11 +1490,11 @@ export default function LeadDetail() {
               setEmailErrors({});
             }}>Cancel</button>
             <button 
-              className={`btn-primary flex items-center gap-2 ${emailData.cc.some(e => !/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(e)) ? "opacity-50 cursor-not-allowed" : ""}`} 
+              className={`btn-primary flex items-center gap-2 ${(emailData.cc.some(e => !/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(e)) || isSubmitting) ? "opacity-50 cursor-not-allowed" : ""}`} 
               onClick={sendEmail}
-              disabled={emailData.cc.some(e => !/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(e))}
+              disabled={emailData.cc.some(e => !/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(e)) || isSubmitting}
             >
-              <Send size={16} /> Send via Gmail
+              <Send size={16} /> {isSubmitting ? "Sending..." : "Send via Gmail"}
             </button>
           </DialogFooter>
         </DialogContent>
@@ -1505,7 +1557,13 @@ export default function LeadDetail() {
           </div>
           <DialogFooter>
             <button className="btn-secondary" onClick={() => setIsCallModalOpen(false)}>Cancel</button>
-            <button className="btn-primary" onClick={() => logCall()}>Log & Close</button>
+            <button 
+              disabled={isSubmitting}
+              className={`btn-primary ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`} 
+              onClick={() => logCall()}
+            >
+              {isSubmitting ? "Logging..." : "Log & Close"}
+            </button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1546,8 +1604,12 @@ export default function LeadDetail() {
               setIsSmsModalOpen(false);
               setSmsErrors({});
             }}>Cancel</button>
-            <button className="btn-primary flex items-center gap-2" onClick={sendSms}>
-              <MessageSquare size={16} /> Send SMS
+            <button 
+              disabled={isSubmitting}
+              className={`btn-primary flex items-center gap-2 ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`} 
+              onClick={sendSms}
+            >
+              <MessageSquare size={16} /> {isSubmitting ? "Sending..." : "Send SMS"}
             </button>
           </DialogFooter>
         </DialogContent>
@@ -1579,7 +1641,13 @@ export default function LeadDetail() {
               setIsNoteModalOpen(false);
               setNoteError(false);
             }}>Cancel</button>
-            <button className="btn-primary" onClick={() => addNote()}>Save Note</button>
+            <button 
+              disabled={isSubmitting}
+              className={`btn-primary ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`} 
+              onClick={() => addNote()}
+            >
+              {isSubmitting ? "Saving..." : "Save Note"}
+            </button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1597,7 +1665,13 @@ export default function LeadDetail() {
           </div>
           <DialogFooter className="flex-row gap-2">
             <button className="btn-secondary flex-1" onClick={() => setIsConfirmDoneOpen(false)}>Cancel</button>
-            <button className="btn-primary flex-1 bg-success hover:bg-success/90" onClick={handleConfirmDone}>Yes, Mark Done</button>
+            <button 
+              disabled={isSubmitting}
+              className={`btn-primary flex-1 bg-success hover:bg-success/90 ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`} 
+              onClick={handleConfirmDone}
+            >
+              {isSubmitting ? "Processing..." : "Yes, Mark Done"}
+            </button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1615,7 +1689,13 @@ export default function LeadDetail() {
           </div>
           <DialogFooter className="flex-row gap-2">
             <button className="btn-secondary flex-1" onClick={() => setIsDeleteNoteModalOpen(false)}>Cancel</button>
-            <button className="btn-primary flex-1 bg-destructive hover:bg-destructive/90" onClick={deleteNote}>Delete</button>
+            <button 
+              disabled={isSubmitting}
+              className={`btn-primary flex-1 bg-destructive hover:bg-destructive/90 ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`} 
+              onClick={deleteNote}
+            >
+              {isSubmitting ? "Deleting..." : "Delete"}
+            </button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

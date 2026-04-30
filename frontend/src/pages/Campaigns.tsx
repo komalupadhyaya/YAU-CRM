@@ -158,6 +158,8 @@ const Campaigns = () => {
   const [customAssignedTo, setCustomAssignedTo] = useState("");
   const [fuErrors, setFuErrors] = useState<Record<string, string>>({});
   const [campaignError, setCampaignError] = useState("");
+  const [isSubmittingLead, setIsSubmittingLead] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Import Modal State
   const [isImportOpen, setIsImportOpen] = useState(false);
@@ -256,6 +258,7 @@ const Campaigns = () => {
   // --- Handlers ---
 
   const createCampaign = async () => {
+    if (isSubmitting) return;
     const trimmedName = newCampaignName.trim();
     if (!trimmedName) {
       setCampaignError("Campaign name is required");
@@ -267,6 +270,7 @@ const Campaigns = () => {
       return;
     }
 
+    setIsSubmitting(true);
     try {
       const res = await api.post("/campaigns", { name: trimmedName });
       toast.success("Campaign created");
@@ -277,6 +281,8 @@ const Campaigns = () => {
       setSelectedCampaign(res.data);
     } catch (err: any) {
       toast.error(err.response?.data?.message || "Failed to create campaign");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -332,12 +338,13 @@ const Campaigns = () => {
   };
 
   const createLead = async () => {
-    if (!selectedCampaign) return;
+    if (!selectedCampaign || isSubmittingLead) return;
     if (!validateLeadForm()) {
         toast.error("Please fill in all required fields marked with *");
         return;
     }
 
+    setIsSubmittingLead(true);
     try {
       const finalTitle = leadFormData.contact_title === "Other" ? customTitle.trim() : leadFormData.contact_title;
       const finalSecondaryTitle = leadFormData.secondary_contact_title === "Other" ? secondaryCustomTitle.trim() : leadFormData.secondary_contact_title;
@@ -368,10 +375,12 @@ const Campaigns = () => {
       setCustomTitle("");
       setSecondaryCustomTitle("");
       setShowSecondary(false);
+      setIsSubmittingLead(false);
       await fetchLeads(selectedCampaign._id);
       setSelectedLead(res.data);
     } catch (err: any) {
         toast.error(err.response?.data?.error || "Failed to create lead");
+        setIsSubmittingLead(false);
     }
   };
 
@@ -404,7 +413,8 @@ const Campaigns = () => {
   };
 
   const addNote = async () => {
-    if (!selectedLead || !noteContent.trim()) return;
+    if (!selectedLead || !noteContent.trim() || isSubmitting) return;
+    setIsSubmitting(true);
     try {
       await api.post(`/notes/${selectedLead._id}`, { content: noteContent });
       toast.success("Note added");
@@ -417,7 +427,9 @@ const Campaigns = () => {
       setNotes(notesRes.data);
       setSelectedLead(leadRes.data);
       setLeads(prev => prev.map(s => s._id === leadRes.data._id ? leadRes.data : s));
-    } catch { }
+    } catch { } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const deleteNote = async (id: string) => {
@@ -442,6 +454,7 @@ const Campaigns = () => {
   };
 
   const submitFollowUp = async (force = false) => {
+    if (isSubmitting) return;
     const newErrors: Record<string, string> = {};
     const now = new Date();
     
@@ -467,6 +480,7 @@ const Campaigns = () => {
 
     if (!selectedLead) return;
 
+    setIsSubmitting(true);
     try {
       await api.post(`/followups/${selectedLead._id}`, {
         date_time: followUpDate,
@@ -489,11 +503,15 @@ const Campaigns = () => {
     } catch (err: any) {
       if (err.response?.status === 409) {
           if (window.confirm("Conflict detected: Another follow-up is scheduled at this time. Schedule anyway?")) {
+              setIsSubmitting(false);
               submitFollowUp(true);
+              return;
           }
       } else {
           toast.error(err.response?.data?.message || "Failed to schedule follow-up");
       }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -503,7 +521,8 @@ const Campaigns = () => {
   };
 
   const handleConfirmDone = async () => {
-    if (!taskToComplete || !selectedLead) return;
+    if (!taskToComplete || !selectedLead || isSubmitting) return;
+    setIsSubmitting(true);
     try {
       await api.put(`/followups/${taskToComplete}/complete`);
       toast.success("Follow-up completed");
@@ -517,7 +536,9 @@ const Campaigns = () => {
       setFollowUps(fuRes.data);
       setSelectedLead(leadRes.data);
       setLeads(prev => prev.map(s => s._id === leadRes.data._id ? leadRes.data : s));
-    } catch { }
+    } catch { } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleOpenFollowUpModal = () => {
@@ -544,7 +565,8 @@ const Campaigns = () => {
   };
 
   const logCall = async () => {
-    if (!selectedLead) return;
+    if (!selectedLead || isSubmitting) return;
+    setIsSubmitting(true);
     try {
       const res = await api.post(`/justcall/log-call`, { 
         lead_id: selectedLead._id,
@@ -574,6 +596,8 @@ const Campaigns = () => {
       }
     } catch { 
       toast.error("Failed to log call");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -817,7 +841,13 @@ const Campaigns = () => {
                         onChange={e => setNoteContent(e.target.value)}
                       />
                       <div className="flex justify-end mt-1">
-                        <button onClick={() => addNote()} disabled={!noteContent.trim()} className="btn-primary px-3 text-[10px] disabled:opacity-50">Post Note</button>
+                        <button 
+                          onClick={() => addNote()} 
+                          disabled={!noteContent.trim() || isSubmitting} 
+                          className={`btn-primary px-3 text-[10px] ${(isSubmitting || !noteContent.trim()) ? "opacity-50 cursor-not-allowed" : ""}`}
+                        >
+                          {isSubmitting ? "Posting..." : "Post Note"}
+                        </button>
                       </div>
                     </div>
 
@@ -1059,7 +1089,13 @@ const Campaigns = () => {
           </div>
           <DialogFooter>
             <button className="btn-secondary" onClick={() => setIsCreateCampaignOpen(false)}>Cancel</button>
-            <button className="btn-primary" onClick={() => createCampaign()}>Create</button>
+            <button 
+              disabled={isSubmitting}
+              className={`btn-primary ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`} 
+              onClick={() => createCampaign()}
+            >
+              {isSubmitting ? "Creating..." : "Create"}
+            </button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1147,7 +1183,13 @@ const Campaigns = () => {
           </div>
           <DialogFooter>
             <button className="btn-secondary" onClick={() => { setIsFollowUpModalOpen(false); setFuErrors({}); }}>Cancel</button>
-            <button className="btn-primary" onClick={() => submitFollowUp()}>Schedule</button>
+            <button 
+              disabled={isSubmitting}
+              className={`btn-primary ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`} 
+              onClick={() => submitFollowUp()}
+            >
+              {isSubmitting ? "Scheduling..." : "Schedule"}
+            </button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1563,7 +1605,13 @@ const Campaigns = () => {
           </div>
           <DialogFooter>
             <button className="btn-secondary" onClick={() => { setIsCreateLeadOpen(false); setErrors({}); }}>Cancel</button>
-            <button className="btn-primary" onClick={() => createLead()}>Create Lead</button>
+            <button 
+              disabled={isSubmittingLead}
+              className={`btn-primary flex items-center gap-2 ${isSubmittingLead ? 'opacity-50 cursor-not-allowed' : ''}`} 
+              onClick={() => createLead()}
+            >
+              {isSubmittingLead ? "Creating..." : "Create Lead"}
+            </button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1699,7 +1747,13 @@ const Campaigns = () => {
           </div>
           <DialogFooter className="flex-row gap-2">
             <button className="btn-secondary flex-1" onClick={() => setIsConfirmDoneOpen(false)}>Cancel</button>
-            <button className="btn-primary flex-1 bg-success hover:bg-success/90" onClick={handleConfirmDone}>Yes, Mark Done</button>
+            <button 
+              disabled={isSubmitting}
+              className={`btn-primary flex-1 bg-success hover:bg-success/90 ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`} 
+              onClick={handleConfirmDone}
+            >
+              {isSubmitting ? "Processing..." : "Yes, Mark Done"}
+            </button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1745,7 +1799,13 @@ const Campaigns = () => {
           </div>
           <DialogFooter>
             <button className="btn-secondary" onClick={() => setIsCallModalOpen(false)}>Cancel</button>
-            <button className="btn-primary" onClick={() => logCall()}>Log & Close</button>
+            <button 
+              disabled={isSubmitting}
+              className={`btn-primary ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`} 
+              onClick={() => logCall()}
+            >
+              {isSubmitting ? "Logging..." : "Log & Close"}
+            </button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
