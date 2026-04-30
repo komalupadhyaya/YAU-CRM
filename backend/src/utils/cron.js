@@ -14,9 +14,9 @@ if (process.env.GOOGLE_REFRESH_TOKEN) {
 }
 
 export const initCronJobs = () => {
-    // Schedule morning summary at 6:10 PM for testing (normally 8:00 AM)
-    cron.schedule('10 18 * * *', async () => {
-        console.log('Running morning follow-up summary...');
+    // Schedule morning summary at 8:00 AM EST
+    cron.schedule('0 8 * * *', async () => {
+        console.log('Running morning follow-up summary (8:00 AM EST)...');
         try {
             const now = new Date();
             const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -69,5 +69,8 @@ export const initCronJobs = () => {
         } catch (err) {
             console.error('Error running morning summary cron:', err);
         }
+    }, {
+        scheduled: true,
+        timezone: "America/New_York"
     });
 };
