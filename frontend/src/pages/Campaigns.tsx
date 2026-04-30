@@ -157,6 +157,7 @@ const Campaigns = () => {
   const [assignedTo, setAssignedTo] = useState("self");
   const [customAssignedTo, setCustomAssignedTo] = useState("");
   const [fuErrors, setFuErrors] = useState<Record<string, string>>({});
+  const [campaignError, setCampaignError] = useState("");
 
   // Import Modal State
   const [isImportOpen, setIsImportOpen] = useState(false);
@@ -256,11 +257,13 @@ const Campaigns = () => {
 
   const createCampaign = async () => {
     const trimmedName = newCampaignName.trim();
-    if (!trimmedName) return;
+    if (!trimmedName) {
+      setCampaignError("Campaign name is required");
+      return;
+    }
 
-    // Client-side check for immediate feedback
     if (campaigns.some(c => c.name.toLowerCase() === trimmedName.toLowerCase())) {
-      toast.error("A campaign with this name already exists");
+      setCampaignError("A campaign with this name already exists");
       return;
     }
 
@@ -268,6 +271,7 @@ const Campaigns = () => {
       const res = await api.post("/campaigns", { name: trimmedName });
       toast.success("Campaign created");
       setNewCampaignName("");
+      setCampaignError("");
       setIsCreateCampaignOpen(false);
       await fetchCampaigns();
       setSelectedCampaign(res.data);
@@ -438,10 +442,31 @@ const Campaigns = () => {
   };
 
   const submitFollowUp = async (force = false) => {
-    if (!selectedLead || !followUpDate) {
-        setFuErrors({ date: !followUpDate ? "Date is required" : "" });
+    const newErrors: Record<string, string> = {};
+    const now = new Date();
+    
+    if (!followUpDate) {
+        newErrors.date = "Date & Time is required";
+    } else if (new Date(followUpDate) < now) {
+        newErrors.date = "Date & Time cannot be in the past";
+    }
+
+    if (!followUpNotes.trim()) {
+        newErrors.notes = "Please provide a reason or notes for the follow-up";
+    }
+
+    if (assignedTo === "other" && !customAssignedTo.trim()) {
+        newErrors.assignedTo = "Please specify who this is assigned to";
+    }
+
+    if (Object.keys(newErrors).length > 0) {
+        setFuErrors(newErrors);
+        toast.error("Please fix the errors before scheduling");
         return;
     }
+
+    if (!selectedLead) return;
+
     try {
       await api.post(`/followups/${selectedLead._id}`, {
         date_time: followUpDate,
@@ -457,6 +482,7 @@ const Campaigns = () => {
       setFollowUpNotes("");
       setFollowUpType("Task");
       setFollowUpPriority("Medium");
+      setFuErrors({});
 
       const r = await api.get(`/followups/lead/${selectedLead._id}`);
       setFollowUps(r.data);
@@ -1008,16 +1034,28 @@ const Campaigns = () => {
       </div>
 
       {/* Modals */}
-      <Dialog open={isCreateCampaignOpen} onOpenChange={setIsCreateCampaignOpen}>
+      <Dialog open={isCreateCampaignOpen} onOpenChange={(open) => {
+        setIsCreateCampaignOpen(open);
+        if (!open) {
+          setNewCampaignName("");
+          setCampaignError("");
+        }
+      }}>
         <DialogContent aria-describedby={undefined} className="sm:max-w-md dark:bg-card">
           <DialogHeader><DialogTitle className="dark:text-foreground">New Campaign</DialogTitle></DialogHeader>
-          <div className="py-2">
+          <div className="py-2 space-y-2">
+            <label className="text-xs font-bold uppercase text-muted-foreground">Campaign Name *</label>
             <input
               placeholder="e.g. Summer Outreach"
-              className="input-field"
+              className={`input-field ${campaignError ? "border-destructive focus:ring-destructive/20" : ""}`}
               value={newCampaignName}
-              onChange={e => setNewCampaignName(e.target.value)}
+              onChange={e => {
+                setNewCampaignName(e.target.value);
+                if (campaignError) setCampaignError("");
+              }}
+              autoFocus
             />
+            {campaignError && <p className="text-[10px] text-destructive font-medium">{campaignError}</p>}
           </div>
           <DialogFooter>
             <button className="btn-secondary" onClick={() => setIsCreateCampaignOpen(false)}>Cancel</button>
@@ -1026,13 +1064,25 @@ const Campaigns = () => {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isFollowUpModalOpen} onOpenChange={setIsFollowUpModalOpen}>
+      <Dialog open={isFollowUpModalOpen} onOpenChange={(open) => {
+        setIsFollowUpModalOpen(open);
+        if (!open) setFuErrors({});
+      }}>
         <DialogContent aria-describedby={undefined} className="sm:max-w-md dark:bg-card">
           <DialogHeader><DialogTitle className="dark:text-foreground">Schedule Follow-up</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-1.5">
-              <label className="text-xs font-bold uppercase text-muted-foreground">Date & Time</label>
-              <input type="datetime-local" className="input-field dark:color-scheme-dark" value={followUpDate} onChange={e => setFollowUpDate(e.target.value)} />
+              <label className="text-xs font-bold uppercase text-muted-foreground">Date & Time *</label>
+              <input 
+                type="datetime-local" 
+                className={`input-field dark:color-scheme-dark ${fuErrors.date ? "border-destructive focus:ring-destructive/20" : ""}`} 
+                value={followUpDate} 
+                onChange={e => {
+                  setFollowUpDate(e.target.value);
+                  if (fuErrors.date) setFuErrors(prev => ({ ...prev, date: "" }));
+                }} 
+              />
+              {fuErrors.date && <p className="text-[10px] text-destructive font-medium">{fuErrors.date}</p>}
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
@@ -1054,31 +1104,49 @@ const Campaigns = () => {
               </div>
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs font-bold uppercase text-muted-foreground">Notes</label>
-              <textarea placeholder="Reason for follow-up" className="input-field min-h-[80px]" value={followUpNotes} onChange={e => setFollowUpNotes(e.target.value)} />
+              <label className="text-xs font-bold uppercase text-muted-foreground">Notes *</label>
+              <textarea 
+                placeholder="Reason for follow-up" 
+                className={`input-field min-h-[80px] ${fuErrors.notes ? "border-destructive focus:ring-destructive/20" : ""}`} 
+                value={followUpNotes} 
+                onChange={e => {
+                  setFollowUpNotes(e.target.value);
+                  if (fuErrors.notes) setFuErrors(prev => ({ ...prev, notes: "" }));
+                }} 
+              />
+              {fuErrors.notes && <p className="text-[10px] text-destructive font-medium">{fuErrors.notes}</p>}
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-bold uppercase text-muted-foreground">Assigned User</label>
               <select 
                 className="input-field dark:bg-card"
                 value={assignedTo}
-                onChange={e => setAssignedTo(e.target.value)}
+                onChange={e => {
+                  setAssignedTo(e.target.value);
+                  if (fuErrors.assignedTo) setFuErrors(prev => ({ ...prev, assignedTo: "" }));
+                }}
               >
                 <option value="self">Assign to Me</option>
                 <option value="other">Other</option>
               </select>
               {assignedTo === "other" && (
-                <input
-                  className="input-field mt-2"
-                  placeholder="Enter name..."
-                  value={customAssignedTo}
-                  onChange={(e) => setCustomAssignedTo(e.target.value)}
-                />
+                <div className="space-y-1">
+                  <input
+                    className={`input-field mt-2 ${fuErrors.assignedTo ? "border-destructive focus:ring-destructive/20" : ""}`}
+                    placeholder="Enter name..."
+                    value={customAssignedTo}
+                    onChange={(e) => {
+                      setCustomAssignedTo(e.target.value);
+                      if (fuErrors.assignedTo) setFuErrors(prev => ({ ...prev, assignedTo: "" }));
+                    }}
+                  />
+                  {fuErrors.assignedTo && <p className="text-[10px] text-destructive font-medium">{fuErrors.assignedTo}</p>}
+                </div>
               )}
             </div>
           </div>
           <DialogFooter>
-            <button className="btn-secondary" onClick={() => setIsFollowUpModalOpen(false)}>Cancel</button>
+            <button className="btn-secondary" onClick={() => { setIsFollowUpModalOpen(false); setFuErrors({}); }}>Cancel</button>
             <button className="btn-primary" onClick={() => submitFollowUp()}>Schedule</button>
           </DialogFooter>
         </DialogContent>
@@ -1667,6 +1735,12 @@ const Campaigns = () => {
             <div className="grid gap-2">
               <label className="text-sm font-medium">Call Notes</label>
               <textarea className="input-field min-h-[100px]" placeholder="Briefly summarize the conversation..." value={callNotes} onChange={e => setCallNotes(e.target.value)} />
+            </div>
+            <div className="mt-2 p-3 rounded-xl bg-orange-500/10 border border-orange-500/20 text-orange-600 dark:text-orange-400">
+              <p className="text-[10px] font-medium text-center">
+                <span className="font-bold uppercase mr-1">Important:</span>
+                Ensure you click <strong>'Save'</strong> in the JustCall dialer and <strong>'Log & Close'</strong> here to sync activity.
+              </p>
             </div>
           </div>
           <DialogFooter>
