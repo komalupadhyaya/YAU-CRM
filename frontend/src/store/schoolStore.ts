@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-interface Lead {
+export interface Lead {
     _id: string;
     name: string;
     type?: string;
@@ -20,6 +20,7 @@ interface Lead {
     last_contacted: string | null;
     createdAt: string;
     updatedAt: string;
+    contacts?: any[];
 }
 
 interface LeadState {

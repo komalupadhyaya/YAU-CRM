@@ -2,22 +2,39 @@ import mongoose from 'mongoose';
 
 const LeadSchema = new mongoose.Schema({
     campaign_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Campaign', required: true, index: true },
-    name: { type: String, required: true },
-    type: String,
-    category_group: String, // was grades
-    main_contact_name: String, // was principal_name
-    main_contact_email: String, // was principal_email
-    telephone: String,
+    // ── Organization / Lead Details ─────────────────────────────────────────
+    name: { type: String, required: true }, // Organization / School Name
+    type: String,                    // e.g. Public, Private, Parent
+    category_group: String,          // e.g. PK-5, Partner
+    telephone: String,               // Main organization phone
+    website: String,
     start_time: String,
     end_time: String,
-    address_number: String, // new
+
+    // ── Address Details ─────────────────────────────────────────────────────
+    address_number: String,
     address: String,
     city: String,
     state: String,
     zip: String,
-    website: String,
+
+    // ── Status & Tracking ───────────────────────────────────────────────────
     status: {
         type: String,
+        enum: [
+            "Not Contacted",
+            "Attempted Contact",
+            "Spoke to Front Office",
+            "Spoke to Decision Maker",
+            "Waiting on Reply",
+            "Follow-Up Needed",
+            "Meeting Scheduled",
+            "Proposal Sent",
+            "Interested",
+            "Not Interested",
+            "Program Confirmed",
+            "On Hold"
+        ],
         default: "Not Contacted"
     },
     last_contacted: {

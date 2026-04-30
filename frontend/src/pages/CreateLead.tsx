@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import api from "../api/api";
 import AppLayout from "../layout/AppLayout";
-import { Save, ArrowLeft, Plus, X, Check } from "lucide-react";
+import { Save, ArrowLeft, X, Check, User, Phone, Mail, Clock, MessageSquare, ChevronDown, ChevronUp } from "lucide-react";
 import { toast } from "sonner";
+import { countryCodes } from "../utils/countryCodes";
 
 interface Campaign {
     _id: string;
@@ -24,29 +25,52 @@ export default function CreateLead() {
         campaign_id: initialCampaignId,
         name: "",
         type: "",
-        category_group: "", // was grades
-        main_contact_name: "", // was principal_name
-        main_contact_email: "", // was principal_email
+        category_group: "",
+        main_contact_name: "",
+        main_contact_email: "",
         telephone: "",
         start_time: "",
         end_time: "",
-        address_number: "", // new
+        address_number: "",
         address: "",
         city: "",
         state: "",
         zip: "",
         website: "",
+        // Primary Contact Person
+        contact_title: "",
+        contact_department: "",
+        contact_direct_phone: "",
+        contact_extension: "",
+        contact_email: "",
+        contact_best_time: "",
+        contact_preferred_method: "",
+        // Secondary Contact
+        secondary_contact_name: "",
+        secondary_contact_title: "",
+        secondary_contact_phone: "",
+        secondary_contact_extension: "",
+        secondary_contact_email: "",
+        // Prefixes
+        contact_phone_prefix: "+1",
+        secondary_phone_prefix: "+1",
+        telephone_prefix: "+1",
     });
+    const [customTitle, setCustomTitle] = useState("");
+    const [secondaryCustomTitle, setSecondaryCustomTitle] = useState("");
+
+    const [showSecondary, setShowSecondary] = useState(false);
 
     const [errors, setErrors] = useState<Record<string, string>>({});
+
+    const handleRadioChange = (field: string, value: string) => {
+        setFormData(prev => ({ ...prev, [field]: value }));
+    };
 
     useEffect(() => {
         api.get("/campaigns")
             .then((r) => {
                 setCampaigns(r.data);
-                if (!initialCampaignId && r.data.length > 0) {
-                    setFormData(prev => ({ ...prev, campaign_id: String(r.data[0]._id) }));
-                }
             })
             .catch(() => toast.error("Failed to load campaigns"))
             .finally(() => setLoading(false));
@@ -54,11 +78,33 @@ export default function CreateLead() {
 
     const validate = () => {
         const newErrors: Record<string, string> = {};
-        if (!formData.name.trim()) newErrors.name = "Name / Organization is required";
-        if (!formData.campaign_id) newErrors.campaign_id = "Please select a campaign";
-        if (formData.main_contact_email && !/\S+@\S+\.\S+/.test(formData.main_contact_email)) {
+        if (!formData.name.trim()) newErrors.name = "Organization / School name is required";
+        if (!formData.campaign_id) newErrors.campaign_id = "Please select a target campaign";
+        
+        // Primary Contact Person Validation (ALL fields mandatory)
+        if (!formData.main_contact_name.trim()) newErrors.main_contact_name = "Primary contact name is required";
+        if (!formData.contact_title) {
+            newErrors.contact_title = "Please select a title / role";
+        } else if (formData.contact_title === "Other" && !customTitle.trim()) {
+            newErrors.contact_title = "Please specify the custom title";
+        }
+        if (!formData.contact_department.trim()) newErrors.contact_department = "Department name is required";
+        if (!formData.contact_direct_phone.trim()) newErrors.contact_direct_phone = "Direct phone number is required";
+        
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!formData.contact_email.trim()) {
+            newErrors.contact_email = "Primary contact email is required";
+        } else if (!emailRegex.test(formData.contact_email)) {
+            newErrors.contact_email = "Please enter a valid email address";
+        }
+
+        if (formData.main_contact_email && !emailRegex.test(formData.main_contact_email)) {
             newErrors.main_contact_email = "Invalid email format";
         }
+        
+        if (!formData.contact_best_time) newErrors.contact_best_time = "Please select the best time to call";
+        if (!formData.contact_preferred_method) newErrors.contact_preferred_method = "Please select a preferred contact method";
+
         setErrors(newErrors);
         return Object.keys(newErrors).length === 0;
     };
@@ -83,12 +129,23 @@ export default function CreateLead() {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!validate()) {
-            toast.error("Please fix the errors in the form.");
+            toast.error("Please fill in all required fields marked with *");
             return;
         }
 
         try {
-            const res = await api.post("/leads", formData);
+            const finalTitle = formData.contact_title === "Other" ? customTitle.trim() : formData.contact_title;
+            const finalSecondaryTitle = formData.secondary_contact_title === "Other" ? secondaryCustomTitle.trim() : formData.secondary_contact_title;
+            
+            const payload = {
+                ...formData,
+                contact_title: finalTitle,
+                secondary_contact_title: finalSecondaryTitle,
+                contact_direct_phone: formData.contact_phone_prefix + formData.contact_direct_phone.replace(/\D/g, ''),
+                secondary_contact_phone: formData.secondary_contact_phone ? (formData.secondary_phone_prefix + formData.secondary_contact_phone.replace(/\D/g, '')) : "",
+                telephone: formData.telephone ? (formData.telephone_prefix + formData.telephone.replace(/\D/g, '')) : ""
+            };
+            const res = await api.post("/leads", payload);
             toast.success("Lead created successfully!");
             navigate("/lead/" + res.data._id);
         } catch (err: any) {
@@ -127,7 +184,7 @@ export default function CreateLead() {
                 <form onSubmit={handleSubmit} className="space-y-6">
                     {/* Campaign Selection - Smart Dropdown */}
                     <div className="page-card">
-                        <h2 className="font-semibold text-foreground mb-4">Target Campaign</h2>
+                        <h2 className="font-semibold text-foreground mb-4">Target Campaign *</h2>
                         {isCreatingCampaign ? (
                             <div className="flex gap-2">
                                 <input
@@ -170,6 +227,296 @@ export default function CreateLead() {
                         )}
                     </div>
 
+                    {/* ── Primary Contact Person ───────────────────────────── */}
+                    <div className="page-card space-y-5">
+                        <div className="flex items-center gap-2">
+                            <div className="p-1.5 rounded-lg bg-primary/10">
+                                <User size={16} className="text-primary" />
+                            </div>
+                            <h2 className="font-semibold text-foreground">Primary Contact Person</h2>
+                            <span className="text-xs text-muted-foreground">(person being contacted)</span>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                            {/* Contact Name */}
+                            <div>
+                                <label className="block text-sm font-medium text-foreground mb-1.5">Contact Full Name *</label>
+                                <input
+                                    name="main_contact_name"
+                                    className={`input-field ${errors.main_contact_name ? "border-destructive focus:ring-destructive/20" : ""}`}
+                                    placeholder="e.g. Davina Midgette"
+                                    value={formData.main_contact_name}
+                                    onChange={handleChange}
+                                />
+                                {errors.main_contact_name && <p className="text-xs text-destructive mt-1">{errors.main_contact_name}</p>}
+                            </div>
+
+                            {/* Title / Role */}
+                            <div>
+                                <label className="block text-sm font-medium text-foreground mb-1.5">Title / Role *</label>
+                                <select
+                                    name="contact_title"
+                                    className={`input-field ${errors.contact_title ? "border-destructive focus:ring-destructive/20" : ""}`}
+                                    value={formData.contact_title}
+                                    onChange={handleChange}
+                                >
+                                    <option value="">Select title...</option>
+                                    <option>Principal</option>
+                                    <option>Assistant Principal</option>
+                                    <option>Athletic Director</option>
+                                    <option>After-School Coordinator</option>
+                                    <option>Front Office Administrator</option>
+                                    <option>PTA/PTO Contact</option>
+                                    <option>Other</option>
+                                </select>
+                                {errors.contact_title && <p className="text-xs text-destructive mt-1">{errors.contact_title}</p>}
+
+                                {formData.contact_title === "Other" && (
+                                    <div className="mt-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                                        <input
+                                            className={`input-field ${errors.contact_title ? "border-destructive focus:ring-destructive/20" : ""}`}
+                                            placeholder="Please specify title..."
+                                            value={customTitle}
+                                            onChange={(e) => setCustomTitle(e.target.value)}
+                                            autoFocus
+                                        />
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Department */}
+                            <div>
+                                <label className="block text-sm font-medium text-foreground mb-1.5">
+                                    Department *
+                                </label>
+                                <input
+                                    name="contact_department"
+                                    className={`input-field ${errors.contact_department ? "border-destructive focus:ring-destructive/20" : ""}`}
+                                    placeholder="e.g. Administration"
+                                    value={formData.contact_department}
+                                    onChange={handleChange}
+                                />
+                                {errors.contact_department && <p className="text-xs text-destructive mt-1">{errors.contact_department}</p>}
+                            </div>
+
+                            {/* Direct Phone + Extension */}
+                            <div>
+                                <label className="block text-sm font-medium text-foreground mb-1.5 flex items-center gap-1">
+                                    <Phone size={12} /> Direct Phone *
+                                </label>
+                                <div className="flex gap-2">
+                                    <div className="relative w-28 shrink-0">
+                                        <div className="absolute inset-0 flex items-center pl-8 text-xs pointer-events-none font-medium">
+                                            {formData.contact_phone_prefix}
+                                        </div>
+                                        <select 
+                                            className="input-field w-full dark:bg-card px-2 text-transparent appearance-none bg-no-repeat"
+                                            style={{ 
+                                                backgroundImage: `url(https://flagcdn.com/w20/${(countryCodes.find(c => c.dialCode === formData.contact_phone_prefix)?.code || 'US').toLowerCase()}.png)`,
+                                                backgroundPosition: 'left 0.5rem center'
+                                            }}
+                                            value={formData.contact_phone_prefix}
+                                            onChange={(e) => setFormData({...formData, contact_phone_prefix: e.target.value})}
+                                        >
+                                            {countryCodes.map(c => (
+                                                <option key={`${c.code}-${c.dialCode}`} value={c.dialCode} className="text-foreground">
+                                                    {c.name} ({c.dialCode})
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground">
+                                            <ChevronDown size={12} />
+                                        </div>
+                                    </div>
+                                    <input
+                                        name="contact_direct_phone"
+                                        className={`input-field flex-1 ${errors.contact_direct_phone ? "border-destructive focus:ring-destructive/20" : ""}`}
+                                        placeholder="Phone"
+                                        value={formData.contact_direct_phone}
+                                        onChange={handleChange}
+                                    />
+                                    <input
+                                        name="contact_extension"
+                                        className="input-field w-20"
+                                        placeholder="Ext."
+                                        value={formData.contact_extension}
+                                        onChange={handleChange}
+                                    />
+                                </div>
+                                {errors.contact_direct_phone && <p className="text-xs text-destructive mt-1">{errors.contact_direct_phone}</p>}
+                            </div>
+
+                            {/* Contact Email */}
+                            <div>
+                                <label className="block text-sm font-medium text-foreground mb-1.5 flex items-center gap-1">
+                                    <Mail size={12} /> Email Address *
+                                </label>
+                                <input
+                                    name="contact_email"
+                                    type="email"
+                                    className={`input-field ${errors.contact_email ? "border-destructive focus:ring-destructive/20" : ""}`}
+                                    placeholder="contact@school.edu"
+                                    value={formData.contact_email}
+                                    onChange={handleChange}
+                                />
+                                {errors.contact_email && <p className="text-xs text-destructive mt-1">{errors.contact_email}</p>}
+                            </div>
+
+                            {/* Best Time to Call */}
+                            <div>
+                                <label className="block text-sm font-medium text-foreground mb-1.5 flex items-center gap-1">
+                                    <Clock size={12} /> Best Time to Call *
+                                </label>
+                                <select
+                                    name="contact_best_time"
+                                    className={`input-field ${errors.contact_best_time ? "border-destructive focus:ring-destructive/20" : ""}`}
+                                    value={formData.contact_best_time}
+                                    onChange={handleChange}
+                                >
+                                    <option value="">Select time...</option>
+                                    <option>Morning (8am–11am)</option>
+                                    <option>Midday (11am–1pm)</option>
+                                    <option>Afternoon (1pm–4pm)</option>
+                                    <option>Late Afternoon (4pm–6pm)</option>
+                                    <option>Anytime</option>
+                                </select>
+                                {errors.contact_best_time && <p className="text-xs text-destructive mt-1">{errors.contact_best_time}</p>}
+                            </div>
+
+                            {/* Preferred Contact Method */}
+                            <div className="md:col-span-2">
+                                <label className="block text-sm font-medium text-foreground mb-2 flex items-center gap-1">
+                                    <MessageSquare size={12} /> Preferred Contact Method *
+                                </label>
+                                <div className="flex gap-5">
+                                    {["Call", "Email", "Text"].map(method => (
+                                        <label key={method} className="flex items-center gap-2 cursor-pointer text-sm text-foreground">
+                                            <input
+                                                type="radio"
+                                                name="contact_preferred_method"
+                                                value={method}
+                                                checked={formData.contact_preferred_method === method}
+                                                onChange={() => handleRadioChange("contact_preferred_method", method)}
+                                                className="accent-primary"
+                                            />
+                                            {method}
+                                        </label>
+                                    ))}
+                                </div>
+                                {errors.contact_preferred_method && <p className="text-xs text-destructive mt-1">{errors.contact_preferred_method}</p>}
+                            </div>
+                        </div>
+
+                        {/* ── Secondary Contact (collapsible) ────────────── */}
+                        <div className="border-t border-border/50 pt-4">
+                            <button
+                                type="button"
+                                onClick={() => setShowSecondary(s => !s)}
+                                className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                            >
+                                {showSecondary ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                Add Secondary Contact <span className="text-xs">(optional)</span>
+                            </button>
+
+                            {showSecondary && (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-foreground mb-1.5">Secondary Name</label>
+                                        <input
+                                            name="secondary_contact_name"
+                                            className="input-field"
+                                            placeholder="Full name"
+                                            value={formData.secondary_contact_name}
+                                            onChange={handleChange}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-foreground mb-1.5">Secondary Title</label>
+                                        <select
+                                            name="secondary_contact_title"
+                                            className="input-field"
+                                            value={formData.secondary_contact_title}
+                                            onChange={handleChange}
+                                        >
+                                            <option value="">Select title...</option>
+                                            <option>Principal</option>
+                                            <option>Assistant Principal</option>
+                                            <option>Athletic Director</option>
+                                            <option>After-School Coordinator</option>
+                                            <option>Front Office Administrator</option>
+                                            <option>PTA/PTO Contact</option>
+                                            <option>Other</option>
+                                        </select>
+                                        {formData.secondary_contact_title === "Other" && (
+                                            <div className="mt-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                                                <input
+                                                    className="input-field"
+                                                    placeholder="Please specify title..."
+                                                    value={secondaryCustomTitle}
+                                                    onChange={(e) => setSecondaryCustomTitle(e.target.value)}
+                                                    autoFocus
+                                                />
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-foreground mb-1.5">Secondary Phone</label>
+                                        <div className="flex gap-2">
+                                            <div className="relative w-28 shrink-0">
+                                                <div className="absolute inset-0 flex items-center pl-8 text-xs pointer-events-none font-medium">
+                                                    {formData.secondary_phone_prefix}
+                                                </div>
+                                                <select 
+                                                    className="input-field w-full dark:bg-card px-2 text-transparent appearance-none bg-no-repeat"
+                                                    style={{ 
+                                                        backgroundImage: `url(https://flagcdn.com/w20/${(countryCodes.find(c => c.dialCode === formData.secondary_phone_prefix)?.code || 'US').toLowerCase()}.png)`,
+                                                        backgroundPosition: 'left 0.5rem center'
+                                                    }}
+                                                    value={formData.secondary_phone_prefix}
+                                                    onChange={(e) => setFormData({...formData, secondary_phone_prefix: e.target.value})}
+                                                >
+                                                    {countryCodes.map(c => (
+                                                        <option key={`${c.code}-${c.dialCode}`} value={c.dialCode} className="text-foreground">
+                                                            {c.name} ({c.dialCode})
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                                <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground">
+                                                    <ChevronDown size={12} />
+                                                </div>
+                                            </div>
+                                            <input
+                                                name="secondary_contact_phone"
+                                                className="input-field flex-1"
+                                                placeholder="Phone"
+                                                value={formData.secondary_contact_phone}
+                                                onChange={handleChange}
+                                            />
+                                            <input
+                                                name="secondary_contact_extension"
+                                                className="input-field w-20"
+                                                placeholder="Ext."
+                                                value={formData.secondary_contact_extension}
+                                                onChange={handleChange}
+                                            />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-foreground mb-1.5">Secondary Email</label>
+                                        <input
+                                            name="secondary_contact_email"
+                                            type="email"
+                                            className="input-field"
+                                            placeholder="email@school.edu"
+                                            value={formData.secondary_contact_email}
+                                            onChange={handleChange}
+                                        />
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
                     <div className="page-card grid grid-cols-1 md:grid-cols-2 gap-6">
                         <h2 className="md:col-span-2 font-semibold text-foreground mb-2">Lead Details</h2>
                         <div className="md:col-span-2">
@@ -186,7 +533,17 @@ export default function CreateLead() {
 
                         <div>
                             <label className="block text-sm font-medium text-foreground mb-1.5">Lead Type</label>
-                            <input name="type" className="input-field" placeholder="e.g. Public, Private, Parent" value={formData.type} onChange={handleChange} />
+                            <select
+                                name="type"
+                                className="input-field"
+                                value={formData.type}
+                                onChange={handleChange}
+                            >
+                                <option value="">Select type...</option>
+                                <option>Public</option>
+                                <option>Private</option>
+                                <option>Parent</option>
+                            </select>
                         </div>
 
                         <div>
@@ -196,25 +553,32 @@ export default function CreateLead() {
 
                         <div>
                             <label className="block text-sm font-medium text-foreground mb-1.5">Telephone</label>
-                            <input name="telephone" className="input-field" placeholder="(555) 000-0000" value={formData.telephone} onChange={handleChange} />
-                        </div>
-
-                        <div>
-                            <label className="block text-sm font-medium text-foreground mb-1.5">Main Contact Name</label>
-                            <input name="main_contact_name" className="input-field" placeholder="Enter contact name" value={formData.main_contact_name} onChange={handleChange} />
-                        </div>
-
-                        <div>
-                            <label className="block text-sm font-medium text-foreground mb-1.5">Main Contact Email</label>
-                            <input
-                                name="main_contact_email"
-                                type="email"
-                                className={`input-field ${errors.main_contact_email ? "border-destructive focus:ring-destructive/20" : ""}`}
-                                placeholder="contact@example.com"
-                                value={formData.main_contact_email}
-                                onChange={handleChange}
-                            />
-                            {errors.main_contact_email && <p className="text-xs text-destructive mt-1">{errors.main_contact_email}</p>}
+                            <div className="flex gap-2">
+                                <div className="relative w-28 shrink-0">
+                                    <div className="absolute inset-0 flex items-center pl-8 text-xs pointer-events-none font-medium">
+                                        {formData.telephone_prefix}
+                                    </div>
+                                    <select 
+                                        className="input-field w-full dark:bg-card px-2 text-transparent appearance-none bg-no-repeat"
+                                        style={{ 
+                                            backgroundImage: `url(https://flagcdn.com/w20/${(countryCodes.find(c => c.dialCode === formData.telephone_prefix)?.code || 'US').toLowerCase()}.png)`,
+                                            backgroundPosition: 'left 0.5rem center'
+                                        }}
+                                        value={formData.telephone_prefix}
+                                        onChange={(e) => setFormData({...formData, telephone_prefix: e.target.value})}
+                                    >
+                                        {countryCodes.map(c => (
+                                            <option key={`${c.code}-${c.dialCode}`} value={c.dialCode} className="text-foreground">
+                                                {c.name} ({c.dialCode})
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground">
+                                        <ChevronDown size={12} />
+                                    </div>
+                                </div>
+                                <input name="telephone" className="input-field flex-1" placeholder="Main Phone" value={formData.telephone} onChange={handleChange} />
+                            </div>
                         </div>
 
                         <div>
@@ -262,8 +626,10 @@ export default function CreateLead() {
                         </div>
                     </div>
 
+
+
                     <div className="pt-4 border-t border-border flex justify-end gap-3">
-                        <button type="button" onClick={() => navigate(-1)} className="btn-secondary">Cancel</button>
+                        <button type="button" onClick={() => navigate(-1)} className="btn-secondary border border-border">Cancel</button>
                         <button type="submit" className="btn-primary flex items-center gap-2">
                             <Save size={18} /> Create Lead
                         </button>
