@@ -293,14 +293,28 @@ export default function LeadDetail() {
 
   const submitFollowUp = async (contactId?: string, force = false) => {
     const errors: Record<string, string> = {};
-    if (!followUpDate) errors.date = "Date and time are required";
+    const now = new Date();
+
+    if (!followUpDate) {
+        errors.date = "Date and time are required";
+    } else if (new Date(followUpDate) < now) {
+        errors.date = "Date & Time cannot be in the past";
+    }
+
     if (!followUpType) errors.type = "Type is required";
     if (!followUpPriority) errors.priority = "Priority is required";
-    if (assignedTo === "other" && !customAssignedTo.trim()) errors.assigned = "Please specify who to assign";
+    
+    if (!followUpNotes.trim()) {
+        errors.notes = "Please provide a reason or notes for the follow-up";
+    }
+
+    if (assignedTo === "other" && !customAssignedTo.trim()) {
+        errors.assigned = "Please specify who this is assigned to";
+    }
 
     if (Object.keys(errors).length > 0) {
       setFuErrors(errors);
-      toast.error("Please fill all the details in the follow up");
+      toast.error("Please fill in all required fields marked with *");
       return;
     }
 
@@ -1048,7 +1062,7 @@ export default function LeadDetail() {
             </div>
             <p className="text-sm text-foreground">
               All follow-ups for this lead also appear on the Dashboard, grouped by due date.
-            </p>
+                        </p>
           </div>
         </div>
       </div>
@@ -1060,7 +1074,7 @@ export default function LeadDetail() {
       }}>
         <DialogContent aria-describedby={undefined} className="w-[90vw] max-md dark:bg-card">
           <DialogHeader>
-            <DialogTitle className="dark:text-foreground">Set Follow-up</DialogTitle>
+            <DialogTitle className="dark:text-foreground">Schedule Follow-up</DialogTitle>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
@@ -1068,20 +1082,26 @@ export default function LeadDetail() {
               <input
                 id="date"
                 type="datetime-local"
-                className={`input-field dark:bg-card dark:color-scheme-dark ${fuErrors.date ? "border-destructive" : ""}`}
+                className={`input-field dark:bg-card dark:color-scheme-dark ${fuErrors.date ? "border-destructive focus:ring-destructive/20" : ""}`}
                 value={followUpDate}
-                onChange={(e) => setFollowUpDate(e.target.value)}
+                onChange={(e) => {
+                  setFollowUpDate(e.target.value);
+                  if (fuErrors.date) setFuErrors(prev => ({ ...prev, date: "" }));
+                }}
                 required
               />
-              {fuErrors.date && <p className="text-xs text-destructive mt-1">{fuErrors.date}</p>}
+              {fuErrors.date && <p className="text-xs text-destructive mt-1 font-medium">{fuErrors.date}</p>}
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <label className="text-sm font-medium">Type <span className="text-destructive">*</span></label>
                 <select 
-                  className={`input-field dark:bg-card ${fuErrors.type ? "border-destructive focus:border-destructive focus:ring-destructive/20" : ""}`} 
+                  className={`input-field dark:bg-card ${fuErrors.type ? "border-destructive focus:ring-destructive/20" : ""}`} 
                   value={followUpType} 
-                  onChange={e => setFollowUpType(e.target.value)}
+                  onChange={e => {
+                    setFollowUpType(e.target.value);
+                    if (fuErrors.type) setFuErrors(prev => ({ ...prev, type: "" }));
+                  }}
                 >
                   <option value="">Select type...</option>
                   <option value="Call">Call</option>
@@ -1094,9 +1114,12 @@ export default function LeadDetail() {
               <div className="grid gap-2">
                 <label className="text-sm font-medium">Priority <span className="text-destructive">*</span></label>
                 <select 
-                  className={`input-field dark:bg-card ${fuErrors.priority ? "border-destructive focus:border-destructive focus:ring-destructive/20" : ""}`} 
+                  className={`input-field dark:bg-card ${fuErrors.priority ? "border-destructive focus:ring-destructive/20" : ""}`} 
                   value={followUpPriority} 
-                  onChange={e => setFollowUpPriority(e.target.value)}
+                  onChange={e => {
+                    setFollowUpPriority(e.target.value);
+                    if (fuErrors.priority) setFuErrors(prev => ({ ...prev, priority: "" }));
+                  }}
                 >
                   <option value="">Select priority...</option>
                   <option value="Low">Low</option>
@@ -1109,9 +1132,12 @@ export default function LeadDetail() {
             <div className="grid gap-2">
               <label className="text-sm font-medium">Assigned User <span className="text-destructive">*</span></label>
               <select 
-                className={`input-field dark:bg-card ${fuErrors.assigned ? "border-destructive focus:border-destructive focus:ring-destructive/20" : ""}`}
+                className={`input-field dark:bg-card ${fuErrors.assigned ? "border-destructive focus:ring-destructive/20" : ""}`}
                 value={assignedTo}
-                onChange={e => setAssignedTo(e.target.value)}
+                onChange={e => {
+                  setAssignedTo(e.target.value);
+                  if (fuErrors.assigned) setFuErrors(prev => ({ ...prev, assigned: "" }));
+                }}
               >
                 <option value="self">Assign to Me</option>
                 <option value="other">Other</option>
@@ -1119,25 +1145,32 @@ export default function LeadDetail() {
               {assignedTo === "other" && (
                 <div className="mt-2 animate-in fade-in slide-in-from-top-1 duration-200">
                   <input
-                    className={`input-field ${fuErrors.assigned ? "border-destructive focus:border-destructive focus:ring-destructive/20" : ""}`}
+                    className={`input-field ${fuErrors.assigned ? "border-destructive focus:ring-destructive/20" : ""}`}
                     placeholder="Enter name..."
                     value={customAssignedTo}
-                    onChange={(e) => setCustomAssignedTo(e.target.value)}
+                    onChange={(e) => {
+                      setCustomAssignedTo(e.target.value);
+                      if (fuErrors.assigned) setFuErrors(prev => ({ ...prev, assigned: "" }));
+                    }}
                     autoFocus
                   />
                 </div>
               )}
-              {fuErrors.assigned && <p className="text-xs text-destructive mt-1">{fuErrors.assigned}</p>}
+              {fuErrors.assigned && <p className="text-xs text-destructive mt-1 font-medium">{fuErrors.assigned}</p>}
             </div>
             <div className="grid gap-2">
-              <label htmlFor="reason" className="text-sm font-medium">Notes / Instructions <span className="text-muted-foreground text-xs">(optional)</span></label>
+              <label htmlFor="reason" className="text-sm font-medium">Notes / Instructions <span className="text-destructive">*</span></label>
               <textarea
                 id="reason"
-                className="input-field min-h-[80px]"
+                className={`input-field min-h-[80px] ${fuErrors.notes ? "border-destructive focus:ring-destructive/20" : ""}`}
                 placeholder="What needs to happen?"
                 value={followUpNotes}
-                onChange={(e) => setFollowUpNotes(e.target.value)}
+                onChange={(e) => {
+                  setFollowUpNotes(e.target.value);
+                  if (fuErrors.notes) setFuErrors(prev => ({ ...prev, notes: "" }));
+                }}
               />
+              {fuErrors.notes && <p className="text-xs text-destructive mt-1 font-medium">{fuErrors.notes}</p>}
             </div>
           </div>
           <DialogFooter>
