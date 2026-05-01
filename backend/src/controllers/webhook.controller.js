@@ -129,83 +129,118 @@ export const handleJustCallWebhook = async (req, res) => {
         console.log('Query:', JSON.stringify(req.query, null, 2));
 
         const payload = (req.body && Object.keys(req.body).length > 0) ? req.body : req.query;
-        const data = payload.data || payload; 
+        const data = payload.data || payload;
 
-        // Extracting with fallbacks for different JustCall webhook versions
+        // ── CORRECT field paths from real JustCall payload ────────────────────
+        // Recording: data.call_info.recording
+        const recordingUrl = data.call_info?.recording || payload.call_info?.recording || null;
+
+        // Duration: data.call_duration.conversation_time (seconds of actual talk time)
+        const callDurationObj = data.call_duration || {};
+        const duration = callDurationObj.conversation_time
+            || callDurationObj.total_duration
+            || callDurationObj.friendly_duration
+            || null;
+
+        // Phone number to match lead: data.contact_number
+        const contactPhone = data.contact_number || payload.contact_number || null;
+        // JustCall's own number (our CRM number)
+        const justcallNumber = data.justcall_number || payload.justcall_number || null;
+
+        // Notes field: data.call_info.notes
+        const callNotes = data.call_info?.notes || "";
+
+        // Lead ID may be passed as a custom field from the dialer URL
         let leadId = data.ticket_id || data.custom_fields?.ticket_id || payload.ticket_id;
-        
-        // Recording URL can be in recording_url OR call_info.recording
-        const recordingUrl = data.recording_url || payload.recording_url || 
-                           data.call_info?.recording || payload.call_info?.recording ||
-                           data.recording || payload.recording;
-                           
-        // Duration can be a number OR an object with total_duration
-        let durationValue = data.duration || payload.duration || data.call_duration || payload.call_duration;
-        if (typeof durationValue === 'object' && durationValue !== null) {
-            durationValue = durationValue.total_duration || durationValue.conversation_time || 0;
-        }
-        const duration = durationValue;
 
-        const fromNumber = data.from || payload.from || data.justcall_number || payload.justcall_number;
-        const toNumber = data.to || payload.to || data.contact_number || payload.contact_number;
+        console.log(`Recording URL extracted: ${recordingUrl || 'MISSING'}`);
+        console.log(`Contact phone: ${contactPhone}, Duration: ${duration}s`);
+
+        // Fallback: Extract from call notes if CRM Lead ID was embedded
+        if (!leadId) {
+            const notes = callNotes;
+            const match = notes.match(/CRM Lead ID: ([a-f0-9]{24})/i);
+            if (match) {
+                console.log(`Extracted Lead ID from notes: ${match[1]}`);
+                leadId = match[1];
+            }
+        }
 
         if (!leadId) {
-            console.log('No ticket_id found, searching by phone number...');
-            // Try to find lead by phone number (clean up numbers to match)
-            const cleanFrom = fromNumber?.replace(/\D/g, '').slice(-10) || "";
-            const cleanTo = toNumber?.replace(/\D/g, '').slice(-10) || "";
-            
-            console.log(`Searching for leads with phone ending in: "${cleanFrom}" or "${cleanTo}"`);
+            console.log('No ticket_id found, searching by contact phone number...');
+            // JustCall sends the caller's number in data.contact_number
+            const cleanPhone = contactPhone?.toString().replace(/\D/g, '').slice(-10) || "";
 
-            if (cleanFrom || cleanTo) {
-                // Search in Lead telephone
-                let lead = await Lead.findOne({ 
-                    $or: [
-                        { telephone: { $regex: cleanFrom } },
-                        { telephone: { $regex: cleanTo } }
-                    ].filter(q => Object.values(q)[0].$regex !== "")
-                });
+            console.log(`Searching for lead/contact with phone ending in: "${cleanPhone}"`);
+
+            if (cleanPhone.length >= 7) {
+                // 1. Search Lead.telephone
+                let lead = await Lead.findOne({ telephone: { $regex: cleanPhone } });
 
                 if (!lead) {
+                    // 2. Search Contact.direct_phone
                     console.log('Lead not found by telephone, searching Contacts...');
-                    // Search in Contact direct_phone
-                    const contact = await Contact.findOne({
-                        $or: [
-                            { direct_phone: { $regex: cleanFrom } },
-                            { direct_phone: { $regex: cleanTo } }
-                        ].filter(q => Object.values(q)[0].$regex !== "")
-                    });
+                    const contact = await Contact.findOne({ direct_phone: { $regex: cleanPhone } });
                     if (contact) {
-                        console.log(`Found matching contact for lead ${contact.lead_id}`);
+                        console.log(`Found matching contact, lead_id: ${contact.lead_id}`);
                         leadId = contact.lead_id;
                     }
                 } else {
-                    console.log(`Found matching lead ${lead._id}`);
+                    console.log(`Found matching lead: ${lead._id}`);
                     leadId = lead._id;
                 }
             }
         }
+
 
         if (!leadId) {
             console.log('No lead mapping found for this call. Skipping.');
             return res.status(200).json({ success: true, message: 'Skipped - no lead mapping' });
         }
 
-        // We check if a note for this call was already created by the frontend (logCallOutcome)
-        // Usually, the frontend logs the outcome immediately, and the webhook fires shortly after
-        // We can just append a new note with the recording, or try to update the last call note.
-        // For simplicity and safety, we'll create a new Note with the recording.
-        
+        // IMPROVED: Find the most recent manual call log for this lead
+        // to attach this recording to.
+        const existingNote = await Note.findOne({
+            lead_id: leadId,
+            type: 'call'
+        }).sort({ createdAt: -1 });
+
+        if (existingNote) {
+            console.log(`Found recent call log for lead ${leadId}. Updating with recording...`);
+
+            existingNote.metadata = {
+                ...existingNote.metadata,
+                recording_url: recordingUrl,
+                duration: duration || existingNote.metadata?.duration,
+                justcall_data: data
+            };
+            existingNote.markModified('metadata');
+            await existingNote.save();
+
+        } else {
+            console.log(`No recent call log found for lead ${leadId}. Creating new recording note.`);
+            await Note.create({
+                lead_id: leadId,
+                content: `CALL RECORDING RECEIVED\nDuration: ${duration ? duration + ' seconds' : 'N/A'}\nFrom: ${fromNumber || 'Unknown'}`,
+                type: 'call',
+                metadata: { duration, recording_url: recordingUrl, justcall_data: data }
+            });
+        }
+
+        console.log(`Call recording processed for lead ${leadId}`);
+
+        // DEBUG: Create a hidden-ish debug note with the raw data to see what JustCall is sending
         await Note.create({
             lead_id: leadId,
-            content: `CALL RECORDING RECEIVED\nDuration: ${duration ? duration + ' seconds' : 'N/A'}\nFrom: ${fromNumber || 'Unknown'}`,
-            type: 'call',
-            metadata: { duration, recording_url: recordingUrl, justcall_data: data }
+            content: `DEBUG: JustCall Webhook Received.\nRecording URL: ${recordingUrl || 'MISSING'}\nPayload Keys: ${Object.keys(payload).join(', ')}`,
+            type: 'note',
+            metadata: { raw_payload: payload }
         });
 
-        console.log(`Call recording attached to lead ${leadId}`);
 
         return res.status(200).json({ success: true });
+
+
 
     } catch (error) {
         console.error('JustCall Webhook Error:', error);

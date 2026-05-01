@@ -583,12 +583,29 @@ const Campaigns = () => {
       if (res.data.followup_needed) {
         handleOpenFollowUpModal();
       }
+
+      // Auto-fetch recording after 15s (JustCall needs time to process)
+      const noteId = res.data.note_id;
+      const leadIdForRecording = selectedLead._id;
+      if (noteId) {
+        toast.info("Recording will appear automatically in ~15 seconds...", { duration: 6000 });
+        setTimeout(async () => {
+          try {
+            const recRes = await api.get(`/justcall/fetch-recording/${noteId}`);
+            if (recRes.data.success && recRes.data.recording_url) {
+              toast.success("Call recording attached!");
+              fetchDetails(leadIdForRecording, true);
+            }
+          } catch { /* non-fatal */ }
+        }, 15000);
+      }
     } catch {
       toast.error("Failed to log call");
     } finally {
       setIsSubmitting(false);
     }
   };
+
 
   // --- Filters ---     
   const filteredCampaigns = campaigns.filter(c =>
@@ -826,7 +843,30 @@ const Campaigns = () => {
                     <div className="flex items-center gap-2">
                       <History size={16} className="text-primary" />
                       <h2 className="font-bold text-xs uppercase tracking-wider">Activity Feed</h2>
+                      <button 
+                        onClick={() => selectedLead && fetchDetails(selectedLead._id, true)}
+                        className="p-1 hover:bg-accent rounded-full transition-colors text-muted-foreground hover:text-primary"
+                        title="Refresh activity feed"
+                      >
+                        <RefreshCw size={12} className={loadingDetails ? "animate-spin" : ""} />
+                      </button>
+                      <button 
+                        onClick={async () => {
+                          if (!selectedLead) return;
+                          await api.post(`/notes/${selectedLead._id}`, {
+                            content: "TEST RECORDING (Sample)",
+                            type: "call",
+                            metadata: { recording_url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3", duration: 124 }
+                          });
+                          fetchDetails(selectedLead._id, true);
+                        }}
+                        className="text-[9px] px-2 py-0.5 bg-accent rounded hover:bg-accent/80 transition-colors"
+                      >
+                        Test Player
+                      </button>
                     </div>
+
+
                     {notes.length > 0 && (
                       <button
                         onClick={() => setIsDeleteAllConfirmOpen(true)}

@@ -12,7 +12,7 @@ export const getNotesByLead = async (req, res, next) => {
 
 export const createNote = async (req, res, next) => {
     try {
-        const { content } = req.body;
+        const { content, type, metadata } = req.body;
         if (!content || !content.trim()) {
             res.status(400);
             throw new Error('Note content is required');
@@ -20,8 +20,11 @@ export const createNote = async (req, res, next) => {
 
         const note = await Note.create({
             lead_id: req.params.schoolId,
-            content: content.trim()
+            content: content.trim(),
+            type: type || 'note',
+            metadata: metadata || {}
         });
+
 
         // Auto update last_contacted
         await Lead.findByIdAndUpdate(

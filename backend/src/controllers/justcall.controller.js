@@ -1,7 +1,39 @@
 import Note from '../models/note.model.js';
+import Contact from '../models/contact.model.js';
 import axios from 'axios';
 
-// 1. Log Call Outcome
+// Helper: fetch most recent call from JustCall API by contact phone
+const fetchRecordingFromJustCall = async (contactPhone) => {
+    try {
+        if (!process.env.JUSTCALL_API_KEY || !process.env.JUSTCALL_API_SECRET) return null;
+
+        const authHeader = `${process.env.JUSTCALL_API_KEY}:${process.env.JUSTCALL_API_SECRET}`;
+        const cleanPhone = contactPhone?.toString().replace(/\D/g, '').slice(-10);
+        if (!cleanPhone || cleanPhone.length < 7) return null;
+
+        // Fetch last 10 calls and find the most recent one matching the phone
+        const response = await axios.get('https://api.justcall.io/v2.1/calls', {
+            headers: {
+                'Authorization': authHeader,
+                'Accept': 'application/json'
+            },
+            params: { per_page: 10, order: 'DESC' }
+        });
+
+        const calls = response.data?.data?.data || response.data?.data || [];
+        const match = calls.find(c => {
+            const cPhone = c.contact_number?.toString().replace(/\D/g, '').slice(-10);
+            return cPhone === cleanPhone && c.call_info?.recording;
+        });
+
+        return match?.call_info?.recording || null;
+    } catch (err) {
+        console.log('JustCall API fetch failed (non-fatal):', err.message);
+        return null;
+    }
+};
+
+// 1. Log Call Outcome — also attempts to attach recording immediately
 export const logCallOutcome = async (req, res, next) => {
     try {
         const { lead_id, outcome, notes, duration, contact_name, recording_url } = req.body;
@@ -13,18 +45,68 @@ export const logCallOutcome = async (req, res, next) => {
 
         const content = `CALL LOG: ${outcome}\nContact: ${contact_name || 'Unknown'}\nDuration: ${duration || 'N/A'}\nNotes: ${notes || 'None'}`;
 
-        await Note.create({
+        // Look up the contact's phone number to fetch recording from JustCall API
+        let fetchedRecordingUrl = recording_url || null;
+        if (!fetchedRecordingUrl) {
+            try {
+                const contact = await Contact.findOne({ lead_id, is_primary: true }).lean();
+                const phone = contact?.direct_phone;
+                if (phone) {
+                    fetchedRecordingUrl = await fetchRecordingFromJustCall(phone);
+                    if (fetchedRecordingUrl) {
+                        console.log(`✅ Recording URL fetched from JustCall API: ${fetchedRecordingUrl}`);
+                    }
+                }
+            } catch (e) {
+                console.log('Could not auto-fetch recording:', e.message);
+            }
+        }
+
+        const note = await Note.create({
             lead_id,
             content,
             type: 'call',
-            metadata: { outcome, duration, contact_name, recording_url }
+            metadata: { outcome, duration, contact_name, recording_url: fetchedRecordingUrl }
         });
 
-        res.json({ success: true, followup_needed: outcome.includes('Follow-Up Needed') });
+        res.json({ success: true, followup_needed: outcome.includes('Follow-Up Needed'), note_id: note._id });
     } catch (err) {
         next(err);
     }
 };
+
+// 1b. Fetch & attach recording for an existing call note (called by frontend after delay)
+export const fetchAndAttachRecording = async (req, res, next) => {
+    try {
+        const note = await Note.findById(req.params.noteId);
+        if (!note || note.type !== 'call') {
+            return res.status(404).json({ success: false, message: 'Call note not found' });
+        }
+
+        if (note.metadata?.recording_url) {
+            return res.json({ success: true, recording_url: note.metadata.recording_url, already_attached: true });
+        }
+
+        // Find the contact phone for this lead
+        const contact = await Contact.findOne({ lead_id: note.lead_id, is_primary: true }).lean();
+        const phone = contact?.direct_phone;
+        if (!phone) return res.json({ success: false, message: 'No contact phone found' });
+
+        const recordingUrl = await fetchRecordingFromJustCall(phone);
+        if (recordingUrl) {
+            note.metadata = { ...note.metadata, recording_url: recordingUrl };
+            note.markModified('metadata');
+            await note.save();
+            return res.json({ success: true, recording_url: recordingUrl });
+        }
+
+        return res.json({ success: false, message: 'Recording not ready yet' });
+    } catch (err) {
+        next(err);
+    }
+};
+
+
 
 // 2. Send SMS
 export const sendSms = async (req, res, next) => {
