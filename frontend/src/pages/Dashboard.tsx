@@ -4,6 +4,7 @@ import AppLayout from "../layout/AppLayout";
 import { AlertCircle, Clock, Calendar, CheckCircle, Phone, Filter, Search, Plus, Building, Megaphone, Info, ArrowRight, Mail, Send, Globe, ChevronDown, X, PhoneCall } from "lucide-react";
 import { Link, useSearchParams, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { useCampaignStore } from "../store/campaignStore";
 import { countryCodes } from "../utils/countryCodes";
 import {
   Dialog,
@@ -58,7 +59,7 @@ export default function Dashboard() {
   const [campaignSummaries, setCampaignSummaries] = useState<any[]>([]);
   const [activeTaskTab, setActiveTaskTab] = useState<"overdue" | "due" | "upcoming">("due");
   const [dashboardMetrics, setDashboardMetrics] = useState<any>(null);
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const { campaigns, setCampaigns } = useCampaignStore();
   const [selectedCampaign, setSelectedCampaign] = useState<string>("all");
   const [loading, setLoading] = useState(true);
 
@@ -121,15 +122,13 @@ export default function Dashboard() {
   const load = async () => {
     try {
       const campaignId = selectedCampaign === "all" ? "" : selectedCampaign;
-      const [resConsolidated, resDetailedFollowups, resCampaigns] = await Promise.all([
+      const [resConsolidated, resDetailedFollowups] = await Promise.all([
         api.get(`/dashboard${campaignId ? `?campaignId=${campaignId}` : ""}`),
-        api.get("/followups/dashboard"),
-        api.get("/campaigns")
+        api.get("/followups/dashboard")
       ]);
 
       setDashboardMetrics(resConsolidated.data);
       setRawData(resDetailedFollowups.data);
-      setCampaigns(resCampaigns.data);
       setCampaignSummaries(resConsolidated.data.campaignSummaries);
 
       if (campaignId) {

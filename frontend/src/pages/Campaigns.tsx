@@ -79,15 +79,14 @@ interface FollowUp {
 
 const Campaigns = () => {
   const navigate = useNavigate();
-  const { selectedCampaign, setSelectedCampaign } = useCampaignStore();
+  const { selectedCampaign, setSelectedCampaign, campaigns, setCampaigns, statusLabels, setStatusLabels } = useCampaignStore();
   const { selectedLead, setSelectedLead } = useLeadStore();
 
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
   const [followUps, setFollowUps] = useState<FollowUp[]>([]);
 
-  const [loadingCampaigns, setLoadingCampaigns] = useState(true);
+  const [loadingCampaigns, setLoadingCampaigns] = useState(campaigns.length === 0);
   const [loadingLeads, setLoadingLeads] = useState(false);
   const [loadingDetails, setLoadingDetails] = useState(false);
 
@@ -96,7 +95,6 @@ const Campaigns = () => {
   const [campaignSearchIndex, setCampaignSearchIndex] = useState(-1);
   const [leadSearchIndex, setLeadSearchIndex] = useState(-1);
   const [statusFilter, setStatusFilter] = useState("all");
-  const [statusLabels, setStatusLabels] = useState<string[]>([]);
   const [noteContent, setNoteContent] = useState("");
 
   useEffect(() => {
@@ -185,19 +183,15 @@ const Campaigns = () => {
   const urlCampaignId = searchParams.get("campaignId");
 
   const fetchCampaigns = async () => {
+    // Campaigns are now fetched globally in AppLayout, but we can keep this for manual refresh if needed
     setLoadingCampaigns(true);
     try {
       const r = await api.get("/campaigns");
       setCampaigns(r.data);
-      
-      // Auto-select from URL if present
-      if (urlCampaignId) {
-        const found = r.data.find((c: Campaign) => c._id === urlCampaignId);
-        if (found) setSelectedCampaign(found);
-      }
     } catch { }
     setLoadingCampaigns(false);
   };
+
 
   const fetchLeads = useCallback(async (compId: string, silent = false) => {
     if (!silent) setLoadingLeads(true);
@@ -209,6 +203,13 @@ const Campaigns = () => {
     if (!silent) setLoadingLeads(false);
   }, []); // Removed selectedLead dependency
 
+  useEffect(() => {
+    if (campaigns.length > 0 && urlCampaignId && !selectedCampaign) {
+      const found = campaigns.find(c => c._id === urlCampaignId);
+      if (found) setSelectedCampaign(found);
+    }
+  }, [campaigns, urlCampaignId, selectedCampaign, setSelectedCampaign]);
+
   const fetchDetails = useCallback(async (leadId: string, silent = false) => {
     if (!silent) setLoadingDetails(true);
     try {
@@ -217,27 +218,35 @@ const Campaigns = () => {
         api.get(`/followups/lead/${leadId}`),
         api.get(`/leads/${leadId}`)
       ]);
-      
+
       // Update states only if they changed to prevent re-render loops
       setNotes(prev => JSON.stringify(prev) === JSON.stringify(notesRes.data) ? prev : notesRes.data);
       setFollowUps(prev => JSON.stringify(prev) === JSON.stringify(followUpsRes.data) ? prev : followUpsRes.data);
-      
+
       // Use functional update to avoid dependency on selectedLead
       setSelectedLead((prev: Lead | null) => {
         const newData = leadRes.data as Lead;
+
+        // Also update the middle leads list so the status/last_contacted matches
+        setLeads(prevLeads => prevLeads.map(l => l._id === newData._id ? newData : l));
+
         if (!prev || prev._id !== newData._id) return newData;
         return JSON.stringify(prev) === JSON.stringify(newData) ? prev : newData;
       });
     } catch { }
     if (!silent) setLoadingDetails(false);
-  }, [setSelectedLead]);
+  }, [setSelectedLead, setLeads]);
 
   useEffect(() => {
-    fetchCampaigns();
-    api.get("/settings")
-      .then(res => setStatusLabels(res.data.statusLabels || []))
-      .catch(() => { /* Silent fail or redirect to login */ });
-  }, []);
+    // If campaigns are already in store, we are not loading
+    if (campaigns.length > 0) {
+      setLoadingCampaigns(false);
+    } else {
+      // Otherwise fetch them
+      fetchCampaigns();
+    }
+  }, [campaigns.length]); // Re-run if campaigns length changes
+
 
   useEffect(() => {
     if (selectedCampaign) {
@@ -246,14 +255,16 @@ const Campaigns = () => {
       setLeads([]);
       setSelectedLead(null);
     }
-  }, [selectedCampaign?._id]);
+  }, [selectedCampaign?._id, statusLabels]);
+
 
   useEffect(() => {
     if (selectedLead?._id) {
-      // Only fetch when lead changes
+      // Fetch details when lead changes or global status settings change
       fetchDetails(selectedLead._id);
     }
-  }, [selectedLead?._id]); // No more setInterval here
+  }, [selectedLead?._id, statusLabels]); // No more setInterval here
+
 
   // --- Handlers ---
 
@@ -289,22 +300,22 @@ const Campaigns = () => {
   const validateLeadForm = () => {
     const newErrors: Record<string, string> = {};
     if (!leadFormData.name.trim()) newErrors.name = "Organization / School name is required";
-    
+
     // Primary Contact Person Validation
     if (!leadFormData.main_contact_name.trim()) newErrors.main_contact_name = "Primary contact name is required";
     if (!leadFormData.contact_title) {
-        newErrors.contact_title = "Please select a title / role";
+      newErrors.contact_title = "Please select a title / role";
     } else if (leadFormData.contact_title === "Other" && !customTitle.trim()) {
-        newErrors.contact_title = "Please specify the custom title";
+      newErrors.contact_title = "Please specify the custom title";
     }
     if (!leadFormData.contact_department.trim()) newErrors.contact_department = "Department name is required";
     if (!leadFormData.contact_direct_phone.trim()) newErrors.contact_direct_phone = "Direct phone number is required";
-    
+
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!leadFormData.contact_email.trim()) {
-        newErrors.contact_email = "Primary contact email is required";
+      newErrors.contact_email = "Primary contact email is required";
     } else if (!emailRegex.test(leadFormData.contact_email)) {
-        newErrors.contact_email = "Please enter a valid email address";
+      newErrors.contact_email = "Please enter a valid email address";
     }
 
     if (!leadFormData.contact_best_time) newErrors.contact_best_time = "Please select the best time to call";
@@ -340,8 +351,8 @@ const Campaigns = () => {
   const createLead = async () => {
     if (!selectedCampaign || isSubmittingLead) return;
     if (!validateLeadForm()) {
-        toast.error("Please fill in all required fields marked with *");
-        return;
+      toast.error("Please fill in all required fields marked with *");
+      return;
     }
 
     setIsSubmittingLead(true);
@@ -379,8 +390,8 @@ const Campaigns = () => {
       await fetchLeads(selectedCampaign._id);
       setSelectedLead(res.data);
     } catch (err: any) {
-        toast.error(err.response?.data?.error || "Failed to create lead");
-        setIsSubmittingLead(false);
+      toast.error(err.response?.data?.error || "Failed to create lead");
+      setIsSubmittingLead(false);
     }
   };
 
@@ -407,6 +418,10 @@ const Campaigns = () => {
     try {
       await api.patch(`/leads/${selectedLead._id}`, { status: newStatus });
       toast.success(`Status updated to ${newStatus}`);
+
+      // Update local leads list to reflect new status immediately
+      setLeads(prev => prev.map(l => l._id === selectedLead._id ? { ...l, status: newStatus } : l));
+
       fetchDetails(selectedLead._id, true);
     } catch { }
   };
@@ -448,25 +463,25 @@ const Campaigns = () => {
     if (isSubmitting) return;
     const newErrors: Record<string, string> = {};
     const now = new Date();
-    
+
     if (!followUpDate) {
-        newErrors.date = "Date & Time is required";
+      newErrors.date = "Date & Time is required";
     } else if (new Date(followUpDate) < now) {
-        newErrors.date = "Date & Time cannot be in the past";
+      newErrors.date = "Date & Time cannot be in the past";
     }
 
     if (!followUpNotes.trim()) {
-        newErrors.notes = "Please provide a reason or notes for the follow-up";
+      newErrors.notes = "Please provide a reason or notes for the follow-up";
     }
 
     if (assignedTo === "other" && !customAssignedTo.trim()) {
-        newErrors.assignedTo = "Please specify who this is assigned to";
+      newErrors.assignedTo = "Please specify who this is assigned to";
     }
 
     if (Object.keys(newErrors).length > 0) {
-        setFuErrors(newErrors);
-        toast.error("Please fix the errors before scheduling");
-        return;
+      setFuErrors(newErrors);
+      toast.error("Please fix the errors before scheduling");
+      return;
     }
 
     if (!selectedLead) return;
@@ -492,13 +507,13 @@ const Campaigns = () => {
       fetchDetails(selectedLead._id, true);
     } catch (err: any) {
       if (err.response?.status === 409) {
-          if (window.confirm("Conflict detected: Another follow-up is scheduled at this time. Schedule anyway?")) {
-              setIsSubmitting(false);
-              submitFollowUp(true);
-              return;
-          }
+        if (window.confirm("Conflict detected: Another follow-up is scheduled at this time. Schedule anyway?")) {
+          setIsSubmitting(false);
+          submitFollowUp(true);
+          return;
+        }
       } else {
-          toast.error(err.response?.data?.message || "Failed to schedule follow-up");
+        toast.error(err.response?.data?.message || "Failed to schedule follow-up");
       }
     } finally {
       setIsSubmitting(false);
@@ -551,7 +566,7 @@ const Campaigns = () => {
     if (!selectedLead || isSubmitting) return;
     setIsSubmitting(true);
     try {
-      const res = await api.post(`/justcall/log-call`, { 
+      const res = await api.post(`/justcall/log-call`, {
         lead_id: selectedLead._id,
         outcome: callOutcome,
         notes: callNotes,
@@ -562,13 +577,13 @@ const Campaigns = () => {
       setIsCallModalOpen(false);
       setCallNotes("");
       setCallDuration("");
-      
+
       fetchDetails(selectedLead._id, true);
-      
+
       if (res.data.followup_needed) {
         handleOpenFollowUpModal();
       }
-    } catch { 
+    } catch {
       toast.error("Failed to log call");
     } finally {
       setIsSubmitting(false);
@@ -591,8 +606,12 @@ const Campaigns = () => {
     <AppLayout>
       <div className="h-auto xl:h-[calc(100vh-100px)] flex flex-col xl:flex-row gap-4 overflow-y-auto xl:overflow-hidden p-1">
 
+
+
         {/* --- PANEL 1: Campaigns --- */}
-        <div className="w-full xl:w-60 flex flex-col bg-card border rounded-xl shadow-sm overflow-hidden shrink-0">
+        <div className="w-full xl:w-52 2xl:w-60 flex flex-col bg-card border rounded-xl shadow-sm overflow-hidden shrink-0">
+
+
           <div className="p-4 border-b space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="font-bold text-sm">Campaigns</h2>
@@ -642,7 +661,9 @@ const Campaigns = () => {
         </div>
 
         {/* --- PANEL 2: Leads --- */}
-        <div className="w-full xl:w-72 flex flex-col bg-card border rounded-xl shadow-sm overflow-hidden shrink-0">
+        <div className="w-full xl:w-64 2xl:w-72 flex flex-col bg-card border rounded-xl shadow-sm overflow-hidden shrink-0">
+
+
           {!selectedCampaign ? (
             <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-muted-foreground transition-all duration-300 ease-in-out">
               <div className="w-12 h-12 bg-accent rounded-full flex items-center justify-center mb-3">
@@ -705,7 +726,9 @@ const Campaigns = () => {
                   </select>
                 </div>
               </div>
-              <div className="flex-1 overflow-y-auto divide-y divide-border/50 max-h-[300px] xl:max-h-none">
+              <div className="flex-1 overflow-y-auto divide-y divide-border/50 max-h-[400px] xl:max-h-none">
+
+
                 {loadingLeads ? (
                   <div className="p-8 text-center text-[10px] text-muted-foreground animate-pulse">Loading leads...</div>
                 ) : filteredLeads.length === 0 ? (
@@ -742,7 +765,10 @@ const Campaigns = () => {
         </div>
 
         {/* --- PANEL 3: Details & News --- */}
-        <div className="flex-1 flex flex-col min-w-0 min-h-[600px] xl:min-h-0">
+        <div className="flex-1 flex flex-col min-w-0 h-auto xl:h-full">
+
+
+
           {!selectedLead ? (
             <div className="flex-1 bg-card border rounded-xl shadow-sm flex flex-col items-center justify-center text-muted-foreground p-12 text-center transition-all duration-300 ease-in-out">
               <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center text-primary mb-4">
@@ -752,9 +778,12 @@ const Campaigns = () => {
               <p className="text-xs max-w-xs mt-2">Select a lead to view profile and notes</p>
             </div>
           ) : (
-            <div className="flex-1 flex flex-col lg:flex-row gap-4 overflow-hidden">
+            <div className="flex-1 flex flex-col lg:flex-row gap-4 lg:overflow-hidden">
+
               {/* Activity Feed (Middle) */}
-              <div className="flex-1 flex flex-col gap-4 overflow-hidden min-h-[500px] xl:min-h-0">
+              <div className="flex-1 flex flex-col gap-4 min-h-0">
+
+
                 <div className="bg-card border rounded-xl p-4 shadow-sm shrink-0">
                   <div className="flex items-start justify-between">
                     <div className="flex-1 min-w-0">
@@ -781,8 +810,8 @@ const Campaigns = () => {
                         </div>
                       </div>
                     </div>
-                    <button 
-                      onClick={() => setIsFollowUpModalOpen(true)} 
+                    <button
+                      onClick={() => setIsFollowUpModalOpen(true)}
                       className="p-1 hover:bg-accent rounded text-primary transition-colors"
                       title="Schedule Follow-up"
                     >
@@ -791,14 +820,15 @@ const Campaigns = () => {
                   </div>
                 </div>
 
-                <div className="flex-1 flex flex-col bg-card border rounded-xl shadow-sm overflow-hidden min-h-[400px]">
+                <div className="flex-1 flex flex-col bg-card border rounded-xl shadow-sm lg:overflow-hidden min-h-[400px] lg:min-h-0">
+
                   <div className="p-3 border-b bg-accent/5 flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <History size={16} className="text-primary" />
                       <h2 className="font-bold text-xs uppercase tracking-wider">Activity Feed</h2>
                     </div>
                     {notes.length > 0 && (
-                      <button 
+                      <button
                         onClick={() => setIsDeleteAllConfirmOpen(true)}
                         className="text-[10px] text-destructive font-bold uppercase hover:underline flex items-center gap-1"
                       >
@@ -815,9 +845,9 @@ const Campaigns = () => {
                         onChange={e => setNoteContent(e.target.value)}
                       />
                       <div className="flex justify-end mt-1">
-                        <button 
-                          onClick={() => addNote()} 
-                          disabled={!noteContent.trim() || isSubmitting} 
+                        <button
+                          onClick={() => addNote()}
+                          disabled={!noteContent.trim() || isSubmitting}
                           className={`btn-primary px-3 text-[10px] ${(isSubmitting || !noteContent.trim()) ? "opacity-50 cursor-not-allowed" : ""}`}
                         >
                           {isSubmitting ? "Posting..." : "Post Note"}
@@ -836,14 +866,14 @@ const Campaigns = () => {
                       ) : (
                         notes.map(n => (
                           <div key={n._id} className="relative pl-5 before:absolute before:left-[6px] before:top-2 before:bottom-[-20px] before:w-[1.5px] before:bg-border last:before:hidden">
-                             <div className="absolute left-0 top-1.5 w-3 h-3 rounded-full bg-primary border-2 border-card flex items-center justify-center">
-                               {n.type === 'email' ? <Mail size={6} className="text-white" /> :
+                            <div className="absolute left-0 top-1.5 w-3 h-3 rounded-full bg-primary border-2 border-card flex items-center justify-center">
+                              {n.type === 'email' ? <Mail size={6} className="text-white" /> :
                                 n.type === 'meeting' ? <Video size={6} className="text-white" /> :
-                                n.type === 'call' ? <Phone size={6} className="text-white" /> :
-                                null}
+                                  n.type === 'call' ? <Phone size={6} className="text-white" /> :
+                                    null}
                             </div>
                             <div className="bg-white dark:bg-card shadow-sm border rounded-lg p-2.5 group relative">
-                              <button 
+                              <button
                                 onClick={() => deleteNote(n._id)}
                                 className="absolute top-2 right-2 p-1 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-all"
                               >
@@ -855,7 +885,7 @@ const Campaigns = () => {
                               )}
                               {n.type === 'call' && n.metadata?.recording_url && (
                                 <div className="mt-3 p-2.5 bg-primary/5 rounded-xl border border-primary/10 flex items-center gap-3 group/audio max-w-sm">
-                                  <button 
+                                  <button
                                     onClick={(e) => {
                                       const audio = e.currentTarget.nextElementSibling as HTMLAudioElement;
                                       if (audio.paused) {
@@ -870,8 +900,8 @@ const Campaigns = () => {
                                   >
                                     <Play size={14} className="ml-0.5 group-data-[playing=true]:hidden" />
                                   </button>
-                                  <audio 
-                                    src={n.metadata.recording_url} 
+                                  <audio
+                                    src={n.metadata.recording_url}
                                     onPlay={(e) => e.currentTarget.previousElementSibling?.setAttribute('data-playing', 'true')}
                                     onPause={(e) => e.currentTarget.previousElementSibling?.setAttribute('data-playing', 'false')}
                                     onEnded={(e) => e.currentTarget.previousElementSibling?.setAttribute('data-playing', 'false')}
@@ -884,10 +914,10 @@ const Campaigns = () => {
                                       ) : "Audio Recording"}
                                     </p>
                                   </div>
-                                  <a 
-                                    href={n.metadata.recording_url} 
-                                    target="_blank" 
-                                    rel="noreferrer" 
+                                  <a
+                                    href={n.metadata.recording_url}
+                                    target="_blank"
+                                    rel="noreferrer"
                                     className="p-1.5 text-muted-foreground hover:text-primary transition-colors"
                                     title="Open recording in new tab"
                                   >
@@ -906,7 +936,9 @@ const Campaigns = () => {
               </div>
 
               {/* Sidebar Details (Right) */}
-              <div className="w-full lg:w-64 xl:w-72 2xl:w-80 flex flex-col gap-4 overflow-y-auto shrink-0 pb-6 xl:pb-0">
+              <div className="w-full lg:w-full xl:w-64 2xl:w-80 flex flex-col gap-4 overflow-y-auto shrink-0 pb-6 xl:pb-0">
+
+
                 <div className="bg-card border rounded-xl p-4 shadow-sm space-y-4">
                   <h3 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Relationship</h3>
                   <div className="space-y-3">
@@ -962,7 +994,7 @@ const Campaigns = () => {
                             )}
                           </div>
                           <p className="text-xs text-muted-foreground truncate">{contact.title || "No Title"} {contact.department ? `• ${contact.department}` : ''}</p>
-                          
+
                           <div className="mt-2.5 space-y-1.5">
                             {contact.direct_phone && (
                               <div className="flex items-center justify-between gap-2 text-xs">
@@ -1012,8 +1044,8 @@ const Campaigns = () => {
                           return "border-l-success bg-success/5";
                         };
                         return (
-                          <div 
-                            key={f._id} 
+                          <div
+                            key={f._id}
                             title={`${f.type}: ${f.notes || "No notes"}`}
                             className={`p-2 border rounded-lg border-l-4 transition-all group ${getStatusStyles(f.date_time)}`}
                           >
@@ -1063,9 +1095,9 @@ const Campaigns = () => {
           </div>
           <DialogFooter>
             <button className="btn-secondary" onClick={() => setIsCreateCampaignOpen(false)}>Cancel</button>
-            <button 
+            <button
               disabled={isSubmitting}
-              className={`btn-primary ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`} 
+              className={`btn-primary ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`}
               onClick={() => createCampaign()}
             >
               {isSubmitting ? "Creating..." : "Create"}
@@ -1083,14 +1115,14 @@ const Campaigns = () => {
           <div className="space-y-4 py-2">
             <div className="space-y-1.5">
               <label className="text-xs font-bold uppercase text-muted-foreground">Date & Time *</label>
-              <input 
-                type="datetime-local" 
-                className={`input-field dark:color-scheme-dark ${fuErrors.date ? "border-destructive focus:ring-destructive/20" : ""}`} 
-                value={followUpDate} 
+              <input
+                type="datetime-local"
+                className={`input-field dark:color-scheme-dark ${fuErrors.date ? "border-destructive focus:ring-destructive/20" : ""}`}
+                value={followUpDate}
                 onChange={e => {
                   setFollowUpDate(e.target.value);
                   if (fuErrors.date) setFuErrors(prev => ({ ...prev, date: "" }));
-                }} 
+                }}
               />
               {fuErrors.date && <p className="text-[10px] text-destructive font-medium">{fuErrors.date}</p>}
             </div>
@@ -1115,20 +1147,20 @@ const Campaigns = () => {
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-bold uppercase text-muted-foreground">Notes *</label>
-              <textarea 
-                placeholder="Reason for follow-up" 
-                className={`input-field min-h-[80px] ${fuErrors.notes ? "border-destructive focus:ring-destructive/20" : ""}`} 
-                value={followUpNotes} 
+              <textarea
+                placeholder="Reason for follow-up"
+                className={`input-field min-h-[80px] ${fuErrors.notes ? "border-destructive focus:ring-destructive/20" : ""}`}
+                value={followUpNotes}
                 onChange={e => {
                   setFollowUpNotes(e.target.value);
                   if (fuErrors.notes) setFuErrors(prev => ({ ...prev, notes: "" }));
-                }} 
+                }}
               />
               {fuErrors.notes && <p className="text-[10px] text-destructive font-medium">{fuErrors.notes}</p>}
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-bold uppercase text-muted-foreground">Assigned User</label>
-              <select 
+              <select
                 className="input-field dark:bg-card"
                 value={assignedTo}
                 onChange={e => {
@@ -1157,9 +1189,9 @@ const Campaigns = () => {
           </div>
           <DialogFooter>
             <button className="btn-secondary" onClick={() => { setIsFollowUpModalOpen(false); setFuErrors({}); }}>Cancel</button>
-            <button 
+            <button
               disabled={isSubmitting}
-              className={`btn-primary ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`} 
+              className={`btn-primary ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`}
               onClick={() => submitFollowUp()}
             >
               {isSubmitting ? "Scheduling..." : "Schedule"}
@@ -1172,7 +1204,7 @@ const Campaigns = () => {
         <DialogContent aria-describedby={undefined} className="sm:max-w-3xl dark:bg-card">
           <DialogHeader><DialogTitle className="dark:text-foreground">Add Lead to {selectedCampaign?.name}</DialogTitle></DialogHeader>
           <div className="grid grid-cols-1 gap-6 py-2 overflow-y-auto max-h-[75vh] p-1 pr-3">
-            
+
             {/* Primary Contact Person */}
             <div className="space-y-4 border-b pb-6">
               <div className="flex items-center gap-2">
@@ -1181,7 +1213,7 @@ const Campaigns = () => {
                 </div>
                 <h3 className="font-bold text-sm uppercase tracking-wider">Primary Contact Person</h3>
               </div>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="text-xs font-medium">Contact Full Name *</label>
@@ -1242,14 +1274,14 @@ const Campaigns = () => {
                       <div className="absolute inset-0 flex items-center pl-8 text-xs pointer-events-none font-medium">
                         {leadFormData.contact_phone_prefix}
                       </div>
-                      <select 
+                      <select
                         className="input-field w-full dark:bg-card px-2 text-transparent appearance-none bg-no-repeat"
-                        style={{ 
+                        style={{
                           backgroundImage: `url(https://flagcdn.com/w20/${(countryCodes.find(c => c.dialCode === leadFormData.contact_phone_prefix)?.code || 'US').toLowerCase()}.png)`,
                           backgroundPosition: 'left 0.5rem center'
                         }}
                         value={leadFormData.contact_phone_prefix}
-                        onChange={(e) => setLeadFormData({...leadFormData, contact_phone_prefix: e.target.value})}
+                        onChange={(e) => setLeadFormData({ ...leadFormData, contact_phone_prefix: e.target.value })}
                       >
                         {countryCodes.map(c => (
                           <option key={`${c.code}-${c.dialCode}`} value={c.dialCode} className="text-foreground">
@@ -1341,7 +1373,7 @@ const Campaigns = () => {
                 {showSecondary ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                 Add Secondary Contact (Optional)
               </button>
-              
+
               {showSecondary && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-1 duration-200">
                   <div className="space-y-1">
@@ -1379,14 +1411,14 @@ const Campaigns = () => {
                         <div className="absolute inset-0 flex items-center pl-8 text-xs pointer-events-none font-medium">
                           {leadFormData.secondary_phone_prefix}
                         </div>
-                        <select 
+                        <select
                           className="input-field w-full dark:bg-card px-2 text-transparent appearance-none bg-no-repeat"
-                          style={{ 
+                          style={{
                             backgroundImage: `url(https://flagcdn.com/w20/${(countryCodes.find(c => c.dialCode === leadFormData.secondary_phone_prefix)?.code || 'US').toLowerCase()}.png)`,
                             backgroundPosition: 'left 0.5rem center'
                           }}
                           value={leadFormData.secondary_phone_prefix}
-                          onChange={(e) => setLeadFormData({...leadFormData, secondary_phone_prefix: e.target.value})}
+                          onChange={(e) => setLeadFormData({ ...leadFormData, secondary_phone_prefix: e.target.value })}
                         >
                           {countryCodes.map(c => (
                             <option key={`${c.code}-${c.dialCode}`} value={c.dialCode} className="text-foreground">
@@ -1477,14 +1509,14 @@ const Campaigns = () => {
                       <div className="absolute inset-0 flex items-center pl-8 text-xs pointer-events-none font-medium">
                         {leadFormData.telephone_prefix}
                       </div>
-                      <select 
+                      <select
                         className="input-field w-full dark:bg-card px-2 text-transparent appearance-none bg-no-repeat"
-                        style={{ 
+                        style={{
                           backgroundImage: `url(https://flagcdn.com/w20/${(countryCodes.find(c => c.dialCode === leadFormData.telephone_prefix)?.code || 'US').toLowerCase()}.png)`,
                           backgroundPosition: 'left 0.5rem center'
                         }}
                         value={leadFormData.telephone_prefix}
-                        onChange={(e) => setLeadFormData({...leadFormData, telephone_prefix: e.target.value})}
+                        onChange={(e) => setLeadFormData({ ...leadFormData, telephone_prefix: e.target.value })}
                       >
                         {countryCodes.map(c => (
                           <option key={`${c.code}-${c.dialCode}`} value={c.dialCode} className="text-foreground">
@@ -1579,9 +1611,9 @@ const Campaigns = () => {
           </div>
           <DialogFooter>
             <button className="btn-secondary" onClick={() => { setIsCreateLeadOpen(false); setErrors({}); }}>Cancel</button>
-            <button 
+            <button
               disabled={isSubmittingLead}
-              className={`btn-primary flex items-center gap-2 ${isSubmittingLead ? 'opacity-50 cursor-not-allowed' : ''}`} 
+              className={`btn-primary flex items-center gap-2 ${isSubmittingLead ? 'opacity-50 cursor-not-allowed' : ''}`}
               onClick={() => createLead()}
             >
               {isSubmittingLead ? "Creating..." : "Create Lead"}
@@ -1721,9 +1753,9 @@ const Campaigns = () => {
           </div>
           <DialogFooter className="flex-row gap-2">
             <button className="btn-secondary flex-1" onClick={() => setIsConfirmDoneOpen(false)}>Cancel</button>
-            <button 
+            <button
               disabled={isSubmitting}
-              className={`btn-primary flex-1 bg-success hover:bg-success/90 ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`} 
+              className={`btn-primary flex-1 bg-success hover:bg-success/90 ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`}
               onClick={handleConfirmDone}
             >
               {isSubmitting ? "Processing..." : "Yes, Mark Done"}
@@ -1753,11 +1785,11 @@ const Campaigns = () => {
             </div>
             <div className="grid gap-2">
               <label className="text-sm font-medium">Duration (optional)</label>
-              <input 
-                className="input-field dark:bg-card" 
-                placeholder="e.g. 5 mins" 
-                value={callDuration} 
-                onChange={e => setCallDuration(e.target.value)} 
+              <input
+                className="input-field dark:bg-card"
+                placeholder="e.g. 5 mins"
+                value={callDuration}
+                onChange={e => setCallDuration(e.target.value)}
               />
             </div>
             <div className="grid gap-2">
@@ -1773,9 +1805,9 @@ const Campaigns = () => {
           </div>
           <DialogFooter>
             <button className="btn-secondary" onClick={() => setIsCallModalOpen(false)}>Cancel</button>
-            <button 
+            <button
               disabled={isSubmitting}
-              className={`btn-primary ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`} 
+              className={`btn-primary ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`}
               onClick={() => logCall()}
             >
               {isSubmitting ? "Logging..." : "Log & Close"}

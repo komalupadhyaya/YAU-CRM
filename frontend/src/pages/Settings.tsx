@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
+import { useCampaignStore } from "../store/campaignStore";
+
 interface SettingsData {
     crmPreferences: {
         defaultFollowupDays: number;
@@ -18,11 +20,15 @@ export default function Settings() {
     const [settings, setSettings] = useState<SettingsData | null>(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
+    const { setStatusLabels } = useCampaignStore();
+
 
     const loadSettings = async () => {
         try {
             const res = await api.get("/settings");
             setSettings(res.data);
+            // Sync store on load too
+            setStatusLabels(res.data.statusLabels || []);
         } catch (err) {
             console.error(err);
             toast.error("Failed to load settings");
@@ -40,7 +46,10 @@ export default function Settings() {
         setSaving(true);
         try {
             await api.post("/settings", settings);
+            // Update global store immediately
+            setStatusLabels(settings.statusLabels);
             toast.success("Settings saved successfully");
+
         } catch (err) {
             console.error(err);
             toast.error("Failed to save settings");

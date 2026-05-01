@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useCampaignStore } from "../store/campaignStore";
 import { useLeadStore } from "../store/schoolStore";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "../api/api";
@@ -74,8 +75,7 @@ export default function LeadDetail() {
   const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState<any>({});
-  const [statusLabels, setStatusLabels] = useState<string[]>([]);
-  const [campaigns, setCampaigns] = useState<{ _id: string; name: string }[]>([]);
+  const { statusLabels, campaigns } = useCampaignStore();
   const [showSecondary, setShowSecondary] = useState(false);
 
   const [isFollowUpModalOpen, setIsFollowUpModalOpen] = useState(false);
@@ -145,12 +145,10 @@ export default function LeadDetail() {
   const loadAll = async (silent = false) => {
     if (!silent) setInitialLoading(true);
     try {
-      const [leadRes, notesRes, followUpsRes, settingsRes, campaignsRes] = await Promise.all([
+      const [leadRes, notesRes, followUpsRes] = await Promise.all([
         api.get("/leads/" + id),
         api.get("/notes/" + id),
         api.get("/followups/lead/" + id),
-        api.get("/settings"),
-        api.get("/campaigns"),
       ]);
       const leadData = leadRes.data;
       
@@ -158,8 +156,7 @@ export default function LeadDetail() {
       setLead(prev => JSON.stringify(prev) === JSON.stringify(leadData) ? prev : leadData);
       setNotes(prev => JSON.stringify(prev) === JSON.stringify(notesRes.data) ? prev : notesRes.data);
       setFollowUps(prev => JSON.stringify(prev) === JSON.stringify(followUpsRes.data) ? prev : followUpsRes.data);
-      setStatusLabels(prev => JSON.stringify(prev) === JSON.stringify(settingsRes.data.statusLabels) ? prev : (settingsRes.data.statusLabels || []));
-      setCampaigns(prev => JSON.stringify(prev) === JSON.stringify(campaignsRes.data) ? prev : (campaignsRes.data || []));
+
 
       const getPrefix = (phone: string) => {
         if (!phone?.startsWith('+')) return "+1";

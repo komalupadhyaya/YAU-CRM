@@ -28,7 +28,7 @@ export const FollowUpProvider = ({ children }: { children: React.ReactNode }) =>
     try {
       const res = await api.get('/followups/dashboard');
       const dueFollowUps: FollowUp[] = res.data.due || [];
-      
+
       setDueTodayCount(dueFollowUps.length);
       setDueTodayNames(dueFollowUps.map(f => f.lead_name).filter(Boolean));
 
@@ -37,7 +37,7 @@ export const FollowUpProvider = ({ children }: { children: React.ReactNode }) =>
       dueFollowUps.forEach(f => {
         const fuTime = new Date(f.date_time);
         const diffMinutes = (now.getTime() - fuTime.getTime()) / 60000;
-        
+
         if (diffMinutes >= 0 && diffMinutes <= 5 && !alertedIds.has(f._id)) {
           toast.info(`Follow-up Time: ${f.type} with ${f.lead_name}`, {
             description: f.notes || "Check your dashboard for details.",
@@ -55,7 +55,7 @@ export const FollowUpProvider = ({ children }: { children: React.ReactNode }) =>
   useEffect(() => {
     // Initial check
     checkFollowUps();
-    
+
     // Poll every 60 seconds
     const interval = setInterval(checkFollowUps, 60000);
     return () => clearInterval(interval);
