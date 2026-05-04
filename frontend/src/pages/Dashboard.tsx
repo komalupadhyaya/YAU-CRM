@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import api from "../api/api";
 import AppLayout from "../layout/AppLayout";
-import { AlertCircle, Clock, Calendar, CheckCircle, Phone, Filter, Search, Plus, Building, Megaphone, Info, ArrowRight, Mail, Send, Globe, ChevronDown, X, PhoneCall } from "lucide-react";
+import { AlertCircle, Clock, Calendar, CheckCircle, Phone, Filter, Search, Plus, Building, Megaphone, Info, ArrowRight, Mail, Send, Globe, ChevronDown, ChevronLeft, ChevronRight, X, PhoneCall } from "lucide-react";
 import { Link, useSearchParams, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useCampaignStore } from "../store/campaignStore";
@@ -107,6 +107,8 @@ export default function Dashboard() {
   const [quickFollowUpErrors, setQuickFollowUpErrors] = useState<Record<string, string>>({});
   const [quickEmailErrors, setQuickEmailErrors] = useState<Record<string, string>>({});
   const [phonePrefix, setPhonePrefix] = useState("+1");
+  const [campaignPage, setCampaignPage] = useState(0);
+  const CAMPAIGNS_PER_PAGE = 5;
 
   const initiateCall = (leadToCall: Lead) => {
     const phone = leadToCall.telephone;
@@ -221,6 +223,32 @@ export default function Dashboard() {
     }
 
     try {
+      // 1. Log the call activity first if an outcome is selected
+      if (callOutcome) {
+          try {
+              const callLogRes = await api.post(`/justcall/log-call`, {
+                  lead_id: selectedLeadResult?._id,
+                  outcome: callOutcome,
+                  notes: followUpNotes,
+                  contact_name: selectedLeadResult?.name || 'Unknown'
+              });
+              
+              if (callLogRes.data.note_id) {
+                  // Attempt to fetch recording after a short delay
+                  setTimeout(async () => {
+                      try {
+                          await api.get(`/justcall/fetch-recording/${callLogRes.data.note_id}`);
+                      } catch (e) {
+                          console.log('Delayed recording fetch failed:', e);
+                      }
+                  }, 5000);
+              }
+          } catch (e) {
+              console.error("Failed to log call activity:", e);
+          }
+      }
+
+      // 2. Schedule the follow-up
       await api.post(`/followups/${selectedLeadResult?._id}`, {
         date_time: followUpDate,
         type: followUpType,
@@ -229,7 +257,7 @@ export default function Dashboard() {
         assigned_to: assignedTo === "other" ? customAssignedTo : assignedTo,
         force
       });
-      toast.success("Follow-up scheduled successfully");
+      toast.success("Activity logged & Follow-up scheduled");
       setIsModalOpen(false);
       resetFollowUpForm();
       load();
@@ -414,9 +442,31 @@ export default function Dashboard() {
           <div className="page-card dark:bg-card">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-lg font-bold text-foreground">Campaign Acquisition Overview</h2>
+              
+              {campaigns.length > CAMPAIGNS_PER_PAGE && (
+                <div className="flex items-center gap-3">
+                  <button 
+                    onClick={() => setCampaignPage(p => Math.max(0, p - 1))}
+                    disabled={campaignPage === 0}
+                    className={`w-8 h-8 flex items-center justify-center rounded-xl border transition-all ${campaignPage === 0 ? 'opacity-20 cursor-not-allowed' : 'hover:bg-accent hover:border-primary/50 text-foreground/50 hover:text-primary shadow-sm bg-card'}`}
+                  >
+                    <ChevronLeft size={16} />
+                  </button>
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">
+                    {campaignPage + 1} / {Math.ceil(campaigns.length / CAMPAIGNS_PER_PAGE)}
+                  </span>
+                  <button 
+                    onClick={() => setCampaignPage(p => (p + 1 < Math.ceil(campaigns.length / CAMPAIGNS_PER_PAGE) ? p + 1 : p))}
+                    disabled={campaignPage + 1 >= Math.ceil(campaigns.length / CAMPAIGNS_PER_PAGE)}
+                    className={`w-8 h-8 flex items-center justify-center rounded-xl border transition-all ${campaignPage + 1 >= Math.ceil(campaigns.length / CAMPAIGNS_PER_PAGE) ? 'opacity-20 cursor-not-allowed' : 'hover:bg-accent hover:border-primary/50 text-foreground/50 hover:text-primary shadow-sm bg-card'}`}
+                  >
+                    <ChevronRight size={16} className="text-emerald-500" />
+                  </button>
+                </div>
+              )}
             </div>
             <div className="space-y-4">
-              {campaigns.slice(0, 5).map(c => {
+              {campaigns.slice(campaignPage * CAMPAIGNS_PER_PAGE, (campaignPage + 1) * CAMPAIGNS_PER_PAGE).map(c => {
                 const summary = campaignSummaries.find(s => s._id === c._id) || { totalLeads: 0, meetingsScheduled: 0 };
                 const followUpsDue = rawData?.all?.filter(f => String(f.campaign_id_val) === c._id).length || 0;
                 return (
@@ -454,6 +504,28 @@ export default function Dashboard() {
                 );
               })}
             </div>
+
+            {campaigns.length > CAMPAIGNS_PER_PAGE && (
+              <div className="flex items-center justify-center gap-4 mt-6 pt-4 border-t border-border/50">
+                <button 
+                  onClick={() => setCampaignPage(p => Math.max(0, p - 1))}
+                  disabled={campaignPage === 0}
+                  className={`w-9 h-9 flex items-center justify-center rounded-xl border transition-all ${campaignPage === 0 ? 'opacity-20 cursor-not-allowed' : 'hover:bg-accent hover:border-primary/50 text-foreground/50 hover:text-primary shadow-sm bg-card'}`}
+                >
+                  <ChevronLeft size={18} />
+                </button>
+                <span className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">
+                  PAGE {campaignPage + 1} OF {Math.ceil(campaigns.length / CAMPAIGNS_PER_PAGE)}
+                </span>
+                <button 
+                  onClick={() => setCampaignPage(p => (p + 1 < Math.ceil(campaigns.length / CAMPAIGNS_PER_PAGE) ? p + 1 : p))}
+                  disabled={campaignPage + 1 >= Math.ceil(campaigns.length / CAMPAIGNS_PER_PAGE)}
+                  className={`w-9 h-9 flex items-center justify-center rounded-xl border transition-all ${campaignPage + 1 >= Math.ceil(campaigns.length / CAMPAIGNS_PER_PAGE) ? 'opacity-20 cursor-not-allowed' : 'hover:bg-accent hover:border-primary/50 text-foreground/50 hover:text-primary shadow-sm bg-card'}`}
+                >
+                  <ChevronRight size={18} className="text-emerald-500" />
+                </button>
+              </div>
+            )}
           </div>
 
           <div ref={statsRef} className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-4">
@@ -688,32 +760,19 @@ export default function Dashboard() {
                     </div>
                   </div>
                   
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider flex items-center gap-1.5">
-                        <Clock size={12} /> Duration
-                      </label>
-                      <input 
-                        className="input-field h-10 text-xs dark:bg-card" 
-                        placeholder="e.g. 5 mins" 
-                        value={callDuration} 
-                        onChange={e => setCallDuration(e.target.value)} 
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider flex items-center gap-1.5">
-                        <Calendar size={12} /> Next Follow-up
-                      </label>
-                      <input 
-                        type="datetime-local" 
-                        className={`input-field h-10 text-xs dark:color-scheme-dark ${quickFollowUpErrors.date ? "border-destructive focus:ring-destructive/20" : ""}`}
-                        value={followUpDate} 
-                        onChange={e => {
-                          setFollowUpDate(e.target.value);
-                          if (e.target.value) setQuickFollowUpErrors({...quickFollowUpErrors, date: ""});
-                        }} 
-                      />
-                    </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider flex items-center gap-1.5">
+                      <Calendar size={12} /> Next Follow-up
+                    </label>
+                    <input 
+                      type="datetime-local" 
+                      className={`input-field h-10 text-xs dark:color-scheme-dark ${quickFollowUpErrors.date ? "border-destructive focus:ring-destructive/20" : ""}`}
+                      value={followUpDate} 
+                      onChange={e => {
+                        setFollowUpDate(e.target.value);
+                        if (e.target.value) setQuickFollowUpErrors({...quickFollowUpErrors, date: ""});
+                      }} 
+                    />
                   </div>
                 </div>
 

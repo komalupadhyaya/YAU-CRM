@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useCampaignStore } from "../store/campaignStore";
 import { useLeadStore } from "../store/schoolStore";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "../api/api";
 import AppLayout from "../layout/AppLayout";
-import { CalendarPlus, Save, ArrowLeft, History, Info, User, Phone, Mail, Clock, MessageSquare, ChevronDown, ChevronUp, Edit, Video, Send, CheckCircle2, Trash2, Play, ExternalLink, FileText, Smartphone, X } from "lucide-react";
+import { CalendarPlus, Save, ArrowLeft, History, Info, User, Phone, Mail, Clock, MessageSquare, ChevronDown, ChevronUp, Edit, Video, Send, CheckCircle2, Trash2, Play, Pause, ExternalLink, FileText, Smartphone, X, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { countryCodes } from "../utils/countryCodes";
 import {
@@ -63,6 +63,83 @@ interface Lead {
   campaign_id?: { _id: string, name: string };
   contacts?: Contact[];
 }
+
+const RecordingPlayer = ({ url, duration }: { url: string, duration?: number }) => {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [totalDuration, setTotalDuration] = useState(duration || 0);
+  const audioRef = useRef<HTMLAudioElement>(null);
+
+  const togglePlay = () => {
+    if (audioRef.current?.paused) {
+      audioRef.current.play();
+      setIsPlaying(true);
+    } else {
+      audioRef.current?.pause();
+      setIsPlaying(false);
+    }
+  };
+
+  const formatTime = (time: number) => {
+    if (!time) return "0:00";
+    const mins = Math.floor(time / 60);
+    const secs = Math.floor(time % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  return (
+    <div className="mt-3 p-3 bg-accent/30 dark:bg-accent/10 rounded-2xl border border-primary/20 flex flex-col gap-3 group/audio max-w-full shadow-sm">
+      <div className="flex items-center gap-3">
+        <button 
+          onClick={togglePlay}
+          className="w-9 h-9 rounded-full flex items-center justify-center bg-primary text-white shadow-lg hover:scale-105 transition-all shrink-0"
+        >
+          {isPlaying ? <Pause size={16} /> : <Play size={16} className="ml-0.5" />}
+        </button>
+        
+        <div className="flex-1 min-w-0">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-primary/70 mb-0.5">Call Recording</p>
+          <div className="flex items-center justify-between">
+             <span className="text-[11px] font-bold text-foreground">{formatTime(currentTime)}</span>
+             <span className="text-[10px] font-medium text-muted-foreground">{formatTime(totalDuration)}</span>
+          </div>
+        </div>
+
+        <a href={url} target="_blank" rel="noreferrer" className="p-2 text-muted-foreground hover:text-primary transition-colors bg-card rounded-lg border shadow-sm">
+          <ExternalLink size={14} />
+        </a>
+      </div>
+
+      <div className="relative h-1.5 bg-muted rounded-full overflow-hidden">
+        <div 
+          className="absolute left-0 top-0 h-full bg-primary transition-all duration-150"
+          style={{ width: `${totalDuration ? (currentTime / totalDuration) * 100 : 0}%` }}
+        />
+        <input 
+          type="range" 
+          min="0" 
+          max={totalDuration || 0} 
+          step="0.1"
+          value={currentTime}
+          onChange={(e) => {
+            const time = parseFloat(e.target.value);
+            if (audioRef.current) audioRef.current.currentTime = time;
+            setCurrentTime(time);
+          }}
+          className="absolute inset-0 opacity-0 cursor-pointer w-full"
+        />
+      </div>
+
+      <audio 
+        ref={audioRef}
+        src={url}
+        onTimeUpdate={() => setCurrentTime(audioRef.current?.currentTime || 0)}
+        onLoadedMetadata={() => setTotalDuration(audioRef.current?.duration || totalDuration)}
+        onEnded={() => setIsPlaying(false)}
+      />
+    </div>
+  );
+};
 
 export default function LeadDetail() {
   const { id } = useParams();
@@ -141,9 +218,11 @@ export default function LeadDetail() {
   const [meetingCcInput, setMeetingCcInput] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
+  const [loadingNotes, setLoadingNotes] = useState(false);
 
   const loadAll = async (silent = false) => {
     if (!silent) setInitialLoading(true);
+    if (!silent) setLoadingNotes(true);
     try {
       const [leadRes, notesRes, followUpsRes] = await Promise.all([
         api.get("/leads/" + id),
@@ -199,6 +278,7 @@ export default function LeadDetail() {
       }
     } catch { } finally {
       setInitialLoading(false);
+      setLoadingNotes(false);
     }
   };
 
@@ -272,6 +352,16 @@ export default function LeadDetail() {
       setNoteToDelete(null);
     } catch {
       toast.error("Failed to delete note");
+    }
+  };
+
+  const deleteAllNotes = async () => {
+    try {
+      await api.delete(`/notes/lead/${id}/all`);
+      toast.success("All notes deleted");
+      await loadAll();
+    } catch {
+      toast.error("Failed to delete all notes");
     }
   };
 
@@ -416,13 +506,11 @@ export default function LeadDetail() {
         lead_id: id,
         outcome: callOutcome,
         notes: callNotes,
-        duration: callDuration,
         contact_name: selectedContactForCall?.name || lead?.name || 'Unknown'
       });
       toast.success("Call logged");
       setIsCallModalOpen(false);
       setCallNotes("");
-      setCallDuration("");
       loadAll();
       
       if (res.data.followup_needed) {
@@ -933,9 +1021,31 @@ export default function LeadDetail() {
 
           {/* Communication Log / Notes */}
           <div id="notes-section" className="page-card dark:bg-card">
-            <div className="flex items-center gap-2 mb-4">
-              <History size={18} className="text-primary" />
-              <h2 className="font-semibold text-foreground">Communication Log</h2>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <History size={18} className="text-primary" />
+                <h2 className="font-semibold text-foreground">Communication Log</h2>
+                <button 
+                  onClick={() => loadAll()}
+                  className="p-1 hover:bg-accent rounded-full transition-colors text-muted-foreground hover:text-primary"
+                  title="Refresh activity feed"
+                >
+                  <RefreshCw size={14} className={loadingNotes ? "animate-spin" : ""} />
+                </button>
+
+                {notes.length > 0 && (
+                  <button
+                    onClick={() => {
+                      if(window.confirm("Are you sure you want to delete all notes for this lead? This cannot be undone.")) {
+                        deleteAllNotes();
+                      }
+                    }}
+                    className="text-[9px] text-destructive px-2.5 py-1 bg-destructive/5 hover:bg-destructive hover:text-white border border-destructive/20 rounded-lg font-bold uppercase transition-all flex items-center gap-1.5 shadow-sm ml-1"
+                  >
+                    <Trash2 size={11} /> Delete All
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="mb-6">
@@ -969,46 +1079,10 @@ export default function LeadDetail() {
                         <p className="text-xs text-muted-foreground mb-1 italic">Subject: {n.metadata.subject}</p>
                       )}
                       {n.type === 'call' && n.metadata?.recording_url && (
-                        <div className="mt-3 p-2.5 bg-primary/5 rounded-xl border border-primary/10 flex items-center gap-3 group/audio max-w-sm">
-                          <button 
-                            onClick={(e) => {
-                              const audio = e.currentTarget.nextElementSibling as HTMLAudioElement;
-                              if (audio.paused) {
-                                audio.play();
-                                e.currentTarget.classList.add('bg-primary', 'text-white');
-                              } else {
-                                audio.pause();
-                                e.currentTarget.classList.remove('bg-primary', 'text-white');
-                              }
-                            }}
-                            className="w-8 h-8 rounded-full flex items-center justify-center bg-white dark:bg-card border shadow-sm text-primary hover:scale-105 transition-all"
-                          >
-                            <Play size={14} className="ml-0.5 group-data-[playing=true]:hidden" />
-                          </button>
-                          <audio 
-                            src={n.metadata.recording_url} 
-                            onPlay={(e) => e.currentTarget.previousElementSibling?.setAttribute('data-playing', 'true')}
-                            onPause={(e) => e.currentTarget.previousElementSibling?.setAttribute('data-playing', 'false')}
-                            onEnded={(e) => e.currentTarget.previousElementSibling?.setAttribute('data-playing', 'false')}
-                          />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-[10px] font-bold uppercase tracking-tight text-primary/70">Call Recording</p>
-                            <p className="text-xs font-semibold text-foreground flex items-center gap-2">
-                              {n.metadata.duration ? (
-                                <span className="flex items-center gap-1"><Clock size={10} /> {Math.floor(n.metadata.duration / 60)}:{(n.metadata.duration % 60).toString().padStart(2, '0')}</span>
-                              ) : "Audio Recording"}
-                            </p>
-                          </div>
-                          <a 
-                            href={n.metadata.recording_url} 
-                            target="_blank" 
-                            rel="noreferrer" 
-                            className="p-1.5 text-muted-foreground hover:text-primary transition-colors"
-                            title="Open recording in new tab"
-                          >
-                            <ExternalLink size={14} />
-                          </a>
-                        </div>
+                        <RecordingPlayer 
+                          url={n.metadata.recording_url} 
+                          duration={n.metadata?.recording_duration || n.metadata?.duration} 
+                        />
                       )}
                       <p className="text-[10px] text-muted-foreground uppercase tracking-wide">
                         {new Date(n.createdAt).toLocaleString()}
@@ -1520,15 +1594,6 @@ export default function LeadDetail() {
                   </button>
                 ))}
               </div>
-            </div>
-            <div className="grid gap-2">
-              <label className="text-sm font-medium">Duration (optional)</label>
-              <input 
-                className="input-field dark:bg-card" 
-                placeholder="e.g. 5 mins" 
-                value={callDuration} 
-                onChange={e => setCallDuration(e.target.value)} 
-              />
             </div>
             <div className="grid gap-2">
               <label className="text-sm font-medium">Call Notes</label>

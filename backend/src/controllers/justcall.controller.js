@@ -11,7 +11,6 @@ const fetchRecordingFromJustCall = async (contactPhone) => {
         const cleanPhone = contactPhone?.toString().replace(/\D/g, '').slice(-10);
         if (!cleanPhone || cleanPhone.length < 7) return null;
 
-        // Fetch last 10 calls and find the most recent one matching the phone
         const response = await axios.get('https://api.justcall.io/v2.1/calls', {
             headers: {
                 'Authorization': authHeader,
@@ -26,7 +25,13 @@ const fetchRecordingFromJustCall = async (contactPhone) => {
             return cPhone === cleanPhone && c.call_info?.recording;
         });
 
-        return match?.call_info?.recording || null;
+        if (match) {
+            return {
+                url: match.call_info.recording,
+                duration: match.call_duration?.total_duration || 0 // Correct path based on API example
+            };
+        }
+        return null;
     } catch (err) {
         console.log('JustCall API fetch failed (non-fatal):', err.message);
         return null;
@@ -43,18 +48,22 @@ export const logCallOutcome = async (req, res, next) => {
             throw new Error('lead_id and outcome are required');
         }
 
-        const content = `CALL LOG: ${outcome}\nContact: ${contact_name || 'Unknown'}\nDuration: ${duration || 'N/A'}\nNotes: ${notes || 'None'}`;
+        const content = `CALL LOG: ${outcome}\nContact: ${contact_name || 'Unknown'}\nNotes: ${notes || 'None'}`;
 
         // Look up the contact's phone number to fetch recording from JustCall API
         let fetchedRecordingUrl = recording_url || null;
+        let actualDuration = null;
+
         if (!fetchedRecordingUrl) {
             try {
                 const contact = await Contact.findOne({ lead_id, is_primary: true }).lean();
                 const phone = contact?.direct_phone;
                 if (phone) {
-                    fetchedRecordingUrl = await fetchRecordingFromJustCall(phone);
-                    if (fetchedRecordingUrl) {
-                        console.log(`✅ Recording URL fetched from JustCall API: ${fetchedRecordingUrl}`);
+                    const callData = await fetchRecordingFromJustCall(phone);
+                    if (callData) {
+                        fetchedRecordingUrl = callData.url;
+                        actualDuration = callData.duration;
+                        console.log(`✅ Recording URL fetched from JustCall API: ${fetchedRecordingUrl} (Duration: ${actualDuration}s)`);
                     }
                 }
             } catch (e) {
@@ -66,7 +75,12 @@ export const logCallOutcome = async (req, res, next) => {
             lead_id,
             content,
             type: 'call',
-            metadata: { outcome, duration, contact_name, recording_url: fetchedRecordingUrl }
+            metadata: { 
+                outcome, 
+                recording_duration: actualDuration, // Actual from JustCall
+                contact_name, 
+                recording_url: fetchedRecordingUrl 
+            }
         });
 
         res.json({ success: true, followup_needed: outcome.includes('Follow-Up Needed'), note_id: note._id });
@@ -92,12 +106,16 @@ export const fetchAndAttachRecording = async (req, res, next) => {
         const phone = contact?.direct_phone;
         if (!phone) return res.json({ success: false, message: 'No contact phone found' });
 
-        const recordingUrl = await fetchRecordingFromJustCall(phone);
-        if (recordingUrl) {
-            note.metadata = { ...note.metadata, recording_url: recordingUrl };
+        const callData = await fetchRecordingFromJustCall(phone);
+        if (callData) {
+            note.metadata = { 
+                ...note.metadata, 
+                recording_url: callData.url,
+                recording_duration: callData.duration 
+            };
             note.markModified('metadata');
             await note.save();
-            return res.json({ success: true, recording_url: recordingUrl });
+            return res.json({ success: true, recording_url: callData.url });
         }
 
         return res.json({ success: false, message: 'Recording not ready yet' });
