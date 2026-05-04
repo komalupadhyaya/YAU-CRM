@@ -197,8 +197,16 @@ const Campaigns = () => {
     if (!silent) setLoadingLeads(true);
     try {
       const r = await api.get(`/leads/campaign/${compId}`);
-      // Only update if data is different to prevent flickering
-      setLeads(prev => JSON.stringify(prev) === JSON.stringify(r.data) ? prev : r.data);
+      
+      // Use functional update to check if the campaign we fetched is still the selected one
+      setLeads(prevLeads => {
+        // If the leads returned don't belong to the campaign currently in context, ignore them
+        // (Assuming if array is not empty, we check the first lead's campaign_id)
+        if (r.data.length > 0 && r.data[0].campaign_id !== compId) return prevLeads;
+        
+        // Only update if data is actually different to prevent unnecessary re-renders
+        return JSON.stringify(prevLeads) === JSON.stringify(r.data) ? prevLeads : r.data;
+      });
     } catch { }
     if (!silent) setLoadingLeads(false);
   }, []); // Removed selectedLead dependency
@@ -223,14 +231,22 @@ const Campaigns = () => {
       setNotes(prev => JSON.stringify(prev) === JSON.stringify(notesRes.data) ? prev : notesRes.data);
       setFollowUps(prev => JSON.stringify(prev) === JSON.stringify(followUpsRes.data) ? prev : followUpsRes.data);
 
-      // Use functional update to avoid dependency on selectedLead
+      // Use functional update to avoid dependency on selectedLead and prevent race conditions
       setSelectedLead((prev: Lead | null) => {
         const newData = leadRes.data as Lead;
 
         // Also update the middle leads list so the status/last_contacted matches
         setLeads(prevLeads => prevLeads.map(l => l._id === newData._id ? newData : l));
 
-        if (!prev || prev._id !== newData._id) return newData;
+        // RACE CONDITION FIX: 
+        // If the current selection (prev) has changed to a DIFFERENT lead while this request was pending,
+        // we MUST NOT update the state with this stale data.
+        if (prev && prev._id !== newData._id) {
+          return prev; // Keep the newer selection
+        }
+
+        // If it's the same lead, update it only if the data has actually changed
+        if (!prev) return newData;
         return JSON.stringify(prev) === JSON.stringify(newData) ? prev : newData;
       });
     } catch { }
@@ -621,7 +637,7 @@ const Campaigns = () => {
 
   return (
     <AppLayout>
-      <div className="h-auto xl:h-[calc(100vh-100px)] flex flex-col xl:flex-row gap-4 overflow-y-auto xl:overflow-hidden p-1">
+      <div className="h-auto xl:h-[calc(100vh-100px)] flex flex-col xl:flex-row gap-4 overflow-y-auto xl:overflow-x-auto xl:overflow-y-hidden p-1 custom-scrollbar">
 
 
 
@@ -782,7 +798,7 @@ const Campaigns = () => {
         </div>
 
         {/* --- PANEL 3: Details & News --- */}
-        <div className="flex-1 flex flex-col min-w-0 h-auto xl:h-full">
+        <div className="flex-1 flex flex-col min-w-0 xl:min-w-[600px] h-auto xl:h-full">
 
 
 
