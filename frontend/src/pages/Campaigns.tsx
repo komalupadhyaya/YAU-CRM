@@ -608,6 +608,16 @@ const Campaigns = () => {
           setIsSubmitting(false);
           submitFollowUp(true);
           return;
+        } else {
+          // User chose to cancel - Log the cancellation to the activity feed
+          try {
+            await api.post(`/notes/${selectedLead._id}`, {
+              content: `The ${followUpType} scheduled for ${new Date(followUpDate).toLocaleString()} was CANCELED due to a calendar conflict.`
+            });
+            fetchDetails(selectedLead._id, true);
+          } catch (noteErr) {
+            console.error("Failed to log conflict cancellation:", noteErr);
+          }
         }
       } else {
         toast.error(err.response?.data?.message || "Failed to schedule follow-up");
@@ -999,7 +1009,7 @@ const Campaigns = () => {
                               >
                                 <Trash2 size={12} />
                               </button>
-                              <p className="text-xs text-foreground leading-relaxed pr-6">{n.content}</p>
+                              <p className="text-xs text-foreground leading-relaxed pr-6 break-words whitespace-pre-wrap">{n.content}</p>
                               {n.type === 'email' && n.metadata?.subject && (
                                 <p className="text-[10px] text-muted-foreground mt-1 italic">Subject: {n.metadata.subject}</p>
                               )}
@@ -1020,7 +1030,7 @@ const Campaigns = () => {
               </div>
 
               {/* Sidebar Details (Right) */}
-              <div className="w-full lg:w-full xl:w-64 2xl:w-80 flex flex-col gap-4 overflow-y-auto shrink-0 pb-6 xl:pb-0">
+              <div className="w-full lg:w-full xl:w-64 2xl:w-80 flex flex-col gap-4 overflow-y-auto shrink-0 pb-6 xl:pb-0 custom-scrollbar">
 
 
                 <div className="bg-card border rounded-xl p-4 shadow-sm space-y-4">

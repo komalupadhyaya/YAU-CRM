@@ -309,7 +309,8 @@ export const updateLeadStatus = async (req, res, next) => {
             content: `Status updated to: ${status}`
         });
 
-        res.json(lead);
+        const contacts = await Contact.find({ lead_id: lead._id }).sort({ is_primary: -1, createdAt: 1 }).lean();
+        res.json({ ...lead.toObject(), contacts });
     } catch (err) {
         next(err);
     }

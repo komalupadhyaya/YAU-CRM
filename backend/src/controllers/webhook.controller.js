@@ -168,26 +168,29 @@ export const handleJustCallWebhook = async (req, res) => {
 
         if (!leadId) {
             console.log('No ticket_id found, searching by contact phone number...');
-            // JustCall sends the caller's number in data.contact_number
-            const cleanPhone = contactPhone?.toString().replace(/\D/g, '').slice(-10) || "";
+            const contactPhoneRaw = contactPhone || payload.contact_number || payload.from || payload.to || "";
+            const cleanPhone = contactPhoneRaw.toString().replace(/\D/g, '').slice(-10);
 
             console.log(`Searching for lead/contact with phone ending in: "${cleanPhone}"`);
 
             if (cleanPhone.length >= 7) {
-                // 1. Search Lead.telephone
-                let lead = await Lead.findOne({ telephone: { $regex: cleanPhone } });
-
-                if (!lead) {
-                    // 2. Search Contact.direct_phone
-                    console.log('Lead not found by telephone, searching Contacts...');
-                    const contact = await Contact.findOne({ direct_phone: { $regex: cleanPhone } });
-                    if (contact) {
-                        console.log(`Found matching contact, lead_id: ${contact.lead_id}`);
-                        leadId = contact.lead_id;
-                    }
+                // 1. Search Contacts first (as they have direct phones)
+                const matchingContact = await Contact.findOne({ 
+                    direct_phone: { $regex: cleanPhone + '$' } 
+                });
+                
+                if (matchingContact) {
+                    console.log(`Found matching contact: ${matchingContact.name}, lead_id: ${matchingContact.lead_id}`);
+                    leadId = matchingContact.lead_id;
                 } else {
-                    console.log(`Found matching lead: ${lead._id}`);
-                    leadId = lead._id;
+                    // 2. Search Lead.telephone
+                    const matchingLead = await Lead.findOne({ 
+                        telephone: { $regex: cleanPhone + '$' } 
+                    });
+                    if (matchingLead) {
+                        console.log(`Found matching lead: ${matchingLead._id}`);
+                        leadId = matchingLead._id;
+                    }
                 }
             }
         }
@@ -207,7 +210,6 @@ export const handleJustCallWebhook = async (req, res) => {
 
         if (existingNote) {
             console.log(`Found recent call log for lead ${leadId}. Updating with recording...`);
-
             existingNote.metadata = {
                 ...existingNote.metadata,
                 recording_url: recordingUrl,
@@ -216,28 +218,21 @@ export const handleJustCallWebhook = async (req, res) => {
             };
             existingNote.markModified('metadata');
             await existingNote.save();
-
         } else {
             console.log(`No recent call log found for lead ${leadId}. Creating new recording note.`);
             await Note.create({
                 lead_id: leadId,
-                content: `CALL RECORDING RECEIVED\nDuration: ${duration ? duration + ' seconds' : 'N/A'}\nFrom: ${fromNumber || 'Unknown'}`,
+                content: `CALL RECORDING RECEIVED\nDuration: ${duration ? duration + ' seconds' : 'N/A'}\nTo: ${justcallNumber || 'System'}`,
                 type: 'call',
-                metadata: { duration, recording_url: recordingUrl, justcall_data: data }
+                metadata: { 
+                    duration, 
+                    recording_url: recordingUrl, 
+                    justcall_data: data 
+                }
             });
         }
 
         console.log(`Call recording processed for lead ${leadId}`);
-
-        // DEBUG: Create a hidden-ish debug note with the raw data to see what JustCall is sending
-        await Note.create({
-            lead_id: leadId,
-            content: `DEBUG: JustCall Webhook Received.\nRecording URL: ${recordingUrl || 'MISSING'}\nPayload Keys: ${Object.keys(payload).join(', ')}`,
-            type: 'note',
-            metadata: { raw_payload: payload }
-        });
-
-
         return res.status(200).json({ success: true });
 
 

@@ -429,6 +429,16 @@ export default function LeadDetail() {
               setIsSubmitting(false); // Reset to allow retry
               submitFollowUp(contactId, true);
               return;
+          } else {
+              // User chose to cancel - Log the cancellation to the activity feed
+              try {
+                await api.post("/notes/" + id, {
+                  content: `The ${followUpType} scheduled for ${new Date(followUpDate).toLocaleString()} was CANCELED due to a calendar conflict.`
+                });
+                loadAll();
+              } catch (noteErr) {
+                console.error("Failed to log conflict cancellation:", noteErr);
+              }
           }
       } else {
           toast.error(err.response?.data?.message || "Failed to schedule follow-up");
@@ -475,6 +485,16 @@ export default function LeadDetail() {
           setIsSubmitting(false);
           scheduleMeeting(true);
           return;
+        } else {
+          // User chose to cancel - Log the cancellation to the activity feed
+          try {
+            await api.post("/notes/" + id, {
+              content: `The meeting "${meetingData.title}" scheduled for ${new Date(meetingData.date_time).toLocaleString()} was CANCELED due to a calendar conflict.`
+            });
+            loadAll();
+          } catch (noteErr) {
+            console.error("Failed to log conflict cancellation:", noteErr);
+          }
         }
       } else {
         toast.error(err.response?.data?.message || err.message || "Failed to schedule meeting");
