@@ -15,6 +15,9 @@ router.post('/', campaignController.createCampaign);
 // Campaign detail + metrics
 router.get('/:id', campaignController.getCampaignById);
 
+// Delete a campaign and its leads
+router.delete('/:id', campaignController.deleteCampaign);
+
 // Campaign-scoped Excel/CSV import
 router.post('/:id/import', upload.single('file'), importController.importLeadsForCampaign);
 

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-interface Campaign {
+export interface Campaign {
     _id: string;
     name: string;
     createdAt?: string;

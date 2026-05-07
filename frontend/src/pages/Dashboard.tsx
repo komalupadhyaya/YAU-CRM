@@ -22,6 +22,7 @@ interface Campaign {
 interface Lead {
   _id: string;
   name: string;
+  type?: string;
   telephone?: string;
   city?: string;
   campaign_id?: string;
@@ -182,6 +183,20 @@ export default function Dashboard() {
       });
     }
   }, [selectedLeadForEmail]);
+
+  useEffect(() => {
+    if (globalSearchIndex >= 0) {
+      const el = document.getElementById(`global-search-item-${globalSearchIndex}`);
+      el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }, [globalSearchIndex]);
+
+  useEffect(() => {
+    if (leadSearchIndex >= 0) {
+      const el = document.getElementById(`modal-search-item-${leadSearchIndex}`);
+      el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }, [leadSearchIndex]);
 
   useEffect(() => {
     if (globalSearch.length >= 2) {
@@ -348,14 +363,14 @@ export default function Dashboard() {
           <div className="flex flex-wrap items-center gap-3">
             <button
               onClick={() => navigate("/campaigns?action=new-campaign")}
-              className="bg-primary hover:bg-primary/90 text-primary-foreground px-6 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 transition-all active:scale-[0.98] shadow-lg shadow-primary/20"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground px-6 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all active:scale-[0.98] shadow-lg shadow-primary/20"
               title="Create New Campaign"
             >
               <Plus size={18} /> Create New Campaign
             </button>
             <button
               onClick={() => setIsModalOpen(true)}
-              className="btn-secondary h-11 px-6 font-semibold flex items-center gap-2"
+              className="btn-secondary h-11 px-6 font-semibold flex items-center justify-center gap-2"
               title="Schedule New Follow-Up"
             >
               <Clock size={18} /> New Follow-Up
@@ -375,10 +390,10 @@ export default function Dashboard() {
                 onKeyDown={(e) => {
                   if (e.key === 'ArrowDown') {
                     e.preventDefault();
-                    setGlobalSearchIndex(prev => (prev < globalSearchResults.length - 1 ? prev + 1 : prev));
+                    setGlobalSearchIndex(prev => (prev < globalSearchResults.length - 1 ? prev + 1 : 0));
                   } else if (e.key === 'ArrowUp') {
                     e.preventDefault();
-                    setGlobalSearchIndex(prev => (prev > 0 ? prev - 1 : prev));
+                    setGlobalSearchIndex(prev => (prev > 0 ? prev - 1 : globalSearchResults.length - 1));
                   } else if (e.key === 'Enter') {
                     if (globalSearchIndex >= 0 && globalSearchResults[globalSearchIndex]) {
                       navigate(`/lead/${globalSearchResults[globalSearchIndex]._id}`);
@@ -395,6 +410,7 @@ export default function Dashboard() {
                   {globalSearchResults.map((l, index) => (
                     <button
                       key={l._id}
+                      id={`global-search-item-${index}`}
                       onMouseDown={(e) => {
                         e.preventDefault();
                         navigate(`/lead/${l._id}`);
@@ -403,13 +419,14 @@ export default function Dashboard() {
                         }`}
                     >
                       <div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center justify-center gap-2">
                           <p className="text-sm font-bold text-foreground">{l.name}</p>
                           <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-bold uppercase">
                             {campaigns.find(c => c._id === (l as any).campaign_id)?.name || "Lead"}
                           </span>
                         </div>
                         <p className="text-[10px] text-muted-foreground uppercase mt-1">
+                          {l.type ? <span className="font-bold text-primary/80">{l.type} • </span> : ''}
                           {l.telephone || "No Phone"} {l.city ? `• ${l.city}` : ''}
                         </p>
                       </div>
@@ -420,7 +437,7 @@ export default function Dashboard() {
               )}
             </div>
 
-            <div className="flex items-center gap-2 h-11 px-3 bg-accent/30 border rounded-xl min-w-[150px]">
+            <div className="flex items-center justify-center gap-2 h-11 px-3 bg-accent/30 border rounded-xl min-w-[150px]">
               <Filter size={14} className="text-muted-foreground" />
               <select
                 className="bg-transparent text-xs font-bold uppercase tracking-wider focus:outline-none flex-1"
@@ -564,11 +581,11 @@ export default function Dashboard() {
                   return (
                     <div key={s.status} className="group">
                       <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                        <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center justify-center gap-2">
                           <div className={`w-2 h-2 rounded-full ${getColor(s.status)}`} />
                           {s.status}
                         </span>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center justify-center gap-2">
                           <span className="text-xs font-bold">{count}</span>
                           <span className="text-[10px] text-muted-foreground">({percentage}%)</span>
                         </div>
@@ -656,7 +673,7 @@ export default function Dashboard() {
       </div>
 
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent aria-describedby={undefined} className="w-[90vw] max-w-lg dark:bg-card">
+        <DialogContent aria-describedby={undefined} className="w-[90vw] max-w-lg dark:bg-card max-h-[90vh] overflow-y-auto custom-scrollbar">
           <DialogHeader>
             <DialogTitle className="dark:text-foreground text-lg">Log Call / Outreach</DialogTitle>
           </DialogHeader>
@@ -675,10 +692,10 @@ export default function Dashboard() {
                     onKeyDown={(e) => {
                       if (e.key === 'ArrowDown') {
                         e.preventDefault();
-                        setLeadSearchIndex(prev => (prev < leads.length - 1 ? prev + 1 : prev));
+                        setLeadSearchIndex(prev => (prev < leads.length - 1 ? prev + 1 : 0));
                       } else if (e.key === 'ArrowUp') {
                         e.preventDefault();
-                        setLeadSearchIndex(prev => (prev > 0 ? prev - 1 : prev));
+                        setLeadSearchIndex(prev => (prev > 0 ? prev - 1 : leads.length - 1));
                       } else if (e.key === 'Enter') {
                         if (leadSearchIndex >= 0 && leads[leadSearchIndex]) {
                           setSelectedLeadResult(leads[leadSearchIndex]);
@@ -694,6 +711,7 @@ export default function Dashboard() {
                   {leads.map((s, index) => (
                     <button 
                       key={s._id} 
+                      id={`modal-search-item-${index}`}
                       className={`w-full text-left p-2.5 transition-colors text-xs ${
                         index === leadSearchIndex ? 'bg-accent border-l-4 border-l-primary' : 'hover:bg-accent'
                       }`} 
@@ -703,8 +721,11 @@ export default function Dashboard() {
                         setLeads([]);
                       }}
                     >
-                      <div className="font-bold">{s.name}</div>
-                      <div className="text-[10px] text-muted-foreground">{s.telephone || "No phone"}</div>
+                      <div className="font-bold flex items-center justify-between">
+                        <span>{s.name}</span>
+                        {s.type && <span className="text-[9px] bg-primary/10 text-primary px-1 rounded-sm uppercase">{s.type}</span>}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground">{s.telephone || "No phone"} {s.city ? `• ${s.city}` : ''}</div>
                     </button>
                   ))}
                 </div>
@@ -721,7 +742,7 @@ export default function Dashboard() {
                   <div className="flex flex-col items-end gap-2">
                     <button 
                       onClick={() => initiateCall(selectedLeadResult)}
-                      className="btn-primary h-9 px-4 flex items-center gap-2 shadow-sm"
+                      className="btn-primary h-9 px-4 flex items-center justify-center gap-2 shadow-sm"
                     >
                       <Phone size={14} fill="currentColor" />
                       <span>Call Now</span>
@@ -803,9 +824,10 @@ export default function Dashboard() {
       </Dialog>
 
       <Dialog open={isEmailModalOpen} onOpenChange={setIsEmailModalOpen}>
-        <DialogContent aria-describedby={undefined} className="w-[90vw] max-w-2xl dark:bg-card">
-          <DialogHeader><DialogTitle className="dark:text-foreground">Send Quick Email</DialogTitle></DialogHeader>
-          <div className="grid gap-4 py-4">
+        <DialogContent aria-describedby={undefined} className="w-[90vw] max-w-2xl dark:bg-card p-0 overflow-hidden !flex !flex-col max-h-[90vh]">
+          <DialogHeader className="p-6 pb-2 border-b flex-shrink-0"><DialogTitle className="dark:text-foreground">Send Quick Email</DialogTitle></DialogHeader>
+          <div className="flex-1 overflow-y-auto p-6 py-4 custom-scrollbar min-h-0">
+            <div className="grid gap-4">
             {!selectedLeadForEmail ? (
               <div className="grid gap-3">
                 <label className="text-sm font-semibold">Select Lead to Email</label>
@@ -817,10 +839,10 @@ export default function Dashboard() {
                   onKeyDown={(e) => {
                     if (e.key === 'ArrowDown') {
                       e.preventDefault();
-                      setLeadSearchIndex(prev => (prev < leads.length - 1 ? prev + 1 : prev));
+                      setLeadSearchIndex(prev => (prev < leads.length - 1 ? prev + 1 : 0));
                     } else if (e.key === 'ArrowUp') {
                       e.preventDefault();
-                      setLeadSearchIndex(prev => (prev > 0 ? prev - 1 : prev));
+                      setLeadSearchIndex(prev => (prev > 0 ? prev - 1 : leads.length - 1));
                     } else if (e.key === 'Enter') {
                       if (leadSearchIndex >= 0 && leads[leadSearchIndex]) {
                         setSelectedLeadForEmail(leads[leadSearchIndex]);
@@ -833,6 +855,7 @@ export default function Dashboard() {
                   {leads.map((s, index) => (
                     <button 
                       key={s._id} 
+                      id={`modal-search-item-${index}`}
                       className={`w-full text-left p-3 transition-colors text-sm ${
                         index === leadSearchIndex ? 'bg-accent border-l-4 border-l-primary' : 'hover:bg-accent'
                       }`} 
@@ -851,9 +874,22 @@ export default function Dashboard() {
                 </div>
                 <div className="grid gap-2">
                   <label className="text-sm font-semibold">Recipient Email <span className="text-destructive">*</span></label>
-                  <select className="input-field" value={selectedContactEmail} onChange={e => setSelectedContactEmail(e.target.value)}>
-                    {leadContacts.map(c => <option key={c._id} value={c.email}>{c.name} ({c.email})</option>)}
-                  </select>
+                  {leadContacts.length > 0 ? (
+                    <select className="input-field" value={selectedContactEmail} onChange={e => setSelectedContactEmail(e.target.value)}>
+                      {leadContacts.map(c => <option key={c._id} value={c.email}>{c.name} ({c.email})</option>)}
+                    </select>
+                  ) : (
+                    <div>
+                      <input 
+                        className="input-field text-sm opacity-50 cursor-not-allowed" 
+                        disabled 
+                        placeholder="No email on file — contact has no saved emails" 
+                      />
+                      <p className="text-[10px] text-amber-500 font-medium mt-1 flex items-center gap-1">
+                        ⚠️ This lead has no contacts with email addresses.
+                      </p>
+                    </div>
+                  )}
                 </div>
                 <div className="grid gap-2">
                   <label className="text-sm font-semibold">CC <span className="text-muted-foreground text-xs">(optional)</span></label>
@@ -940,11 +976,12 @@ export default function Dashboard() {
                 </div>
               </>
             )}
+            </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="p-6 pt-2 border-t flex-shrink-0">
             <button className="btn-secondary" onClick={() => setIsEmailModalOpen(false)}>Cancel</button>
             <button
-              className={`btn-primary flex items-center gap-2 ${emailData.cc.some(e => !/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(e)) ? "opacity-50 cursor-not-allowed" : ""}`}
+              className={`btn-primary flex items-center justify-center gap-2 ${emailData.cc.some(e => !/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(e)) ? "opacity-50 cursor-not-allowed" : ""}`}
               onClick={sendQuickEmail}
               disabled={emailData.cc.some(e => !/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(e))}
             >
@@ -955,7 +992,7 @@ export default function Dashboard() {
       </Dialog>
 
       <Dialog open={isConfirmDoneOpen} onOpenChange={setIsConfirmDoneOpen}>
-        <DialogContent aria-describedby={undefined} className="w-[90vw] max-w-sm dark:bg-card">
+        <DialogContent aria-describedby={undefined} className="w-[90vw] max-w-sm dark:bg-card max-h-[90vh] overflow-y-auto custom-scrollbar">
           <DialogHeader>
             <DialogTitle className="dark:text-foreground text-center font-bold">Confirm Completion</DialogTitle>
           </DialogHeader>

@@ -1,13 +1,26 @@
 import { create } from 'zustand';
 
+export interface Contact {
+    _id?: string;
+    name: string;
+    title?: string;
+    department?: string;
+    direct_phone?: string;
+    extension?: string;
+    email?: string;
+    best_time?: string;
+    preferred_method?: string;
+    is_primary?: boolean;
+}
+
 export interface Lead {
     _id: string;
     name: string;
     type?: string;
     category_group?: string;
-    main_contact_name?: string;
-    main_contact_email?: string;
+    department?: string;
     telephone?: string;
+    telephone_extension?: string;
     start_time?: string;
     end_time?: string;
     address_number?: string;
@@ -20,7 +33,8 @@ export interface Lead {
     last_contacted: string | null;
     createdAt: string;
     updatedAt: string;
-    contacts?: any[];
+    contacts?: Contact[];
+    campaign_id?: { _id: string, name: string };
 }
 
 interface LeadState {

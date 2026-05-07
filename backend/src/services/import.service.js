@@ -1,6 +1,7 @@
 import XLSX from 'xlsx';
 import Campaign from '../models/campaign.model.js';
 import Lead from '../models/lead.model.js';
+import Contact from '../models/contact.model.js';
 import { getVal } from '../utils/import.utils.js';
 
 /**
@@ -43,36 +44,24 @@ export const processImport = async (fileBuffer, campaignId, originalname = 'uplo
         const rowNum = i + 2;
 
         try {
-            const rawName = getVal(row, ['name', 'organization', 'lead', 'lead name', 'school name', 'school']);
+            const rawName = getVal(row, ['name/organization', 'name', 'organization', 'lead', 'lead name', 'school name', 'school']);
             if (!rawName) {
                 errors.push({ row: rowNum, reason: 'Missing Name / Organization' });
                 continue;
             }
             const normName = normaliseName(rawName);
 
-            const nameRegex = new RegExp(`^${normName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
-            const duplicate = await Lead.findOne({
-                campaign_id: campaignId,
-                name: nameRegex
-            });
-
-            if (duplicate) {
-                duplicates++;
-                continue;
-            }
-
             const leadData = {
                 name: rawName.trim(),
                 campaign_id: campaignId,
-                type: getVal(row, ['type', 'lead type', 'lead type']),
+                type: getVal(row, ['lead type', 'type']),
                 category_group: getVal(row, ['category/group', 'category', 'group', 'grades']),
-                main_contact_name: getVal(row, ['main contact name', 'contact name', 'principal name', 'principal title', 'poc name']),
-                main_contact_email: getVal(row, ['main contact email', 'contact email', 'principal email', 'email']),
                 telephone: getVal(row, ['telephone', 'phone', 'phone number']),
-                start_time: getVal(row, ['start time', 'lead start time']),
-                end_time: getVal(row, ['end time', 'lead end time']),
-                address_number: getVal(row, ['number', 'address number']),
-                address: getVal(row, ['address', 'street']),
+                department: getVal(row, ['lead department', 'department']),
+                start_time: getVal(row, ['start time', 'school start time', 'lead start time']),
+                end_time: getVal(row, ['end time', 'school end time', 'lead end time']),
+                address_number: getVal(row, ['address number', 'number', 'address_number']),
+                address: getVal(row, ['address', 'street', 'street name']),
                 city: getVal(row, ['city']),
                 state: getVal(row, ['state']),
                 zip: getVal(row, ['zip code', 'zip']),
@@ -80,14 +69,65 @@ export const processImport = async (fileBuffer, campaignId, originalname = 'uplo
                 status: getVal(row, ['contacted status', 'status']) || "Not Contacted"
             };
 
-            const createdLead = await Lead.create(leadData);
-            imported++;
+            let lead;
+            const nameRegex = new RegExp(`^${normName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+            const existingLead = await Lead.findOne({ campaign_id: campaignId, name: nameRegex });
+
+            if (existingLead) {
+                // Update existing lead
+                lead = await Lead.findByIdAndUpdate(existingLead._id, leadData, { new: true });
+                imported++; // Count as imported since we updated it
+            } else {
+                // Create new lead
+                lead = await Lead.create(leadData);
+                imported++;
+            }
+
+            // ── Handle Primary Contact ──────────────────────────────────────────
+            const primaryName = getVal(row, ['primary contact name', 'principal name', 'poc name', 'main contact name', 'contact name']);
+            if (primaryName) {
+                const primaryData = {
+                    name: primaryName,
+                    title: getVal(row, ['primary contact title', 'principal title', 'title']),
+                    department: getVal(row, ['primary contact department', 'contact department', 'primary department']),
+                    email: getVal(row, ['primary contact email', 'principal email', 'email', 'main contact email']),
+                    direct_phone: getVal(row, ['primary contact phone', 'principal phone', 'direct phone', 'phone']),
+                    best_time: getVal(row, ['primary best time', 'best time', 'best time to call']),
+                    preferred_method: getVal(row, ['primary preferred method', 'preferred method', 'contact method']),
+                    is_primary: true
+                };
+                await Contact.findOneAndUpdate(
+                    { lead_id: lead._id, is_primary: true },
+                    primaryData,
+                    { upsert: true }
+                );
+            }
+
+            // ── Handle Secondary Contact ────────────────────────────────────────
+            const secondaryName = getVal(row, ['secondary contact name', 'secondary name']);
+            if (secondaryName) {
+                const secondaryData = {
+                    name: secondaryName,
+                    title: getVal(row, ['secondary contact title', 'secondary title']),
+                    department: getVal(row, ['secondary contact department', 'secondary department']),
+                    email: getVal(row, ['secondary contact email', 'secondary email']),
+                    direct_phone: getVal(row, ['secondary contact phone', 'secondary phone']),
+                    best_time: getVal(row, ['secondary best time', 'best time', 'best time to call']),
+                    preferred_method: getVal(row, ['secondary preferred method', 'preferred method', 'contact method']),
+                    is_primary: false
+                };
+                await Contact.findOneAndUpdate(
+                    { lead_id: lead._id, is_primary: false },
+                    secondaryData,
+                    { upsert: true }
+                );
+            }
 
             const rawNotes = getVal(row, ['notes', 'notes by dates']);
             if (rawNotes) {
                 const Note = (await import('../models/note.model.js')).default;
                 await Note.create({
-                    lead_id: createdLead._id,
+                    lead_id: lead._id,
                     content: rawNotes
                 });
             }

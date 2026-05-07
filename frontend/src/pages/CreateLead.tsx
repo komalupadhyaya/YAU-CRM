@@ -26,9 +26,11 @@ export default function CreateLead() {
         name: "",
         type: "",
         category_group: "",
+        department: "",
         main_contact_name: "",
         main_contact_email: "",
         telephone: "",
+        telephone_extension: "",
         start_time: "",
         end_time: "",
         address_number: "",
@@ -48,6 +50,7 @@ export default function CreateLead() {
         // Secondary Contact
         secondary_contact_name: "",
         secondary_contact_title: "",
+        secondary_contact_department: "",
         secondary_contact_phone: "",
         secondary_contact_extension: "",
         secondary_contact_email: "",
@@ -469,6 +472,16 @@ export default function CreateLead() {
                                         )}
                                     </div>
                                     <div>
+                                        <label className="block text-sm font-medium text-foreground mb-1.5">Secondary Department</label>
+                                        <input
+                                            name="secondary_contact_department"
+                                            className="input-field"
+                                            placeholder="e.g. Administration"
+                                            value={formData.secondary_contact_department}
+                                            onChange={handleChange}
+                                        />
+                                    </div>
+                                    <div>
                                         <label className="block text-sm font-medium text-foreground mb-1.5">Secondary Phone</label>
                                         <div className="flex gap-2">
                                             <div className="relative w-28 shrink-0">
@@ -561,6 +574,11 @@ export default function CreateLead() {
                         </div>
 
                         <div>
+                            <label className="block text-sm font-medium text-foreground mb-1.5">Department</label>
+                            <input name="department" className="input-field" placeholder="e.g. Administration" value={formData.department} onChange={handleChange} />
+                        </div>
+
+                        <div>
                             <label className="block text-sm font-medium text-foreground mb-1.5">Telephone</label>
                             <div className="flex gap-2">
                                 <div className="relative w-28 shrink-0">
@@ -587,6 +605,7 @@ export default function CreateLead() {
                                     </div>
                                 </div>
                                 <input name="telephone" className="input-field flex-1" placeholder="Main Phone" value={formData.telephone} onChange={handleChange} />
+                                <input name="telephone_extension" className="input-field w-20" placeholder="Ext." value={formData.telephone_extension} onChange={handleChange} />
                             </div>
                         </div>
 

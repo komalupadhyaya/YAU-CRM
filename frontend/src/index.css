@@ -100,9 +100,9 @@
 
   /* Autofill styles */
   input:-webkit-autofill,
-  input:-webkit-autofill:hover, 
-  input:-webkit-autofill:focus, 
-  input:-webkit-autofill:active  {
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  input:-webkit-autofill:active {
     -webkit-box-shadow: 0 0 0 30px hsl(var(--background)) inset !important;
     -webkit-text-fill-color: hsl(var(--foreground)) !important;
     transition: background-color 5000s ease-in-out 0s;
@@ -151,8 +151,8 @@
   }
 
   .custom-scrollbar::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 8px;
+    height: 8px;
   }
 
   .custom-scrollbar::-webkit-scrollbar-track {
@@ -161,5 +161,141 @@
 
   .custom-scrollbar::-webkit-scrollbar-thumb {
     @apply bg-muted-foreground/20 rounded-full hover:bg-muted-foreground/40 transition-colors;
+    border: 2px solid transparent;
+    background-clip: padding-box;
   }
+}
+
+/* ReactQuill Custom Styling */
+.ql-toolbar.ql-snow {
+  border-top-left-radius: 12px !important;
+  border-top-right-radius: 12px !important;
+  border: 1px solid hsl(var(--border)) !important;
+  background-color: hsl(var(--muted) / 0.3) !important;
+}
+
+.ql-container.ql-snow {
+  border-bottom-left-radius: 12px !important;
+  border-bottom-right-radius: 12px !important;
+  border: 1px solid hsl(var(--border)) !important;
+  border-top: none !important;
+  font-family: inherit !important;
+}
+
+.ql-editor {
+  @apply min-h-[150px];
+  font-size: 14px !important;
+}
+
+.dark .ql-toolbar.ql-snow {
+  background-color: hsl(var(--secondary)) !important;
+  border-color: hsl(var(--border)) !important;
+}
+
+.dark .ql-container.ql-snow {
+  border-color: hsl(var(--border)) !important;
+}
+
+.dark .ql-editor.ql-blank::before {
+  color: hsl(var(--muted-foreground) / 0.6) !important;
+}
+
+.dark .ql-picker {
+  color: hsl(var(--foreground)) !important;
+}
+
+.dark .ql-picker-options {
+  background-color: hsl(var(--card)) !important;
+  border: 1px solid hsl(var(--border)) !important;
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.3) !important;
+}
+
+.dark .ql-picker-item {
+  color: hsl(var(--foreground)) !important;
+}
+
+.dark .ql-picker-item:hover,
+.dark .ql-picker-item.ql-selected {
+  color: hsl(var(--primary)) !important;
+  background-color: hsl(var(--accent)) !important;
+}
+
+.dark .ql-stroke {
+  stroke: hsl(var(--foreground)) !important;
+}
+
+.dark .ql-fill {
+  fill: hsl(var(--foreground)) !important;
+}
+
+.dark .ql-active .ql-stroke {
+  stroke: hsl(var(--primary)) !important;
+}
+
+.dark .ql-active .ql-fill {
+  fill: hsl(var(--primary)) !important;
+}
+
+/* Tooltip (Link Popover) styling - Unified for both themes */
+.ql-snow .ql-tooltip {
+  background-color: hsl(var(--popover)) !important;
+  border: 1px solid hsl(var(--border)) !important;
+  color: hsl(var(--foreground)) !important;
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1) !important;
+  border-radius: 12px !important;
+  padding: 12px !important;
+  z-index: 50 !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+}
+
+.dark .ql-snow .ql-tooltip {
+  background-color: hsl(var(--popover)) !important;
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.5) !important;
+}
+
+.ql-snow .ql-tooltip input[type=text] {
+  background-color: hsl(var(--background)) !important;
+  border: 1px solid hsl(var(--border)) !important;
+  color: hsl(var(--foreground)) !important;
+  border-radius: 8px !important;
+  padding: 6px 10px !important;
+  margin-right: 8px !important;
+  font-size: 13px !important;
+  outline: none !important;
+}
+
+.ql-snow .ql-tooltip input[type=text]:focus {
+  border-color: hsl(var(--primary)) !important;
+  ring: 2px solid hsl(var(--primary) / 0.2) !important;
+}
+
+.ql-snow .ql-tooltip a.ql-action::after {
+  content: 'Save';
+  background-color: hsl(var(--primary)) !important;
+  color: hsl(var(--primary-foreground)) !important;
+  padding: 6px 12px !important;
+  border-radius: 8px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  text-decoration: none !important;
+  display: inline-block !important;
+}
+
+.ql-snow .ql-tooltip a.ql-action {
+  color: transparent !important;
+  text-decoration: none !important;
+  display: inline-block !important;
+}
+
+.ql-snow .ql-tooltip a.ql-remove::before {
+  color: hsl(var(--destructive)) !important;
+  margin-left: 12px !important;
+  font-size: 12px !important;
+  content: 'Remove' !important;
+}
+
+.ql-snow .ql-tooltip a.ql-remove {
+  text-decoration: none !important;
+  font-size: 0 !important;
 }

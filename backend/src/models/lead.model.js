@@ -6,7 +6,9 @@ const LeadSchema = new mongoose.Schema({
     name: { type: String, required: true }, // Organization / School Name
     type: String,                    // e.g. Public, Private, Parent
     category_group: String,          // e.g. PK-5, Partner
+    department: String,              // Organization department
     telephone: String,               // Main organization phone
+    telephone_extension: String,     // Ext.
     website: String,
     start_time: String,
     end_time: String,

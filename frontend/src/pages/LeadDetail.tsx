@@ -1,25 +1,61 @@
 import { useEffect, useState, useRef } from "react";
 import { useCampaignStore } from "../store/campaignStore";
-import { useLeadStore } from "../store/schoolStore";
+import { useLeadStore, Lead, Contact } from "../store/schoolStore";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "../api/api";
 import AppLayout from "../layout/AppLayout";
-import { CalendarPlus, Save, ArrowLeft, History, Info, User, Phone, Mail, Clock, MessageSquare, ChevronDown, ChevronUp, Edit, Video, Send, CheckCircle2, Trash2, Play, Pause, ExternalLink, FileText, Smartphone, X, RefreshCw } from "lucide-react";
+import { CalendarPlus, Save, ArrowLeft, History, Info, User, Phone, Mail, Clock, MessageSquare, ChevronDown, ChevronUp, Edit, Video, Send, CheckCircle2, Trash2, Play, Pause, ExternalLink, FileText, Smartphone, X, RefreshCw, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { countryCodes } from "../utils/countryCodes";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import ReactQuill from 'react-quill-new';
+import 'react-quill-new/dist/quill.snow.css';
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
+  DialogFooter
 } from "@/components/ui/dialog";
+
+// --- Helpers ---
+const formatTimeForInput = (timeStr?: string) => {
+  if (!timeStr) return "";
+  if (/^\d{2}:\d{2}$/.test(timeStr)) return timeStr;
+  const match = timeStr.match(/(\d+):(\d+)\s*(AM|PM)/i);
+  if (match) {
+    const [_, hours, mins, ampm] = match;
+    let h = parseInt(hours);
+    if (ampm.toUpperCase() === "PM" && h < 12) h += 12;
+    if (ampm.toUpperCase() === "AM" && h === 12) h = 0;
+    return `${h.toString().padStart(2, '0')}:${mins.padStart(2, '0')}`;
+  }
+  return timeStr;
+};
+
+interface CRMError {
+  response?: {
+    data?: {
+      message?: string;
+      error?: string;
+      conflicts?: Array<{ summary: string; start: string }>;
+    };
+    status?: number;
+  };
+  message?: string;
+}
 
 interface Note {
   _id: string;
   content: string;
   type: 'note' | 'status_change' | 'email' | 'meeting' | 'call' | 'sms';
-  metadata?: any;
+  metadata?: { subject?: string; recording_url?: string; recording_duration?: number; duration?: number; [key: string]: unknown; };
   createdAt: string;
 }
 
@@ -30,38 +66,6 @@ interface FollowUp {
   notes: string;
   priority: string;
   status: string;
-}
-
-interface Contact {
-  _id: string;
-  name: string;
-  title: string;
-  department: string;
-  direct_phone: string;
-  extension: string;
-  email: string;
-  best_time: string;
-  preferred_method: string;
-  is_primary: boolean;
-}
-
-interface Lead {
-  _id: string;
-  name: string;
-  type: string;
-  category_group: string;
-  telephone: string;
-  address_number: string;
-  address: string;
-  city: string;
-  state: string;
-  zip: string;
-  website: string;
-  start_time: string;
-  end_time: string;
-  status: string;
-  campaign_id?: { _id: string, name: string };
-  contacts?: Contact[];
 }
 
 const RecordingPlayer = ({ url, duration }: { url: string, duration?: number }) => {
@@ -90,18 +94,18 @@ const RecordingPlayer = ({ url, duration }: { url: string, duration?: number }) 
   return (
     <div className="mt-3 p-3 bg-accent/30 dark:bg-accent/10 rounded-2xl border border-primary/20 flex flex-col gap-3 group/audio max-w-full shadow-sm">
       <div className="flex items-center gap-3">
-        <button 
+        <button
           onClick={togglePlay}
           className="w-9 h-9 rounded-full flex items-center justify-center bg-primary text-white shadow-lg hover:scale-105 transition-all shrink-0"
         >
           {isPlaying ? <Pause size={16} /> : <Play size={16} className="ml-0.5" />}
         </button>
-        
+
         <div className="flex-1 min-w-0">
           <p className="text-[10px] font-bold uppercase tracking-widest text-primary/70 mb-0.5">Call Recording</p>
           <div className="flex items-center justify-between">
-             <span className="text-[11px] font-bold text-foreground">{formatTime(currentTime)}</span>
-             <span className="text-[10px] font-medium text-muted-foreground">{formatTime(totalDuration)}</span>
+            <span className="text-[11px] font-bold text-foreground">{formatTime(currentTime)}</span>
+            <span className="text-[10px] font-medium text-muted-foreground">{formatTime(totalDuration)}</span>
           </div>
         </div>
 
@@ -111,14 +115,14 @@ const RecordingPlayer = ({ url, duration }: { url: string, duration?: number }) 
       </div>
 
       <div className="relative h-1.5 bg-muted rounded-full overflow-hidden">
-        <div 
+        <div
           className="absolute left-0 top-0 h-full bg-primary transition-all duration-150"
           style={{ width: `${totalDuration ? (currentTime / totalDuration) * 100 : 0}%` }}
         />
-        <input 
-          type="range" 
-          min="0" 
-          max={totalDuration || 0} 
+        <input
+          type="range"
+          min="0"
+          max={totalDuration || 0}
           step="0.1"
           value={currentTime}
           onChange={(e) => {
@@ -130,7 +134,7 @@ const RecordingPlayer = ({ url, duration }: { url: string, duration?: number }) 
         />
       </div>
 
-      <audio 
+      <audio
         ref={audioRef}
         src={url}
         onTimeUpdate={() => setCurrentTime(audioRef.current?.currentTime || 0)}
@@ -142,6 +146,7 @@ const RecordingPlayer = ({ url, duration }: { url: string, duration?: number }) 
 };
 
 export default function LeadDetail() {
+
   const { id } = useParams();
   const navigate = useNavigate();
   const { setSelectedLead } = useLeadStore();
@@ -151,6 +156,8 @@ export default function LeadDetail() {
   const [noteContent, setNoteContent] = useState("");
   const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const isEditingRef = useRef(false);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [editData, setEditData] = useState<any>({});
   const { statusLabels, campaigns } = useCampaignStore();
   const [showSecondary, setShowSecondary] = useState(false);
@@ -162,6 +169,7 @@ export default function LeadDetail() {
   const [followUpNotes, setFollowUpNotes] = useState("");
   const [assignedTo, setAssignedTo] = useState("self");
   const [customAssignedTo, setCustomAssignedTo] = useState("");
+  const customAssignedRef = useRef<HTMLInputElement>(null);
   const [fuErrors, setFuErrors] = useState<Record<string, string>>({});
 
   const [isMeetingModalOpen, setIsMeetingModalOpen] = useState(false);
@@ -175,7 +183,8 @@ export default function LeadDetail() {
 
   const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
   const [selectedContactForEmail, setSelectedContactForEmail] = useState<Contact | null>(null);
-  const [emailData, setEmailData] = useState({ subject: "Meeting follow-up", body: "", cc: [] as string[] });
+  const [emailData, setEmailData] = useState({ subject: "Meeting follow-up", body: "", cc: [] as string[], to: "" });
+  const emailToRef = useRef<HTMLInputElement>(null);
   const [ccInput, setCcInput] = useState("");
   const [verifiedDomains, setVerifiedDomains] = useState<Record<string, { valid: boolean; message?: string }>>({});
   const [emailErrors, setEmailErrors] = useState<Record<string, string>>({});
@@ -220,6 +229,51 @@ export default function LeadDetail() {
   const [initialLoading, setInitialLoading] = useState(true);
   const [loadingNotes, setLoadingNotes] = useState(false);
 
+  const populateEditData = (dataToEdit: Lead) => {
+    if (!dataToEdit) return;
+    const getPrefix = (phone: string) => {
+      if (!phone?.startsWith('+')) return "+1";
+      const found = countryCodes.find(c => phone.startsWith(c.dialCode));
+      return found ? found.dialCode : "+1";
+    };
+
+    setPhonePrefix(getPrefix(dataToEdit.telephone));
+    const primary = dataToEdit.contacts?.find((c: Contact) => c.is_primary);
+    const secondary = dataToEdit.contacts?.find((c: Contact) => !c.is_primary);
+
+    setContactPhonePrefix(getPrefix(primary?.direct_phone));
+    setSecondaryPhonePrefix(getPrefix(secondary?.direct_phone));
+
+    const stripPrefix = (phone: string) => {
+      if (!phone) return "";
+      const found = countryCodes.find(c => phone.startsWith(c.dialCode));
+      return found ? phone.slice(found.dialCode.length) : phone;
+    };
+
+    setEditData({
+      ...dataToEdit,
+      telephone: stripPrefix(dataToEdit.telephone),
+      main_contact_name: primary?.name || "",
+      contact_title: primary?.title || "",
+      contact_department: primary?.department || "",
+      contact_direct_phone: stripPrefix(primary?.direct_phone),
+      contact_extension: primary?.extension || "",
+      contact_email: primary?.email || "",
+      contact_best_time: primary?.best_time || "",
+      contact_preferred_method: primary?.preferred_method || "",
+      secondary_contact_name: secondary?.name || "",
+      secondary_contact_title: secondary?.title || "",
+      secondary_contact_department: secondary?.department || "",
+      secondary_contact_phone: stripPrefix(secondary?.direct_phone),
+      secondary_contact_extension: secondary?.extension || "",
+      secondary_contact_email: secondary?.email || "",
+    });
+  };
+
+  useEffect(() => {
+    isEditingRef.current = isEditing;
+  }, [isEditing]);
+
   const loadAll = async (silent = false) => {
     if (!silent) setInitialLoading(true);
     if (!silent) setLoadingNotes(true);
@@ -230,53 +284,19 @@ export default function LeadDetail() {
         api.get("/followups/lead/" + id),
       ]);
       const leadData = leadRes.data;
-      
+
       // Update states only if they actually changed to prevent flickering
       setLead(prev => JSON.stringify(prev) === JSON.stringify(leadData) ? prev : leadData);
       setNotes(prev => JSON.stringify(prev) === JSON.stringify(notesRes.data) ? prev : notesRes.data);
       setFollowUps(prev => JSON.stringify(prev) === JSON.stringify(followUpsRes.data) ? prev : followUpsRes.data);
 
-
-      const getPrefix = (phone: string) => {
-        if (!phone?.startsWith('+')) return "+1";
-        const found = countryCodes.find(c => phone.startsWith(c.dialCode));
-        return found ? found.dialCode : "+1";
-      };
-
-      // Only populate edit data if we aren't already editing and it's the first load
-      if (!isEditing && initialLoading) {
-        setPhonePrefix(getPrefix(leadData.telephone));
-        const primary = leadData.contacts?.find((c: any) => c.is_primary);
-        const secondary = leadData.contacts?.find((c: any) => !c.is_primary);
-        
-        setContactPhonePrefix(getPrefix(primary?.direct_phone));
-        setSecondaryPhonePrefix(getPrefix(secondary?.direct_phone));
-
-        const stripPrefix = (phone: string) => {
-          if (!phone) return "";
-          const found = countryCodes.find(c => phone.startsWith(c.dialCode));
-          return found ? phone.slice(found.dialCode.length) : phone;
-        };
-
-        setEditData({
-          ...leadData,
-          telephone: stripPrefix(leadData.telephone),
-          main_contact_name: primary?.name || "",
-          contact_title: primary?.title || "",
-          contact_department: primary?.department || "",
-          contact_direct_phone: stripPrefix(primary?.direct_phone),
-          contact_extension: primary?.extension || "",
-          contact_email: primary?.email || "",
-          contact_best_time: primary?.best_time || "",
-          contact_preferred_method: primary?.preferred_method || "",
-          secondary_contact_name: secondary?.name || "",
-          secondary_contact_title: secondary?.title || "",
-          secondary_contact_phone: stripPrefix(secondary?.direct_phone),
-          secondary_contact_extension: secondary?.extension || "",
-          secondary_contact_email: secondary?.email || "",
-        });
+      // Populate edit data if we aren't currently editing
+      if (!isEditingRef.current) {
+        populateEditData(leadData);
       }
-    } catch { } finally {
+    } catch (error) {
+      console.error(error);
+    } finally {
       setInitialLoading(false);
       setLoadingNotes(false);
     }
@@ -284,7 +304,20 @@ export default function LeadDetail() {
 
   useEffect(() => {
     loadAll();
-  }, [id]); // No more setInterval, updates only on lead change or action
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  useEffect(() => {
+    if (assignedTo === "other" && isFollowUpModalOpen) {
+      setTimeout(() => customAssignedRef.current?.focus(), 100);
+    }
+  }, [assignedTo, isFollowUpModalOpen]);
+
+  useEffect(() => {
+    if (isEmailModalOpen && !selectedContactForEmail?.email) {
+      setTimeout(() => emailToRef.current?.focus(), 100);
+    }
+  }, [isEmailModalOpen, selectedContactForEmail]);
 
   const saveLead = async () => {
     if (isSubmitting) return;
@@ -304,8 +337,10 @@ export default function LeadDetail() {
       setSelectedLead(res.data);
       setLead(res.data);
       setIsEditing(false);
+      isEditingRef.current = false;
+      await loadAll(true);
       toast.success("Lead and contacts updated successfully");
-    } catch { 
+    } catch {
       toast.error("Failed to update lead details");
     } finally {
       setIsSubmitting(false);
@@ -321,10 +356,10 @@ export default function LeadDetail() {
     }
     setIsSubmitting(true);
     try {
-      const content = selectedContactForNote 
+      const content = selectedContactForNote
         ? `NOTE for ${selectedContactForNote.name}: ${noteContent}`
         : noteContent;
-        
+
       await api.post("/notes/" + id, { content });
       toast.success("Note added");
       setNoteContent("");
@@ -332,7 +367,9 @@ export default function LeadDetail() {
       setIsNoteModalOpen(false);
       setSelectedContactForNote(null);
       await loadAll();
-    } catch { } finally {
+    } catch (error) {
+      console.error(error);
+    } finally {
       setIsSubmitting(false);
     }
   };
@@ -382,20 +419,20 @@ export default function LeadDetail() {
     const now = new Date();
 
     if (!followUpDate) {
-        errors.date = "Date and time are required";
+      errors.date = "Date and time are required";
     } else if (new Date(followUpDate) < now) {
-        errors.date = "Date & Time cannot be in the past";
+      errors.date = "Date & Time cannot be in the past";
     }
 
     if (!followUpType) errors.type = "Type is required";
     if (!followUpPriority) errors.priority = "Priority is required";
-    
+
     if (!followUpNotes.trim()) {
-        errors.notes = "Please provide a reason or notes for the follow-up";
+      errors.notes = "Please provide a reason or notes for the follow-up";
     }
 
     if (assignedTo === "other" && !customAssignedTo.trim()) {
-        errors.assigned = "Please specify who this is assigned to";
+      errors.assigned = "Please specify who this is assigned to";
     }
 
     if (Object.keys(errors).length > 0) {
@@ -407,8 +444,8 @@ export default function LeadDetail() {
     setIsSubmitting(true);
     try {
       const finalAssigned = assignedTo === "self" ? "Me" : customAssignedTo.trim();
-      await api.post("/followups/" + id, { 
-        date_time: followUpDate, 
+      await api.post("/followups/" + id, {
+        date_time: new Date(followUpDate).toISOString(),
         type: followUpType,
         priority: followUpPriority,
         notes: followUpNotes,
@@ -421,27 +458,27 @@ export default function LeadDetail() {
       setFuErrors({});
       setCustomAssignedTo("");
       loadAll();
-    } catch (err: any) {
-      if (err.response?.status === 409) {
-          const conflicts = err.response.data.conflicts || [];
-          const conflictNames = conflicts.map((c: any) => c.summary).join(", ");
-          if (window.confirm(`Calendar Conflict: "${conflictNames || 'Existing Event'}" detected. Schedule anyway?`)) {
-              setIsSubmitting(false); // Reset to allow retry
-              submitFollowUp(contactId, true);
-              return;
-          } else {
-              // User chose to cancel - Log the cancellation to the activity feed
-              try {
-                await api.post("/notes/" + id, {
-                  content: `The ${followUpType} scheduled for ${new Date(followUpDate).toLocaleString()} was CANCELED due to a calendar conflict.`
-                });
-                loadAll();
-              } catch (noteErr) {
-                console.error("Failed to log conflict cancellation:", noteErr);
-              }
+    } catch (err: unknown) {
+      if ((err as CRMError).response?.status === 409) {
+        const conflicts = (err as CRMError).response.data.conflicts || [];
+        const conflictNames = conflicts.map((c: { summary: string }) => c.summary).join(", ");
+        if (window.confirm(`Calendar Conflict: "${conflictNames || 'Existing Event'}" detected. Schedule anyway?`)) {
+          setIsSubmitting(false); // Reset to allow retry
+          submitFollowUp(contactId, true);
+          return;
+        } else {
+          // User chose to cancel - Log the cancellation to the activity feed
+          try {
+            await api.post("/notes/" + id, {
+              content: `The ${followUpType} scheduled for ${new Date(followUpDate).toLocaleString()} was CANCELED due to a calendar conflict.`
+            });
+            loadAll();
+          } catch (noteErr) {
+            console.error("Failed to log conflict cancellation:", noteErr);
           }
+        }
       } else {
-          toast.error(err.response?.data?.message || "Failed to schedule follow-up");
+        toast.error((err as CRMError).response?.data?.message || "Failed to schedule follow-up");
       }
     } finally {
       setIsSubmitting(false);
@@ -463,7 +500,7 @@ export default function LeadDetail() {
     setIsSubmitting(true);
     try {
       const res = await api.post("/followups/" + id, {
-        date_time: meetingData.date_time,
+        date_time: new Date(meetingData.date_time).toISOString(),
         type: 'Meeting',
         priority: 'High',
         notes: `Meeting: ${meetingData.title}\nType: ${meetingData.type}\nNotes: ${meetingData.notes}`,
@@ -478,9 +515,9 @@ export default function LeadDetail() {
       setMeetingCcInput("");
       setMeetingErrors({});
       loadAll();
-    } catch (err: any) {
-      if (err.response?.status === 409) {
-        const conflict = err.response.data.conflicts[0];
+    } catch (err: unknown) {
+      if ((err as CRMError).response?.status === 409) {
+        const conflict = (err as CRMError).response.data.conflicts[0];
         if (window.confirm(`Conflict detected: "${conflict.summary}" at ${new Date(conflict.start).toLocaleTimeString()}. Schedule anyway?`)) {
           setIsSubmitting(false);
           scheduleMeeting(true);
@@ -497,7 +534,7 @@ export default function LeadDetail() {
           }
         }
       } else {
-        toast.error(err.response?.data?.message || err.message || "Failed to schedule meeting");
+        toast.error((err as CRMError).response?.data?.message || (err as CRMError).message || "Failed to schedule meeting");
       }
     } finally {
       setIsSubmitting(false);
@@ -522,7 +559,7 @@ export default function LeadDetail() {
     if (isSubmitting) return;
     setIsSubmitting(true);
     try {
-      const res = await api.post(`/justcall/log-call`, { 
+      const res = await api.post(`/justcall/log-call`, {
         lead_id: id,
         outcome: callOutcome,
         notes: callNotes,
@@ -532,11 +569,11 @@ export default function LeadDetail() {
       setIsCallModalOpen(false);
       setCallNotes("");
       loadAll();
-      
+
       if (res.data.followup_needed) {
-          handleOpenFollowUpModal();
+        handleOpenFollowUpModal();
       }
-    } catch { 
+    } catch {
       toast.error("Failed to log call");
     } finally {
       setIsSubmitting(false);
@@ -573,8 +610,8 @@ export default function LeadDetail() {
       setSmsData({ message: "" });
       setSmsErrors({});
       loadAll();
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || "Failed to send SMS");
+    } catch (err: unknown) {
+      toast.error((err as CRMError).response?.data?.message || "Failed to send SMS");
     } finally {
       setIsSubmitting(false);
     }
@@ -586,6 +623,10 @@ export default function LeadDetail() {
     if (!emailData.subject.trim()) errors.subject = "Subject is required";
     if (!emailData.body.trim()) errors.body = "Message body is required";
 
+    // Use contact email OR manually typed email
+    const recipientEmail = selectedContactForEmail?.email || emailData.to?.trim();
+    if (!recipientEmail) errors.to = "Recipient email is required";
+
     if (Object.keys(errors).length > 0) {
       setEmailErrors(errors);
       toast.error("Please fill all email details");
@@ -596,19 +637,19 @@ export default function LeadDetail() {
     try {
       await api.post("/emails/send", {
         lead_id: id,
-        to: selectedContactForEmail?.email,
+        to: recipientEmail,
         cc: emailData.cc.join(", "),
         subject: emailData.subject,
         body: emailData.body
       });
       toast.success("Email sent successfully");
       setIsEmailModalOpen(false);
-      setEmailData({ subject: "", body: "", cc: [] });
+      setEmailData({ subject: "", body: "", cc: [], to: "" });
       setCcInput("");
       setEmailErrors({});
       loadAll();
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || "Failed to send email");
+    } catch (err: unknown) {
+      toast.error((err as CRMError).response?.data?.message || "Failed to send email");
     } finally {
       setIsSubmitting(false);
     }
@@ -628,16 +669,19 @@ export default function LeadDetail() {
       setIsConfirmDoneOpen(false);
       setTaskToComplete(null);
       loadAll();
-    } catch { } finally {
+    } catch (error) {
+      console.error(error);
+    } finally {
       setIsSubmitting(false);
     }
   };
 
   if (initialLoading) return <AppLayout><div className="p-12 text-center animate-pulse dark:text-muted-foreground">Loading details...</div></AppLayout>;
+  if (!lead) return <AppLayout><div className="p-12 text-center"><div className="bg-destructive/10 text-destructive p-4 rounded-lg inline-block font-medium">Lead not found or has been deleted.</div><button onClick={() => navigate(-1)} className="block mx-auto mt-4 text-primary hover:underline font-medium">Go Back</button></div></AppLayout>;
 
   return (
     <AppLayout>
-      <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-muted-foreground hover:text-foreground dark:hover:text-foreground mb-6 transition-colors">
+      <button onClick={() => navigate(-1)} className="flex items-center justify-center gap-2 text-muted-foreground hover:text-foreground dark:hover:text-foreground mb-6 transition-colors">
         <ArrowLeft size={16} /> Back
       </button>
 
@@ -651,11 +695,11 @@ export default function LeadDetail() {
               <div className="flex gap-2">
                 {isEditing ? (
                   <>
-                    <button onClick={() => { setIsEditing(false); setEditData(lead); }} className="btn-secondary">Cancel</button>
-                    <button 
-                      onClick={() => saveLead()} 
+                    <button onClick={() => { setIsEditing(false); populateEditData(lead); }} className="btn-secondary">Cancel</button>
+                    <button
+                      onClick={() => saveLead()}
                       disabled={isSubmitting}
-                      className={`btn-primary flex items-center gap-2 ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      className={`btn-primary flex items-center justify-center gap-2 ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
                     >
                       <Save size={16} /> {isSubmitting ? "Saving..." : "Save Changes"}
                     </button>
@@ -670,22 +714,28 @@ export default function LeadDetail() {
 
             {/* Action Area (Section 9/9a) */}
             <div className="flex flex-wrap gap-2 mb-8 p-4 bg-accent/20 dark:bg-accent/5 rounded-2xl border border-primary/10">
-              <button onClick={() => setIsNoteModalOpen(true)} className="btn-secondary flex items-center gap-2 py-2 px-4 text-xs font-bold uppercase tracking-wider">
+              <button onClick={() => setIsNoteModalOpen(true)} className="btn-secondary flex items-center justify-center gap-2 py-2 px-4 text-xs font-bold uppercase tracking-wider">
                 <FileText size={14} /> Add Note
               </button>
-              <button onClick={() => initiateCall(lead.contacts?.[0] || null)} className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center gap-2 transition-all active:scale-95 shadow-md">
+              <button onClick={() => initiateCall(lead.contacts?.[0] || null)} className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-all active:scale-95 shadow-md">
                 <Phone size={14} /> Make Call
               </button>
-              <button onClick={() => { setSelectedContactForSms(lead.contacts?.[0] || null); setIsSmsModalOpen(true); }} className="btn-secondary flex items-center gap-2 py-2 px-4 text-xs font-bold uppercase tracking-wider">
+              <button onClick={() => { setSelectedContactForSms(lead.contacts?.[0] || null); setIsSmsModalOpen(true); }} className="btn-secondary flex items-center justify-center gap-2 py-2 px-4 text-xs font-bold uppercase tracking-wider">
                 <MessageSquare size={14} /> Send SMS
               </button>
-              <button onClick={handleOpenFollowUpModal} className="btn-secondary flex items-center gap-2 py-2 px-4 text-xs font-bold uppercase tracking-wider">
+              <button onClick={handleOpenFollowUpModal} className="btn-secondary flex items-center justify-center gap-2 py-2 px-4 text-xs font-bold uppercase tracking-wider">
                 <CalendarPlus size={14} /> Create Follow-Up
               </button>
-              <button onClick={() => { setSelectedContactForMeeting(lead.contacts?.[0] || null); setIsMeetingModalOpen(true); }} className="btn-secondary flex items-center gap-2 py-2 px-4 text-xs font-bold uppercase tracking-wider">
+              <button onClick={() => { setSelectedContactForMeeting(lead.contacts?.[0] || null); setIsMeetingModalOpen(true); }} className="btn-secondary flex items-center justify-center gap-2 py-2 px-4 text-xs font-bold uppercase tracking-wider">
                 <Video size={14} /> Schedule Meeting
               </button>
-              <button onClick={() => { setSelectedContactForEmail(lead.contacts?.[0] || null); setIsEmailModalOpen(true); }} className="btn-secondary flex items-center gap-2 py-2 px-4 text-xs font-bold uppercase tracking-wider">
+              <button onClick={() => {
+                const contact = lead.contacts?.[0] || null;
+                const email = contact?.email || "";
+                setSelectedContactForEmail(contact);
+                setEmailData(prev => ({ ...prev, to: email }));
+                setIsEmailModalOpen(true);
+              }} className="btn-secondary flex items-center justify-center gap-2 py-2 px-4 text-xs font-bold uppercase tracking-wider">
                 <Send size={14} /> Send Email
               </button>
             </div>
@@ -695,16 +745,20 @@ export default function LeadDetail() {
                 { label: "Campaign", key: "campaign_id" },
                 { label: "Lead Type", key: "type" },
                 { label: "Category / Group", key: "category_group" },
+                { label: "Department", key: "department" },
                 { label: "Telephone", key: "telephone" },
                 { label: "Website", key: "website" },
+                { label: "Start Time", key: "start_time" },
+                { label: "End Time", key: "end_time" },
               ].map(({ label, key }) => (
                 <div key={key}>
                   <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">{label}</label>
                   {isEditing ? (
                     key === "type" ? (
                       <select
+                        name="type"
                         className="input-field dark:bg-card"
-                        value={(editData as any)[key] || ""}
+                        value={editData[key] || ""}
                         onChange={e => setEditData({ ...editData, [key]: e.target.value })}
                       >
                         <option value="">Select type...</option>
@@ -714,6 +768,7 @@ export default function LeadDetail() {
                       </select>
                     ) : key === "campaign_id" ? (
                       <select
+                        name="campaign_id"
                         className="input-field dark:bg-card"
                         value={typeof editData.campaign_id === 'object' ? editData.campaign_id?._id : editData.campaign_id || ""}
                         onChange={e => setEditData({ ...editData, campaign_id: e.target.value })}
@@ -730,9 +785,9 @@ export default function LeadDetail() {
                             <div className="absolute inset-0 flex items-center pl-8 text-xs pointer-events-none font-medium">
                               {phonePrefix}
                             </div>
-                            <select 
+                            <select
                               className="input-field w-full dark:bg-card px-2 text-transparent appearance-none bg-no-repeat"
-                              style={{ 
+                              style={{
                                 backgroundImage: `url(https://flagcdn.com/w20/${(countryCodes.find(c => c.dialCode === phonePrefix)?.code || 'US').toLowerCase()}.png)`,
                                 backgroundPosition: 'left 0.5rem center'
                               }}
@@ -749,25 +804,36 @@ export default function LeadDetail() {
                               <ChevronDown size={12} />
                             </div>
                           </div>
-                          <input 
-                            className="input-field flex-1" 
-                            value={(editData as any)[key] || ""} 
-                            onChange={e => setEditData({ ...editData, [key]: e.target.value })} 
+                          <input
+                            name="telephone"
+                            className="input-field flex-1"
+                            value={editData[key] || ""}
+                            onChange={e => setEditData({ ...editData, [key]: e.target.value })}
+                          />
+                          <input
+                            name="telephone_extension"
+                            className="input-field w-20"
+                            placeholder="Ext."
+                            value={editData.telephone_extension || ""}
+                            onChange={e => setEditData({ ...editData, telephone_extension: e.target.value })}
                           />
                         </div>
                       ) : (
                         <input
+                          name={key}
                           className="input-field dark:bg-card"
-                          value={(editData as any)[key] || ""}
+                          value={editData[key] || ""}
                           onChange={e => setEditData({ ...editData, [key]: e.target.value })}
                         />
                       )
                     )
                   ) : (
                     <p className="text-foreground">
-                      {key === "campaign_id" 
-                        ? (lead.campaign_id?.name || "N/A") 
+                      {key === "campaign_id"
+                        ? (lead.campaign_id?.name || "N/A")
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
                         : ((lead as any)[key] || "N/A")}
+                      {key === "telephone" && lead.telephone_extension && ` x${lead.telephone_extension}`}
                     </p>
                   )}
                 </div>
@@ -776,7 +842,7 @@ export default function LeadDetail() {
               {isEditing && (
                 <>
                   <div className="md:col-span-2 mt-4 pt-4 border-t border-border/50">
-                    <div className="flex items-center gap-2 mb-4">
+                    <div className="flex items-center justify-start gap-2 mb-4">
                       <div className="p-1.5 rounded-lg bg-primary/10">
                         <User size={16} className="text-primary" />
                       </div>
@@ -785,15 +851,15 @@ export default function LeadDetail() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
                         <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Full Name</label>
-                        <input className="input-field" value={editData.main_contact_name || ""} onChange={e => setEditData({ ...editData, main_contact_name: e.target.value })} />
+                        <input name="main_contact_name" className="input-field" value={editData.main_contact_name || ""} onChange={e => setEditData({ ...editData, main_contact_name: e.target.value })} />
                       </div>
                       <div>
                         <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Title / Role</label>
-                        <input className="input-field" value={editData.contact_title || ""} onChange={e => setEditData({ ...editData, contact_title: e.target.value })} />
+                        <input name="contact_title" className="input-field" value={editData.contact_title || ""} onChange={e => setEditData({ ...editData, contact_title: e.target.value })} />
                       </div>
                       <div>
                         <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Department</label>
-                        <input className="input-field" value={editData.contact_department || ""} onChange={e => setEditData({ ...editData, contact_department: e.target.value })} />
+                        <input name="contact_department" className="input-field" value={editData.contact_department || ""} onChange={e => setEditData({ ...editData, contact_department: e.target.value })} />
                       </div>
                       <div>
                         <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Direct Phone</label>
@@ -802,9 +868,9 @@ export default function LeadDetail() {
                             <div className="absolute inset-0 flex items-center pl-8 text-xs pointer-events-none font-medium">
                               {contactPhonePrefix}
                             </div>
-                            <select 
+                            <select
                               className="input-field w-full dark:bg-card px-2 text-transparent appearance-none bg-no-repeat"
-                              style={{ 
+                              style={{
                                 backgroundImage: `url(https://flagcdn.com/w20/${(countryCodes.find(c => c.dialCode === contactPhonePrefix)?.code || 'US').toLowerCase()}.png)`,
                                 backgroundPosition: 'left 0.5rem center'
                               }}
@@ -821,18 +887,19 @@ export default function LeadDetail() {
                               <ChevronDown size={12} />
                             </div>
                           </div>
-                          <input className="input-field flex-1" value={editData.contact_direct_phone || ""} onChange={e => setEditData({ ...editData, contact_direct_phone: e.target.value })} />
+                          <input name="contact_direct_phone" className="input-field flex-1" value={editData.contact_direct_phone || ""} onChange={e => setEditData({ ...editData, contact_direct_phone: e.target.value })} />
+                          <input name="contact_extension" className="input-field w-20" placeholder="Ext." value={editData.contact_extension || ""} onChange={e => setEditData({ ...editData, contact_extension: e.target.value })} />
                         </div>
                       </div>
                       <div>
                         <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Email</label>
-                        <input className="input-field" value={editData.contact_email || ""} onChange={e => setEditData({ ...editData, contact_email: e.target.value })} />
+                        <input name="contact_email" className="input-field" value={editData.contact_email || ""} onChange={e => setEditData({ ...editData, contact_email: e.target.value })} />
                       </div>
                     </div>
                   </div>
 
                   <div className="md:col-span-2 mt-4 pt-4 border-t border-border/50">
-                    <div className="flex items-center gap-2 mb-4">
+                    <div className="flex items-center justify-start gap-2 mb-4">
                       <div className="p-1.5 rounded-lg bg-orange-500/10">
                         <User size={16} className="text-orange-500" />
                       </div>
@@ -841,11 +908,15 @@ export default function LeadDetail() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
                         <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Full Name</label>
-                        <input className="input-field" value={editData.secondary_contact_name || ""} onChange={e => setEditData({ ...editData, secondary_contact_name: e.target.value })} />
+                        <input name="secondary_contact_name" className="input-field" value={editData.secondary_contact_name || ""} onChange={e => setEditData({ ...editData, secondary_contact_name: e.target.value })} />
                       </div>
                       <div>
                         <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Title / Role</label>
-                        <input className="input-field" value={editData.secondary_contact_title || ""} onChange={e => setEditData({ ...editData, secondary_contact_title: e.target.value })} />
+                        <input name="secondary_contact_title" className="input-field" value={editData.secondary_contact_title || ""} onChange={e => setEditData({ ...editData, secondary_contact_title: e.target.value })} />
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Secondary Department</label>
+                        <input name="secondary_contact_department" className="input-field" value={editData.secondary_contact_department || ""} onChange={e => setEditData({ ...editData, secondary_contact_department: e.target.value })} />
                       </div>
                       <div>
                         <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Direct Phone</label>
@@ -854,9 +925,9 @@ export default function LeadDetail() {
                             <div className="absolute inset-0 flex items-center pl-8 text-xs pointer-events-none font-medium">
                               {secondaryPhonePrefix}
                             </div>
-                            <select 
+                            <select
                               className="input-field w-full dark:bg-card px-2 text-transparent appearance-none bg-no-repeat"
-                              style={{ 
+                              style={{
                                 backgroundImage: `url(https://flagcdn.com/w20/${(countryCodes.find(c => c.dialCode === secondaryPhonePrefix)?.code || 'US').toLowerCase()}.png)`,
                                 backgroundPosition: 'left 0.5rem center'
                               }}
@@ -873,12 +944,13 @@ export default function LeadDetail() {
                               <ChevronDown size={12} />
                             </div>
                           </div>
-                          <input className="input-field flex-1" value={editData.secondary_contact_phone || ""} onChange={e => setEditData({ ...editData, secondary_contact_phone: e.target.value })} />
+                          <input name="secondary_contact_phone" className="input-field flex-1" value={editData.secondary_contact_phone || ""} onChange={e => setEditData({ ...editData, secondary_contact_phone: e.target.value })} />
+                          <input name="secondary_contact_extension" className="input-field w-20" placeholder="Ext." value={editData.secondary_contact_extension || ""} onChange={e => setEditData({ ...editData, secondary_contact_extension: e.target.value })} />
                         </div>
                       </div>
                       <div>
                         <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Email</label>
-                        <input className="input-field" value={editData.secondary_contact_email || ""} onChange={e => setEditData({ ...editData, secondary_contact_email: e.target.value })} />
+                        <input name="secondary_contact_email" className="input-field" value={editData.secondary_contact_email || ""} onChange={e => setEditData({ ...editData, secondary_contact_email: e.target.value })} />
                       </div>
                     </div>
                   </div>
@@ -889,11 +961,11 @@ export default function LeadDetail() {
                 <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Address</label>
                 {isEditing ? (
                   <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-                    <input className="input-field md:col-span-1 dark:bg-card" placeholder="No." value={editData.address_number || ""} onChange={e => setEditData({ ...editData, address_number: e.target.value })} />
-                    <input className="input-field md:col-span-1 dark:bg-card" placeholder="Street" value={editData.address || ""} onChange={e => setEditData({ ...editData, address: e.target.value })} />
-                    <input className="input-field dark:bg-card" placeholder="City" value={editData.city || ""} onChange={e => setEditData({ ...editData, city: e.target.value })} />
-                    <input className="input-field dark:bg-card" placeholder="State" value={editData.state || ""} onChange={e => setEditData({ ...editData, state: e.target.value })} />
-                    <input className="input-field dark:bg-card" placeholder="Zip" value={editData.zip || ""} onChange={e => setEditData({ ...editData, zip: e.target.value })} />
+                    <input name="address_number" className="input-field md:col-span-1 dark:bg-card" placeholder="No." value={editData.address_number || ""} onChange={e => setEditData({ ...editData, address_number: e.target.value })} />
+                    <input name="address" className="input-field md:col-span-1 dark:bg-card" placeholder="Street" value={editData.address || ""} onChange={e => setEditData({ ...editData, address: e.target.value })} />
+                    <input name="city" className="input-field dark:bg-card" placeholder="City" value={editData.city || ""} onChange={e => setEditData({ ...editData, city: e.target.value })} />
+                    <input name="state" className="input-field dark:bg-card" placeholder="State" value={editData.state || ""} onChange={e => setEditData({ ...editData, state: e.target.value })} />
+                    <input name="zip" className="input-field dark:bg-card" placeholder="Zip" value={editData.zip || ""} onChange={e => setEditData({ ...editData, zip: e.target.value })} />
                   </div>
                 ) : (
                   <p className="text-foreground">{[lead.address_number, lead.address, lead.city, lead.state, lead.zip].filter(Boolean).join(" ") || "N/A"}</p>
@@ -904,6 +976,7 @@ export default function LeadDetail() {
                 <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Status</label>
                 {isEditing ? (
                   <select
+                    name="status"
                     className="input-field dark:bg-card"
                     value={editData.status || ""}
                     onChange={e => setEditData({ ...editData, status: e.target.value })}
@@ -926,9 +999,9 @@ export default function LeadDetail() {
                 <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Hours</label>
                 {isEditing ? (
                   <div className="flex gap-2">
-                    <input type="time" className="input-field dark:bg-card" value={editData.start_time || ""} onChange={e => setEditData({ ...editData, start_time: e.target.value })} />
+                    <input type="time" name="start_time" className="input-field dark:bg-card" value={formatTimeForInput(editData.start_time) || ""} onChange={e => setEditData({ ...editData, start_time: e.target.value })} />
                     <span className="flex items-center text-muted-foreground">to</span>
-                    <input type="time" className="input-field dark:bg-card" value={editData.end_time || ""} onChange={e => setEditData({ ...editData, end_time: e.target.value })} />
+                    <input type="time" name="end_time" className="input-field dark:bg-card" value={formatTimeForInput(editData.end_time) || ""} onChange={e => setEditData({ ...editData, end_time: e.target.value })} />
                   </div>
                 ) : (
                   <p className="text-foreground">{lead.start_time || "--:--"} – {lead.end_time || "--:--"}</p>
@@ -939,7 +1012,7 @@ export default function LeadDetail() {
           {/* Contacts List */}
           <div className="page-card dark:bg-card">
             <div className="flex items-center justify-between mb-5">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center justify-center gap-2">
                 <div className="p-1.5 rounded-lg bg-primary/10">
                   <User size={16} className="text-primary" />
                 </div>
@@ -956,7 +1029,7 @@ export default function LeadDetail() {
                   <div key={contact._id} className={`p-4 rounded-xl border ${contact.is_primary ? 'border-primary/30 bg-primary/5' : 'border-border bg-card'}`}>
                     <div className="flex items-start justify-between mb-3">
                       <div>
-                        <h3 className="font-semibold text-foreground flex items-center gap-2">
+                        <h3 className="font-semibold text-foreground flex items-center justify-center gap-2">
                           {contact.name}
                           {contact.is_primary ? (
                             <span className="text-[10px] uppercase font-bold bg-primary text-white px-1.5 py-0.5 rounded-md">Primary</span>
@@ -967,35 +1040,39 @@ export default function LeadDetail() {
                         <p className="text-sm text-muted-foreground">{contact.title || "No Title"} {contact.department ? `• ${contact.department}` : ''}</p>
                       </div>
                       <div className="flex gap-2">
-                        <button 
+                        <button
                           onClick={() => initiateCall(contact)}
                           className="p-1.5 hover:bg-orange-100 dark:hover:bg-orange-500/20 text-orange-600 rounded-lg transition-colors"
                           title="Make Call via JustCall"
                         >
                           <Phone size={14} />
                         </button>
-                        <button 
+                        <button
                           onClick={() => { setSelectedContactForNote(contact); setIsNoteModalOpen(true); }}
                           className="p-1.5 bg-accent/50 hover:bg-accent rounded-lg text-slate-700 hover:text-primary transition-all border border-border/50"
                           title="Add Note"
                         >
                           <FileText size={14} strokeWidth={2.5} />
                         </button>
-                        <button 
+                        <button
                           onClick={() => { setSelectedContactForSms(contact); setIsSmsModalOpen(true); }}
                           className="p-1.5 rounded-lg bg-accent hover:bg-accent/80 text-slate-700 transition-colors border border-border/50"
                           title="Send SMS"
                         >
                           <MessageSquare size={14} strokeWidth={2.5} />
                         </button>
-                        <button 
-                          onClick={() => { setSelectedContactForEmail(contact); setIsEmailModalOpen(true); }}
+                        <button
+                          onClick={() => {
+                            setSelectedContactForEmail(contact);
+                            setEmailData(prev => ({ ...prev, to: contact.email || "" }));
+                            setIsEmailModalOpen(true);
+                          }}
                           className="p-1.5 rounded-lg bg-accent hover:bg-accent/80 text-slate-700 transition-colors border border-border/50"
                           title="Send Email"
                         >
                           <Mail size={14} strokeWidth={2.5} />
                         </button>
-                        <button 
+                        <button
                           onClick={() => { setSelectedContactForMeeting(contact); setIsMeetingModalOpen(true); }}
                           className="p-1.5 rounded-lg bg-accent hover:bg-accent/80 text-slate-700 transition-colors border border-border/50"
                           title="Schedule Meeting"
@@ -1006,8 +1083,8 @@ export default function LeadDetail() {
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-y-2 gap-x-4 mt-3 pt-3 border-t border-border/50">
-                      <div 
-                        className="flex items-center gap-2 text-sm cursor-pointer group/phone hover:text-orange-600 transition-colors"
+                      <div
+                        className="flex items-center justify-start gap-2 text-sm cursor-pointer group/phone hover:text-orange-600 transition-colors"
                         onClick={() => initiateCall(contact)}
                         title="Click to call via JustCall"
                       >
@@ -1016,7 +1093,7 @@ export default function LeadDetail() {
                           {contact.direct_phone || "N/A"} {contact.extension && `x${contact.extension}`}
                         </span>
                       </div>
-                      <div className="flex items-center gap-2 text-sm">
+                      <div className="flex items-center justify-start gap-2 text-sm">
                         <Mail size={14} strokeWidth={2.5} className="text-slate-600" />
                         {contact.email ? (
                           <a href={`mailto:${contact.email}`} className="text-primary hover:underline font-medium">{contact.email}</a>
@@ -1024,11 +1101,11 @@ export default function LeadDetail() {
                           <span className="text-foreground">N/A</span>
                         )}
                       </div>
-                      <div className="flex items-center gap-2 text-sm">
+                      <div className="flex items-center justify-start gap-2 text-sm">
                         <Clock size={14} strokeWidth={2.5} className="text-slate-600" />
                         <span className="text-foreground font-medium">Best time: {contact.best_time || "N/A"}</span>
                       </div>
-                      <div className="flex items-center gap-2 text-sm">
+                      <div className="flex items-center justify-start gap-2 text-sm">
                         <MessageSquare size={14} strokeWidth={2.5} className="text-slate-600" />
                         <span className="text-foreground font-medium">Prefers: {contact.preferred_method || "N/A"}</span>
                       </div>
@@ -1042,10 +1119,10 @@ export default function LeadDetail() {
           {/* Communication Log / Notes */}
           <div id="notes-section" className="page-card dark:bg-card">
             <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center justify-center gap-2">
                 <History size={18} className="text-primary" />
                 <h2 className="font-semibold text-foreground">Communication Log</h2>
-                <button 
+                <button
                   onClick={() => loadAll()}
                   className="p-1 hover:bg-accent rounded-full transition-colors text-muted-foreground hover:text-primary"
                   title="Refresh activity feed"
@@ -1056,7 +1133,7 @@ export default function LeadDetail() {
                 {notes.length > 0 && (
                   <button
                     onClick={() => {
-                      if(window.confirm("Are you sure you want to delete all notes for this lead? This cannot be undone.")) {
+                      if (window.confirm("Are you sure you want to delete all notes for this lead? This cannot be undone.")) {
                         deleteAllNotes();
                       }
                     }}
@@ -1087,11 +1164,11 @@ export default function LeadDetail() {
                   <div key={n._id} className="p-3 bg-accent/50 dark:bg-accent/10 rounded-lg border border-border dark:border-border/20 flex items-start gap-3 group">
                     <div className="mt-1">
                       {n.type === 'email' ? <Mail size={14} className="text-blue-500" /> :
-                       n.type === 'meeting' ? <Video size={14} className="text-purple-500" /> :
-                       n.type === 'status_change' ? <CheckCircle2 size={14} className="text-green-500" /> :
-                       n.type === 'call' ? <Phone size={14} className="text-orange-500" /> :
-                       n.type === 'sms' ? <MessageSquare size={14} className="text-blue-400" /> :
-                       <MessageSquare size={14} className="text-muted-foreground" />}
+                        n.type === 'meeting' ? <Video size={14} className="text-purple-500" /> :
+                          n.type === 'status_change' ? <CheckCircle2 size={14} className="text-green-500" /> :
+                            n.type === 'call' ? <Phone size={14} className="text-orange-500" /> :
+                              n.type === 'sms' ? <MessageSquare size={14} className="text-blue-400" /> :
+                                <MessageSquare size={14} className="text-muted-foreground" />}
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm text-foreground mb-1 break-words whitespace-pre-wrap">{n.content}</p>
@@ -1099,16 +1176,16 @@ export default function LeadDetail() {
                         <p className="text-xs text-muted-foreground mb-1 italic">Subject: {n.metadata.subject}</p>
                       )}
                       {n.type === 'call' && n.metadata?.recording_url && (
-                        <RecordingPlayer 
-                          url={n.metadata.recording_url} 
-                          duration={n.metadata?.recording_duration || n.metadata?.duration} 
+                        <RecordingPlayer
+                          url={n.metadata.recording_url}
+                          duration={n.metadata?.recording_duration || n.metadata?.duration}
                         />
                       )}
                       <p className="text-[10px] text-muted-foreground uppercase tracking-wide">
                         {new Date(n.createdAt).toLocaleString()}
                       </p>
                     </div>
-                    <button 
+                    <button
                       onClick={() => confirmDeleteNote(n._id)}
                       className="p-1.5 rounded-lg bg-destructive/5 hover:bg-destructive/20 text-destructive/70 hover:text-destructive transition-all shrink-0 mt-0.5"
                       title="Delete Note"
@@ -1126,7 +1203,7 @@ export default function LeadDetail() {
         <div className="space-y-6">
           <div className="page-card dark:bg-card border-l-4 border-l-primary/50">
             <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center justify-center gap-2">
                 <CalendarPlus size={18} className="text-primary" />
                 <h2 className="font-semibold text-foreground">Follow-ups</h2>
               </div>
@@ -1155,7 +1232,7 @@ export default function LeadDetail() {
                     <div key={f._id} className={`p-3 rounded-lg border border-l-4 transition-all ${getStatusStyles(f.date_time)}`}>
                       <div className="flex items-start justify-between gap-2">
                         <div>
-                          <div className="flex items-center gap-2 mb-1">
+                          <div className="flex items-center justify-center gap-2 mb-1">
                             <span className="text-[10px] font-bold uppercase tracking-wider bg-primary/10 text-primary px-1.5 py-0.5 rounded">{f.type}</span>
                             <span className="text-xs font-bold text-foreground">{new Date(f.date_time).toLocaleString()}</span>
                           </div>
@@ -1176,23 +1253,26 @@ export default function LeadDetail() {
           </div>
 
           <div className="page-card bg-primary/5 border-none">
-            <div className="flex items-center gap-2 mb-2">
+            <div className="flex items-center justify-center gap-2 mb-2">
               <Info size={16} className="text-primary" />
               <span className="text-xs font-bold uppercase tracking-wider text-primary">Context</span>
             </div>
             <p className="text-sm text-foreground">
               All follow-ups for this lead also appear on the Dashboard, grouped by due date.
-                        </p>
+            </p>
           </div>
         </div>
       </div>
 
       {/* Follow-up Modal */}
-      <Dialog open={isFollowUpModalOpen} onOpenChange={(open) => {
-        setIsFollowUpModalOpen(open);
-        if (!open) setFuErrors({});
-      }}>
-        <DialogContent aria-describedby={undefined} className="w-[90vw] max-md dark:bg-card">
+      <Dialog
+        open={isFollowUpModalOpen}
+        onOpenChange={(open) => {
+          setIsFollowUpModalOpen(open);
+          if (!open) setFuErrors({});
+        }}
+      >
+        <DialogContent aria-describedby={undefined} className="w-[90vw] max-w-md dark:bg-card max-h-[90vh] overflow-y-auto custom-scrollbar">
           <DialogHeader>
             <DialogTitle className="dark:text-foreground">Schedule Follow-up</DialogTitle>
           </DialogHeader>
@@ -1202,8 +1282,9 @@ export default function LeadDetail() {
               <input
                 id="date"
                 type="datetime-local"
+                name="date"
                 className={`input-field dark:bg-card dark:color-scheme-dark ${fuErrors.date ? "border-destructive focus:ring-destructive/20" : ""}`}
-                value={followUpDate}
+                value={followUpDate || ""}
                 onChange={(e) => {
                   setFollowUpDate(e.target.value);
                   if (fuErrors.date) setFuErrors(prev => ({ ...prev, date: "" }));
@@ -1215,9 +1296,10 @@ export default function LeadDetail() {
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <label className="text-sm font-medium">Type <span className="text-destructive">*</span></label>
-                <select 
-                  className={`input-field dark:bg-card ${fuErrors.type ? "border-destructive focus:ring-destructive/20" : ""}`} 
-                  value={followUpType} 
+                <select
+                  name="type"
+                  className={`input-field dark:bg-card ${fuErrors.type ? "border-destructive focus:ring-destructive/20" : ""}`}
+                  value={followUpType || ""}
                   onChange={e => {
                     setFollowUpType(e.target.value);
                     if (fuErrors.type) setFuErrors(prev => ({ ...prev, type: "" }));
@@ -1233,9 +1315,10 @@ export default function LeadDetail() {
               </div>
               <div className="grid gap-2">
                 <label className="text-sm font-medium">Priority <span className="text-destructive">*</span></label>
-                <select 
-                  className={`input-field dark:bg-card ${fuErrors.priority ? "border-destructive focus:ring-destructive/20" : ""}`} 
-                  value={followUpPriority} 
+                <select
+                  name="priority"
+                  className={`input-field dark:bg-card ${fuErrors.priority ? "border-destructive focus:ring-destructive/20" : ""}`}
+                  value={followUpPriority || ""}
                   onChange={e => {
                     setFollowUpPriority(e.target.value);
                     if (fuErrors.priority) setFuErrors(prev => ({ ...prev, priority: "" }));
@@ -1251,9 +1334,10 @@ export default function LeadDetail() {
             </div>
             <div className="grid gap-2">
               <label className="text-sm font-medium">Assigned User <span className="text-destructive">*</span></label>
-              <select 
+              <select
+                name="assignedTo"
                 className={`input-field dark:bg-card ${fuErrors.assigned ? "border-destructive focus:ring-destructive/20" : ""}`}
-                value={assignedTo}
+                value={assignedTo || ""}
                 onChange={e => {
                   setAssignedTo(e.target.value);
                   if (fuErrors.assigned) setFuErrors(prev => ({ ...prev, assigned: "" }));
@@ -1265,14 +1349,15 @@ export default function LeadDetail() {
               {assignedTo === "other" && (
                 <div className="mt-2 animate-in fade-in slide-in-from-top-1 duration-200">
                   <input
+                    name="customAssignedTo"
+                    ref={customAssignedRef}
                     className={`input-field ${fuErrors.assigned ? "border-destructive focus:ring-destructive/20" : ""}`}
                     placeholder="Enter name..."
-                    value={customAssignedTo}
+                    value={customAssignedTo || ""}
                     onChange={(e) => {
                       setCustomAssignedTo(e.target.value);
                       if (fuErrors.assigned) setFuErrors(prev => ({ ...prev, assigned: "" }));
                     }}
-                    autoFocus
                   />
                 </div>
               )}
@@ -1282,9 +1367,10 @@ export default function LeadDetail() {
               <label htmlFor="reason" className="text-sm font-medium">Notes / Instructions <span className="text-destructive">*</span></label>
               <textarea
                 id="reason"
+                name="notes"
                 className={`input-field min-h-[80px] ${fuErrors.notes ? "border-destructive focus:ring-destructive/20" : ""}`}
                 placeholder="What needs to happen?"
-                value={followUpNotes}
+                value={followUpNotes || ""}
                 onChange={(e) => {
                   setFollowUpNotes(e.target.value);
                   if (fuErrors.notes) setFuErrors(prev => ({ ...prev, notes: "" }));
@@ -1298,9 +1384,9 @@ export default function LeadDetail() {
               setIsFollowUpModalOpen(false);
               setFuErrors({});
             }}>Cancel</button>
-            <button 
+            <button
               disabled={isSubmitting}
-              className={`btn-primary ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`} 
+              className={`btn-primary ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`}
               onClick={() => submitFollowUp()}
             >
               {isSubmitting ? "Saving..." : "Save Follow-up"}
@@ -1310,142 +1396,160 @@ export default function LeadDetail() {
       </Dialog>
 
       {/* Meeting Modal */}
-      <Dialog open={isMeetingModalOpen} onOpenChange={(open) => {
-        setIsMeetingModalOpen(open);
-        if (!open) setMeetingErrors({});
-      }}>
-        <DialogContent aria-describedby={undefined} className="w-[90vw] max-w-md dark:bg-card">
-          <DialogHeader><DialogTitle className="dark:text-foreground">Schedule Meeting</DialogTitle></DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
-              <label className="text-sm font-medium">Meeting Title <span className="text-destructive">*</span></label>
-              <input 
-                className={`input-field ${meetingErrors.title ? "border-destructive focus:border-destructive focus:ring-destructive/20" : ""}`}
-                placeholder="e.g. Initial Strategy Session" 
-                value={meetingData.title} 
-                onChange={e => {
-                  setMeetingData({...meetingData, title: e.target.value});
-                  if (e.target.value.trim()) setMeetingErrors({...meetingErrors, title: ""});
-                }} 
-              />
-              {meetingErrors.title && <p className="text-xs text-destructive font-medium">{meetingErrors.title}</p>}
-            </div>
-            <div className="grid gap-2">
-              <label className="text-sm font-medium">Date & Time <span className="text-destructive">*</span></label>
-              <input 
-                type="datetime-local" 
-                className={`input-field dark:color-scheme-dark ${meetingErrors.date_time ? "border-destructive focus:border-destructive focus:ring-destructive/20" : ""}`}
-                value={meetingData.date_time} 
-                onChange={e => {
-                  setMeetingData({...meetingData, date_time: e.target.value});
-                  if (e.target.value) setMeetingErrors({...meetingErrors, date_time: ""});
-                }} 
-              />
-              {meetingErrors.date_time && <p className="text-xs text-destructive font-medium">{meetingErrors.date_time}</p>}
-            </div>
-            <div className="grid gap-2">
-              <label className="text-sm font-medium">Meeting Type</label>
-              <select className="input-field dark:bg-card" value={meetingData.type} onChange={e => setMeetingData({...meetingData, type: e.target.value})}>
-                <option value="Virtual">Virtual (Google Meet)</option>
-                <option value="Phone Call">Phone Call</option>
-                <option value="In-Person">In-Person</option>
-              </select>
-            </div>
-            <div className="grid gap-2">
-              <label className="text-sm font-medium">Invitees</label>
-              <div className="p-2 bg-accent/30 rounded border text-xs text-foreground">
-                Automatically inviting: <strong>{selectedContactForMeeting?.email}</strong>
+      <Dialog
+        open={isMeetingModalOpen}
+        onOpenChange={(open) => {
+          setIsMeetingModalOpen(open);
+          if (!open) setMeetingErrors({});
+        }}
+      >
+        <DialogContent aria-describedby={undefined} className="w-[90vw] max-w-md dark:bg-card p-0 overflow-hidden !flex !flex-col max-h-[90vh]">
+          <DialogHeader className="p-6 pb-2 border-b flex-shrink-0"><DialogTitle className="dark:text-foreground">Schedule Meeting</DialogTitle></DialogHeader>
+          <div className="flex-1 overflow-y-auto p-6 py-4 custom-scrollbar min-h-0">
+            <div className="grid gap-4">
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Meeting Title <span className="text-destructive">*</span></label>
+                <input
+                  name="title"
+                  className={`input-field ${meetingErrors.title ? "border-destructive focus:border-destructive focus:ring-destructive/20" : ""}`}
+                  placeholder="e.g. Initial Strategy Session"
+                  value={meetingData.title || ""}
+                  onChange={e => {
+                    setMeetingData({ ...meetingData, title: e.target.value });
+                    if (e.target.value.trim()) setMeetingErrors({ ...meetingErrors, title: "" });
+                  }}
+                />
+                {meetingErrors.title && <p className="text-xs text-destructive font-medium">{meetingErrors.title}</p>}
               </div>
-            </div>
-            <div className="grid gap-2">
-              <label className="text-sm font-medium">CC <span className="text-muted-foreground text-xs">(optional)</span></label>
-              <div className="flex flex-wrap gap-2 p-2 min-h-[42px] bg-background border rounded-lg focus-within:ring-2 focus-within:ring-primary/20 transition-all">
-                {meetingCc.map((email, index) => {
-                  const isValid = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(email);
-                  const domain = email.split('@')[1];
-                  const domainStatus = verifiedDomains[domain];
-                  const isDomainInvalid = domainStatus && domainStatus.valid === false;
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Date & Time <span className="text-destructive">*</span></label>
+                <input
+                  type="datetime-local"
+                  name="date_time"
+                  className={`input-field dark:color-scheme-dark ${meetingErrors.date_time ? "border-destructive focus:border-destructive focus:ring-destructive/20" : ""}`}
+                  value={meetingData.date_time || ""}
+                  onChange={e => {
+                    setMeetingData({ ...meetingData, date_time: e.target.value });
+                    if (e.target.value) setMeetingErrors({ ...meetingErrors, date_time: "" });
+                  }}
+                />
+                {meetingErrors.date_time && <p className="text-xs text-destructive font-medium">{meetingErrors.date_time}</p>}
+              </div>
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Meeting Type</label>
+                <select
+                  name="type"
+                  className="input-field dark:bg-card"
+                  value={meetingData.type || ""}
+                  onChange={e => setMeetingData({ ...meetingData, type: e.target.value })}
+                >
+                  <option value="Virtual">Virtual (Google Meet)</option>
+                  <option value="Phone Call">Phone Call</option>
+                  <option value="In-Person">In-Person</option>
+                </select>
+              </div>
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Invitees</label>
+                <div className="p-2 bg-accent/30 rounded border text-xs text-foreground">
+                  Automatically inviting: <strong>{selectedContactForMeeting?.email}</strong>
+                </div>
+              </div>
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">CC <span className="text-muted-foreground text-xs">(optional)</span></label>
+                <div className="flex flex-wrap gap-2 p-2 min-h-[42px] bg-background border rounded-lg focus-within:ring-2 focus-within:ring-primary/20 transition-all">
+                  {meetingCc.map((email, index) => {
+                    const isValid = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(email);
+                    const domain = email.split('@')[1];
+                    const domainStatus = verifiedDomains[domain];
+                    const isDomainInvalid = domainStatus && domainStatus.valid === false;
 
-                  return (
-                    <div 
-                      key={index} 
-                      onClick={() => {
-                        setMeetingCcInput(email);
-                        setMeetingCc(meetingCc.filter((_, i) => i !== index));
-                      }}
-                      title={isDomainInvalid ? `Warning: ${domainStatus.message}` : "Click to edit"}
-                      className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium animate-in zoom-in-95 duration-200 cursor-pointer transition-all hover:ring-2 hover:ring-primary/30 ${
-                        !isValid 
-                          ? "bg-destructive/10 text-destructive border border-destructive/20" 
+                    return (
+                      <div
+                        key={index}
+                        onClick={() => {
+                          setMeetingCcInput(email);
+                          setMeetingCc(meetingCc.filter((_, i) => i !== index));
+                        }}
+                        title={isDomainInvalid ? `Warning: ${domainStatus.message}` : "Click to edit"}
+                        className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium animate-in zoom-in-95 duration-200 cursor-pointer transition-all hover:ring-2 hover:ring-primary/30 ${!isValid
+                          ? "bg-destructive/10 text-destructive border border-destructive/20"
                           : isDomainInvalid
                             ? "bg-orange-500/10 text-orange-600 border border-orange-500/30"
                             : "bg-primary/10 text-primary border border-primary/20"
-                      }`}
-                    >
-                      {email}
-                      <button 
-                        type="button" 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setMeetingCc(meetingCc.filter((_, i) => i !== index));
-                        }}
-                        className="hover:bg-black/5 rounded-full p-0.5 transition-colors"
+                          }`}
                       >
-                        <X size={12} />
-                      </button>
-                    </div>
-                  );
-                })}
-                <input 
-                  className="flex-1 bg-transparent border-none outline-none text-sm min-w-[120px] placeholder:text-muted-foreground/50"
-                  placeholder={meetingCc.length === 0 ? "Add email and press Enter..." : ""}
-                  value={meetingCcInput} 
-                  onChange={e => {
-                    setMeetingCcInput(e.target.value);
-                    if (e.target.value.trim()) setMeetingErrors({ ...meetingErrors, cc: "" });
-                  }}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' || e.key === ',') {
-                      e.preventDefault();
+                        {email}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setMeetingCc(meetingCc.filter((_, i) => i !== index));
+                          }}
+                          className="hover:bg-black/5 rounded-full p-0.5 transition-colors"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                  <input
+                    className="flex-1 bg-transparent border-none outline-none text-sm min-w-[120px] placeholder:text-muted-foreground/50"
+                    name="cc"
+                    placeholder={meetingCc.length === 0 ? "Add email and press Enter..." : ""}
+                    value={meetingCcInput || ""}
+                    onChange={e => {
+                      setMeetingCcInput(e.target.value);
+                      if (e.target.value.trim()) setMeetingErrors({ ...meetingErrors, cc: "" });
+                    }}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' || e.key === ',') {
+                        e.preventDefault();
+                        const val = meetingCcInput.trim().replace(/,$/, '');
+                        if (val && !meetingCc.includes(val)) {
+                          setMeetingCc([...meetingCc, val]);
+                          setMeetingCcInput("");
+                          checkDomain(val);
+                        }
+                      } else if (e.key === 'Backspace' && !meetingCcInput && meetingCc.length > 0) {
+                        setMeetingCc(meetingCc.slice(0, -1));
+                      }
+                    }}
+                    onBlur={() => {
                       const val = meetingCcInput.trim().replace(/,$/, '');
                       if (val && !meetingCc.includes(val)) {
                         setMeetingCc([...meetingCc, val]);
                         setMeetingCcInput("");
                         checkDomain(val);
                       }
-                    } else if (e.key === 'Backspace' && !meetingCcInput && meetingCc.length > 0) {
-                      setMeetingCc(meetingCc.slice(0, -1));
-                    }
-                  }}
-                  onBlur={() => {
-                    const val = meetingCcInput.trim().replace(/,$/, '');
-                    if (val && !meetingCc.includes(val)) {
-                      setMeetingCc([...meetingCc, val]);
-                      setMeetingCcInput("");
-                      checkDomain(val);
-                    }
-                  }}
+                    }}
+                  />
+                </div>
+              </div>
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Notes</label>
+                <textarea
+                  name="notes"
+                  className="input-field min-h-[80px]"
+                  placeholder="Agenda or location details..."
+                  value={meetingData.notes || ""}
+                  onChange={e => setMeetingData({ ...meetingData, notes: e.target.value })}
                 />
               </div>
             </div>
-            <div className="grid gap-2">
-              <label className="text-sm font-medium">Notes</label>
-              <textarea className="input-field min-h-[80px]" placeholder="Agenda or location details..." value={meetingData.notes} onChange={e => setMeetingData({...meetingData, notes: e.target.value})} />
-            </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="p-6 pt-2 border-t flex-shrink-0">
             <button className="btn-secondary" onClick={() => {
               setIsMeetingModalOpen(false);
               setMeetingCc([]);
               setMeetingCcInput("");
               setMeetingErrors({});
             }}>Cancel</button>
-            <button 
+            <button
               disabled={isSubmitting}
-              className={`btn-primary ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`} 
+              className={`btn-primary flex items-center justify-center gap-2 ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`}
               onClick={() => scheduleMeeting()}
             >
-              {isSubmitting ? "Scheduling..." : "Schedule & Send Invite"}
+              <CalendarPlus size={16} /> {isSubmitting ? "Scheduling..." : "Schedule & Send Invite"}
             </button>
           </DialogFooter>
         </DialogContent>
@@ -1456,121 +1560,144 @@ export default function LeadDetail() {
         setIsEmailModalOpen(open);
         if (!open) setEmailErrors({});
       }}>
-        <DialogContent aria-describedby={undefined} className="w-[90vw] max-w-2xl dark:bg-card">
-          <DialogHeader><DialogTitle className="dark:text-foreground">Send Email to {selectedContactForEmail?.name}</DialogTitle></DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid gap-1">
-              <label className="text-xs font-bold text-muted-foreground uppercase">To</label>
-              <div className="p-2 bg-accent/30 rounded border text-sm">{selectedContactForEmail?.email}</div>
-            </div>
-            <div className="grid gap-2">
-              <label className="text-sm font-medium">CC <span className="text-muted-foreground text-xs">(optional)</span></label>
-              <div className="flex flex-wrap gap-2 p-2 min-h-[42px] bg-background border rounded-lg focus-within:ring-2 focus-within:ring-primary/20 transition-all">
-                {emailData.cc.map((email, index) => {
-                  const isValid = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(email);
-                  const domain = email.split('@')[1];
-                  const domainStatus = verifiedDomains[domain];
-                  const isDomainInvalid = domainStatus && domainStatus.valid === false;
+        <DialogContent aria-describedby={undefined} className="w-[90vw] max-w-2xl dark:bg-card p-0 overflow-hidden !flex !flex-col max-h-[90vh]">
+          <DialogHeader className="p-6 pb-2 border-b flex-shrink-0">
+            <DialogTitle className="dark:text-foreground">Send Email to {selectedContactForEmail?.name}</DialogTitle>
+          </DialogHeader>
 
-                  return (
-                    <div 
-                      key={index} 
-                      onClick={() => {
-                        setCcInput(email);
-                        setEmailData({ ...emailData, cc: emailData.cc.filter((_, i) => i !== index) });
-                      }}
-                      title={isDomainInvalid ? `Warning: ${domainStatus.message}` : "Click to edit"}
-                      className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium animate-in zoom-in-95 duration-200 cursor-pointer transition-all hover:ring-2 hover:ring-primary/30 ${
-                        !isValid 
-                          ? "bg-destructive/10 text-destructive border border-destructive/20" 
+          <div className="flex-1 overflow-y-auto p-6 py-4 custom-scrollbar min-h-0">
+            <div className="grid gap-4">
+              <div className="grid gap-1">
+                <label className="text-xs font-bold text-muted-foreground uppercase">To <span className="text-destructive">*</span></label>
+                <input
+                  name="to"
+                  className={`input-field text-sm ${emailErrors.to ? "border-destructive focus:ring-destructive/20" : ""}`}
+                  placeholder={!emailData.to ? "No email on file — type recipient email..." : "Recipient email..."}
+                  value={emailData.to || ""}
+                  onChange={e => setEmailData({ ...emailData, to: e.target.value })}
+                  autoFocus={!!emailData.to}
+                />
+                {!emailData.to && (
+                  <p className="text-[10px] text-amber-500 font-medium mt-1 flex items-center gap-1">
+                    ⚠️ This contact has no email saved. You can enter one above.
+                  </p>
+                )}
+                {emailErrors.to && <p className="text-[10px] text-destructive font-medium mt-1">{emailErrors.to}</p>}
+              </div>
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">CC <span className="text-muted-foreground text-xs">(optional)</span></label>
+                <div className="flex flex-wrap gap-2 p-2 min-h-[42px] bg-background border rounded-lg focus-within:ring-2 focus-within:ring-primary/20 transition-all">
+                  {emailData.cc.map((email, index) => {
+                    const isValid = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(email);
+                    const domain = email.split('@')[1];
+                    const domainStatus = verifiedDomains[domain];
+                    const isDomainInvalid = domainStatus && domainStatus.valid === false;
+
+                    return (
+                      <div
+                        key={index}
+                        onClick={() => {
+                          setCcInput(email);
+                          setEmailData({ ...emailData, cc: emailData.cc.filter((_, i) => i !== index) });
+                        }}
+                        title={isDomainInvalid ? `Warning: ${domainStatus.message}` : "Click to edit"}
+                        className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium animate-in zoom-in-95 duration-200 cursor-pointer transition-all hover:ring-2 hover:ring-primary/30 ${!isValid
+                          ? "bg-destructive/10 text-destructive border border-destructive/20"
                           : isDomainInvalid
                             ? "bg-orange-500/10 text-orange-600 border border-orange-500/30"
                             : "bg-primary/10 text-primary border border-primary/20"
-                      }`}
-                    >
-                      {email}
-                      <button 
-                        type="button" 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setEmailData({...emailData, cc: emailData.cc.filter((_, i) => i !== index)});
-                        }}
-                        className="hover:bg-black/5 rounded-full p-0.5 transition-colors"
+                          }`}
                       >
-                        <X size={12} />
-                      </button>
-                    </div>
-                  );
-                })}
-                <input 
-                  className="flex-1 bg-transparent border-none outline-none text-sm min-w-[120px] placeholder:text-muted-foreground/50"
-                  placeholder={emailData.cc.length === 0 ? "Add email and press Enter..." : ""}
-                  value={ccInput} 
-                  onChange={e => {
-                    setCcInput(e.target.value);
-                    if (e.target.value.trim()) setEmailErrors({ ...emailErrors, cc: "" });
-                  }}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' || e.key === ',') {
-                      e.preventDefault();
+                        {email}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEmailData({ ...emailData, cc: emailData.cc.filter((_, i) => i !== index) });
+                          }}
+                          className="hover:bg-black/5 rounded-full p-0.5 transition-colors"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                  <input
+                    className="flex-1 bg-transparent border-none outline-none text-sm min-w-[120px] placeholder:text-muted-foreground/50"
+                    name="cc"
+                    placeholder={emailData.cc.length === 0 ? "Add email and press Enter..." : ""}
+                    value={ccInput || ""}
+                    onChange={e => {
+                      setCcInput(e.target.value);
+                      if (e.target.value.trim()) setEmailErrors({ ...emailErrors, cc: "" });
+                    }}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' || e.key === ',') {
+                        e.preventDefault();
+                        const val = ccInput.trim().replace(/,$/, '');
+                        if (val && !emailData.cc.includes(val)) {
+                          setEmailData({ ...emailData, cc: [...emailData.cc, val] });
+                          setCcInput("");
+                          checkDomain(val);
+                        }
+                      } else if (e.key === 'Backspace' && !ccInput && emailData.cc.length > 0) {
+                        setEmailData({ ...emailData, cc: emailData.cc.slice(0, -1) });
+                      }
+                    }}
+                    onBlur={() => {
                       const val = ccInput.trim().replace(/,$/, '');
                       if (val && !emailData.cc.includes(val)) {
-                        setEmailData({...emailData, cc: [...emailData.cc, val]});
+                        setEmailData({ ...emailData, cc: [...emailData.cc, val] });
                         setCcInput("");
                         checkDomain(val);
                       }
-                    } else if (e.key === 'Backspace' && !ccInput && emailData.cc.length > 0) {
-                      setEmailData({...emailData, cc: emailData.cc.slice(0, -1)});
-                    }
-                  }}
-                  onBlur={() => {
-                    const val = ccInput.trim().replace(/,$/, '');
-                    if (val && !emailData.cc.includes(val)) {
-                      setEmailData({...emailData, cc: [...emailData.cc, val]});
-                      setCcInput("");
-                      checkDomain(val);
-                    }
+                    }}
+                  />
+                </div>
+                <p className="text-[10px] text-muted-foreground mt-1 ml-1 font-medium italic">
+                  Press Enter or Comma to add • Click a tag to edit typos
+                </p>
+              </div>
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Subject <span className="text-destructive">*</span></label>
+                <input
+                  name="subject"
+                  className={`input-field ${emailErrors.subject ? "border-destructive focus:border-destructive focus:ring-destructive/20" : ""}`}
+                  placeholder="Meeting follow-up"
+                  value={emailData.subject || ""}
+                  onChange={e => {
+                    setEmailData({ ...emailData, subject: e.target.value });
+                    if (e.target.value.trim()) setEmailErrors({ ...emailErrors, subject: "" });
                   }}
                 />
+                {emailErrors.subject && <p className="text-xs text-destructive font-medium">{emailErrors.subject}</p>}
               </div>
-              <p className="text-[10px] text-muted-foreground mt-1.5 ml-1 font-medium italic">
-                Press Enter or Comma to add • Click a tag to edit typos
-              </p>
-            </div>
-            <div className="grid gap-2">
-              <label className="text-sm font-medium">Subject <span className="text-destructive">*</span></label>
-              <input 
-                className={`input-field ${emailErrors.subject ? "border-destructive focus:border-destructive focus:ring-destructive/20" : ""}`}
-                placeholder="Meeting follow-up" 
-                value={emailData.subject} 
-                onChange={e => {
-                  setEmailData({...emailData, subject: e.target.value});
-                  if (e.target.value.trim()) setEmailErrors({...emailErrors, subject: ""});
-                }} 
-              />
-              {emailErrors.subject && <p className="text-xs text-destructive font-medium">{emailErrors.subject}</p>}
-            </div>
-            <div className="grid gap-2">
-              <label className="text-sm font-medium">Message Body <span className="text-destructive">*</span></label>
-              <textarea 
-                className={`input-field min-h-[200px] ${emailErrors.body ? "border-destructive focus:border-destructive focus:ring-destructive/20" : ""}`}
-                placeholder="Type your message here..." 
-                value={emailData.body} 
-                onChange={e => {
-                  setEmailData({...emailData, body: e.target.value});
-                  if (e.target.value.trim()) setEmailErrors({...emailErrors, body: ""});
-                }} 
-              />
-              {emailErrors.body && <p className="text-xs text-destructive font-medium">{emailErrors.body}</p>}
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Message Body <span className="text-destructive">*</span></label>
+                <div className="[&_.ql-editor]:min-h-[180px]">
+                  <ReactQuill
+                    theme="snow"
+                    value={emailData.body}
+                    onChange={(content, delta, source, editor) => {
+                      setEmailData({ ...emailData, body: content });
+                      if (editor.getText().trim()) setEmailErrors({ ...emailErrors, body: "" });
+                    }}
+                    className="bg-card text-foreground"
+                    placeholder="Type your message here..."
+                  />
+                </div>
+                {emailErrors.body && <p className="text-xs text-destructive font-medium">{emailErrors.body}</p>}
+              </div>
             </div>
           </div>
-          <DialogFooter>
+
+          <DialogFooter className="p-6 pt-2 border-t flex-shrink-0">
             <button className="btn-secondary" onClick={() => {
               setIsEmailModalOpen(false);
               setEmailErrors({});
             }}>Cancel</button>
-            <button 
-              className={`btn-primary flex items-center gap-2 ${(emailData.cc.some(e => !/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(e)) || isSubmitting) ? "opacity-50 cursor-not-allowed" : ""}`} 
+            <button
+              className={`btn-primary flex items-center justify-center gap-2 ${(emailData.cc.some(e => !/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(e)) || isSubmitting) ? "opacity-50 cursor-not-allowed" : ""}`}
               onClick={sendEmail}
               disabled={emailData.cc.some(e => !/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(e)) || isSubmitting}
             >
@@ -1580,57 +1707,67 @@ export default function LeadDetail() {
         </DialogContent>
       </Dialog>
       {/* Call Outcome Modal (Section 9a) */}
-      <Dialog open={isCallModalOpen} onOpenChange={setIsCallModalOpen}>
-        <DialogContent aria-describedby={undefined} className="w-[90vw] max-w-md dark:bg-card">
-          <DialogHeader>
+      <Dialog
+        open={isCallModalOpen}
+        onOpenChange={setIsCallModalOpen}
+      >
+        <DialogContent aria-describedby={undefined} className="w-[90vw] max-w-md dark:bg-card p-0 overflow-hidden !flex !flex-col max-h-[90vh]">
+          <DialogHeader className="p-6 pb-2 border-b flex-shrink-0">
             <DialogTitle className="dark:text-foreground">Log Call Outcome</DialogTitle>
             <p className="text-sm text-muted-foreground mt-1">Calling: {lead?.contacts?.[0]?.name || "Unknown"} • {lead?.contacts?.[0]?.direct_phone || lead?.telephone}</p>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
-              <label className="text-sm font-medium">Outcome</label>
-              <div className="relative p-1 bg-accent/50 rounded-xl border border-border/50 flex flex-wrap gap-1">
-                {[
-                  "Interested", 
-                  "Not Interested", 
-                  "Follow-Up Needed", 
-                  "Left Voicemail", 
-                  "No Answer", 
-                  "Wrong Number"
-                ].map((outcome) => (
-                  <button
-                    key={outcome}
-                    onClick={() => setCallOutcome(outcome)}
-                    className={`flex-1 min-w-[120px] py-2 px-2 text-[10px] font-bold rounded-lg transition-all relative z-10 ${
-                      callOutcome === outcome 
-                        ? "text-primary dark:text-foreground" 
+          <div className="flex-1 overflow-y-auto p-6 py-4 custom-scrollbar min-h-0">
+            <div className="grid gap-4">
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Outcome</label>
+                <div className="relative p-1 bg-accent/50 rounded-xl border border-border/50 flex flex-wrap gap-1">
+                  {[
+                    "Interested",
+                    "Not Interested",
+                    "Follow-Up Needed",
+                    "Left Voicemail",
+                    "No Answer",
+                    "Wrong Number"
+                  ].map((outcome) => (
+                    <button
+                      key={outcome}
+                      onClick={() => setCallOutcome(outcome)}
+                      className={`flex-1 min-w-[120px] py-2 px-2 text-[10px] font-bold rounded-lg transition-all relative z-10 ${callOutcome === outcome
+                        ? "text-primary dark:text-foreground"
                         : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    {callOutcome === outcome && (
-                      <div className="absolute inset-0 bg-white dark:bg-card shadow-sm rounded-lg -z-10 animate-in zoom-in-95 duration-200" />
-                    )}
-                    {outcome}
-                  </button>
-                ))}
+                        }`}
+                    >
+                      {callOutcome === outcome && (
+                        <div className="absolute inset-0 bg-white dark:bg-card shadow-sm rounded-lg -z-10 animate-in zoom-in-95 duration-200" />
+                      )}
+                      {outcome}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Call Notes</label>
+                <textarea
+                  name="notes"
+                  className="input-field min-h-[100px]"
+                  placeholder="Briefly summarize the conversation..."
+                  value={callNotes || ""}
+                  onChange={e => setCallNotes(e.target.value)}
+                />
+              </div>
+              <div className="mt-4 p-3 rounded-xl bg-orange-500/10 border border-orange-500/20 text-orange-600 dark:text-orange-400">
+                <p className="text-[10px] font-medium text-center">
+                  <span className="font-bold uppercase mr-1">Important:</span>
+                  Ensure you click <strong>'Save'</strong> in the JustCall dialer and <strong>'Log & Close'</strong> here to sync activity.
+                </p>
               </div>
             </div>
-            <div className="grid gap-2">
-              <label className="text-sm font-medium">Call Notes</label>
-              <textarea className="input-field min-h-[100px]" placeholder="Briefly summarize the conversation..." value={callNotes} onChange={e => setCallNotes(e.target.value)} />
-            </div>
-            <div className="mt-4 p-3 rounded-xl bg-orange-500/10 border border-orange-500/20 text-orange-600 dark:text-orange-400">
-              <p className="text-[10px] font-medium text-center">
-                <span className="font-bold uppercase mr-1">Important:</span>
-                Ensure you click <strong>'Save'</strong> in the JustCall dialer and <strong>'Log & Close'</strong> here to sync activity.
-              </p>
-            </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="p-6 pt-2 border-t flex-shrink-0">
             <button className="btn-secondary" onClick={() => setIsCallModalOpen(false)}>Cancel</button>
-            <button 
+            <button
               disabled={isSubmitting}
-              className={`btn-primary ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`} 
+              className={`btn-primary ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`}
               onClick={() => logCall()}
             >
               {isSubmitting ? "Logging..." : "Log & Close"}
@@ -1640,44 +1777,50 @@ export default function LeadDetail() {
       </Dialog>
 
       {/* SMS Modal */}
-      <Dialog open={isSmsModalOpen} onOpenChange={(open) => {
-        setIsSmsModalOpen(open);
-        if (!open) setSmsErrors({});
-      }}>
-        <DialogContent aria-describedby={undefined} className="w-[90vw] max-w-md dark:bg-card">
-          <DialogHeader><DialogTitle className="dark:text-foreground">Send SMS</DialogTitle></DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid gap-1">
-              <label className="text-xs font-bold text-muted-foreground uppercase">To</label>
-              <div className="p-2 bg-accent/30 rounded border text-sm">{selectedContactForSms?.name} ({selectedContactForSms?.direct_phone || selectedContactForSms?.email})</div>
-            </div>
-            <div className="grid gap-2">
-              <label className="text-sm font-medium">Message <span className="text-destructive">*</span></label>
-              <textarea 
-                className={`input-field min-h-[120px] ${smsErrors.message ? "border-destructive focus:border-destructive focus:ring-destructive/20" : ""}`}
-                placeholder="Type your SMS message..." 
-                value={smsData.message} 
-                onChange={e => {
-                  setSmsData({message: e.target.value});
-                  if (e.target.value.trim()) setSmsErrors({});
-                }} 
-              />
-              <div className="flex justify-between items-center">
-                {smsErrors.message ? (
+      <Dialog
+        open={isSmsModalOpen}
+        onOpenChange={(open) => {
+          setIsSmsModalOpen(open);
+          if (!open) setSmsErrors({});
+        }}
+      >
+        <DialogContent aria-describedby={undefined} className="w-[90vw] max-w-md dark:bg-card p-0 overflow-hidden !flex !flex-col max-h-[90vh]">
+          <DialogHeader className="p-6 pb-2 border-b flex-shrink-0"><DialogTitle className="dark:text-foreground">Send SMS</DialogTitle></DialogHeader>
+          <div className="flex-1 overflow-y-auto p-6 py-4 custom-scrollbar min-h-0">
+            <div className="grid gap-4">
+              <div className="grid gap-1">
+                <label className="text-xs font-bold text-muted-foreground uppercase">To</label>
+                <div className="p-2 bg-accent/30 rounded border text-sm">{selectedContactForSms?.name} ({selectedContactForSms?.direct_phone || selectedContactForSms?.email})</div>
+              </div>
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Message <span className="text-destructive">*</span></label>
+                <textarea
+                  name="message"
+                  className={`input-field min-h-[120px] ${smsErrors.message ? "border-destructive focus:border-destructive focus:ring-destructive/20" : ""}`}
+                  placeholder="Type your SMS message..."
+                  value={smsData.message || ""}
+                  onChange={e => {
+                    setSmsData({ message: e.target.value });
+                    if (e.target.value.trim()) setSmsErrors({});
+                  }}
+                />
+                <div className="flex justify-between items-center">
+                  {smsErrors.message ? (
                     <p className="text-xs text-destructive font-medium">{smsErrors.message}</p>
-                ) : <span />}
-                <p className="text-xs text-muted-foreground">{smsData.message.length} chars (approx {Math.ceil((smsData.message.length || 1) / 160)} SMS)</p>
+                  ) : <span />}
+                  <p className="text-xs text-muted-foreground">{smsData.message.length} chars (approx {Math.ceil((smsData.message.length || 1) / 160)} SMS)</p>
+                </div>
               </div>
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="p-6 pt-2 border-t flex-shrink-0">
             <button className="btn-secondary" onClick={() => {
               setIsSmsModalOpen(false);
               setSmsErrors({});
             }}>Cancel</button>
-            <button 
+            <button
               disabled={isSubmitting}
-              className={`btn-primary flex items-center gap-2 ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`} 
+              className={`btn-primary flex items-center justify-center gap-2 ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`}
               onClick={sendSms}
             >
               <MessageSquare size={16} /> {isSubmitting ? "Sending..." : "Send SMS"}
@@ -1686,35 +1829,41 @@ export default function LeadDetail() {
         </DialogContent>
       </Dialog>
       {/* Add Note Modal */}
-      <Dialog open={isNoteModalOpen} onOpenChange={(open) => {
-        setIsNoteModalOpen(open);
-        if (!open) setNoteError(false);
-      }}>
-        <DialogContent aria-describedby={undefined} className="w-[90vw] max-w-md dark:bg-card">
-          <DialogHeader><DialogTitle className="dark:text-foreground">Add Note</DialogTitle></DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
-              <label className="text-sm font-medium">Note Details</label>
-              <textarea 
-                className={`input-field min-h-[150px] ${noteError ? "border-destructive focus:border-destructive focus:ring-destructive/20" : ""}`} 
-                placeholder="Type your notes here..." 
-                value={noteContent} 
-                onChange={e => {
-                  setNoteContent(e.target.value);
-                  if (e.target.value.trim()) setNoteError(false);
-                }} 
-              />
-              {noteError && <p className="text-xs text-destructive mt-1 font-medium">Please fill the notes first</p>}
+      <Dialog
+        open={isNoteModalOpen}
+        onOpenChange={(open) => {
+          setIsNoteModalOpen(open);
+          if (!open) setNoteError(false);
+        }}
+      >
+        <DialogContent aria-describedby={undefined} className="w-[90vw] max-w-md dark:bg-card p-0 overflow-hidden !flex !flex-col max-h-[90vh]">
+          <DialogHeader className="p-6 pb-2 border-b flex-shrink-0"><DialogTitle className="dark:text-foreground">Add Note</DialogTitle></DialogHeader>
+          <div className="flex-1 overflow-y-auto p-6 py-4 custom-scrollbar min-h-0">
+            <div className="grid gap-4">
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Note Details</label>
+                <textarea
+                  name="note"
+                  className={`input-field min-h-[150px] ${noteError ? "border-destructive focus:border-destructive focus:ring-destructive/20" : ""}`}
+                  placeholder="Type your notes here..."
+                  value={noteContent || ""}
+                  onChange={e => {
+                    setNoteContent(e.target.value);
+                    if (e.target.value.trim()) setNoteError(false);
+                  }}
+                />
+                {noteError && <p className="text-xs text-destructive mt-1 font-medium">Please fill the notes first</p>}
+              </div>
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="p-6 pt-2 border-t flex-shrink-0">
             <button className="btn-secondary" onClick={() => {
               setIsNoteModalOpen(false);
               setNoteError(false);
             }}>Cancel</button>
-            <button 
+            <button
               disabled={isSubmitting}
-              className={`btn-primary ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`} 
+              className={`btn-primary ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`}
               onClick={() => addNote()}
             >
               {isSubmitting ? "Saving..." : "Save Note"}
@@ -1722,10 +1871,13 @@ export default function LeadDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      
+
       {/* Mark Done Confirmation Modal */}
-      <Dialog open={isConfirmDoneOpen} onOpenChange={setIsConfirmDoneOpen}>
-        <DialogContent aria-describedby={undefined} className="w-[90vw] max-w-sm dark:bg-card">
+      <Dialog
+        open={isConfirmDoneOpen}
+        onOpenChange={setIsConfirmDoneOpen}
+      >
+        <DialogContent aria-describedby={undefined} className="w-[90vw] max-w-sm dark:bg-card max-h-[90vh] overflow-y-auto custom-scrollbar">
           <DialogHeader>
             <DialogTitle className="dark:text-foreground text-center">Confirm Completion</DialogTitle>
           </DialogHeader>
@@ -1736,9 +1888,9 @@ export default function LeadDetail() {
           </div>
           <DialogFooter className="flex-row gap-2">
             <button className="btn-secondary flex-1" onClick={() => setIsConfirmDoneOpen(false)}>Cancel</button>
-            <button 
+            <button
               disabled={isSubmitting}
-              className={`btn-primary flex-1 bg-success hover:bg-success/90 ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`} 
+              className={`btn-primary flex-1 bg-success hover:bg-success/90 ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`}
               onClick={handleConfirmDone}
             >
               {isSubmitting ? "Processing..." : "Yes, Mark Done"}
@@ -1748,8 +1900,11 @@ export default function LeadDetail() {
       </Dialog>
 
       {/* Delete Note Confirmation Modal */}
-      <Dialog open={isDeleteNoteModalOpen} onOpenChange={setIsDeleteNoteModalOpen}>
-        <DialogContent aria-describedby={undefined} className="w-[90vw] max-w-sm dark:bg-card">
+      <Dialog
+        open={isDeleteNoteModalOpen}
+        onOpenChange={setIsDeleteNoteModalOpen}
+      >
+        <DialogContent aria-describedby={undefined} className="w-[90vw] max-sm dark:bg-card max-h-[90vh] overflow-y-auto custom-scrollbar">
           <DialogHeader>
             <DialogTitle className="dark:text-foreground text-center">Delete Note</DialogTitle>
           </DialogHeader>
@@ -1760,9 +1915,9 @@ export default function LeadDetail() {
           </div>
           <DialogFooter className="flex-row gap-2">
             <button className="btn-secondary flex-1" onClick={() => setIsDeleteNoteModalOpen(false)}>Cancel</button>
-            <button 
+            <button
               disabled={isSubmitting}
-              className={`btn-primary flex-1 bg-destructive hover:bg-destructive/90 ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`} 
+              className={`btn-primary flex-1 bg-destructive hover:bg-destructive/90 ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`}
               onClick={deleteNote}
             >
               {isSubmitting ? "Deleting..." : "Delete"}
@@ -1773,3 +1928,13 @@ export default function LeadDetail() {
     </AppLayout>
   );
 }
+
+
+
+
+
+
+
+
+
+

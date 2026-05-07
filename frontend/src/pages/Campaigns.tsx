@@ -1,4 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from "react";
+import ReactQuill from 'react-quill-new';
+import 'react-quill-new/dist/quill.snow.css';
 import api from "../api/api";
 import AppLayout from "../layout/AppLayout";
 import {
@@ -24,6 +26,7 @@ import {
   AlertCircle,
   FileSpreadsheet,
   Upload,
+  Download,
   RefreshCw,
   ArrowRight,
   Trash2,
@@ -31,7 +34,12 @@ import {
   Play,
   Pause,
   Save,
-  MessageSquare
+  MessageSquare,
+  Send,
+  X,
+  CalendarPlus,
+  Zap,
+  FileText
 } from "lucide-react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 
@@ -63,18 +71,18 @@ const RecordingPlayer = ({ url, duration }: { url?: string, duration?: number })
   return (
     <div className="mt-3 p-3 bg-accent/30 dark:bg-accent/10 rounded-2xl border border-primary/20 flex flex-col gap-3 group/audio max-w-full shadow-sm">
       <div className="flex items-center gap-3">
-        <button 
+        <button
           onClick={togglePlay}
           className="w-9 h-9 rounded-full flex items-center justify-center bg-primary text-white shadow-lg hover:scale-105 transition-all shrink-0"
         >
           {isPlaying ? <Pause size={16} /> : <Play size={16} className="ml-0.5" />}
         </button>
-        
+
         <div className="flex-1 min-w-0">
           <p className="text-[10px] font-bold uppercase tracking-widest text-primary/70 mb-0.5">Call Recording</p>
           <div className="flex items-center justify-between">
-             <span className="text-[11px] font-bold text-foreground">{formatTime(currentTime)}</span>
-             <span className="text-[10px] font-medium text-muted-foreground">{formatTime(totalDuration)}</span>
+            <span className="text-[11px] font-bold text-foreground">{formatTime(currentTime)}</span>
+            <span className="text-[10px] font-medium text-muted-foreground">{formatTime(totalDuration)}</span>
           </div>
         </div>
 
@@ -84,14 +92,14 @@ const RecordingPlayer = ({ url, duration }: { url?: string, duration?: number })
       </div>
 
       <div className="relative h-1.5 bg-muted rounded-full overflow-hidden">
-        <div 
+        <div
           className="absolute left-0 top-0 h-full bg-primary transition-all duration-150"
           style={{ width: `${totalDuration ? (currentTime / totalDuration) * 100 : 0}%` }}
         />
-        <input 
-          type="range" 
-          min="0" 
-          max={totalDuration || 0} 
+        <input
+          type="range"
+          min="0"
+          max={totalDuration || 0}
           step="0.1"
           value={currentTime}
           onChange={(e) => {
@@ -103,7 +111,7 @@ const RecordingPlayer = ({ url, duration }: { url?: string, duration?: number })
         />
       </div>
 
-      <audio 
+      <audio
         ref={audioRef}
         src={url}
         onTimeUpdate={() => setCurrentTime(audioRef.current?.currentTime || 0)}
@@ -114,8 +122,8 @@ const RecordingPlayer = ({ url, duration }: { url?: string, duration?: number })
   );
 };
 
-import { useCampaignStore } from "../store/campaignStore";
-import { useLeadStore, Lead } from "../store/schoolStore";
+import { useCampaignStore, Campaign } from "../store/campaignStore";
+import { useLeadStore, Lead, Contact } from "../store/schoolStore";
 import { toast } from "sonner";
 import { countryCodes } from "../utils/countryCodes";
 import {
@@ -133,18 +141,39 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 
-// --- Types ---
-interface Campaign {
-  _id: string;
-  name: string;
-  createdAt: string;
-}
+// --- Helpers ---
+const formatTimeForInput = (timeStr?: string) => {
+  if (!timeStr) return "";
+  if (/^\d{2}:\d{2}$/.test(timeStr)) return timeStr;
+  const match = timeStr.match(/(\d+):(\d+)\s*(AM|PM)/i);
+  if (match) {
+    const [_, hours, mins, ampm] = match;
+    let h = parseInt(hours);
+    if (ampm.toUpperCase() === "PM" && h < 12) h += 12;
+    if (ampm.toUpperCase() === "AM" && h === 12) h = 0;
+    return `${h.toString().padStart(2, '0')}:${mins.padStart(2, '0')}`;
+  }
+  return timeStr;
+};
 
+// --- Types ---
+
+interface CRMError {
+  response?: {
+    data?: {
+      message?: string;
+      error?: string;
+      conflicts?: Array<{ summary: string; start: string }>;
+    };
+    status?: number;
+  };
+  message?: string;
+}
 interface Note {
   _id: string;
   content: string;
   type: 'note' | 'status_change' | 'email' | 'meeting' | 'call';
-  metadata?: any;
+  metadata?: { subject?: string; recording_url?: string; recording_duration?: number; duration?: number; [key: string]: unknown; };
   createdAt: string;
 }
 
@@ -155,6 +184,15 @@ interface FollowUp {
   type: string;
   priority: string;
   status: string;
+}
+
+
+interface ImportResult {
+  totalRows: number;
+  imported: number;
+  skipped: number;
+  duplicates: number;
+  errors: Array<{ row: number; reason: string }>;
 }
 
 
@@ -183,6 +221,13 @@ const Campaigns = () => {
   }, [campaignSearch]);
 
   useEffect(() => {
+    if (leadSearchIndex >= 0) {
+      const el = document.getElementById(`lead-item-${leadSearchIndex}`);
+      el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }, [leadSearchIndex]);
+
+  useEffect(() => {
     setLeadSearchIndex(-1);
   }, [leadSearch, statusFilter]);
 
@@ -196,15 +241,19 @@ const Campaigns = () => {
     name: "",
     type: "",
     category_group: "",
+    department: "",
     main_contact_name: "",
     main_contact_email: "",
     telephone: "",
+    telephone_extension: "",
     city: "",
     state: "",
     address: "",
     address_number: "",
     zip: "",
     website: "",
+    start_time: "",
+    end_time: "",
     // Primary Contact Person
     contact_title: "",
     contact_department: "",
@@ -216,6 +265,7 @@ const Campaigns = () => {
     // Secondary Contact
     secondary_contact_name: "",
     secondary_contact_title: "",
+    secondary_contact_department: "",
     secondary_contact_phone: "",
     secondary_contact_extension: "",
     secondary_contact_email: "",
@@ -228,7 +278,7 @@ const Campaigns = () => {
   const [callOutcome, setCallOutcome] = useState("Answered - Interested");
   const [callNotes, setCallNotes] = useState("");
   const [callDuration, setCallDuration] = useState("");
-  const [selectedContactForCall, setSelectedContactForCall] = useState<any>(null);
+  const [selectedContactForCall, setSelectedContactForCall] = useState<Contact | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [showSecondary, setShowSecondary] = useState(false);
   const [customTitle, setCustomTitle] = useState("");
@@ -244,7 +294,7 @@ const Campaigns = () => {
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importStatus, setImportStatus] = useState<"idle" | "uploading" | "success" | "error">("idle");
-  const [importResult, setImportResult] = useState<any>(null);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
 
   // Follow-up Modal
   const [isFollowUpModalOpen, setIsFollowUpModalOpen] = useState(false);
@@ -258,6 +308,38 @@ const Campaigns = () => {
   const [isConfirmDoneOpen, setIsConfirmDoneOpen] = useState(false);
   const [taskToComplete, setTaskToComplete] = useState<string | null>(null);
 
+  // Email Modal
+  const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
+  const [emailData, setEmailData] = useState({ subject: "Following up", body: "", cc: [] as string[], to: "" });
+  const [ccInput, setCcInput] = useState("");
+  const [emailErrors, setEmailErrors] = useState<Record<string, string>>({});
+  const [verifiedDomains, setVerifiedDomains] = useState<Record<string, { valid: boolean; message?: string }>>({});
+
+  const checkDomain = async (email: string) => {
+    const domain = email.split('@')[1];
+    if (!domain || verifiedDomains[domain]) return;
+    try {
+      const res = await api.get(`/emails/verify-domain?email=${email}`);
+      setVerifiedDomains(prev => ({ ...prev, [domain]: { valid: res.data.valid, message: res.data.message } }));
+    } catch (error) { console.error(error); }
+  };
+
+  // SMS Modal
+  const [isSmsModalOpen, setIsSmsModalOpen] = useState(false);
+  const [smsMessage, setSmsMessage] = useState("");
+
+  // Meeting Modal
+  const [isMeetingModalOpen, setIsMeetingModalOpen] = useState(false);
+  const [meetingData, setMeetingData] = useState({ title: "", date_time: "", type: "Virtual", notes: "" });
+  const [meetingErrors, setMeetingErrors] = useState<Record<string, string>>({});
+  const [meetingCc, setMeetingCc] = useState<string[]>([]);
+  const [meetingCcInput, setMeetingCcInput] = useState("");
+
+  const truncateName = (name: string, limit: number) => {
+    if (!name) return "";
+    return name.length > limit ? name.substring(0, limit) + "..." : name;
+  };
+
   // --- Data Fetching ---
 
   const [searchParams] = useSearchParams();
@@ -269,7 +351,7 @@ const Campaigns = () => {
     try {
       const r = await api.get("/campaigns");
       setCampaigns(r.data);
-    } catch { }
+    } catch (error) { console.error(error); }
     setLoadingCampaigns(false);
   };
 
@@ -278,17 +360,17 @@ const Campaigns = () => {
     if (!silent) setLoadingLeads(true);
     try {
       const r = await api.get(`/leads/campaign/${compId}`);
-      
+
       // Use functional update to check if the campaign we fetched is still the selected one
       setLeads(prevLeads => {
         // If the leads returned don't belong to the campaign currently in context, ignore them
         // (Assuming if array is not empty, we check the first lead's campaign_id)
         if (r.data.length > 0 && r.data[0].campaign_id !== compId) return prevLeads;
-        
+
         // Only update if data is actually different to prevent unnecessary re-renders
         return JSON.stringify(prevLeads) === JSON.stringify(r.data) ? prevLeads : r.data;
       });
-    } catch { }
+    } catch (error) { console.error(error); }
     if (!silent) setLoadingLeads(false);
   }, []); // Removed selectedLead dependency
 
@@ -313,7 +395,7 @@ const Campaigns = () => {
       setFollowUps(prev => JSON.stringify(prev) === JSON.stringify(followUpsRes.data) ? prev : followUpsRes.data);
 
       // Use functional update to avoid dependency on selectedLead and prevent race conditions
-      setSelectedLead((prev: Lead | null) => {
+      setSelectedLead((prev) => {
         const newData = leadRes.data as Lead;
 
         // Also update the middle leads list so the status/last_contacted matches
@@ -330,7 +412,7 @@ const Campaigns = () => {
         if (!prev) return newData;
         return JSON.stringify(prev) === JSON.stringify(newData) ? prev : newData;
       });
-    } catch { }
+    } catch (error) { console.error(error); }
     if (!silent) setLoadingDetails(false);
   }, [setSelectedLead, setLeads]);
 
@@ -342,6 +424,7 @@ const Campaigns = () => {
       // Otherwise fetch them
       fetchCampaigns();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaigns.length]); // Re-run if campaigns length changes
 
 
@@ -352,6 +435,7 @@ const Campaigns = () => {
       setLeads([]);
       setSelectedLead(null);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCampaign?._id, statusLabels]);
 
 
@@ -360,6 +444,7 @@ const Campaigns = () => {
       // Fetch details when lead changes or global status settings change
       fetchDetails(selectedLead._id);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedLead?._id, statusLabels]); // No more setInterval here
 
 
@@ -387,8 +472,8 @@ const Campaigns = () => {
       setIsCreateCampaignOpen(false);
       await fetchCampaigns();
       setSelectedCampaign(res.data);
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || "Failed to create campaign");
+    } catch (err: unknown) {
+      toast.error((err as CRMError).response?.data?.message || "Failed to create campaign");
     } finally {
       setIsSubmitting(false);
     }
@@ -471,12 +556,13 @@ const Campaigns = () => {
       toast.success("Lead created");
       setIsCreateLeadOpen(false);
       setLeadFormData({
-        name: "", type: "", category_group: "", main_contact_name: "", main_contact_email: "",
-        telephone: "", city: "", state: "", address: "", address_number: "", zip: "", website: "",
+        name: "", type: "", category_group: "", department: "", main_contact_name: "", main_contact_email: "",
+        telephone: "", telephone_extension: "", city: "", state: "", address: "", address_number: "", zip: "", website: "",
+        start_time: "", end_time: "",
         contact_title: "", contact_department: "", contact_direct_phone: "", contact_extension: "",
         contact_email: "", contact_best_time: "", contact_preferred_method: "",
-        secondary_contact_name: "", secondary_contact_title: "", secondary_contact_phone: "",
-        secondary_contact_extension: "", secondary_contact_email: "",
+        secondary_contact_name: "", secondary_contact_title: "", secondary_contact_department: "",
+        secondary_contact_phone: "", secondary_contact_extension: "", secondary_contact_email: "",
         contact_phone_prefix: "+1", secondary_phone_prefix: "+1", telephone_prefix: "+1"
       });
       setErrors({});
@@ -486,9 +572,27 @@ const Campaigns = () => {
       setIsSubmittingLead(false);
       await fetchLeads(selectedCampaign._id);
       setSelectedLead(res.data);
-    } catch (err: any) {
-      toast.error(err.response?.data?.error || "Failed to create lead");
+    } catch (err: unknown) {
+      toast.error((err as CRMError).response?.data?.error || "Failed to create lead");
       setIsSubmittingLead(false);
+    }
+  };
+
+  const handleExport = async () => {
+    if (!selectedCampaign) return;
+    try {
+      const response = await api.get(`/leads/campaign/${selectedCampaign._id}/export`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `leads_${selectedCampaign.name.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      toast.success("Export successful");
+    } catch (err) {
+      console.error(err);
+      toast.error("Export failed");
     }
   };
 
@@ -520,7 +624,7 @@ const Campaigns = () => {
       setLeads(prev => prev.map(l => l._id === selectedLead._id ? { ...l, status: newStatus } : l));
 
       fetchDetails(selectedLead._id, true);
-    } catch { }
+    } catch (error) { console.error(error); }
   };
 
   const addNote = async () => {
@@ -531,7 +635,7 @@ const Campaigns = () => {
       toast.success("Note added");
       setNoteContent("");
       fetchDetails(selectedLead._id, true);
-    } catch { } finally {
+    } catch (error) { console.error(error); } finally {
       setIsSubmitting(false);
     }
   };
@@ -543,7 +647,7 @@ const Campaigns = () => {
       if (selectedLead) {
         fetchDetails(selectedLead._id, true);
       }
-    } catch { }
+    } catch (error) { console.error(error); }
   };
 
   const deleteAllNotes = async () => {
@@ -553,7 +657,7 @@ const Campaigns = () => {
       toast.success("All notes deleted");
       setIsDeleteAllConfirmOpen(false);
       fetchDetails(selectedLead._id, true);
-    } catch { }
+    } catch (error) { console.error(error); }
   };
 
   const submitFollowUp = async (force = false) => {
@@ -586,7 +690,7 @@ const Campaigns = () => {
     setIsSubmitting(true);
     try {
       await api.post(`/followups/${selectedLead._id}`, {
-        date_time: followUpDate,
+        date_time: new Date(followUpDate).toISOString(),
         type: followUpType,
         priority: followUpPriority,
         notes: followUpNotes,
@@ -602,8 +706,8 @@ const Campaigns = () => {
       setFuErrors({});
 
       fetchDetails(selectedLead._id, true);
-    } catch (err: any) {
-      if (err.response?.status === 409) {
+    } catch (err: unknown) {
+      if ((err as CRMError).response?.status === 409) {
         if (window.confirm("Conflict detected: Another follow-up is scheduled at this time. Schedule anyway?")) {
           setIsSubmitting(false);
           submitFollowUp(true);
@@ -620,7 +724,7 @@ const Campaigns = () => {
           }
         }
       } else {
-        toast.error(err.response?.data?.message || "Failed to schedule follow-up");
+        toast.error((err as CRMError).response?.data?.message || "Failed to schedule follow-up");
       }
     } finally {
       setIsSubmitting(false);
@@ -641,7 +745,7 @@ const Campaigns = () => {
       setIsConfirmDoneOpen(false);
       setTaskToComplete(null);
       fetchDetails(selectedLead._id, true);
-    } catch { } finally {
+    } catch (error) { console.error(error); } finally {
       setIsSubmitting(false);
     }
   };
@@ -657,7 +761,7 @@ const Campaigns = () => {
     setIsFollowUpModalOpen(true);
   };
 
-  const initiateCall = (lead: any, contact?: any) => {
+  const initiateCall = (lead: Lead, contact?: Contact) => {
     setSelectedContactForCall(contact || null);
     const phone = contact?.direct_phone || lead.telephone;
     if (phone) {
@@ -713,9 +817,110 @@ const Campaigns = () => {
 
 
   // --- Filters ---     
+
+  const sendQuickEmail = async () => {
+    const errors: Record<string, string> = {};
+    if (!emailData.subject.trim()) errors.subject = "Subject is required";
+    if (!emailData.body.trim()) errors.body = "Message body is required";
+    const recipientEmail = emailData.to?.trim();
+    if (!recipientEmail) errors.to = "Recipient email is required";
+    if (Object.keys(errors).length > 0) { setEmailErrors(errors); toast.error("Please fill all details"); return; }
+    setIsSubmitting(true);
+    try {
+      await api.post("/emails/send", { lead_id: selectedLead?._id, to: recipientEmail, cc: emailData.cc.join(", "), subject: emailData.subject, body: emailData.body });
+      toast.success("Email sent!");
+      setIsEmailModalOpen(false);
+      setEmailData({ subject: "Following up", body: "", cc: [], to: "" });
+      if (selectedLead) fetchDetails(selectedLead._id, true);
+    } catch { toast.error("Failed to send email"); }
+    finally { setIsSubmitting(false); }
+  };
+
+  const sendQuickSms = async () => {
+    if (!smsMessage.trim()) { toast.error("Please enter a message"); return; }
+    setIsSubmitting(true);
+    try {
+      const phone = (selectedLead as Lead)?.contacts?.[0]?.direct_phone || selectedLead?.telephone;
+      if (!phone) { toast.error("No phone number found"); return; }
+      await api.post("/justcall/send-sms", { lead_id: selectedLead?._id, to: phone, message: smsMessage });
+      toast.success("SMS sent!");
+      setIsSmsModalOpen(false);
+      setSmsMessage("");
+      if (selectedLead) fetchDetails(selectedLead._id, true);
+    } catch { toast.error("Failed to send SMS"); }
+    finally { setIsSubmitting(false); }
+  };
+
+  const scheduleQuickMeeting = async (force = false) => {
+    if (isSubmitting) return;
+    const errors: Record<string, string> = {};
+    if (!meetingData.title.trim()) errors.title = "Meeting title is required";
+    if (!meetingData.date_time) errors.date_time = "Date and time are required";
+    if (Object.keys(errors).length > 0) { setMeetingErrors(errors); return; }
+    setIsSubmitting(true);
+    try {
+      await api.post("/followups/" + selectedLead?._id, {
+        date_time: new Date(meetingData.date_time).toISOString(),
+        type: 'Meeting',
+        priority: 'High',
+        notes: `Meeting: ${meetingData.title}\nType: ${meetingData.type}\nNotes: ${meetingData.notes}`,
+        contact_id: selectedLead?.contacts?.[0]?._id,
+        cc_emails: meetingCc,
+        force
+      });
+      toast.success("Meeting scheduled and invite sent!");
+      setIsMeetingModalOpen(false);
+      setMeetingData({ title: "", date_time: "", type: "Virtual", notes: "" });
+      setMeetingCc([]);
+      setMeetingCcInput("");
+      setMeetingErrors({});
+      if (selectedLead) fetchDetails(selectedLead._id, true);
+    } catch (err: unknown) {
+      if ((err as CRMError).response?.status === 409) {
+        const conflict = (err as CRMError).response.data.conflicts[0];
+        if (window.confirm(`Conflict detected: "${conflict.summary}" at ${new Date(conflict.start).toLocaleTimeString()}. Schedule anyway?`)) {
+          setIsSubmitting(false);
+          scheduleQuickMeeting(true);
+          return;
+        } else {
+          try {
+            await api.post("/notes/" + selectedLead?._id, {
+              content: `The meeting "${meetingData.title}" scheduled for ${new Date(meetingData.date_time).toLocaleString()} was CANCELED due to a calendar conflict.`
+            });
+            if (selectedLead) fetchDetails(selectedLead._id, true);
+          } catch (noteErr) {
+            console.error("Failed to log conflict cancellation:", noteErr);
+          }
+        }
+      } else {
+        toast.error((err as CRMError).response?.data?.message || (err as CRMError).message || "Failed to schedule meeting");
+      }
+    }
+    finally { setIsSubmitting(false); }
+  };
   const filteredCampaigns = campaigns.filter(c =>
     c.name.toLowerCase().includes(campaignSearch.toLowerCase())
   );
+
+  const [campaignToDelete, setCampaignToDelete] = useState<Campaign | null>(null);
+
+  const handleDeleteCampaign = async () => {
+    if (!campaignToDelete) return;
+    try {
+      await api.delete(`/campaigns/${campaignToDelete._id}`);
+      toast.success(`"${campaignToDelete.name}" deleted successfully`);
+      if (selectedCampaign?._id === campaignToDelete._id) {
+        setSelectedCampaign(null);
+        setSelectedLead(null);
+      }
+      setCampaignToDelete(null);
+      // Refresh campaigns list
+      const res = await api.get('/campaigns');
+      useCampaignStore.getState().setCampaigns(res.data);
+    } catch {
+      toast.error('Failed to delete campaign');
+    }
+  };
 
   const filteredLeads = leads.filter(s => {
     const matchesSearch = s.name.toLowerCase().includes(leadSearch.toLowerCase()) ||
@@ -728,7 +933,18 @@ const Campaigns = () => {
     <AppLayout>
       <div className="h-auto xl:h-[calc(100vh-100px)] flex flex-col xl:flex-row gap-4 overflow-y-auto xl:overflow-x-auto xl:overflow-y-hidden p-1 custom-scrollbar">
 
-
+        {campaignToDelete && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+            <div className="bg-card p-6 rounded-xl shadow-xl w-full max-w-sm">
+              <h3 className="font-bold text-lg mb-2">Delete Campaign</h3>
+              <p className="text-sm text-muted-foreground mb-6">Are you sure you want to delete "{campaignToDelete.name}"? This action cannot be undone.</p>
+              <div className="flex gap-3 justify-end">
+                <button onClick={() => setCampaignToDelete(null)} className="px-4 py-2 text-sm font-medium hover:bg-accent rounded-lg">Cancel</button>
+                <button onClick={handleDeleteCampaign} className="px-4 py-2 text-sm font-medium bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-lg">Delete</button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* --- PANEL 1: Campaigns --- */}
         <div className="w-full xl:w-52 2xl:w-60 flex flex-col bg-card border rounded-xl shadow-sm overflow-hidden shrink-0">
@@ -770,14 +986,25 @@ const Campaigns = () => {
             {loadingCampaigns ? (
               <div className="p-4 text-center text-[10px] text-muted-foreground animate-pulse">Loading...</div>
             ) : filteredCampaigns.map((c, index) => (
-              <button
+              <div
                 key={c._id}
-                onClick={() => setSelectedCampaign(c)}
-                className={`w-full text-left p-3 rounded-lg flex items-center gap-3 transition-all mb-1 ${selectedCampaign?._id === c._id ? "bg-primary text-primary-foreground shadow-md" : index === campaignSearchIndex ? "bg-accent border-l-4 border-l-primary" : "hover:bg-accent text-foreground"}`}
+                className={`group relative w-full flex items-center rounded-lg mb-1 transition-all ${selectedCampaign?._id === c._id ? "bg-primary text-primary-foreground shadow-md" : index === campaignSearchIndex ? "bg-accent border-l-4 border-l-primary" : "hover:bg-accent text-foreground"}`}
               >
-                <Folder size={16} className={selectedCampaign?._id === c._id ? "text-primary-foreground" : "text-primary"} />
-                <span className="text-xs font-medium truncate">{c.name}</span>
-              </button>
+                <button
+                  onClick={() => setSelectedCampaign(c)}
+                  className="flex-1 text-left p-3 flex items-center gap-3 min-w-0"
+                >
+                  <Folder size={16} className={selectedCampaign?._id === c._id ? "text-primary-foreground" : "text-primary"} />
+                  <span className="text-xs font-medium truncate">{c.name}</span>
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setCampaignToDelete(c); }}
+                  className={`shrink-0 p-2 mr-1 rounded opacity-0 group-hover:opacity-100 transition-all hover:bg-destructive/20 hover:text-destructive ${selectedCampaign?._id === c._id ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}
+                  title="Delete campaign"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
             ))}
           </div>
         </div>
@@ -798,7 +1025,7 @@ const Campaigns = () => {
               <div className="p-4 border-b space-y-3">
                 <div className="flex items-center justify-between">
                   <h2 className="font-bold text-sm truncate">{selectedCampaign.name}</h2>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center justify-center gap-2">
                     <span className="text-[10px] bg-accent px-1.5 py-0.5 rounded-full font-bold text-muted-foreground">{filteredLeads.length}</span>
                     <button
                       onClick={() => setIsImportOpen(true)}
@@ -807,6 +1034,13 @@ const Campaigns = () => {
                     >
                       <Upload size={16} />
                     </button>
+                    {/* <button
+                      onClick={handleExport}
+                      className="p-1 hover:bg-accent rounded text-primary transition-colors"
+                      title="Export to Excel"
+                    >
+                      <Download size={16} />
+                    </button> */}
                     <button
                       onClick={() => setIsCreateLeadOpen(true)}
                       className="p-1 hover:bg-accent rounded text-primary transition-colors"
@@ -826,17 +1060,17 @@ const Campaigns = () => {
                     onKeyDown={e => {
                       if (e.key === 'ArrowDown') {
                         e.preventDefault();
-                        setLeadSearchIndex(prev => Math.min(prev + 1, filteredLeads.length - 1));
+                        setLeadSearchIndex(prev => (prev < filteredLeads.length - 1 ? prev + 1 : 0));
                       } else if (e.key === 'ArrowUp') {
                         e.preventDefault();
-                        setLeadSearchIndex(prev => Math.max(prev - 1, -1));
+                        setLeadSearchIndex(prev => (prev > 0 ? prev - 1 : filteredLeads.length - 1));
                       } else if (e.key === 'Enter' && leadSearchIndex >= 0) {
                         setSelectedLead(filteredLeads[leadSearchIndex]);
                       }
                     }}
                   />
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center justify-center gap-2">
                   <Filter size={12} className="text-muted-foreground" />
                   <select
                     className="text-[10px] bg-transparent border-none focus:ring-0 outline-none font-medium cursor-pointer"
@@ -859,6 +1093,7 @@ const Campaigns = () => {
                   filteredLeads.map((s, index) => (
                     <button
                       key={s._id}
+                      id={`lead-item-${index}`}
                       onClick={() => setSelectedLead(s)}
                       className={`w-full text-left p-3.5 hover:bg-gray-50 dark:hover:bg-accent/20 cursor-pointer transition-all duration-200 border-l-2 ${selectedLead?._id === s._id ? "bg-accent border-primary" : index === leadSearchIndex ? "bg-accent/50 border-l-4 border-l-primary" : "border-transparent"}`}
                     >
@@ -909,8 +1144,8 @@ const Campaigns = () => {
                 <div className="bg-card border rounded-xl p-4 shadow-sm shrink-0">
                   <div className="flex items-start justify-between">
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <h1 className="text-xl font-bold text-foreground leading-tight truncate">{selectedLead.name}</h1>
+                      <div className="flex items-center justify-start gap-2 min-w-0">
+                        <h1 className="text-xl font-bold text-foreground leading-tight truncate max-w-[180px] sm:max-w-[250px] xl:max-w-[350px]">{truncateName(selectedLead.name, 15)}</h1>
                         <button
                           onClick={() => navigate(`/lead/${selectedLead._id}`)}
                           className="p-1.5 hover:bg-accent rounded-lg text-primary transition-all shrink-0"
@@ -920,9 +1155,9 @@ const Campaigns = () => {
                         </button>
                       </div>
                       <div className="flex items-center gap-3 mt-1.5">
-                        <span className="text-xs text-muted-foreground flex items-center gap-1"><Info size={12} /> {selectedLead.type || "Lead"}</span>
+                        <span className="text-xs text-muted-foreground flex items-center gap-1"><Info size={12} /> {selectedLead.type || "Lead Type"}</span>
                         <span className="text-xs text-muted-foreground flex items-center gap-1"><MapPin size={12} /> {selectedLead.city}</span>
-                        <div className="flex items-center gap-2 ml-auto">
+                        <div className="flex items-center justify-center gap-2 ml-auto">
                           <button
                             onClick={() => initiateCall(selectedLead)}
                             className="bg-orange-500 hover:bg-orange-600 text-white px-3 py-1 rounded-lg font-bold text-[10px] flex items-center gap-1.5 shadow-sm transition-all active:scale-95"
@@ -942,13 +1177,48 @@ const Campaigns = () => {
                   </div>
                 </div>
 
+                {/* Quick Actions */}
+                <div className="bg-card border rounded-xl p-3 shadow-sm shrink-0">
+                  <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mb-2.5">Quick Actions</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button onClick={() => { const el = document.querySelector('textarea[placeholder="Add a note..."]') as HTMLTextAreaElement; el?.focus(); el?.scrollIntoView({ behavior: 'smooth' }); }} className="flex flex-col items-center gap-1.5 p-2.5 rounded-lg bg-accent/50 hover:bg-primary/10 border border-transparent hover:border-primary/20 transition-all group">
+                      <MessageSquare size={15} className="text-muted-foreground group-hover:text-primary" />
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground group-hover:text-primary">Add Note</span>
+                    </button>
+                    <button onClick={() => initiateCall(selectedLead)} className="flex flex-col items-center gap-1.5 p-2.5 rounded-lg bg-accent/50 hover:bg-orange-500/10 border border-transparent hover:border-orange-500/20 transition-all group">
+                      <Phone size={15} className="text-muted-foreground group-hover:text-orange-500" />
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground group-hover:text-orange-500">Make Call</span>
+                    </button>
+                    <button onClick={() => { setSmsMessage(""); setIsSmsModalOpen(true); }} className="flex flex-col items-center gap-1.5 p-2.5 rounded-lg bg-accent/50 hover:bg-blue-500/10 border border-transparent hover:border-blue-500/20 transition-all group">
+                      <MessageSquare size={15} className="text-muted-foreground group-hover:text-blue-500" />
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground group-hover:text-blue-500">Send SMS</span>
+                    </button>
+                    <button onClick={() => setIsFollowUpModalOpen(true)} className="flex flex-col items-center gap-1.5 p-2.5 rounded-lg bg-accent/50 hover:bg-green-500/10 border border-transparent hover:border-green-500/20 transition-all group">
+                      <CalendarPlus size={15} className="text-muted-foreground group-hover:text-green-500" />
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground group-hover:text-green-500">Follow-Up</span>
+                    </button>
+                    <button onClick={() => { setMeetingData({ title: "", date_time: "", type: "Virtual", notes: "" }); setIsMeetingModalOpen(true); }} className="flex flex-col items-center gap-1.5 p-2.5 rounded-lg bg-accent/50 hover:bg-purple-500/10 border border-transparent hover:border-purple-500/20 transition-all group">
+                      <Video size={15} className="text-muted-foreground group-hover:text-purple-500" />
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground group-hover:text-purple-500">Meeting</span>
+                    </button>
+                    <button onClick={() => {
+                      const contactEmail = (selectedLead as Lead).contacts?.[0]?.email || "";
+                      setEmailData({ subject: "Following up", body: "", cc: [], to: contactEmail });
+                      setIsEmailModalOpen(true);
+                    }} className="flex flex-col items-center gap-1.5 p-2.5 rounded-lg bg-accent/50 hover:bg-sky-500/10 border border-transparent hover:border-sky-500/20 transition-all group">
+                      <Mail size={15} className="text-muted-foreground group-hover:text-sky-500" />
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground group-hover:text-sky-500">Email</span>
+                    </button>
+                  </div>
+                </div>
+
                 <div className="flex-1 flex flex-col bg-card border rounded-xl shadow-sm lg:overflow-hidden min-h-[400px] lg:min-h-0">
 
                   <div className="p-3 border-b bg-accent/5 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center justify-center gap-2">
                       <History size={16} className="text-primary" />
                       <h2 className="font-bold text-xs uppercase tracking-wider">Activity Feed</h2>
-                      <button 
+                      <button
                         onClick={() => selectedLead && fetchDetails(selectedLead._id, false)}
                         className="p-1 hover:bg-accent rounded-full transition-colors text-muted-foreground hover:text-primary"
                         title="Refresh activity feed"
@@ -1014,9 +1284,9 @@ const Campaigns = () => {
                                 <p className="text-[10px] text-muted-foreground mt-1 italic">Subject: {n.metadata.subject}</p>
                               )}
                               {n.type === 'call' && n.metadata?.recording_url && (
-                                <RecordingPlayer 
-                                  url={n.metadata?.recording_url} 
-                                  duration={n.metadata?.recording_duration || n.metadata?.duration} 
+                                <RecordingPlayer
+                                  url={n.metadata?.recording_url}
+                                  duration={n.metadata?.recording_duration || n.metadata?.duration}
                                 />
                               )}
                               <p className="text-[9px] text-muted-foreground mt-2">{new Date(n.createdAt).toLocaleString()}</p>
@@ -1057,7 +1327,10 @@ const Campaigns = () => {
                   <div className="space-y-3.5">
                     <div className="flex items-center gap-3 text-xs">
                       <div className="p-1.5 bg-accent dark:bg-accent/10 rounded text-muted-foreground"><Phone size={14} /></div>
-                      <span className="truncate">{selectedLead.telephone || "N/A"}</span>
+                      <span className="truncate">
+                        {selectedLead.telephone || "N/A"}
+                        {selectedLead.telephone_extension && ` x${selectedLead.telephone_extension}`}
+                      </span>
                     </div>
                     <div className="flex items-center gap-3 text-xs">
                       <div className="p-1.5 bg-accent dark:bg-accent/10 rounded text-muted-foreground"><Globe size={14} /></div>
@@ -1077,7 +1350,7 @@ const Campaigns = () => {
                     {(!selectedLead.contacts || selectedLead.contacts.length === 0) ? (
                       <p className="text-[10px] text-muted-foreground italic">No contacts added.</p>
                     ) : (
-                      selectedLead.contacts.map((contact: any) => (
+                      selectedLead.contacts.map((contact: Contact) => (
                         <div key={contact._id} className={`p-3 rounded-lg border ${contact.is_primary ? 'border-primary/20 bg-primary/5' : 'border-border bg-accent/5'}`}>
                           <div className="flex items-center justify-between">
                             <span className="text-sm font-bold text-foreground truncate">{contact.name}</span>
@@ -1092,9 +1365,12 @@ const Campaigns = () => {
                           <div className="mt-2.5 space-y-1.5">
                             {contact.direct_phone && (
                               <div className="flex items-center justify-between gap-2 text-xs">
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center justify-start gap-2">
                                   <Phone size={12} strokeWidth={2.5} className="text-slate-600" />
-                                  <span className="text-foreground font-medium">{contact.direct_phone}</span>
+                                  <span className="text-foreground font-medium">
+                                    {contact.direct_phone}
+                                    {contact.extension && ` x${contact.extension}`}
+                                  </span>
                                 </div>
                                 <button
                                   onClick={(e) => {
@@ -1109,7 +1385,7 @@ const Campaigns = () => {
                               </div>
                             )}
                             {contact.email && (
-                              <div className="flex items-center gap-2 text-xs">
+                              <div className="flex items-center justify-start gap-2 text-xs">
                                 <Mail size={12} strokeWidth={2.5} className="text-slate-600" />
                                 <a href={`mailto:${contact.email}`} className="text-primary hover:underline truncate font-medium">{contact.email}</a>
                               </div>
@@ -1144,7 +1420,7 @@ const Campaigns = () => {
                             className={`p-2 border rounded-lg border-l-4 transition-all group ${getStatusStyles(f.date_time)}`}
                           >
                             <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center justify-center gap-2">
                                 <span className="text-[8px] uppercase tracking-widest font-bold bg-primary/10 text-primary px-1.5 py-0.5 rounded">{f.type || 'Task'}</span>
                                 <span className="text-[9px] font-bold text-foreground">{new Date(f.date_time).toLocaleString()}</span>
                               </div>
@@ -1171,7 +1447,7 @@ const Campaigns = () => {
           setCampaignError("");
         }
       }}>
-        <DialogContent aria-describedby={undefined} className="sm:max-w-md dark:bg-card">
+        <DialogContent aria-describedby={undefined} className="sm:max-w-md dark:bg-card max-h-[90vh] overflow-y-auto custom-scrollbar">
           <DialogHeader><DialogTitle className="dark:text-foreground">New Campaign</DialogTitle></DialogHeader>
           <div className="py-2 space-y-2">
             <label className="text-xs font-bold uppercase text-muted-foreground">Campaign Name *</label>
@@ -1200,11 +1476,39 @@ const Campaigns = () => {
         </DialogContent>
       </Dialog>
 
+      {/* Delete Campaign Confirmation Dialog */}
+      <Dialog open={!!campaignToDelete} onOpenChange={(open) => { if (!open) setCampaignToDelete(null); }}>
+        <DialogContent aria-describedby={undefined} className="sm:max-w-md dark:bg-card max-h-[90vh] overflow-y-auto custom-scrollbar">
+          <DialogHeader>
+            <DialogTitle className="text-destructive flex items-center justify-center gap-2">
+              <Trash2 size={18} /> Delete Campaign
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-3 space-y-3">
+            <p className="text-sm text-foreground">
+              Are you sure you want to delete <span className="font-bold">"{campaignToDelete?.name}"</span>?
+            </p>
+            <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
+              <p className="text-xs text-destructive font-medium">⚠️ Warning: This will permanently delete the campaign and <strong>all associated leads</strong>. This action cannot be undone.</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <button className="btn-secondary" onClick={() => setCampaignToDelete(null)}>Cancel</button>
+            <button
+              className="btn-primary bg-destructive hover:bg-destructive/90 border-destructive"
+              onClick={handleDeleteCampaign}
+            >
+              Yes, Delete Campaign
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={isFollowUpModalOpen} onOpenChange={(open) => {
         setIsFollowUpModalOpen(open);
         if (!open) setFuErrors({});
       }}>
-        <DialogContent aria-describedby={undefined} className="sm:max-w-md dark:bg-card">
+        <DialogContent aria-describedby={undefined} className="sm:max-w-md dark:bg-card max-h-[90vh] overflow-y-auto custom-scrollbar">
           <DialogHeader><DialogTitle className="dark:text-foreground">Schedule Follow-up</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-1.5">
@@ -1295,13 +1599,13 @@ const Campaigns = () => {
       </Dialog>
 
       <Dialog open={isCreateLeadOpen} onOpenChange={setIsCreateLeadOpen}>
-        <DialogContent aria-describedby={undefined} className="sm:max-w-3xl dark:bg-card">
+        <DialogContent aria-describedby={undefined} className="sm:max-w-3xl dark:bg-card max-h-[90vh] overflow-y-auto custom-scrollbar">
           <DialogHeader><DialogTitle className="dark:text-foreground">Add Lead to {selectedCampaign?.name}</DialogTitle></DialogHeader>
-          <div className="grid grid-cols-1 gap-6 py-2 overflow-y-auto max-h-[75vh] p-1 pr-3">
+          <div className="grid grid-cols-1 gap-6 py-2 p-1 pr-3">
 
             {/* Primary Contact Person */}
             <div className="space-y-4 border-b pb-6">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center justify-start gap-2">
                 <div className="p-1.5 rounded-lg bg-primary/10">
                   <Users size={16} className="text-primary" />
                 </div>
@@ -1440,7 +1744,7 @@ const Campaigns = () => {
                   <label className="text-xs font-medium">Preferred Contact Method *</label>
                   <div className="flex gap-4">
                     {["Call", "Email", "Text"].map(method => (
-                      <label key={method} className="flex items-center gap-2 cursor-pointer text-xs">
+                      <label key={method} className="flex items-center justify-center gap-2 cursor-pointer text-xs">
                         <input
                           type="radio"
                           name="contact_preferred_method"
@@ -1462,7 +1766,7 @@ const Campaigns = () => {
               <button
                 type="button"
                 onClick={() => setShowSecondary(!showSecondary)}
-                className="flex items-center gap-2 text-xs font-bold text-muted-foreground hover:text-foreground transition-colors"
+                className="flex items-center justify-center gap-2 text-xs font-bold text-muted-foreground hover:text-foreground transition-colors"
               >
                 {showSecondary ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                 Add Secondary Contact (Optional)
@@ -1497,6 +1801,16 @@ const Campaigns = () => {
                       <option>PTA/PTO Contact</option>
                       <option>Other</option>
                     </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium">Secondary Department</label>
+                    <input
+                      name="secondary_contact_department"
+                      className="input-field"
+                      placeholder="e.g. Administration"
+                      value={leadFormData.secondary_contact_department}
+                      onChange={handleLeadFormChange}
+                    />
                   </div>
                   <div className="space-y-1">
                     <label className="text-xs font-medium">Secondary Phone</label>
@@ -1557,7 +1871,7 @@ const Campaigns = () => {
 
             {/* Lead / Organization Details */}
             <div className="space-y-4 border-b pb-6">
-              <h3 className="font-bold text-sm uppercase tracking-wider flex items-center gap-2">
+              <h3 className="font-bold text-sm uppercase tracking-wider flex items-center justify-start gap-2">
                 <Building size={16} className="text-primary" /> Organization Details
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1573,7 +1887,7 @@ const Campaigns = () => {
                   {errors.name && <p className="text-[10px] text-destructive">{errors.name}</p>}
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium">Type</label>
+                  <label className="text-xs font-medium">Lead Type</label>
                   <select
                     name="type"
                     className="input-field"
@@ -1593,6 +1907,16 @@ const Campaigns = () => {
                     className="input-field"
                     placeholder="Category"
                     value={leadFormData.category_group}
+                    onChange={handleLeadFormChange}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium">Department</label>
+                  <input
+                    name="department"
+                    className="input-field"
+                    placeholder="e.g. Sales, Marketing"
+                    value={leadFormData.department}
                     onChange={handleLeadFormChange}
                   />
                 </div>
@@ -1629,6 +1953,13 @@ const Campaigns = () => {
                       value={leadFormData.telephone}
                       onChange={handleLeadFormChange}
                     />
+                    <input
+                      name="telephone_extension"
+                      className="input-field w-20"
+                      placeholder="Ext."
+                      value={leadFormData.telephone_extension}
+                      onChange={handleLeadFormChange}
+                    />
                   </div>
                 </div>
                 <div className="space-y-1">
@@ -1641,12 +1972,32 @@ const Campaigns = () => {
                     onChange={handleLeadFormChange}
                   />
                 </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium">Start Time</label>
+                  <input
+                    name="start_time"
+                    type="time"
+                    className="input-field"
+                    value={formatTimeForInput(leadFormData.start_time)}
+                    onChange={handleLeadFormChange}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium">End Time</label>
+                  <input
+                    name="end_time"
+                    type="time"
+                    className="input-field"
+                    value={formatTimeForInput(leadFormData.end_time)}
+                    onChange={handleLeadFormChange}
+                  />
+                </div>
               </div>
             </div>
 
             {/* Address Details */}
             <div className="space-y-4 pb-4">
-              <h3 className="font-bold text-sm uppercase tracking-wider flex items-center gap-2">
+              <h3 className="font-bold text-sm uppercase tracking-wider flex items-center justify-start gap-2">
                 <MapPin size={16} className="text-primary" /> Address Details
               </h3>
               <div className="grid grid-cols-4 gap-4">
@@ -1707,7 +2058,7 @@ const Campaigns = () => {
             <button className="btn-secondary" onClick={() => { setIsCreateLeadOpen(false); setErrors({}); }}>Cancel</button>
             <button
               disabled={isSubmittingLead}
-              className={`btn-primary flex items-center gap-2 ${isSubmittingLead ? 'opacity-50 cursor-not-allowed' : ''}`}
+              className={`btn-primary flex items-center justify-center gap-2 ${isSubmittingLead ? 'opacity-50 cursor-not-allowed' : ''}`}
               onClick={() => createLead()}
             >
               {isSubmittingLead ? "Creating..." : "Create Lead"}
@@ -1725,7 +2076,7 @@ const Campaigns = () => {
           setImportResult(null);
         }
       }}>
-        <DialogContent aria-describedby={undefined} className="sm:max-w-md dark:bg-card">
+        <DialogContent aria-describedby={undefined} className="sm:max-w-xl dark:bg-card max-h-[90vh] overflow-y-auto custom-scrollbar">
           <DialogHeader>
             <DialogTitle className="dark:text-foreground">Import Leads to {selectedCampaign?.name}</DialogTitle>
           </DialogHeader>
@@ -1753,14 +2104,19 @@ const Campaigns = () => {
                     <p className="text-[8px] uppercase font-bold text-muted-foreground">Errors</p>
                   </div>
                 </div>
-                {importResult?.errors?.length > 0 && (
+                {importResult?.errors && importResult.errors.length > 0 && (
                   <div className="text-left text-[10px] bg-destructive/5 p-2 rounded max-h-[100px] overflow-y-auto">
-                    {importResult.errors.map((e: any, i: number) => (
+                    {importResult.errors.map((e, i) => (
                       <p key={i} className="text-destructive font-medium">Row {e.row}: {e.reason}</p>
                     ))}
                   </div>
                 )}
-                <button className="btn-primary w-full" onClick={() => setIsImportOpen(false)}>Done</button>
+                <button className="btn-primary w-full" onClick={() => {
+                  setIsImportOpen(false);
+                  setImportFile(null);
+                  setImportStatus("idle");
+                  setImportResult(null);
+                }}>Done</button>
               </div>
             ) : (
               <>
@@ -1790,11 +2146,58 @@ const Campaigns = () => {
                     </div>
                   )}
                 </div>
-                <div className="bg-accent/5 p-3 rounded-lg border">
-                  <h4 className="text-[10px] font-bold uppercase text-muted-foreground mb-2">Supported Columns</h4>
-                  <p className="text-[9px] text-muted-foreground leading-relaxed">
-                    Name/Organization, Type, Category/Group, Main Contact Name, Main Contact Email, Telephone, Start Time, End Time, Number, Address, City, Zip, Website, Contacted Status, Notes
-                  </p>
+                <div className="bg-accent/30 rounded-xl border p-4 space-y-4">
+                  <div>
+                    <h4 className="text-xs font-bold text-foreground mb-1">Excel Import Format</h4>
+                    <p className="text-[10px] text-muted-foreground">Only <code className="bg-accent px-1 rounded">.xlsx</code> files are accepted (exported from Google Sheets).</p>
+                  </div>
+
+                  <div className="border rounded-lg overflow-hidden max-h-[220px] overflow-y-auto custom-scrollbar">
+                    <table className="w-full text-[10px]">
+                      <thead className="bg-accent/50 border-b">
+                        <tr>
+                          <th className="text-left p-2 font-bold uppercase tracking-wider text-muted-foreground">Column Name</th>
+                          <th className="text-center p-2 font-bold uppercase tracking-wider text-muted-foreground">Required</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {[
+                          { name: "Name/Organization", req: true },
+                          { name: "Lead Type", req: false },
+                          { name: "Category/Group", req: false },
+                          { name: "Department", req: false },
+                          { name: "Telephone", req: false },
+                          { name: "Website", req: false },
+                          { name: "Start Time", req: false },
+                          { name: "End Time", req: false },
+                          { name: "Primary Contact Name", req: false },
+                          { name: "Primary Contact Title", req: false },
+                          { name: "Primary Contact Department", req: false },
+                          { name: "Primary Contact Email", req: false },
+                          { name: "Primary Contact Phone", req: false },
+                          { name: "Primary Best Time", req: false },
+                          { name: "Primary Preferred Method", req: false },
+                          { name: "Secondary Contact Name", req: false },
+                          { name: "Secondary Contact Title", req: false },
+                          { name: "Secondary Contact Department", req: false },
+                          { name: "Secondary Contact Email", req: false },
+                          { name: "Secondary Contact Phone", req: false },
+                          { name: "Secondary Best Time", req: false },
+                          { name: "Secondary Preferred Method", req: false },
+                          { name: "Address Number", req: false },
+                          { name: "Address", req: false },
+                          { name: "City", req: false },
+                          { name: "State", req: false },
+                          { name: "Zip Code", req: false },
+                        ].map((col) => (
+                          <tr key={col.name} className="hover:bg-accent/20">
+                            <td className="p-2 font-medium">{col.name}</td>
+                            <td className="p-2 text-center">{col.req ? "✅" : ""}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
                 <DialogFooter>
                   <button className="btn-secondary" onClick={() => setIsImportOpen(false)}>Cancel</button>
@@ -1816,9 +2219,9 @@ const Campaigns = () => {
 
       {/* Delete All Confirmation Dialog */}
       <Dialog open={isDeleteAllConfirmOpen} onOpenChange={setIsDeleteAllConfirmOpen}>
-        <DialogContent aria-describedby={undefined} className="sm:max-w-md dark:bg-card border-destructive/20">
+        <DialogContent aria-describedby={undefined} className="sm:max-w-md dark:bg-card max-h-[90vh] overflow-y-auto custom-scrollbar border-destructive/20">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-destructive">
+            <DialogTitle className="flex items-center justify-center gap-2 text-destructive">
               <AlertCircle size={20} />
               Confirm Bulk Deletion
             </DialogTitle>
@@ -1836,7 +2239,7 @@ const Campaigns = () => {
       </Dialog>
       {/* Mark Done Confirmation Modal */}
       <Dialog open={isConfirmDoneOpen} onOpenChange={setIsConfirmDoneOpen}>
-        <DialogContent aria-describedby={undefined} className="sm:max-w-sm dark:bg-card">
+        <DialogContent aria-describedby={undefined} className="sm:max-w-sm dark:bg-card max-h-[90vh] overflow-y-auto custom-scrollbar">
           <DialogHeader>
             <DialogTitle className="dark:text-foreground text-center">Confirm Completion</DialogTitle>
           </DialogHeader>
@@ -1860,35 +2263,37 @@ const Campaigns = () => {
 
       {/* Call Outcome Modal */}
       <Dialog open={isCallModalOpen} onOpenChange={setIsCallModalOpen}>
-        <DialogContent aria-describedby={undefined} className="w-[90vw] max-w-md dark:bg-card">
-          <DialogHeader>
+        <DialogContent aria-describedby={undefined} className="w-[90vw] max-w-md dark:bg-card p-0 overflow-hidden flex flex-col max-h-[95vh]">
+          <DialogHeader className="p-6 pb-2 border-b">
             <DialogTitle className="dark:text-foreground">Log Call Outcome</DialogTitle>
             <p className="text-sm text-muted-foreground mt-1">Calling: {selectedLead?.name || "Unknown"}</p>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
-              <label className="text-sm font-medium">Outcome</label>
-              <select className="input-field dark:bg-card" value={callOutcome} onChange={e => setCallOutcome(e.target.value)}>
-                <option>Answered - Interested</option>
-                <option>Answered - Not Interested</option>
-                <option>Answered - Follow-Up Needed</option>
-                <option>Left Voicemail</option>
-                <option>No Answer</option>
-                <option>Wrong Number</option>
-              </select>
-            </div>
-            <div className="grid gap-2">
-              <label className="text-sm font-medium">Call Notes</label>
-              <textarea className="input-field min-h-[100px]" placeholder="Briefly summarize the conversation..." value={callNotes} onChange={e => setCallNotes(e.target.value)} />
-            </div>
-            <div className="mt-2 p-3 rounded-xl bg-orange-500/10 border border-orange-500/20 text-orange-600 dark:text-orange-400">
-              <p className="text-[10px] font-medium text-center">
-                <span className="font-bold uppercase mr-1">Important:</span>
-                Ensure you click <strong>'Save'</strong> in the JustCall dialer and <strong>'Log & Close'</strong> here to sync activity.
-              </p>
+          <div className="flex-1 overflow-y-auto p-6 py-4 custom-scrollbar">
+            <div className="grid gap-4">
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Outcome</label>
+                <select className="input-field dark:bg-card" value={callOutcome} onChange={e => setCallOutcome(e.target.value)}>
+                  <option>Answered - Interested</option>
+                  <option>Answered - Not Interested</option>
+                  <option>Answered - Follow-Up Needed</option>
+                  <option>Left Voicemail</option>
+                  <option>No Answer</option>
+                  <option>Wrong Number</option>
+                </select>
+              </div>
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Call Notes</label>
+                <textarea className="input-field min-h-[100px]" placeholder="Briefly summarize the conversation..." value={callNotes} onChange={e => setCallNotes(e.target.value)} />
+              </div>
+              <div className="mt-2 p-3 rounded-xl bg-orange-500/10 border border-orange-500/20 text-orange-600 dark:text-orange-400">
+                <p className="text-[10px] font-medium text-center">
+                  <span className="font-bold uppercase mr-1">Important:</span>
+                  Ensure you click <strong>'Save'</strong> in the JustCall dialer and <strong>'Log & Close'</strong> here to sync activity.
+                </p>
+              </div>
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="p-6 pt-2 border-t">
             <button className="btn-secondary" onClick={() => setIsCallModalOpen(false)}>Cancel</button>
             <button
               disabled={isSubmitting}
@@ -1900,8 +2305,324 @@ const Campaigns = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {/* Email Modal */}
+      <Dialog open={isEmailModalOpen} onOpenChange={(open) => {
+        setIsEmailModalOpen(open);
+        if (!open) setEmailErrors({});
+      }}>
+        <DialogContent aria-describedby={undefined} className="w-[90vw] max-w-2xl dark:bg-card p-0 overflow-hidden !flex !flex-col max-h-[90vh]">
+          <DialogHeader className="p-6 pb-2 border-b flex-shrink-0"><DialogTitle className="dark:text-foreground">Send Email</DialogTitle></DialogHeader>
+          <div className="flex-1 overflow-y-auto p-6 py-4 custom-scrollbar min-h-0">
+            <div className="grid gap-4">
+              <div className="grid gap-1">
+                <label className="text-xs font-bold text-muted-foreground uppercase">To <span className="text-destructive">*</span></label>
+                <input
+                  className={`input-field text-sm ${emailErrors.to ? "border-destructive focus:ring-destructive/20" : ""}`}
+                  placeholder={!emailData.to ? "No email on file — type recipient email..." : "Recipient email..."}
+                  value={emailData.to || ""}
+                  onChange={e => setEmailData({ ...emailData, to: e.target.value })}
+                  autoFocus={!!emailData.to}
+                />
+                {!emailData.to && (
+                  <p className="text-[10px] text-amber-500 font-medium mt-1 flex items-center gap-1">
+                    ⚠️ This contact has no email saved. You can enter one above.
+                  </p>
+                )}
+                {emailErrors.to && <p className="text-[10px] text-destructive font-medium mt-1">{emailErrors.to}</p>}
+              </div>
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">CC <span className="text-muted-foreground text-xs">(optional)</span></label>
+                <div className="flex flex-wrap gap-2 p-2 min-h-[42px] bg-background border rounded-lg focus-within:ring-2 focus-within:ring-primary/20 transition-all">
+                  {emailData.cc.map((email, index) => (
+                    <div
+                      key={index}
+                      className="flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-primary/10 text-primary border border-primary/20"
+                    >
+                      {email}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEmailData({ ...emailData, cc: emailData.cc.filter((_, i) => i !== index) });
+                        }}
+                        className="hover:bg-black/5 rounded-full p-0.5 transition-colors"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ))}
+                  <input
+                    className="flex-1 bg-transparent border-none outline-none text-sm min-w-[120px] placeholder:text-muted-foreground/50"
+                    placeholder={emailData.cc.length === 0 ? "Add email and press Enter..." : ""}
+                    value={ccInput}
+                    onChange={e => {
+                      setCcInput(e.target.value);
+                    }}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' || e.key === ',') {
+                        e.preventDefault();
+                        const val = ccInput.trim().replace(/,$/, '');
+                        if (val && !emailData.cc.includes(val)) {
+                          setEmailData({ ...emailData, cc: [...emailData.cc, val] });
+                          setCcInput("");
+                        }
+                      } else if (e.key === 'Backspace' && !ccInput && emailData.cc.length > 0) {
+                        setEmailData({ ...emailData, cc: emailData.cc.slice(0, -1) });
+                      }
+                    }}
+                    onBlur={() => {
+                      const val = ccInput.trim().replace(/,$/, '');
+                      if (val && !emailData.cc.includes(val)) {
+                        setEmailData({ ...emailData, cc: [...emailData.cc, val] });
+                        setCcInput("");
+                      }
+                    }}
+                  />
+                </div>
+              </div>
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Subject <span className="text-destructive">*</span></label>
+                <input
+                  className={`input-field ${emailErrors.subject ? "border-destructive focus:border-destructive focus:ring-destructive/20" : ""}`}
+                  placeholder="Following up"
+                  value={emailData.subject}
+                  onChange={e => {
+                    setEmailData({ ...emailData, subject: e.target.value });
+                    if (e.target.value.trim()) setEmailErrors({ ...emailErrors, subject: "" });
+                  }}
+                />
+                {emailErrors.subject && <p className="text-xs text-destructive font-medium">{emailErrors.subject}</p>}
+              </div>
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Message Body <span className="text-destructive">*</span></label>
+                <div className="[&_.ql-editor]:min-h-[200px]">
+                  <ReactQuill
+                    theme="snow"
+                    value={emailData.body}
+                    onChange={(content, delta, source, editor) => {
+                      setEmailData({ ...emailData, body: content });
+                      if (editor.getText().trim()) setEmailErrors({ ...emailErrors, body: "" });
+                    }}
+                    className="bg-card text-foreground"
+                    placeholder="Type your message here..."
+                  />
+                </div>
+                {emailErrors.body && <p className="text-xs text-destructive font-medium">{emailErrors.body}</p>}
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="p-6 pt-2 border-t flex-shrink-0">
+            <button className="btn-secondary" onClick={() => {
+              setIsEmailModalOpen(false);
+              setEmailErrors({});
+            }}>Cancel</button>
+            <button
+              className={`btn-primary flex items-center justify-center gap-2 ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`}
+              onClick={sendQuickEmail}
+              disabled={isSubmitting}
+            >
+              <Send size={16} /> {isSubmitting ? "Sending..." : "Send via Gmail"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* SMS Modal */}
+      <Dialog open={isSmsModalOpen} onOpenChange={(open) => {
+        setIsSmsModalOpen(open);
+      }}>
+        <DialogContent aria-describedby={undefined} className="w-[90vw] max-w-md dark:bg-card p-0 overflow-hidden flex flex-col max-h-[90vh]">
+          <DialogHeader className="p-6 pb-2 border-b flex-shrink-0"><DialogTitle className="dark:text-foreground">Send SMS</DialogTitle></DialogHeader>
+          <div className="flex-1 overflow-y-auto p-6 py-4 custom-scrollbar min-h-0">
+            <div className="grid gap-4">
+              <div className="grid gap-1">
+                <label className="text-xs font-bold text-muted-foreground uppercase">To</label>
+                <div className="p-2 bg-accent/30 rounded border text-sm">{selectedLead?.contacts?.[0]?.name || selectedLead?.name || 'Unknown'} ({selectedLead?.contacts?.[0]?.direct_phone || selectedLead?.telephone})</div>
+              </div>
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Message <span className="text-destructive">*</span></label>
+                <textarea
+                  className={`input-field min-h-[120px]`}
+                  placeholder="Type your SMS message..."
+                  value={smsMessage}
+                  onChange={e => {
+                    setSmsMessage(e.target.value);
+                  }}
+                />
+                <div className="flex justify-between items-center">
+                  <span />
+                  <p className="text-xs text-muted-foreground">{smsMessage.length} chars (approx {Math.ceil((smsMessage.length || 1) / 160)} SMS)</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="p-6 pt-2 border-t flex-shrink-0">
+            <button className="btn-secondary" onClick={() => {
+              setIsSmsModalOpen(false);
+            }}>Cancel</button>
+            <button
+              disabled={isSubmitting}
+              className={`btn-primary flex items-center justify-center gap-2 ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`}
+              onClick={sendQuickSms}
+            >
+              <MessageSquare size={16} /> {isSubmitting ? "Sending..." : "Send SMS"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Meeting Modal */}
+      <Dialog open={isMeetingModalOpen} onOpenChange={(open) => {
+        setIsMeetingModalOpen(open);
+        if (!open) setMeetingErrors({});
+      }}>
+        <DialogContent aria-describedby={undefined} className="w-[90vw] max-w-md dark:bg-card p-0 overflow-hidden flex flex-col max-h-[90vh]">
+          <DialogHeader className="p-6 pb-2 border-b flex-shrink-0"><DialogTitle className="dark:text-foreground">Schedule Meeting</DialogTitle></DialogHeader>
+          <div className="flex-1 overflow-y-auto p-6 py-4 custom-scrollbar min-h-0">
+            <div className="grid gap-4">
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Meeting Title <span className="text-destructive">*</span></label>
+                <input
+                  className={`input-field ${meetingErrors.title ? "border-destructive focus:border-destructive focus:ring-destructive/20" : ""}`}
+                  placeholder="e.g. Initial Strategy Session"
+                  value={meetingData.title}
+                  onChange={e => {
+                    setMeetingData({ ...meetingData, title: e.target.value });
+                    if (e.target.value.trim()) setMeetingErrors({ ...meetingErrors, title: "" });
+                  }}
+                />
+                {meetingErrors.title && <p className="text-xs text-destructive font-medium">{meetingErrors.title}</p>}
+              </div>
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Date & Time <span className="text-destructive">*</span></label>
+                <input
+                  type="datetime-local"
+                  className={`input-field dark:color-scheme-dark ${meetingErrors.date_time ? "border-destructive focus:border-destructive focus:ring-destructive/20" : ""}`}
+                  value={meetingData.date_time}
+                  onChange={e => {
+                    setMeetingData({ ...meetingData, date_time: e.target.value });
+                    if (e.target.value) setMeetingErrors({ ...meetingErrors, date_time: "" });
+                  }}
+                />
+                {meetingErrors.date_time && <p className="text-xs text-destructive font-medium">{meetingErrors.date_time}</p>}
+              </div>
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Meeting Type</label>
+                <select className="input-field dark:bg-card" value={meetingData.type} onChange={e => setMeetingData({ ...meetingData, type: e.target.value })}>
+                  <option value="Virtual">Virtual (Google Meet)</option>
+                  <option value="Phone Call">Phone Call</option>
+                  <option value="In-Person">In-Person</option>
+                </select>
+              </div>
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Invitees</label>
+                <div className="p-2 bg-accent/30 rounded border text-xs text-foreground">
+                  Automatically inviting: <strong>{selectedLead?.contacts?.[0]?.email || 'No email saved'}</strong>
+                </div>
+              </div>
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">CC <span className="text-muted-foreground text-xs">(optional)</span></label>
+                <div className="flex flex-wrap gap-2 p-2 min-h-[42px] bg-background border rounded-lg focus-within:ring-2 focus-within:ring-primary/20 transition-all">
+                  {meetingCc.map((email, index) => {
+                    const isValid = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(email);
+                    const domain = email.split('@')[1];
+                    const domainStatus = verifiedDomains[domain];
+                    const isDomainInvalid = domainStatus && domainStatus.valid === false;
+
+                    return (
+                      <div
+                        key={index}
+                        onClick={() => {
+                          setMeetingCcInput(email);
+                          setMeetingCc(meetingCc.filter((_, i) => i !== index));
+                        }}
+                        title={isDomainInvalid ? `Warning: ${domainStatus.message}` : "Click to edit"}
+                        className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium animate-in zoom-in-95 duration-200 cursor-pointer transition-all hover:ring-2 hover:ring-primary/30 ${!isValid
+                          ? "bg-destructive/10 text-destructive border border-destructive/20"
+                          : isDomainInvalid
+                            ? "bg-orange-500/10 text-orange-600 border border-orange-500/30"
+                            : "bg-primary/10 text-primary border border-primary/20"
+                          }`}
+                      >
+                        {email}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setMeetingCc(meetingCc.filter((_, i) => i !== index));
+                          }}
+                          className="hover:bg-black/5 rounded-full p-0.5 transition-colors"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                  <input
+                    className="flex-1 bg-transparent border-none outline-none text-sm min-w-[120px] placeholder:text-muted-foreground/50"
+                    placeholder={meetingCc.length === 0 ? "Add email and press Enter..." : ""}
+                    value={meetingCcInput}
+                    onChange={e => {
+                      setMeetingCcInput(e.target.value);
+                      if (e.target.value.trim()) setMeetingErrors({ ...meetingErrors, cc: "" });
+                    }}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' || e.key === ',') {
+                        e.preventDefault();
+                        const val = meetingCcInput.trim().replace(/,$/, '');
+                        if (val && !meetingCc.includes(val)) {
+                          setMeetingCc([...meetingCc, val]);
+                          setMeetingCcInput("");
+                          checkDomain(val);
+                        }
+                      } else if (e.key === 'Backspace' && !meetingCcInput && meetingCc.length > 0) {
+                        setMeetingCc(meetingCc.slice(0, -1));
+                      }
+                    }}
+                    onBlur={() => {
+                      const val = meetingCcInput.trim().replace(/,$/, '');
+                      if (val && !meetingCc.includes(val)) {
+                        setMeetingCc([...meetingCc, val]);
+                        setMeetingCcInput("");
+                        checkDomain(val);
+                      }
+                    }}
+                  />
+                </div>
+              </div>
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Notes</label>
+                <textarea className="input-field min-h-[80px]" placeholder="Agenda or location details..." value={meetingData.notes} onChange={e => setMeetingData({ ...meetingData, notes: e.target.value })} />
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="p-6 pt-2 border-t flex-shrink-0">
+            <button className="btn-secondary" onClick={() => {
+              setIsMeetingModalOpen(false);
+              setMeetingCc([]);
+              setMeetingCcInput("");
+              setMeetingErrors({});
+            }}>Cancel</button>
+            <button
+              disabled={isSubmitting}
+              className={`btn-primary flex items-center justify-center gap-2 ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`}
+              onClick={() => scheduleQuickMeeting()}
+            >
+              <Video size={16} /> {isSubmitting ? "Scheduling..." : "Schedule & Send Invite"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 };
 
 export default Campaigns;
+
+
+
+
+
+
+
+

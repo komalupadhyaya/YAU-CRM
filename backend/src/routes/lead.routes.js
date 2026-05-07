@@ -10,6 +10,7 @@ router.get('/campaign-summaries', dashboardController.getCampaignSummaries);
 router.get('/campaign/:campaignId/lead-counts', dashboardController.getCampaignCounts);
 
 router.get('/campaign/:campaignId', leadController.getLeadsByCampaign);
+router.get('/campaign/:campaignId/export', leadController.exportLeadsToExcel);
 
 router.get('/:id', leadController.getLeadById);
 
