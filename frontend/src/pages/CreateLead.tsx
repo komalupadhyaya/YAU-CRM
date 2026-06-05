@@ -61,6 +61,7 @@ export default function CreateLead() {
     });
     const [customTitle, setCustomTitle] = useState("");
     const [secondaryCustomTitle, setSecondaryCustomTitle] = useState("");
+    const [customLeadType, setCustomLeadType] = useState("");
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const [showSecondary, setShowSecondary] = useState(false);
@@ -84,7 +85,7 @@ export default function CreateLead() {
         const newErrors: Record<string, string> = {};
         if (!formData.name.trim()) newErrors.name = "Organization / School name is required";
         if (!formData.campaign_id) newErrors.campaign_id = "Please select a target campaign";
-        
+
         // Primary Contact Person Validation (ALL fields mandatory)
         if (!formData.main_contact_name.trim()) newErrors.main_contact_name = "Primary contact name is required";
         if (!formData.contact_title) {
@@ -94,7 +95,7 @@ export default function CreateLead() {
         }
         if (!formData.contact_department.trim()) newErrors.contact_department = "Department name is required";
         if (!formData.contact_direct_phone.trim()) newErrors.contact_direct_phone = "Direct phone number is required";
-        
+
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!formData.contact_email.trim()) {
             newErrors.contact_email = "Primary contact email is required";
@@ -105,7 +106,7 @@ export default function CreateLead() {
         if (formData.main_contact_email && !emailRegex.test(formData.main_contact_email)) {
             newErrors.main_contact_email = "Invalid email format";
         }
-        
+
         if (!formData.contact_best_time) newErrors.contact_best_time = "Please select the best time to call";
         if (!formData.contact_preferred_method) newErrors.contact_preferred_method = "Please select a preferred contact method";
 
@@ -143,9 +144,11 @@ export default function CreateLead() {
         try {
             const finalTitle = formData.contact_title === "Other" ? customTitle.trim() : formData.contact_title;
             const finalSecondaryTitle = formData.secondary_contact_title === "Other" ? secondaryCustomTitle.trim() : formData.secondary_contact_title;
-            
+            const finalLeadType = formData.type === "Other" ? customLeadType.trim() : formData.type;
+
             const payload = {
                 ...formData,
+                type: finalLeadType,
                 contact_title: finalTitle,
                 secondary_contact_title: finalSecondaryTitle,
                 contact_direct_phone: formData.contact_phone_prefix + formData.contact_direct_phone.replace(/\D/g, ''),
@@ -184,8 +187,8 @@ export default function CreateLead() {
             <div className="max-w-4xl mx-auto pb-12">
                 <div className="flex items-center justify-between mb-6">
                     <h1 className="text-2xl font-bold text-foreground">Add New Lead</h1>
-                    <button 
-                        onClick={handleSubmit} 
+                    <button
+                        onClick={handleSubmit}
                         disabled={isSubmitting}
                         className={`btn-primary flex items-center gap-2 ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
                     >
@@ -321,14 +324,14 @@ export default function CreateLead() {
                                         <div className="absolute inset-0 flex items-center pl-8 text-xs pointer-events-none font-medium">
                                             {formData.contact_phone_prefix}
                                         </div>
-                                        <select 
+                                        <select
                                             className="input-field w-full dark:bg-card px-2 text-transparent appearance-none bg-no-repeat"
-                                            style={{ 
+                                            style={{
                                                 backgroundImage: `url(https://flagcdn.com/w20/${(countryCodes.find(c => c.dialCode === formData.contact_phone_prefix)?.code || 'US').toLowerCase()}.png)`,
                                                 backgroundPosition: 'left 0.5rem center'
                                             }}
                                             value={formData.contact_phone_prefix}
-                                            onChange={(e) => setFormData({...formData, contact_phone_prefix: e.target.value})}
+                                            onChange={(e) => setFormData({ ...formData, contact_phone_prefix: e.target.value })}
                                         >
                                             {countryCodes.map(c => (
                                                 <option key={`${c.code}-${c.dialCode}`} value={c.dialCode} className="text-foreground">
@@ -488,14 +491,14 @@ export default function CreateLead() {
                                                 <div className="absolute inset-0 flex items-center pl-8 text-xs pointer-events-none font-medium">
                                                     {formData.secondary_phone_prefix}
                                                 </div>
-                                                <select 
+                                                <select
                                                     className="input-field w-full dark:bg-card px-2 text-transparent appearance-none bg-no-repeat"
-                                                    style={{ 
+                                                    style={{
                                                         backgroundImage: `url(https://flagcdn.com/w20/${(countryCodes.find(c => c.dialCode === formData.secondary_phone_prefix)?.code || 'US').toLowerCase()}.png)`,
                                                         backgroundPosition: 'left 0.5rem center'
                                                     }}
                                                     value={formData.secondary_phone_prefix}
-                                                    onChange={(e) => setFormData({...formData, secondary_phone_prefix: e.target.value})}
+                                                    onChange={(e) => setFormData({ ...formData, secondary_phone_prefix: e.target.value })}
                                                 >
                                                     {countryCodes.map(c => (
                                                         <option key={`${c.code}-${c.dialCode}`} value={c.dialCode} className="text-foreground">
@@ -565,7 +568,19 @@ export default function CreateLead() {
                                 <option>Public</option>
                                 <option>Private</option>
                                 <option>Parent</option>
+                                <option>Other</option>
                             </select>
+                            {formData.type === "Other" && (
+                                <div className="mt-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                                    <input
+                                        className="input-field"
+                                        placeholder="Please specify lead type..."
+                                        value={customLeadType}
+                                        onChange={(e) => setCustomLeadType(e.target.value)}
+                                        autoFocus
+                                    />
+                                </div>
+                            )}
                         </div>
 
                         <div>
@@ -585,14 +600,14 @@ export default function CreateLead() {
                                     <div className="absolute inset-0 flex items-center pl-8 text-xs pointer-events-none font-medium">
                                         {formData.telephone_prefix}
                                     </div>
-                                    <select 
+                                    <select
                                         className="input-field w-full dark:bg-card px-2 text-transparent appearance-none bg-no-repeat"
-                                        style={{ 
+                                        style={{
                                             backgroundImage: `url(https://flagcdn.com/w20/${(countryCodes.find(c => c.dialCode === formData.telephone_prefix)?.code || 'US').toLowerCase()}.png)`,
                                             backgroundPosition: 'left 0.5rem center'
                                         }}
                                         value={formData.telephone_prefix}
-                                        onChange={(e) => setFormData({...formData, telephone_prefix: e.target.value})}
+                                        onChange={(e) => setFormData({ ...formData, telephone_prefix: e.target.value })}
                                     >
                                         {countryCodes.map(c => (
                                             <option key={`${c.code}-${c.dialCode}`} value={c.dialCode} className="text-foreground">
@@ -658,8 +673,8 @@ export default function CreateLead() {
 
                     <div className="pt-4 border-t border-border flex justify-end gap-3">
                         <button type="button" onClick={() => navigate(-1)} className="btn-secondary border border-border">Cancel</button>
-                        <button 
-                            type="submit" 
+                        <button
+                            type="submit"
                             disabled={isSubmitting}
                             className={`btn-primary flex items-center gap-2 ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
                         >

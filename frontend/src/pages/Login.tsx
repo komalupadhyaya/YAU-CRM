@@ -3,6 +3,7 @@ import api from "../api/api";
 import { LogIn, Eye, EyeOff, ShieldCheck } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { useAuth } from "../context/AuthContext";
 
 export default function Login() {
   const [username, setUsername] = useState("");
@@ -10,17 +11,20 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const { refreshUser } = useAuth();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!username.trim() || !password.trim()) {
-      return; // Button is disabled, but safety check
+      return;
     }
 
     setLoading(true);
     try {
-      const res = await api.post("/auth/login", { username, password });
-      localStorage.setItem("token", res.data.token);
+      // Cookie is set automatically by the server on successful login.
+      // No token to store — the browser handles the httpOnly cookie.
+      await api.post("/auth/login", { username, password });
+      await refreshUser();
       toast.success("Login successful");
       navigate("/dashboard");
     } catch (err: any) {

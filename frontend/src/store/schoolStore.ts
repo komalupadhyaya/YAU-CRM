@@ -35,6 +35,7 @@ export interface Lead {
     updatedAt: string;
     contacts?: Contact[];
     campaign_id?: { _id: string, name: string };
+    assigned_to?: { _id: string, name: string, email?: string, role?: string } | null;
 }
 
 interface LeadState {

@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>New Team Member Created</title>
+</head>
+<body style="margin:0;padding:0;background-color:#0f0f12;font-family:'Segoe UI',Arial,sans-serif;">
+
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#0f0f12;padding:40px 20px;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+
+          <!-- Logo / Header -->
+          <tr>
+            <td style="padding-bottom:28px;text-align:center;">
+              <span style="font-size:22px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;">
+                YAU<span style="color:#6366f1;">CRM</span>
+              </span>
+            </td>
+          </tr>
+
+          <!-- Card -->
+          <tr>
+            <td style="background-color:#18181b;border:1px solid #27272a;border-radius:16px;overflow:hidden;">
+
+              <!-- Accent bar -->
+              <div style="height:4px;background:linear-gradient(90deg,#6366f1,#8b5cf6,#a78bfa);"></div>
+
+              <!-- Body -->
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="padding:36px 40px;">
+
+                    <!-- Icon badge -->
+                    <div style="text-align:center;margin-bottom:24px;">
+                      <div style="display:inline-block;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);border-radius:50%;width:56px;height:56px;line-height:56px;font-size:24px;text-align:center;">
+                        👤
+                      </div>
+                    </div>
+
+                    <h1 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#ffffff;text-align:center;">
+                      New Team Member Added
+                    </h1>
+                    <p style="margin:0 0 32px;font-size:14px;color:#a1a1aa;text-align:center;">
+                      A new user account has been created on your CRM.
+                    </p>
+
+                    <!-- Details card -->
+                    <table width="100%" cellpadding="0" cellspacing="0" style="background:#09090b;border:1px solid #27272a;border-radius:12px;margin-bottom:28px;">
+                      <tr>
+                        <td style="padding:24px 28px;">
+                          <p style="margin:0 0 16px;font-size:11px;font-weight:700;color:#6366f1;text-transform:uppercase;letter-spacing:1px;">Account Details</p>
+
+                          <table width="100%" cellpadding="0" cellspacing="0">
+                            <tr>
+                              <td style="padding:8px 0;border-bottom:1px solid #1f1f23;">
+                                <span style="font-size:12px;color:#71717a;display:block;margin-bottom:2px;">Full Name</span>
+                                <span style="font-size:15px;font-weight:600;color:#ffffff;">{{NAME}}</span>
+                              </td>
+                            </tr>
+                            <tr>
+                              <td style="padding:8px 0;border-bottom:1px solid #1f1f23;">
+                                <span style="font-size:12px;color:#71717a;display:block;margin-bottom:2px;">Email / Login</span>
+                                <span style="font-size:15px;font-weight:600;color:#6366f1;">{{EMAIL}}</span>
+                              </td>
+                            </tr>
+                            <tr>
+                              <td style="padding:8px 0;border-bottom:1px solid #1f1f23;">
+                                <span style="font-size:12px;color:#71717a;display:block;margin-bottom:2px;">Role</span>
+                                <span style="display:inline-block;margin-top:4px;font-size:12px;font-weight:700;color:#8b5cf6;background:rgba(139,92,246,0.12);border:1px solid rgba(139,92,246,0.25);border-radius:20px;padding:3px 12px;text-transform:capitalize;">{{ROLE}}</span>
+                              </td>
+                            </tr>
+                            <tr>
+                              <td style="padding:8px 0;">
+                                <span style="font-size:12px;color:#71717a;display:block;margin-bottom:2px;">Created At</span>
+                                <span style="font-size:14px;color:#d4d4d8;">{{CREATED_AT}}</span>
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+                    </table>
+
+                    <!-- CTA -->
+                    <div style="text-align:center;margin-bottom:28px;">
+                      <a href="{{CRM_URL}}/team"
+                         style="display:inline-block;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#ffffff;text-decoration:none;font-weight:600;font-size:14px;padding:13px 32px;border-radius:10px;letter-spacing:0.3px;">
+                        View Team →
+                      </a>
+                    </div>
+
+                    <!-- Note -->
+                    <p style="margin:0;font-size:12px;color:#52525b;text-align:center;line-height:1.6;">
+                      This is an automated notification from YAU CRM.<br/>
+                      If you did not expect this, please review your team settings.
+                    </p>
+
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding-top:28px;text-align:center;">
+              <p style="margin:0;font-size:11px;color:#3f3f46;">
+                © {{YEAR}} YAU CRM · All rights reserved
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+
+</body>
+</html>

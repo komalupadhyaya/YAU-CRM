@@ -1,4 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from "react";
+import { useAuth } from "../context/AuthContext";
+import { can } from "../utils/permissions";
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 import api from "../api/api";
@@ -42,6 +44,11 @@ import {
   FileText
 } from "lucide-react";
 import { useSearchParams, useNavigate } from "react-router-dom";
+
+const formatNoteContent = (content: string) => {
+  if (!content) return "";
+  return content.split('\n').filter(line => !line.trim().startsWith('Contact:')).join('\n');
+};
 
 const RecordingPlayer = ({ url, duration }: { url?: string, duration?: number }) => {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -198,6 +205,8 @@ interface ImportResult {
 
 const Campaigns = () => {
   const navigate = useNavigate();
+  const { currentUser } = useAuth();
+  const permissions = can(currentUser?.role);
   const { selectedCampaign, setSelectedCampaign, campaigns, setCampaigns, statusLabels, setStatusLabels } = useCampaignStore();
   const { selectedLead, setSelectedLead } = useLeadStore();
 
@@ -233,6 +242,8 @@ const Campaigns = () => {
 
   // Create Campaign Modal
   const [isCreateCampaignOpen, setIsCreateCampaignOpen] = useState(false);
+  const [selectedCampaignId, setSelectedCampaignId] = useState("");
+  const [customLeadType, setCustomLeadType] = useState("");
   const [newCampaignName, setNewCampaignName] = useState("");
 
   // Create Lead Modal
@@ -286,6 +297,9 @@ const Campaigns = () => {
   const [assignedTo, setAssignedTo] = useState("self");
   const [customAssignedTo, setCustomAssignedTo] = useState("");
   const [fuErrors, setFuErrors] = useState<Record<string, string>>({});
+  const [followUpTitle, setFollowUpTitle] = useState("");
+  const [createFollowUpInCall, setCreateFollowUpInCall] = useState(false);
+  const [teamMembers, setTeamMembers] = useState<any[]>([]);
   const [campaignError, setCampaignError] = useState("");
   const [isSubmittingLead, setIsSubmittingLead] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -410,7 +424,9 @@ const Campaigns = () => {
 
         // If it's the same lead, update it only if the data has actually changed
         if (!prev) return newData;
-        return JSON.stringify(prev) === JSON.stringify(newData) ? prev : newData;
+        const res = JSON.stringify(prev) === JSON.stringify(newData) ? prev : newData;
+
+        return res;
       });
     } catch (error) { console.error(error); }
     if (!silent) setLoadingDetails(false);
@@ -440,12 +456,32 @@ const Campaigns = () => {
 
 
   useEffect(() => {
+    if (selectedLead?._id && window.innerWidth < 1280) {
+      const timer = setTimeout(() => {
+        const detailSection = document.getElementById('lead-detail-section');
+        if (detailSection) {
+          detailSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [selectedLead?._id]);
+
+  useEffect(() => {
     if (selectedLead?._id) {
       // Fetch details when lead changes or global status settings change
       fetchDetails(selectedLead._id);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedLead?._id, statusLabels]); // No more setInterval here
+  }, [selectedLead?._id, statusLabels]);
+
+  useEffect(() => {
+    if (currentUser?.role === 'admin' || currentUser?.role === 'manager') {
+      api.get("/team")
+        .then(res => setTeamMembers(res.data))
+        .catch(err => console.error("Failed to fetch team members in Campaigns:", err));
+    }
+  }, [currentUser]);
 
 
   // --- Handlers ---
@@ -544,6 +580,7 @@ const Campaigns = () => {
 
       const payload = {
         ...leadFormData,
+        type: leadFormData.type === "Other" ? customLeadType : leadFormData.type,
         campaign_id: selectedCampaign._id,
         contact_direct_phone: leadFormData.contact_phone_prefix + leadFormData.contact_direct_phone.replace(/\D/g, ''),
         secondary_contact_phone: leadFormData.secondary_contact_phone ? (leadFormData.secondary_phone_prefix + leadFormData.secondary_contact_phone.replace(/\D/g, '')) : "",
@@ -732,6 +769,7 @@ const Campaigns = () => {
   };
 
   const markFollowupDone = async (fuId: string) => {
+    if (permissions.isReadOnly) return;
     setTaskToComplete(fuId);
     setIsConfirmDoneOpen(true);
   };
@@ -762,6 +800,7 @@ const Campaigns = () => {
   };
 
   const initiateCall = (lead: Lead, contact?: Contact) => {
+    if (permissions.isReadOnly) return;
     setSelectedContactForCall(contact || null);
     const phone = contact?.direct_phone || lead.telephone;
     if (phone) {
@@ -769,12 +808,45 @@ const Campaigns = () => {
       window.open(`https://app.justcall.io/dialer?numbers=${encodeURIComponent(cleanPhone)}&ticket_id=${lead._id}&custom_field=${lead._id}&notes=${encodeURIComponent('CRM Lead ID: ' + lead._id)}`, "JustCallDialer", "fullscreen=yes,location=no,width=385,height=665");
     }
     setCallOutcome("Answered - Interested");
+    setCallNotes("");
+    setCreateFollowUpInCall(false);
+    setFollowUpTitle("");
+    setFollowUpDate("");
+    setFollowUpNotes("");
+    setFollowUpType("Call");
+    setFollowUpPriority("Medium");
+    setAssignedTo("self");
+    setCustomAssignedTo("");
+    setFuErrors({});
     setIsCallModalOpen(true);
     toast.info(`Calling ${contact?.name || lead.name}...`);
   };
 
   const logCall = async () => {
     if (!selectedLead || isSubmitting) return;
+
+    // Validate follow-up details if the checkbox is checked
+    const newErrors: Record<string, string> = {};
+    if (createFollowUpInCall) {
+      if (!followUpTitle.trim()) {
+        newErrors.followUpTitle = "Follow-up Title is required";
+      }
+      if (!followUpDate) {
+        newErrors.date = "Date & Time is required";
+      } else if (new Date(followUpDate) < new Date()) {
+        newErrors.date = "Date & Time cannot be in the past";
+      }
+      if (assignedTo === "other" && !customAssignedTo.trim()) {
+        newErrors.assignedTo = "Please specify who this is assigned to";
+      }
+    }
+
+    if (Object.keys(newErrors).length > 0) {
+      setFuErrors(newErrors);
+      toast.error("Please fix the errors before scheduling");
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const res = await api.post(`/justcall/log-call`, {
@@ -787,11 +859,36 @@ const Campaigns = () => {
       setIsCallModalOpen(false);
       setCallNotes("");
 
-      fetchDetails(selectedLead._id, true);
-
-      if (res.data.followup_needed) {
-        handleOpenFollowUpModal();
+      // Create Follow Up if enabled
+      if (createFollowUpInCall) {
+        try {
+          await api.post(`/followups/${selectedLead._id}`, {
+            title: followUpTitle,
+            date_time: new Date(followUpDate).toISOString(),
+            type: followUpType,
+            priority: followUpPriority,
+            notes: followUpNotes || `Call Follow-Up: ${followUpTitle}`,
+            assigned_user: assignedTo === "self" ? "self" : (assignedTo === "other" ? customAssignedTo : assignedTo),
+            force: true
+          });
+          toast.success("Follow-up scheduled!");
+        } catch (fuErr: any) {
+          toast.error(fuErr.response?.data?.message || "Failed to schedule follow-up");
+        }
       }
+
+      // Reset follow-up state
+      setFollowUpTitle("");
+      setFollowUpDate("");
+      setFollowUpNotes("");
+      setFollowUpType("Call");
+      setFollowUpPriority("Medium");
+      setAssignedTo("self");
+      setCustomAssignedTo("");
+      setCreateFollowUpInCall(false);
+      setFuErrors({});
+
+      fetchDetails(selectedLead._id, true);
 
       // Auto-fetch recording after 15s (JustCall needs time to process)
       const noteId = res.data.note_id;
@@ -953,6 +1050,7 @@ const Campaigns = () => {
           <div className="p-4 border-b space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="font-bold text-sm">Campaigns</h2>
+              {permissions.manageCampaigns && (
               <button
                 onClick={() => setIsCreateCampaignOpen(true)}
                 className="p-1 hover:bg-accent rounded text-primary transition-colors"
@@ -960,6 +1058,7 @@ const Campaigns = () => {
               >
                 <Plus size={16} />
               </button>
+              )}
             </div>
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" size={12} />
@@ -994,13 +1093,14 @@ const Campaigns = () => {
                   onClick={() => setSelectedCampaign(c)}
                   className="flex-1 text-left p-3 flex items-center gap-3 min-w-0"
                 >
-                  <Folder size={16} className={selectedCampaign?._id === c._id ? "text-primary-foreground" : "text-primary"} />
+                  <Folder size={16} className={`flex-shrink-0 ${selectedCampaign?._id === c._id ? "text-primary-foreground" : "text-primary"}`} />
                   <span className="text-xs font-medium truncate">{c.name}</span>
                 </button>
                 <button
-                  onClick={(e) => { e.stopPropagation(); setCampaignToDelete(c); }}
-                  className={`shrink-0 p-2 mr-1 rounded opacity-0 group-hover:opacity-100 transition-all hover:bg-destructive/20 hover:text-destructive ${selectedCampaign?._id === c._id ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}
-                  title="Delete campaign"
+                  onClick={(e) => { e.stopPropagation(); if (!permissions.manageCampaigns) return; setCampaignToDelete(c); }}
+                  disabled={!permissions.manageCampaigns}
+                  className={`shrink-0 p-2 mr-1 rounded transition-all ${!permissions.manageCampaigns ? 'opacity-30 blur-[0.5px] cursor-not-allowed pointer-events-none' : 'opacity-0 group-hover:opacity-100 hover:bg-destructive/20 hover:text-destructive'} ${selectedCampaign?._id === c._id ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}
+                  title={!permissions.manageCampaigns ? 'Read-only access' : 'Delete campaign'}
                 >
                   <Trash2 size={13} />
                 </button>
@@ -1023,10 +1123,11 @@ const Campaigns = () => {
           ) : (
             <>
               <div className="p-4 border-b space-y-3">
-                <div className="flex items-center justify-between">
-                  <h2 className="font-bold text-sm truncate">{selectedCampaign.name}</h2>
+                <div className="flex items-center justify-between gap-2 min-w-0">
+                  <h2 className="font-bold text-sm truncate max-w-[150px] sm:max-w-[200px]">{selectedCampaign.name}</h2>
                   <div className="flex items-center justify-center gap-2">
                     <span className="text-[10px] bg-accent px-1.5 py-0.5 rounded-full font-bold text-muted-foreground">{filteredLeads.length}</span>
+                    {permissions.manageCampaigns && (
                     <button
                       onClick={() => setIsImportOpen(true)}
                       className="p-1 hover:bg-accent rounded text-primary transition-colors"
@@ -1034,6 +1135,7 @@ const Campaigns = () => {
                     >
                       <Upload size={16} />
                     </button>
+                    )}
                     {/* <button
                       onClick={handleExport}
                       className="p-1 hover:bg-accent rounded text-primary transition-colors"
@@ -1041,6 +1143,7 @@ const Campaigns = () => {
                     >
                       <Download size={16} />
                     </button> */}
+                    {permissions.createEdit && (
                     <button
                       onClick={() => setIsCreateLeadOpen(true)}
                       className="p-1 hover:bg-accent rounded text-primary transition-colors"
@@ -1048,6 +1151,7 @@ const Campaigns = () => {
                     >
                       <Plus size={16} />
                     </button>
+                    )}
                   </div>
                 </div>
                 <div className="relative">
@@ -1135,7 +1239,7 @@ const Campaigns = () => {
               <p className="text-xs max-w-xs mt-2">Select a lead to view profile and notes</p>
             </div>
           ) : (
-            <div className="flex-1 flex flex-col lg:flex-row gap-4 lg:overflow-hidden">
+            <div id="lead-detail-section" className="flex-1 flex flex-col lg:flex-row gap-4 lg:overflow-hidden">
 
               {/* Activity Feed (Middle) */}
               <div className="flex-1 flex flex-col gap-4 min-h-0">
@@ -1154,13 +1258,42 @@ const Campaigns = () => {
                           <ExternalLink size={18} />
                         </button>
                       </div>
-                      <div className="flex items-center gap-3 mt-1.5">
+                      <div className="flex items-center gap-3 mt-1.5 flex-wrap">
                         <span className="text-xs text-muted-foreground flex items-center gap-1"><Info size={12} /> {selectedLead.type || "Lead Type"}</span>
-                        <span className="text-xs text-muted-foreground flex items-center gap-1"><MapPin size={12} /> {selectedLead.city}</span>
+                        {selectedLead.city && (
+                          <span className="text-xs text-muted-foreground flex items-center gap-1"><MapPin size={12} /> {selectedLead.city}</span>
+                        )}
+                        {/* Assignment Status */}
+                        {selectedLead.assigned_to ? (
+                          (() => {
+                            const isMe = typeof selectedLead.assigned_to === 'object'
+                              ? selectedLead.assigned_to._id === currentUser?._id
+                              : selectedLead.assigned_to === currentUser?._id;
+                            const name = typeof selectedLead.assigned_to === 'object'
+                              ? selectedLead.assigned_to.name
+                              : 'Assigned';
+                            return (
+                              <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold flex items-center gap-1.5 transition-all shadow-sm ${
+                                isMe 
+                                  ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 dark:bg-emerald-500/20 dark:text-emerald-400' 
+                                  : 'bg-blue-500/10 text-blue-500 border border-blue-500/20 dark:bg-blue-500/20 dark:text-blue-400'
+                              }`}>
+                                <Users size={10} />
+                                {isMe ? 'Assigned to You' : `Assigned to: ${name}`}
+                              </span>
+                            );
+                          })()
+                        ) : (
+                          <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-amber-500/10 text-amber-500 border border-amber-500/20 dark:bg-amber-500/20 dark:text-amber-400 flex items-center gap-1.5 transition-all shadow-sm">
+                            <Users size={10} />
+                            Unassigned
+                          </span>
+                        )}
                         <div className="flex items-center justify-center gap-2 ml-auto">
                           <button
-                            onClick={() => initiateCall(selectedLead)}
-                            className="bg-orange-500 hover:bg-orange-600 text-white px-3 py-1 rounded-lg font-bold text-[10px] flex items-center gap-1.5 shadow-sm transition-all active:scale-95"
+                            onClick={() => !permissions.isReadOnly && initiateCall(selectedLead)}
+                            disabled={permissions.isReadOnly}
+                            className={`bg-orange-500 hover:bg-orange-600 text-white px-3 py-1 rounded-lg font-bold text-[10px] flex items-center gap-1.5 shadow-sm transition-all active:scale-95 ${permissions.isReadOnly ? 'opacity-40 blur-[0.5px] pointer-events-none cursor-not-allowed' : ''}`}
                           >
                             <Phone size={12} /> Call Now
                           </button>
@@ -1168,9 +1301,10 @@ const Campaigns = () => {
                       </div>
                     </div>
                     <button
-                      onClick={() => setIsFollowUpModalOpen(true)}
-                      className="p-1 hover:bg-accent rounded text-primary transition-colors"
-                      title="Schedule Follow-up"
+                      onClick={() => !permissions.isReadOnly && setIsFollowUpModalOpen(true)}
+                      disabled={permissions.isReadOnly}
+                      className={`p-1 hover:bg-accent rounded text-primary transition-colors ${permissions.isReadOnly ? 'opacity-40 blur-[0.5px] pointer-events-none cursor-not-allowed' : ''}`}
+                      title={permissions.isReadOnly ? undefined : "Schedule Follow-up"}
                     >
                       <Plus size={14} />
                     </button>
@@ -1181,31 +1315,57 @@ const Campaigns = () => {
                 <div className="bg-card border rounded-xl p-3 shadow-sm shrink-0">
                   <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mb-2.5">Quick Actions</p>
                   <div className="grid grid-cols-3 gap-2">
-                    <button onClick={() => { const el = document.querySelector('textarea[placeholder="Add a note..."]') as HTMLTextAreaElement; el?.focus(); el?.scrollIntoView({ behavior: 'smooth' }); }} className="flex flex-col items-center gap-1.5 p-2.5 rounded-lg bg-accent/50 hover:bg-primary/10 border border-transparent hover:border-primary/20 transition-all group">
+                    <button 
+                      onClick={() => { const el = document.querySelector('textarea[placeholder="Add a note..."]') as HTMLTextAreaElement; el?.focus(); el?.scrollIntoView({ behavior: 'smooth' }); }} 
+                      disabled={permissions.isReadOnly}
+                      className={`flex flex-col items-center gap-1.5 p-2.5 rounded-lg bg-accent/50 hover:bg-primary/10 border border-transparent hover:border-primary/20 transition-all group ${permissions.isReadOnly ? 'opacity-40 blur-[0.5px] pointer-events-none cursor-not-allowed' : ''}`}
+                    >
                       <MessageSquare size={15} className="text-muted-foreground group-hover:text-primary" />
                       <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground group-hover:text-primary">Add Note</span>
                     </button>
-                    <button onClick={() => initiateCall(selectedLead)} className="flex flex-col items-center gap-1.5 p-2.5 rounded-lg bg-accent/50 hover:bg-orange-500/10 border border-transparent hover:border-orange-500/20 transition-all group">
+                    <button 
+                      onClick={() => !permissions.isReadOnly && initiateCall(selectedLead)} 
+                      disabled={permissions.isReadOnly}
+                      className={`flex flex-col items-center gap-1.5 p-2.5 rounded-lg bg-accent/50 hover:bg-orange-500/10 border border-transparent hover:border-orange-500/20 transition-all group ${permissions.isReadOnly ? 'opacity-40 blur-[0.5px] pointer-events-none cursor-not-allowed' : ''}`}
+                    >
                       <Phone size={15} className="text-muted-foreground group-hover:text-orange-500" />
                       <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground group-hover:text-orange-500">Make Call</span>
                     </button>
-                    <button onClick={() => { setSmsMessage(""); setIsSmsModalOpen(true); }} className="flex flex-col items-center gap-1.5 p-2.5 rounded-lg bg-accent/50 hover:bg-blue-500/10 border border-transparent hover:border-blue-500/20 transition-all group">
+                    <button 
+                      onClick={() => { if (!permissions.isReadOnly) { setSmsMessage(""); setIsSmsModalOpen(true); } }} 
+                      disabled={permissions.isReadOnly}
+                      className={`flex flex-col items-center gap-1.5 p-2.5 rounded-lg bg-accent/50 hover:bg-blue-500/10 border border-transparent hover:border-blue-500/20 transition-all group ${permissions.isReadOnly ? 'opacity-40 blur-[0.5px] pointer-events-none cursor-not-allowed' : ''}`}
+                    >
                       <MessageSquare size={15} className="text-muted-foreground group-hover:text-blue-500" />
                       <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground group-hover:text-blue-500">Send SMS</span>
                     </button>
-                    <button onClick={() => setIsFollowUpModalOpen(true)} className="flex flex-col items-center gap-1.5 p-2.5 rounded-lg bg-accent/50 hover:bg-green-500/10 border border-transparent hover:border-green-500/20 transition-all group">
+                    <button 
+                      onClick={() => !permissions.isReadOnly && setIsFollowUpModalOpen(true)} 
+                      disabled={permissions.isReadOnly}
+                      className={`flex flex-col items-center gap-1.5 p-2.5 rounded-lg bg-accent/50 hover:bg-green-500/10 border border-transparent hover:border-green-500/20 transition-all group ${permissions.isReadOnly ? 'opacity-40 blur-[0.5px] pointer-events-none cursor-not-allowed' : ''}`}
+                    >
                       <CalendarPlus size={15} className="text-muted-foreground group-hover:text-green-500" />
                       <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground group-hover:text-green-500">Follow-Up</span>
                     </button>
-                    <button onClick={() => { setMeetingData({ title: "", date_time: "", type: "Virtual", notes: "" }); setIsMeetingModalOpen(true); }} className="flex flex-col items-center gap-1.5 p-2.5 rounded-lg bg-accent/50 hover:bg-purple-500/10 border border-transparent hover:border-purple-500/20 transition-all group">
+                    <button 
+                      onClick={() => { if (!permissions.isReadOnly) { setMeetingData({ title: "", date_time: "", type: "Virtual", notes: "" }); setIsMeetingModalOpen(true); } }} 
+                      disabled={permissions.isReadOnly}
+                      className={`flex flex-col items-center gap-1.5 p-2.5 rounded-lg bg-accent/50 hover:bg-purple-500/10 border border-transparent hover:border-purple-500/20 transition-all group ${permissions.isReadOnly ? 'opacity-40 blur-[0.5px] pointer-events-none cursor-not-allowed' : ''}`}
+                    >
                       <Video size={15} className="text-muted-foreground group-hover:text-purple-500" />
                       <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground group-hover:text-purple-500">Meeting</span>
                     </button>
-                    <button onClick={() => {
-                      const contactEmail = (selectedLead as Lead).contacts?.[0]?.email || "";
-                      setEmailData({ subject: "Following up", body: "", cc: [], to: contactEmail });
-                      setIsEmailModalOpen(true);
-                    }} className="flex flex-col items-center gap-1.5 p-2.5 rounded-lg bg-accent/50 hover:bg-sky-500/10 border border-transparent hover:border-sky-500/20 transition-all group">
+                    <button 
+                      onClick={() => {
+                        if (!permissions.isReadOnly) {
+                          const contactEmail = (selectedLead as Lead).contacts?.[0]?.email || "";
+                          setEmailData({ subject: "Following up", body: "", cc: [], to: contactEmail });
+                          setIsEmailModalOpen(true);
+                        }
+                      }} 
+                      disabled={permissions.isReadOnly}
+                      className={`flex flex-col items-center gap-1.5 p-2.5 rounded-lg bg-accent/50 hover:bg-sky-500/10 border border-transparent hover:border-sky-500/20 transition-all group ${permissions.isReadOnly ? 'opacity-40 blur-[0.5px] pointer-events-none cursor-not-allowed' : ''}`}
+                    >
                       <Mail size={15} className="text-muted-foreground group-hover:text-sky-500" />
                       <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground group-hover:text-sky-500">Email</span>
                     </button>
@@ -1226,7 +1386,7 @@ const Campaigns = () => {
                         <RefreshCw size={12} className={loadingDetails ? "animate-spin" : ""} />
                       </button>
 
-                      {notes.length > 0 && (
+                      {notes.length > 0 && permissions.deleteRecords && (
                         <button
                           onClick={() => setIsDeleteAllConfirmOpen(true)}
                           className="text-[9px] text-destructive px-2.5 py-1 bg-destructive/5 hover:bg-destructive hover:text-white border border-destructive/20 rounded-lg font-bold uppercase transition-all flex items-center gap-1.5 shadow-sm"
@@ -1237,18 +1397,20 @@ const Campaigns = () => {
                     </div>
                   </div>
                   <div className="flex-1 overflow-y-auto p-4 space-y-5">
-                    <div className="bg-accent/10 dark:bg-accent/5 rounded-xl p-3 border border-dashed border-primary/20">
+                    <div className={`bg-accent/10 dark:bg-accent/5 rounded-xl p-3 border border-dashed border-primary/20 ${permissions.isReadOnly ? 'opacity-40 blur-[0.5px] pointer-events-none select-none' : ''}`}>
                       <textarea
-                        placeholder="Add a note..."
+                        placeholder={permissions.isReadOnly ? 'Read-only access — cannot add notes' : 'Add a note...'}
                         className="w-full bg-transparent border-none text-xs outline-none resize-none min-h-[50px] dark:text-foreground"
                         value={noteContent}
-                        onChange={e => setNoteContent(e.target.value)}
+                        onChange={e => !permissions.isReadOnly && setNoteContent(e.target.value)}
+                        disabled={permissions.isReadOnly}
+                        readOnly={permissions.isReadOnly}
                       />
                       <div className="flex justify-end mt-1">
                         <button
-                          onClick={() => addNote()}
-                          disabled={!noteContent.trim() || isSubmitting}
-                          className={`btn-primary px-3 text-[10px] ${(isSubmitting || !noteContent.trim()) ? "opacity-50 cursor-not-allowed" : ""}`}
+                          onClick={() => !permissions.isReadOnly && addNote()}
+                          disabled={!noteContent.trim() || isSubmitting || permissions.isReadOnly}
+                          className={`btn-primary px-3 text-[10px] ${(isSubmitting || !noteContent.trim() || permissions.isReadOnly) ? "opacity-50 cursor-not-allowed" : ""}`}
                         >
                           {isSubmitting ? "Posting..." : "Post Note"}
                         </button>
@@ -1274,12 +1436,14 @@ const Campaigns = () => {
                             </div>
                             <div className="bg-white dark:bg-card shadow-sm border rounded-lg p-2.5 group relative">
                               <button
-                                onClick={() => deleteNote(n._id)}
-                                className="absolute top-2 right-2 p-1 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-all"
+                                onClick={() => !permissions.isReadOnly && deleteNote(n._id)}
+                                disabled={permissions.isReadOnly}
+                                className={`absolute top-2 right-2 p-1 text-muted-foreground hover:text-destructive transition-all ${permissions.isReadOnly ? 'opacity-30 blur-[0.5px] cursor-not-allowed pointer-events-none' : 'opacity-0 group-hover:opacity-100'}`}
+                                title={permissions.isReadOnly ? 'Read-only access' : 'Delete note'}
                               >
                                 <Trash2 size={12} />
                               </button>
-                              <p className="text-xs text-foreground leading-relaxed pr-6 break-words whitespace-pre-wrap">{n.content}</p>
+                              <p className="text-xs text-foreground leading-relaxed pr-6 break-words whitespace-pre-wrap">{formatNoteContent(n.content)}</p>
                               {n.type === 'email' && n.metadata?.subject && (
                                 <p className="text-[10px] text-muted-foreground mt-1 italic">Subject: {n.metadata.subject}</p>
                               )}
@@ -1303,10 +1467,10 @@ const Campaigns = () => {
               <div className="w-full lg:w-full xl:w-64 2xl:w-80 flex flex-col gap-4 overflow-y-auto shrink-0 pb-6 xl:pb-0 custom-scrollbar">
 
 
-                <div className="bg-card border rounded-xl p-4 shadow-sm space-y-4">
+                <div className={`bg-card border rounded-xl p-4 shadow-sm space-y-4 ${permissions.isReadOnly ? 'opacity-50 blur-[0.5px] pointer-events-none' : ''}`}>
                   <h3 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Relationship</h3>
                   <div className="space-y-3">
-                    <Select value={selectedLead.status} onValueChange={handleStatusChange}>
+                    <Select value={selectedLead.status} onValueChange={handleStatusChange} disabled={permissions.isReadOnly}>
                       <SelectTrigger className="h-8 text-xs md:w-full dark:bg-card">
                         <SelectValue />
                       </SelectTrigger>
@@ -1375,10 +1539,11 @@ const Campaigns = () => {
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    initiateCall(selectedLead, contact);
+                                    !permissions.isReadOnly && initiateCall(selectedLead, contact);
                                   }}
-                                  className="p-1 hover:bg-orange-500 hover:text-white rounded transition-colors text-orange-500"
-                                  title="Call Contact"
+                                  disabled={permissions.isReadOnly}
+                                  className={`p-1 hover:bg-orange-500 hover:text-white rounded transition-colors text-orange-500 ${permissions.isReadOnly ? 'opacity-40 blur-[0.5px] pointer-events-none cursor-not-allowed' : ''}`}
+                                  title={permissions.isReadOnly ? undefined : "Call Contact"}
                                 >
                                   <Phone size={10} />
                                 </button>
@@ -1424,7 +1589,13 @@ const Campaigns = () => {
                                 <span className="text-[8px] uppercase tracking-widest font-bold bg-primary/10 text-primary px-1.5 py-0.5 rounded">{f.type || 'Task'}</span>
                                 <span className="text-[9px] font-bold text-foreground">{new Date(f.date_time).toLocaleString()}</span>
                               </div>
-                              <button onClick={() => markFollowupDone(f._id)} className="text-[8px] text-muted-foreground hover:text-success opacity-0 group-hover:opacity-100 transition-all">Done</button>
+                              <button 
+                                onClick={() => !permissions.isReadOnly && markFollowupDone(f._id)} 
+                                disabled={permissions.isReadOnly}
+                                className={`text-[8px] transition-all ${permissions.isReadOnly ? 'text-muted-foreground/30 cursor-not-allowed pointer-events-none opacity-40 blur-[0.5px] ml-2' : 'text-muted-foreground hover:text-success opacity-0 group-hover:opacity-100'}`}
+                              >
+                                Done
+                              </button>
                             </div>
                             <p className="text-[10px] text-foreground/80 mt-1 line-clamp-1">{f.notes || "No notes"}</p>
                           </div>
@@ -1556,34 +1727,7 @@ const Campaigns = () => {
               />
               {fuErrors.notes && <p className="text-[10px] text-destructive font-medium">{fuErrors.notes}</p>}
             </div>
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold uppercase text-muted-foreground">Assigned User</label>
-              <select
-                className="input-field dark:bg-card"
-                value={assignedTo}
-                onChange={e => {
-                  setAssignedTo(e.target.value);
-                  if (fuErrors.assignedTo) setFuErrors(prev => ({ ...prev, assignedTo: "" }));
-                }}
-              >
-                <option value="self">Assign to Me</option>
-                <option value="other">Other</option>
-              </select>
-              {assignedTo === "other" && (
-                <div className="space-y-1">
-                  <input
-                    className={`input-field mt-2 ${fuErrors.assignedTo ? "border-destructive focus:ring-destructive/20" : ""}`}
-                    placeholder="Enter name..."
-                    value={customAssignedTo}
-                    onChange={(e) => {
-                      setCustomAssignedTo(e.target.value);
-                      if (fuErrors.assignedTo) setFuErrors(prev => ({ ...prev, assignedTo: "" }));
-                    }}
-                  />
-                  {fuErrors.assignedTo && <p className="text-[10px] text-destructive font-medium">{fuErrors.assignedTo}</p>}
-                </div>
-              )}
-            </div>
+
           </div>
           <DialogFooter>
             <button className="btn-secondary" onClick={() => { setIsFollowUpModalOpen(false); setFuErrors({}); }}>Cancel</button>
@@ -1898,7 +2042,16 @@ const Campaigns = () => {
                     <option>Public</option>
                     <option>Private</option>
                     <option>Parent</option>
+                    <option>Other</option>
                   </select>
+                  {leadFormData.type === "Other" && (
+                    <input
+                      placeholder="Specify lead type..."
+                      className="input-field mt-2 animate-in slide-in-from-top-1 duration-200"
+                      value={customLeadType}
+                      onChange={e => setCustomLeadType(e.target.value)}
+                    />
+                  )}
                 </div>
                 <div className="space-y-1">
                   <label className="text-xs font-medium">Category / Group</label>
@@ -1973,24 +2126,29 @@ const Campaigns = () => {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium">Start Time</label>
-                  <input
-                    name="start_time"
-                    type="time"
-                    className="input-field"
-                    value={formatTimeForInput(leadFormData.start_time)}
-                    onChange={handleLeadFormChange}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium">End Time</label>
-                  <input
-                    name="end_time"
-                    type="time"
-                    className="input-field"
-                    value={formatTimeForInput(leadFormData.end_time)}
-                    onChange={handleLeadFormChange}
-                  />
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1">
+                      <label className="text-[10px] text-muted-foreground uppercase font-bold mb-1 block">Start Time</label>
+                      <input
+                        name="start_time"
+                        type="time"
+                        className="input-field w-full"
+                        value={formatTimeForInput(leadFormData.start_time)}
+                        onChange={handleLeadFormChange}
+                      />
+                    </div>
+                    <span className="text-muted-foreground font-medium px-1 mt-5">to</span>
+                    <div className="flex-1">
+                      <label className="text-[10px] text-muted-foreground uppercase font-bold mb-1 block">End Time</label>
+                      <input
+                        name="end_time"
+                        type="time"
+                        className="input-field w-full"
+                        value={formatTimeForInput(leadFormData.end_time)}
+                        onChange={handleLeadFormChange}
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -2263,10 +2421,35 @@ const Campaigns = () => {
 
       {/* Call Outcome Modal */}
       <Dialog open={isCallModalOpen} onOpenChange={setIsCallModalOpen}>
-        <DialogContent aria-describedby={undefined} className="w-[90vw] max-w-md dark:bg-card p-0 overflow-hidden flex flex-col max-h-[95vh]">
+        <DialogContent aria-describedby={undefined} className="w-[95vw] max-w-xl dark:bg-card p-0 overflow-hidden flex flex-col max-h-[95vh]">
           <DialogHeader className="p-6 pb-2 border-b">
             <DialogTitle className="dark:text-foreground">Log Call Outcome</DialogTitle>
-            <p className="text-sm text-muted-foreground mt-1">Calling: {selectedLead?.name || "Unknown"}</p>
+            <div className="text-sm text-muted-foreground mt-1 flex items-center flex-wrap gap-2">
+              <span>Calling: <strong>{selectedLead?.name || "Unknown"}</strong></span>
+              {selectedLead?.assigned_to ? (
+                (() => {
+                  const isMe = typeof selectedLead.assigned_to === 'object'
+                    ? selectedLead.assigned_to._id === currentUser?._id
+                    : selectedLead.assigned_to === currentUser?._id;
+                  const name = typeof selectedLead.assigned_to === 'object'
+                    ? selectedLead.assigned_to.name
+                    : 'Assigned';
+                  return (
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${
+                      isMe 
+                        ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' 
+                        : 'bg-blue-500/10 text-blue-500 border border-blue-500/20'
+                    }`}>
+                      {isMe ? 'Assigned to You' : `Assigned to: ${name}`}
+                    </span>
+                  );
+                })()
+              ) : (
+                <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold bg-amber-500/10 text-amber-500 border border-amber-500/20">
+                  Unassigned
+                </span>
+              )}
+            </div>
           </DialogHeader>
           <div className="flex-1 overflow-y-auto p-6 py-4 custom-scrollbar">
             <div className="grid gap-4">
@@ -2282,9 +2465,90 @@ const Campaigns = () => {
                 </select>
               </div>
               <div className="grid gap-2">
-                <label className="text-sm font-medium">Call Notes</label>
-                <textarea className="input-field min-h-[100px]" placeholder="Briefly summarize the conversation..." value={callNotes} onChange={e => setCallNotes(e.target.value)} />
+                <label className="text-sm font-medium">Add Notes</label>
+                <textarea className="input-field min-h-[80px]" placeholder="Briefly summarize the conversation..." value={callNotes} onChange={e => setCallNotes(e.target.value)} />
               </div>
+
+              {/* Seamless Follow-up Checkbox */}
+              <div className="flex items-center gap-2 py-2 border-t mt-2">
+                <input
+                  type="checkbox"
+                  id="create-followup-checkbox"
+                  className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary/20"
+                  checked={createFollowUpInCall}
+                  onChange={e => setCreateFollowUpInCall(e.target.checked)}
+                />
+                <label htmlFor="create-followup-checkbox" className="text-sm font-bold text-foreground cursor-pointer select-none">
+                  Schedule a follow-up task?
+                </label>
+              </div>
+
+              {createFollowUpInCall && (
+                <div className="space-y-4 p-4 rounded-xl border bg-accent/20 animate-in slide-in-from-top-2 duration-200">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-primary">Follow-up Task Details</h4>
+                  
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold uppercase text-muted-foreground">Task Title *</label>
+                    <input
+                      className={`input-field ${fuErrors.followUpTitle ? "border-destructive focus:ring-destructive/20" : ""}`}
+                      placeholder="e.g. Call to finalize contract"
+                      value={followUpTitle}
+                      onChange={e => {
+                        setFollowUpTitle(e.target.value);
+                        if (fuErrors.followUpTitle) setFuErrors(prev => ({ ...prev, followUpTitle: "" }));
+                      }}
+                    />
+                    {fuErrors.followUpTitle && <p className="text-[10px] text-destructive font-medium">{fuErrors.followUpTitle}</p>}
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold uppercase text-muted-foreground">Date & Time *</label>
+                    <input
+                      type="datetime-local"
+                      className={`input-field dark:color-scheme-dark ${fuErrors.date ? "border-destructive focus:ring-destructive/20" : ""}`}
+                      value={followUpDate}
+                      onChange={e => {
+                        setFollowUpDate(e.target.value);
+                        if (fuErrors.date) setFuErrors(prev => ({ ...prev, date: "" }));
+                      }}
+                    />
+                    {fuErrors.date && <p className="text-[10px] text-destructive font-medium">{fuErrors.date}</p>}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold uppercase text-muted-foreground">Type</label>
+                      <select className="input-field dark:bg-card" value={followUpType} onChange={e => setFollowUpType(e.target.value)}>
+                        <option value="Call">Call</option>
+                        <option value="Email">Email</option>
+                        <option value="Meeting">Meeting</option>
+                        <option value="Task">Task</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold uppercase text-muted-foreground">Priority</label>
+                      <select className="input-field dark:bg-card" value={followUpPriority} onChange={e => setFollowUpPriority(e.target.value)}>
+                        <option value="Low">Low</option>
+                        <option value="Medium">Medium</option>
+                        <option value="High">High</option>
+                      </select>
+                    </div>
+                  </div>
+
+
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold uppercase text-muted-foreground">Follow-up Notes</label>
+                    <textarea
+                      placeholder="Reason for follow-up"
+                      className="input-field min-h-[60px]"
+                      value={followUpNotes}
+                      onChange={e => setFollowUpNotes(e.target.value)}
+                    />
+                  </div>
+                </div>
+              )}
+
               <div className="mt-2 p-3 rounded-xl bg-orange-500/10 border border-orange-500/20 text-orange-600 dark:text-orange-400">
                 <p className="text-[10px] font-medium text-center">
                   <span className="font-bold uppercase mr-1">Important:</span>

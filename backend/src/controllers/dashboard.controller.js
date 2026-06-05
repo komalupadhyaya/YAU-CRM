@@ -13,9 +13,21 @@ export const getConsolidatedDashboard = async (req, res, next) => {
         const now = new Date();
         const todayStr = now.toISOString().slice(0, 10);
 
+        let assignedCampaignIds = [];
+        if (req.currentUserRole === 'sales_rep') {
+            assignedCampaignIds = await Lead.distinct('campaign_id', { assigned_to: req.user.id });
+        }
+
+        const campaignFilter = campaignId 
+            ? { _id: campaignId } 
+            : (req.currentUserRole === 'sales_rep' ? { _id: { $in: assignedCampaignIds } } : {});
+
         const leadMatch = {};
         if (campaignId) {
             leadMatch.campaign_id = new mongoose.Types.ObjectId(campaignId);
+        }
+        if (req.currentUserRole === 'sales_rep') {
+            leadMatch.assigned_to = new mongoose.Types.ObjectId(req.user.id);
         }
 
         const [
@@ -25,7 +37,7 @@ export const getConsolidatedDashboard = async (req, res, next) => {
             campaignSummaries,
             settings
         ] = await Promise.all([
-            Campaign.countDocuments(campaignId ? { _id: campaignId } : {}),
+            Campaign.countDocuments(campaignFilter),
 
             Lead.aggregate([
                 { $match: leadMatch },
@@ -39,16 +51,19 @@ export const getConsolidatedDashboard = async (req, res, next) => {
 
             Followup.aggregate([
                 { $match: { status: 'pending' } },
+                {
+                    $lookup: {
+                        from: 'leads',
+                        localField: 'lead_id',
+                        foreignField: '_id',
+                        as: 'lead'
+                    }
+                },
+                { $unwind: '$lead' },
+                ...(req.currentUserRole === 'sales_rep' ? [
+                    { $match: { 'lead.assigned_to': new mongoose.Types.ObjectId(req.user.id) } }
+                ] : []),
                 ...(campaignId ? [
-                    {
-                        $lookup: {
-                            from: 'leads',
-                            localField: 'lead_id',
-                            foreignField: '_id',
-                            as: 'lead'
-                        }
-                    },
-                    { $unwind: '$lead' },
                     { $match: { 'lead.campaign_id': new mongoose.Types.ObjectId(campaignId) } }
                 ] : []),
                 {
@@ -79,6 +94,9 @@ export const getConsolidatedDashboard = async (req, res, next) => {
             ]),
 
             Lead.aggregate([
+                ...(req.currentUserRole === 'sales_rep' ? [
+                    { $match: { assigned_to: new mongoose.Types.ObjectId(req.user.id) } }
+                ] : []),
                 {
                     $group: {
                         _id: '$campaign_id',
@@ -146,12 +164,12 @@ export const getDashboardStats = async (req, res, next) => {
         const all = await Followup.find({ status: 'pending' })
             .populate({
                 path: 'lead_id',
-                select: 'name telephone campaign_id',
+                select: 'name telephone campaign_id assigned_to',
                 populate: { path: 'campaign_id', select: 'name' }
             })
             .sort({ date_time: 1 });
 
-        const flatAll = all.map(f => {
+        let flatAll = all.map(f => {
             const data = f.toJSON();
             return {
                 ...data,
@@ -162,6 +180,11 @@ export const getDashboardStats = async (req, res, next) => {
                 campaign_id_val: data.lead_id?.campaign_id?._id
             };
         });
+
+        // Filter for sales reps
+        if (req.currentUserRole === 'sales_rep') {
+            flatAll = flatAll.filter(f => f.lead_id?.assigned_to?.toString() === req.user.id);
+        }
 
         const overdue = flatAll.filter(f => new Date(f.date_time) < startOfToday);
         const due = flatAll.filter(f => {
@@ -183,6 +206,9 @@ export const getCampaignSummaries = async (req, res, next) => {
         const meetingLabel = statusLabels.find(l => l.toLowerCase().includes("meeting")) || "Meeting Scheduled";
 
         const summaries = await Lead.aggregate([
+            ...(req.currentUserRole === 'sales_rep' ? [
+                { $match: { assigned_to: new mongoose.Types.ObjectId(req.user.id) } }
+            ] : []),
             {
                 $group: {
                     _id: '$campaign_id',
@@ -206,9 +232,14 @@ export const getCampaignCounts = async (req, res, next) => {
         const initialStatus = statusLabels[0];
 
         const campaign_id = req.params.campaignId;
-        const totalLeads = await Lead.countDocuments({ campaign_id });
+        const filter = { campaign_id };
+        if (req.currentUserRole === 'sales_rep') {
+            filter.assigned_to = req.user.id;
+        }
+
+        const totalLeads = await Lead.countDocuments(filter);
         const contactedLeads = await Lead.countDocuments({
-            campaign_id,
+            ...filter,
             status: { $ne: initialStatus }
         });
 

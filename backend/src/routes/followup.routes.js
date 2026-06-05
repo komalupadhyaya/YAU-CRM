@@ -1,18 +1,25 @@
 import express from 'express';
 import * as followupController from '../controllers/followup.controller.js';
 import * as dashboardController from '../controllers/dashboard.controller.js';
+import auth from '../middleware/auth.middleware.js';
+import requireRole from '../middleware/role.middleware.js';
 
 const router = express.Router();
 
+const allRoles = ['admin', 'manager', 'sales_rep', 'view_only'];
+const canWrite = ['admin', 'manager', 'sales_rep'];
+
 // Literal routes first
-router.get('/dashboard', dashboardController.getDashboardStats);
-router.get('/grouped', followupController.getGroupedFollowups);
+router.get('/dashboard', auth, requireRole(...allRoles), dashboardController.getDashboardStats);
+router.get('/grouped', auth, requireRole(...allRoles), followupController.getGroupedFollowups);
 
-// Changed /school/ to /lead/
-router.get('/lead/:schoolId', followupController.getFollowupsBySchool);
+// Get follow-ups for a lead — all roles can view
+router.get('/lead/:schoolId', auth, requireRole(...allRoles), followupController.getFollowupsBySchool);
 
-router.post('/:schoolId', followupController.createFollowup);
+// Create follow-up — view_only cannot create
+router.post('/:schoolId', auth, requireRole(...canWrite), followupController.createFollowup);
 
-router.put('/:id/complete', followupController.completeFollowup);
+// Complete follow-up — view_only cannot complete
+router.put('/:id/complete', auth, requireRole(...canWrite), followupController.completeFollowup);
 
 export default router;

@@ -4,6 +4,8 @@ import { useLeadStore, Lead, Contact } from "../store/schoolStore";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "../api/api";
 import AppLayout from "../layout/AppLayout";
+import { useAuth } from "../context/AuthContext";
+import { can } from "../utils/permissions";
 import { CalendarPlus, Save, ArrowLeft, History, Info, User, Phone, Mail, Clock, MessageSquare, ChevronDown, ChevronUp, Edit, Video, Send, CheckCircle2, Trash2, Play, Pause, ExternalLink, FileText, Smartphone, X, RefreshCw, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { countryCodes } from "../utils/countryCodes";
@@ -55,7 +57,7 @@ interface Note {
   _id: string;
   content: string;
   type: 'note' | 'status_change' | 'email' | 'meeting' | 'call' | 'sms';
-  metadata?: { subject?: string; recording_url?: string; recording_duration?: number; duration?: number; [key: string]: unknown; };
+  metadata?: { subject?: string; recording_url?: string; recording_duration?: number; duration?: number;[key: string]: unknown; };
   createdAt: string;
 }
 
@@ -67,6 +69,11 @@ interface FollowUp {
   priority: string;
   status: string;
 }
+
+const formatNoteContent = (content: string) => {
+  if (!content) return "";
+  return content.split('\n').filter(line => !line.trim().startsWith('Contact:')).join('\n');
+};
 
 const RecordingPlayer = ({ url, duration }: { url: string, duration?: number }) => {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -146,11 +153,15 @@ const RecordingPlayer = ({ url, duration }: { url: string, duration?: number }) 
 };
 
 export default function LeadDetail() {
+  const { currentUser } = useAuth();
+  const permissions = can(currentUser?.role);
+  const isReadOnly = permissions.isReadOnly;
 
   const { id } = useParams();
   const navigate = useNavigate();
   const { setSelectedLead } = useLeadStore();
   const [lead, setLead] = useState<Lead | null>(null);
+  const primaryContact = lead?.contacts?.find(c => c.is_primary) || lead?.contacts?.[0] || null;
   const [notes, setNotes] = useState<Note[]>([]);
   const [followUps, setFollowUps] = useState<FollowUp[]>([]);
   const [noteContent, setNoteContent] = useState("");
@@ -227,7 +238,11 @@ export default function LeadDetail() {
   const [meetingCcInput, setMeetingCcInput] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
+  const [followUpTitle, setFollowUpTitle] = useState("");
+  const [createFollowUpInCall, setCreateFollowUpInCall] = useState(false);
+  const [teamMembers, setTeamMembers] = useState<any[]>([]);
   const [loadingNotes, setLoadingNotes] = useState(false);
+  const [customType, setCustomType] = useState("");
 
   const populateEditData = (dataToEdit: Lead) => {
     if (!dataToEdit) return;
@@ -268,6 +283,12 @@ export default function LeadDetail() {
       secondary_contact_extension: secondary?.extension || "",
       secondary_contact_email: secondary?.email || "",
     });
+
+    if (dataToEdit.type && !["Public", "Private", "Parent"].includes(dataToEdit.type)) {
+      setCustomType(dataToEdit.type);
+    } else {
+      setCustomType("");
+    }
   };
 
   useEffect(() => {
@@ -308,6 +329,14 @@ export default function LeadDetail() {
   }, [id]);
 
   useEffect(() => {
+    if (currentUser?.role === 'admin' || currentUser?.role === 'manager') {
+      api.get("/team")
+        .then(res => setTeamMembers(res.data))
+        .catch(err => console.error("Failed to fetch team members in LeadDetail:", err));
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
     if (assignedTo === "other" && isFollowUpModalOpen) {
       setTimeout(() => customAssignedRef.current?.focus(), 100);
     }
@@ -329,6 +358,7 @@ export default function LeadDetail() {
     try {
       const payload = {
         ...editData,
+        type: editData.type === "Other" ? customType : editData.type,
         telephone: editData.telephone ? (phonePrefix + editData.telephone.replace(/\D/g, '')) : "",
         contact_direct_phone: editData.contact_direct_phone ? (contactPhonePrefix + editData.contact_direct_phone.replace(/\D/g, '')) : "",
         secondary_contact_phone: editData.secondary_contact_phone ? (secondaryPhonePrefix + editData.secondary_contact_phone.replace(/\D/g, '')) : "",
@@ -544,6 +574,7 @@ export default function LeadDetail() {
 
 
   const initiateCall = (contact: Contact | null) => {
+    if (isReadOnly) return;
     setSelectedContactForCall(contact); // Keep track of who we are calling
     const phone = contact?.direct_phone || lead?.telephone;
     if (phone) {
@@ -552,11 +583,44 @@ export default function LeadDetail() {
     }
     // Open the outcome modal so the agent can log it when they finish
     setCallOutcome("Answered - Interested"); // Default
+    setCallNotes("");
+    setCreateFollowUpInCall(false);
+    setFollowUpTitle("");
+    setFollowUpDate("");
+    setFollowUpNotes("");
+    setFollowUpType("Call");
+    setFollowUpPriority("Medium");
+    setAssignedTo("self");
+    setCustomAssignedTo("");
+    setFuErrors({});
     setIsCallModalOpen(true);
   };
 
   const logCall = async () => {
     if (isSubmitting) return;
+
+    // Validate follow-up details if the checkbox is checked
+    const newErrors: Record<string, string> = {};
+    if (createFollowUpInCall) {
+      if (!followUpTitle.trim()) {
+        newErrors.followUpTitle = "Follow-up Title is required";
+      }
+      if (!followUpDate) {
+        newErrors.date = "Date & Time is required";
+      } else if (new Date(followUpDate) < new Date()) {
+        newErrors.date = "Date & Time cannot be in the past";
+      }
+      if (assignedTo === "other" && !customAssignedTo.trim()) {
+        newErrors.assignedTo = "Please specify who this is assigned to";
+      }
+    }
+
+    if (Object.keys(newErrors).length > 0) {
+      setFuErrors(newErrors);
+      toast.error("Please fix the errors before scheduling");
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const res = await api.post(`/justcall/log-call`, {
@@ -568,11 +632,37 @@ export default function LeadDetail() {
       toast.success("Call logged");
       setIsCallModalOpen(false);
       setCallNotes("");
-      loadAll();
 
-      if (res.data.followup_needed) {
-        handleOpenFollowUpModal();
+      // Create Follow Up if enabled
+      if (createFollowUpInCall) {
+        try {
+          await api.post(`/followups/${id}`, {
+            title: followUpTitle,
+            date_time: new Date(followUpDate).toISOString(),
+            type: followUpType,
+            priority: followUpPriority,
+            notes: followUpNotes || `Call Follow-Up: ${followUpTitle}`,
+            assigned_user: assignedTo === "self" ? "self" : (assignedTo === "other" ? customAssignedTo : assignedTo),
+            force: true
+          });
+          toast.success("Follow-up scheduled!");
+        } catch (fuErr: any) {
+          toast.error(fuErr.response?.data?.message || "Failed to schedule follow-up");
+        }
       }
+
+      // Reset follow-up state
+      setFollowUpTitle("");
+      setFollowUpDate("");
+      setFollowUpNotes("");
+      setFollowUpType("Call");
+      setFollowUpPriority("Medium");
+      setAssignedTo("self");
+      setCustomAssignedTo("");
+      setCreateFollowUpInCall(false);
+      setFuErrors({});
+
+      loadAll();
     } catch {
       toast.error("Failed to log call");
     } finally {
@@ -706,66 +796,135 @@ export default function LeadDetail() {
                   </>
                 ) : (
                   <>
-                    <button onClick={() => setIsEditing(true)} className="btn-secondary" title="Edit Lead"><Edit size={16} /></button>
+                    <button
+                      onClick={!isReadOnly ? () => setIsEditing(true) : undefined}
+                      disabled={isReadOnly}
+                      className={`btn-secondary ${isReadOnly ? 'opacity-40 blur-[0.5px] cursor-not-allowed pointer-events-none' : ''}`}
+                      title={isReadOnly ? 'Read-only access' : 'Edit Lead'}
+                    >
+                      <Edit size={16} />
+                    </button>
                   </>
                 )}
               </div>
             </div>
 
-            {/* Action Area (Section 9/9a) */}
-            <div className="flex flex-wrap gap-2 mb-8 p-4 bg-accent/20 dark:bg-accent/5 rounded-2xl border border-primary/10">
-              <button onClick={() => setIsNoteModalOpen(true)} className="btn-secondary flex items-center justify-center gap-2 py-2 px-4 text-xs font-bold uppercase tracking-wider">
+            {/* Action Area — disabled + blurred for view_only */}
+            <div className={`flex flex-wrap gap-2 mb-8 p-4 bg-accent/20 dark:bg-accent/5 rounded-2xl border border-primary/10 relative ${isReadOnly ? 'opacity-40 blur-[0.5px] pointer-events-none select-none' : ''}`}>
+              {isReadOnly && (
+                <div className="absolute inset-0 z-10 rounded-2xl flex items-center justify-center cursor-not-allowed" title="Read-only access" />
+              )}
+              <button 
+                disabled={isReadOnly} 
+                onClick={() => { setSelectedContactForNote(primaryContact); setIsNoteModalOpen(true); }}
+                className="btn-secondary flex items-center justify-center gap-2 py-2 px-4 text-xs font-bold uppercase tracking-wider"
+              >
                 <FileText size={14} /> Add Note
               </button>
-              <button onClick={() => initiateCall(lead.contacts?.[0] || null)} className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-all active:scale-95 shadow-md">
+              <button 
+                disabled={isReadOnly} 
+                onClick={() => initiateCall(primaryContact)}
+                className="bg-orange-500 text-white px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 shadow-md hover:bg-orange-600 transition-colors"
+              >
                 <Phone size={14} /> Make Call
               </button>
-              <button onClick={() => { setSelectedContactForSms(lead.contacts?.[0] || null); setIsSmsModalOpen(true); }} className="btn-secondary flex items-center justify-center gap-2 py-2 px-4 text-xs font-bold uppercase tracking-wider">
+              <button 
+                disabled={isReadOnly} 
+                onClick={() => { setSelectedContactForSms(primaryContact); setIsSmsModalOpen(true); }}
+                className="btn-secondary flex items-center justify-center gap-2 py-2 px-4 text-xs font-bold uppercase tracking-wider"
+              >
                 <MessageSquare size={14} /> Send SMS
               </button>
-              <button onClick={handleOpenFollowUpModal} className="btn-secondary flex items-center justify-center gap-2 py-2 px-4 text-xs font-bold uppercase tracking-wider">
+              <button 
+                disabled={isReadOnly} 
+                onClick={handleOpenFollowUpModal}
+                className="btn-secondary flex items-center justify-center gap-2 py-2 px-4 text-xs font-bold uppercase tracking-wider"
+              >
                 <CalendarPlus size={14} /> Create Follow-Up
               </button>
-              <button onClick={() => { setSelectedContactForMeeting(lead.contacts?.[0] || null); setIsMeetingModalOpen(true); }} className="btn-secondary flex items-center justify-center gap-2 py-2 px-4 text-xs font-bold uppercase tracking-wider">
+              <button 
+                disabled={isReadOnly} 
+                onClick={() => { setSelectedContactForMeeting(primaryContact); setIsMeetingModalOpen(true); }}
+                className="btn-secondary flex items-center justify-center gap-2 py-2 px-4 text-xs font-bold uppercase tracking-wider"
+              >
                 <Video size={14} /> Schedule Meeting
               </button>
-              <button onClick={() => {
-                const contact = lead.contacts?.[0] || null;
-                const email = contact?.email || "";
-                setSelectedContactForEmail(contact);
-                setEmailData(prev => ({ ...prev, to: email }));
-                setIsEmailModalOpen(true);
-              }} className="btn-secondary flex items-center justify-center gap-2 py-2 px-4 text-xs font-bold uppercase tracking-wider">
+              <button 
+                disabled={isReadOnly} 
+                onClick={() => {
+                  setSelectedContactForEmail(primaryContact);
+                  setEmailData(prev => ({ ...prev, to: primaryContact?.email || "" }));
+                  setIsEmailModalOpen(true);
+                }}
+                className="btn-secondary flex items-center justify-center gap-2 py-2 px-4 text-xs font-bold uppercase tracking-wider"
+              >
                 <Send size={14} /> Send Email
               </button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               {[
+                { label: "Organization Name", key: "name" },
                 { label: "Campaign", key: "campaign_id" },
                 { label: "Lead Type", key: "type" },
                 { label: "Category / Group", key: "category_group" },
                 { label: "Department", key: "department" },
                 { label: "Telephone", key: "telephone" },
                 { label: "Website", key: "website" },
-                { label: "Start Time", key: "start_time" },
-                { label: "End Time", key: "end_time" },
+                { label: "Start and End Time", key: "hours" },
               ].map(({ label, key }) => (
                 <div key={key}>
-                  <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">{label}</label>
+                  {!(isEditing && key === "hours") && (
+                    <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">{label}</label>
+                  )}
                   {isEditing ? (
                     key === "type" ? (
-                      <select
-                        name="type"
-                        className="input-field dark:bg-card"
-                        value={editData[key] || ""}
-                        onChange={e => setEditData({ ...editData, [key]: e.target.value })}
-                      >
-                        <option value="">Select type...</option>
-                        <option>Public</option>
-                        <option>Private</option>
-                        <option>Parent</option>
-                      </select>
+                      <div className="space-y-2">
+                        <select
+                          name="type"
+                          className="input-field dark:bg-card"
+                          value={["Public", "Private", "Parent"].includes(editData[key]) ? editData[key] : (editData[key] ? "Other" : "")}
+                          onChange={e => setEditData({ ...editData, [key]: e.target.value })}
+                        >
+                          <option value="">Select type...</option>
+                          <option>Public</option>
+                          <option>Private</option>
+                          <option>Parent</option>
+                          <option>Other</option>
+                        </select>
+                        {(editData[key] === "Other" || (editData[key] && !["Public", "Private", "Parent"].includes(editData[key]))) && (
+                          <input
+                            placeholder="Specify lead type..."
+                            className="input-field animate-in slide-in-from-top-1 duration-200"
+                            value={customType}
+                            onChange={e => setCustomType(e.target.value)}
+                          />
+                        )}
+                      </div>
+                    ) : key === "hours" ? (
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1">
+                          <label className="text-[10px] text-muted-foreground uppercase font-bold mb-1 block">Start Time</label>
+                          <input
+                            type="time"
+                            name="start_time"
+                            className="input-field w-full dark:bg-card"
+                            value={formatTimeForInput(editData.start_time) || ""}
+                            onChange={e => setEditData({ ...editData, start_time: e.target.value })}
+                          />
+                        </div>
+                        <span className="text-muted-foreground font-medium px-1 mt-5">to</span>
+                        <div className="flex-1">
+                          <label className="text-[10px] text-muted-foreground uppercase font-bold mb-1 block">End Time</label>
+                          <input
+                            type="time"
+                            name="end_time"
+                            className="input-field w-full dark:bg-card"
+                            value={formatTimeForInput(editData.end_time) || ""}
+                            onChange={e => setEditData({ ...editData, end_time: e.target.value })}
+                          />
+                        </div>
+                      </div>
                     ) : key === "campaign_id" ? (
                       <select
                         name="campaign_id"
@@ -778,59 +937,59 @@ export default function LeadDetail() {
                           <option key={c._id} value={c._id}>{c.name}</option>
                         ))}
                       </select>
-                    ) : (
-                      key === "telephone" ? (
-                        <div className="flex gap-2">
-                          <div className="relative w-28 shrink-0">
-                            <div className="absolute inset-0 flex items-center pl-8 text-xs pointer-events-none font-medium">
-                              {phonePrefix}
-                            </div>
-                            <select
-                              className="input-field w-full dark:bg-card px-2 text-transparent appearance-none bg-no-repeat"
-                              style={{
-                                backgroundImage: `url(https://flagcdn.com/w20/${(countryCodes.find(c => c.dialCode === phonePrefix)?.code || 'US').toLowerCase()}.png)`,
-                                backgroundPosition: 'left 0.5rem center'
-                              }}
-                              value={phonePrefix}
-                              onChange={(e) => setPhonePrefix(e.target.value)}
-                            >
-                              {countryCodes.map(c => (
-                                <option key={`${c.code}-${c.dialCode}`} value={c.dialCode} className="text-foreground">
-                                  {c.name} ({c.dialCode})
-                                </option>
-                              ))}
-                            </select>
-                            <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground">
-                              <ChevronDown size={12} />
-                            </div>
+                    ) : key === "telephone" ? (
+                      <div className="flex gap-2">
+                        <div className="relative w-28 shrink-0">
+                          <div className="absolute inset-0 flex items-center pl-8 text-xs pointer-events-none font-medium">
+                            {phonePrefix}
                           </div>
-                          <input
-                            name="telephone"
-                            className="input-field flex-1"
-                            value={editData[key] || ""}
-                            onChange={e => setEditData({ ...editData, [key]: e.target.value })}
-                          />
-                          <input
-                            name="telephone_extension"
-                            className="input-field w-20"
-                            placeholder="Ext."
-                            value={editData.telephone_extension || ""}
-                            onChange={e => setEditData({ ...editData, telephone_extension: e.target.value })}
-                          />
+                          <select
+                            className="input-field w-full dark:bg-card px-2 text-transparent appearance-none bg-no-repeat"
+                            style={{
+                              backgroundImage: `url(https://flagcdn.com/w20/${(countryCodes.find(c => c.dialCode === phonePrefix)?.code || 'US').toLowerCase()}.png)`,
+                              backgroundPosition: 'left 0.5rem center'
+                            }}
+                            value={phonePrefix}
+                            onChange={(e) => setPhonePrefix(e.target.value)}
+                          >
+                            {countryCodes.map(c => (
+                              <option key={`${c.code}-${c.dialCode}`} value={c.dialCode} className="text-foreground">
+                                {c.name} ({c.dialCode})
+                              </option>
+                            ))}
+                          </select>
+                          <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground">
+                            <ChevronDown size={12} />
+                          </div>
                         </div>
-                      ) : (
                         <input
-                          name={key}
-                          className="input-field dark:bg-card"
+                          name="telephone"
+                          className="input-field flex-1"
                           value={editData[key] || ""}
                           onChange={e => setEditData({ ...editData, [key]: e.target.value })}
                         />
-                      )
+                        <input
+                          name="telephone_extension"
+                          className="input-field w-20"
+                          placeholder="Ext."
+                          value={editData.telephone_extension || ""}
+                          onChange={setEditData ? e => setEditData({ ...editData, telephone_extension: e.target.value }) : undefined}
+                        />
+                      </div>
+                    ) : (
+                      <input
+                        name={key}
+                        className="input-field dark:bg-card"
+                        value={editData[key] || ""}
+                        onChange={e => setEditData({ ...editData, [key]: e.target.value })}
+                      />
                     )
                   ) : (
                     <p className="text-foreground">
                       {key === "campaign_id"
                         ? (lead.campaign_id?.name || "N/A")
+                        : key === "hours"
+                        ? `${lead.start_time || "--:--"} to ${lead.end_time || "--:--"}`
                         // eslint-disable-next-line @typescript-eslint/no-explicit-any
                         : ((lead as any)[key] || "N/A")}
                       {key === "telephone" && lead.telephone_extension && ` x${lead.telephone_extension}`}
@@ -995,18 +1154,6 @@ export default function LeadDetail() {
                 )}
               </div>
 
-              <div>
-                <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Hours</label>
-                {isEditing ? (
-                  <div className="flex gap-2">
-                    <input type="time" name="start_time" className="input-field dark:bg-card" value={formatTimeForInput(editData.start_time) || ""} onChange={e => setEditData({ ...editData, start_time: e.target.value })} />
-                    <span className="flex items-center text-muted-foreground">to</span>
-                    <input type="time" name="end_time" className="input-field dark:bg-card" value={formatTimeForInput(editData.end_time) || ""} onChange={e => setEditData({ ...editData, end_time: e.target.value })} />
-                  </div>
-                ) : (
-                  <p className="text-foreground">{lead.start_time || "--:--"} – {lead.end_time || "--:--"}</p>
-                )}
-              </div>
             </div>
           </div>
           {/* Contacts List */}
@@ -1029,7 +1176,7 @@ export default function LeadDetail() {
                   <div key={contact._id} className={`p-4 rounded-xl border ${contact.is_primary ? 'border-primary/30 bg-primary/5' : 'border-border bg-card'}`}>
                     <div className="flex items-start justify-between mb-3">
                       <div>
-                        <h3 className="font-semibold text-foreground flex items-center justify-center gap-2">
+                        <h3 className="font-semibold text-foreground flex items-center justify-start gap-2">
                           {contact.name}
                           {contact.is_primary ? (
                             <span className="text-[10px] uppercase font-bold bg-primary text-white px-1.5 py-0.5 rounded-md">Primary</span>
@@ -1040,56 +1187,59 @@ export default function LeadDetail() {
                         <p className="text-sm text-muted-foreground">{contact.title || "No Title"} {contact.department ? `• ${contact.department}` : ''}</p>
                       </div>
                       <div className="flex gap-2">
+                        <div className={`flex gap-2 ${isReadOnly ? 'opacity-40 blur-[0.5px] pointer-events-none' : ''}`}>
                         <button
-                          onClick={() => initiateCall(contact)}
+                          onClick={() => !isReadOnly && initiateCall(contact)}
+                          disabled={isReadOnly}
                           className="p-1.5 hover:bg-orange-100 dark:hover:bg-orange-500/20 text-orange-600 rounded-lg transition-colors"
-                          title="Make Call via JustCall"
+                          title={isReadOnly ? 'Read-only access' : 'Make Call via JustCall'}
                         >
                           <Phone size={14} />
                         </button>
                         <button
-                          onClick={() => { setSelectedContactForNote(contact); setIsNoteModalOpen(true); }}
+                          onClick={() => !isReadOnly && (setSelectedContactForNote(contact), setIsNoteModalOpen(true))}
+                          disabled={isReadOnly}
                           className="p-1.5 bg-accent/50 hover:bg-accent rounded-lg text-slate-700 hover:text-primary transition-all border border-border/50"
-                          title="Add Note"
+                          title={isReadOnly ? 'Read-only access' : 'Add Note'}
                         >
                           <FileText size={14} strokeWidth={2.5} />
                         </button>
                         <button
-                          onClick={() => { setSelectedContactForSms(contact); setIsSmsModalOpen(true); }}
+                          onClick={() => !isReadOnly && (setSelectedContactForSms(contact), setIsSmsModalOpen(true))}
+                          disabled={isReadOnly}
                           className="p-1.5 rounded-lg bg-accent hover:bg-accent/80 text-slate-700 transition-colors border border-border/50"
-                          title="Send SMS"
+                          title={isReadOnly ? 'Read-only access' : 'Send SMS'}
                         >
                           <MessageSquare size={14} strokeWidth={2.5} />
                         </button>
                         <button
-                          onClick={() => {
-                            setSelectedContactForEmail(contact);
-                            setEmailData(prev => ({ ...prev, to: contact.email || "" }));
-                            setIsEmailModalOpen(true);
-                          }}
+                          onClick={() => !isReadOnly && (setSelectedContactForEmail(contact), setEmailData(prev => ({ ...prev, to: contact.email || "" })), setIsEmailModalOpen(true))}
+                          disabled={isReadOnly}
                           className="p-1.5 rounded-lg bg-accent hover:bg-accent/80 text-slate-700 transition-colors border border-border/50"
-                          title="Send Email"
+                          title={isReadOnly ? 'Read-only access' : 'Send Email'}
                         >
                           <Mail size={14} strokeWidth={2.5} />
                         </button>
                         <button
-                          onClick={() => { setSelectedContactForMeeting(contact); setIsMeetingModalOpen(true); }}
+                          onClick={() => !isReadOnly && (setSelectedContactForMeeting(contact), setIsMeetingModalOpen(true))}
+                          disabled={isReadOnly}
                           className="p-1.5 rounded-lg bg-accent hover:bg-accent/80 text-slate-700 transition-colors border border-border/50"
-                          title="Schedule Meeting"
+                          title={isReadOnly ? 'Read-only access' : 'Schedule Meeting'}
                         >
                           <CalendarPlus size={14} strokeWidth={2.5} />
                         </button>
+                        </div>
                       </div>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-y-2 gap-x-4 mt-3 pt-3 border-t border-border/50">
                       <div
-                        className="flex items-center justify-start gap-2 text-sm cursor-pointer group/phone hover:text-orange-600 transition-colors"
-                        onClick={() => initiateCall(contact)}
-                        title="Click to call via JustCall"
+                        className={`flex items-center justify-start gap-2 text-sm transition-colors ${isReadOnly ? 'cursor-default pointer-events-none' : 'cursor-pointer group/phone hover:text-orange-600'}`}
+                        onClick={() => !isReadOnly && initiateCall(contact)}
+                        title={isReadOnly ? undefined : "Click to call via JustCall"}
                       >
-                        <Phone size={14} className="text-muted-foreground group-hover/phone:text-orange-600" />
-                        <span className="text-foreground group-hover/phone:text-orange-600 font-medium">
+                        <Phone size={14} className={isReadOnly ? "text-muted-foreground" : "text-muted-foreground group-hover/phone:text-orange-600"} />
+                        <span className={isReadOnly ? "text-foreground font-medium" : "text-foreground group-hover/phone:text-orange-600 font-medium"}>
                           {contact.direct_phone || "N/A"} {contact.extension && `x${contact.extension}`}
                         </span>
                       </div>
@@ -1130,21 +1280,24 @@ export default function LeadDetail() {
                   <RefreshCw size={14} className={loadingNotes ? "animate-spin" : ""} />
                 </button>
 
-                {notes.length > 0 && (
+                <div className={isReadOnly ? 'opacity-40 blur-[0.5px] pointer-events-none' : ''}>
                   <button
                     onClick={() => {
                       if (window.confirm("Are you sure you want to delete all notes for this lead? This cannot be undone.")) {
                         deleteAllNotes();
                       }
                     }}
+                    disabled={isReadOnly}
                     className="text-[9px] text-destructive px-2.5 py-1 bg-destructive/5 hover:bg-destructive hover:text-white border border-destructive/20 rounded-lg font-bold uppercase transition-all flex items-center gap-1.5 shadow-sm ml-1"
                   >
                     <Trash2 size={11} /> Delete All
                   </button>
-                )}
+                </div>
               </div>
             </div>
 
+            {/* Inline note form — hidden for view_only */}
+            {!isReadOnly && (
             <div className="mb-6">
               <label className="block text-sm font-medium text-foreground mb-1.5">Add a new note</label>
               <textarea
@@ -1155,6 +1308,7 @@ export default function LeadDetail() {
               />
               <button onClick={() => addNote()} className="btn-primary">Save Note</button>
             </div>
+            )}
 
             <div className="space-y-4">
               {notes.length === 0 ? (
@@ -1171,7 +1325,7 @@ export default function LeadDetail() {
                                 <MessageSquare size={14} className="text-muted-foreground" />}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm text-foreground mb-1 break-words whitespace-pre-wrap">{n.content}</p>
+                      <p className="text-sm text-foreground mb-1 break-words whitespace-pre-wrap">{formatNoteContent(n.content)}</p>
                       {n.type === 'email' && n.metadata?.subject && (
                         <p className="text-xs text-muted-foreground mb-1 italic">Subject: {n.metadata.subject}</p>
                       )}
@@ -1185,13 +1339,16 @@ export default function LeadDetail() {
                         {new Date(n.createdAt).toLocaleString()}
                       </p>
                     </div>
-                    <button
-                      onClick={() => confirmDeleteNote(n._id)}
-                      className="p-1.5 rounded-lg bg-destructive/5 hover:bg-destructive/20 text-destructive/70 hover:text-destructive transition-all shrink-0 mt-0.5"
-                      title="Delete Note"
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                    <div className={isReadOnly ? 'opacity-40 blur-[0.5px] pointer-events-none' : ''}>
+                      <button
+                        onClick={() => confirmDeleteNote(n._id)}
+                        disabled={isReadOnly}
+                        className="p-1.5 rounded-lg bg-destructive/5 hover:bg-destructive/20 text-destructive/70 hover:text-destructive transition-all shrink-0 mt-0.5"
+                        title="Delete Note"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
                   </div>
                 ))
               )}
@@ -1207,7 +1364,12 @@ export default function LeadDetail() {
                 <CalendarPlus size={18} className="text-primary" />
                 <h2 className="font-semibold text-foreground">Follow-ups</h2>
               </div>
-              <button onClick={handleOpenFollowUpModal} className="text-primary hover:text-primary/80 text-sm font-medium">
+              <button
+                onClick={!isReadOnly ? handleOpenFollowUpModal : undefined}
+                disabled={isReadOnly}
+                className={`text-primary text-sm font-medium ${isReadOnly ? 'opacity-40 blur-[0.5px] cursor-not-allowed pointer-events-none' : 'hover:text-primary/80'}`}
+                title={isReadOnly ? 'Read-only access' : 'New follow-up'}
+              >
                 + New
               </button>
             </div>
@@ -1239,8 +1401,10 @@ export default function LeadDetail() {
                           {f.notes && <p className="text-sm text-muted-foreground mt-0.5">{f.notes}</p>}
                         </div>
                         <button
-                          onClick={() => markDone(f._id)}
-                          className="text-xs text-muted-foreground hover:text-success border border-border hover:border-success px-2 py-1 rounded transition-colors whitespace-nowrap"
+                          onClick={!isReadOnly ? () => markDone(f._id) : undefined}
+                          disabled={isReadOnly}
+                          className={`text-xs border px-2 py-1 rounded transition-colors whitespace-nowrap ${isReadOnly ? 'opacity-40 blur-[0.5px] cursor-not-allowed pointer-events-none text-muted-foreground border-border' : 'text-muted-foreground hover:text-success border-border hover:border-success'}`}
+                          title={isReadOnly ? 'Read-only access' : 'Mark as done'}
                         >
                           Mark Done
                         </button>
@@ -1562,7 +1726,7 @@ export default function LeadDetail() {
       }}>
         <DialogContent aria-describedby={undefined} className="w-[90vw] max-w-2xl dark:bg-card p-0 overflow-hidden !flex !flex-col max-h-[90vh]">
           <DialogHeader className="p-6 pb-2 border-b flex-shrink-0">
-            <DialogTitle className="dark:text-foreground">Send Email to {selectedContactForEmail?.name}</DialogTitle>
+            <DialogTitle className="dark:text-foreground">Send Email to {selectedContactForEmail?.name || lead?.name || "Lead"}</DialogTitle>
           </DialogHeader>
 
           <div className="flex-1 overflow-y-auto p-6 py-4 custom-scrollbar min-h-0">
@@ -1711,7 +1875,7 @@ export default function LeadDetail() {
         open={isCallModalOpen}
         onOpenChange={setIsCallModalOpen}
       >
-        <DialogContent aria-describedby={undefined} className="w-[90vw] max-w-md dark:bg-card p-0 overflow-hidden !flex !flex-col max-h-[90vh]">
+        <DialogContent aria-describedby={undefined} className="w-[95vw] max-w-xl dark:bg-card p-0 overflow-hidden !flex !flex-col max-h-[90vh]">
           <DialogHeader className="p-6 pb-2 border-b flex-shrink-0">
             <DialogTitle className="dark:text-foreground">Log Call Outcome</DialogTitle>
             <p className="text-sm text-muted-foreground mt-1">Calling: {lead?.contacts?.[0]?.name || "Unknown"} • {lead?.contacts?.[0]?.direct_phone || lead?.telephone}</p>
@@ -1730,6 +1894,7 @@ export default function LeadDetail() {
                     "Wrong Number"
                   ].map((outcome) => (
                     <button
+                      type="button"
                       key={outcome}
                       onClick={() => setCallOutcome(outcome)}
                       className={`flex-1 min-w-[120px] py-2 px-2 text-[10px] font-bold rounded-lg transition-all relative z-10 ${callOutcome === outcome
@@ -1746,15 +1911,129 @@ export default function LeadDetail() {
                 </div>
               </div>
               <div className="grid gap-2">
-                <label className="text-sm font-medium">Call Notes</label>
+                <label className="text-sm font-medium">Add Notes</label>
                 <textarea
                   name="notes"
-                  className="input-field min-h-[100px]"
+                  className="input-field min-h-[80px]"
                   placeholder="Briefly summarize the conversation..."
                   value={callNotes || ""}
                   onChange={e => setCallNotes(e.target.value)}
                 />
               </div>
+
+              {/* Seamless Follow-up Checkbox */}
+              <div className="flex items-center gap-2 py-2 border-t mt-2">
+                <input
+                  type="checkbox"
+                  id="create-followup-checkbox-detail"
+                  className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary/20"
+                  checked={createFollowUpInCall}
+                  onChange={e => setCreateFollowUpInCall(e.target.checked)}
+                />
+                <label htmlFor="create-followup-checkbox-detail" className="text-sm font-bold text-foreground cursor-pointer select-none">
+                  Schedule a follow-up task?
+                </label>
+              </div>
+
+              {createFollowUpInCall && (
+                <div className="space-y-4 p-4 rounded-xl border bg-accent/20 animate-in slide-in-from-top-2 duration-200">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-primary">Follow-up Task Details</h4>
+                  
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold uppercase text-muted-foreground">Task Title *</label>
+                    <input
+                      className={`input-field ${fuErrors.followUpTitle ? "border-destructive focus:ring-destructive/20" : ""}`}
+                      placeholder="e.g. Call to finalize contract"
+                      value={followUpTitle}
+                      onChange={e => {
+                        setFollowUpTitle(e.target.value);
+                        if (fuErrors.followUpTitle) setFuErrors(prev => ({ ...prev, followUpTitle: "" }));
+                      }}
+                    />
+                    {fuErrors.followUpTitle && <p className="text-[10px] text-destructive font-medium">{fuErrors.followUpTitle}</p>}
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold uppercase text-muted-foreground">Date & Time *</label>
+                    <input
+                      type="datetime-local"
+                      className={`input-field dark:color-scheme-dark ${fuErrors.date ? "border-destructive focus:ring-destructive/20" : ""}`}
+                      value={followUpDate}
+                      onChange={e => {
+                        setFollowUpDate(e.target.value);
+                        if (fuErrors.date) setFuErrors(prev => ({ ...prev, date: "" }));
+                      }}
+                    />
+                    {fuErrors.date && <p className="text-[10px] text-destructive font-medium">{fuErrors.date}</p>}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold uppercase text-muted-foreground">Type</label>
+                      <select className="input-field dark:bg-card" value={followUpType} onChange={e => setFollowUpType(e.target.value)}>
+                        <option value="Call">Call</option>
+                        <option value="Email">Email</option>
+                        <option value="Meeting">Meeting</option>
+                        <option value="Task">Task</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold uppercase text-muted-foreground">Priority</label>
+                      <select className="input-field dark:bg-card" value={followUpPriority} onChange={e => setFollowUpPriority(e.target.value)}>
+                        <option value="Low">Low</option>
+                        <option value="Medium">Medium</option>
+                        <option value="High">High</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold uppercase text-muted-foreground">Assigned User</label>
+                    <select
+                      className="input-field dark:bg-card"
+                      value={assignedTo}
+                      onChange={e => {
+                        setAssignedTo(e.target.value);
+                        if (fuErrors.assignedTo) setFuErrors(prev => ({ ...prev, assignedTo: "" }));
+                      }}
+                    >
+                      <option value="self">Assign to Me</option>
+                      {teamMembers.map(user => (
+                        <option key={user._id} value={user.name || user.username}>
+                          {user.name || user.username.split('@')[0]} ({user.role === 'sales_rep' ? 'Sales Rep' : user.role})
+                        </option>
+                      ))}
+                      <option value="other">Other (Specify Name)</option>
+                    </select>
+                    {assignedTo === "other" && (
+                      <div className="space-y-1">
+                        <input
+                          ref={customAssignedRef}
+                          className={`input-field mt-2 ${fuErrors.assignedTo ? "border-destructive focus:ring-destructive/20" : ""}`}
+                          placeholder="Enter name..."
+                          value={customAssignedTo}
+                          onChange={(e) => {
+                            setCustomAssignedTo(e.target.value);
+                            if (fuErrors.assignedTo) setFuErrors(prev => ({ ...prev, assignedTo: "" }));
+                          }}
+                        />
+                        {fuErrors.assignedTo && <p className="text-[10px] text-destructive font-medium">{fuErrors.assignedTo}</p>}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold uppercase text-muted-foreground">Follow-up Notes</label>
+                    <textarea
+                      placeholder="Reason for follow-up"
+                      className="input-field min-h-[60px]"
+                      value={followUpNotes}
+                      onChange={e => setFollowUpNotes(e.target.value)}
+                    />
+                  </div>
+                </div>
+              )}
+
               <div className="mt-4 p-3 rounded-xl bg-orange-500/10 border border-orange-500/20 text-orange-600 dark:text-orange-400">
                 <p className="text-[10px] font-medium text-center">
                   <span className="font-bold uppercase mr-1">Important:</span>
@@ -1764,7 +2043,7 @@ export default function LeadDetail() {
             </div>
           </div>
           <DialogFooter className="p-6 pt-2 border-t flex-shrink-0">
-            <button className="btn-secondary" onClick={() => setIsCallModalOpen(false)}>Cancel</button>
+            <button type="button" className="btn-secondary" onClick={() => setIsCallModalOpen(false)}>Cancel</button>
             <button
               disabled={isSubmitting}
               className={`btn-primary ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`}
@@ -1790,7 +2069,11 @@ export default function LeadDetail() {
             <div className="grid gap-4">
               <div className="grid gap-1">
                 <label className="text-xs font-bold text-muted-foreground uppercase">To</label>
-                <div className="p-2 bg-accent/30 rounded border text-sm">{selectedContactForSms?.name} ({selectedContactForSms?.direct_phone || selectedContactForSms?.email})</div>
+                <div className="p-2 bg-accent/30 rounded border text-sm">
+                  {selectedContactForSms 
+                    ? `${selectedContactForSms.name} (${selectedContactForSms.direct_phone || selectedContactForSms.email})` 
+                    : `${lead?.name} (${lead?.telephone || "No phone number"})`}
+                </div>
               </div>
               <div className="grid gap-2">
                 <label className="text-sm font-medium">Message <span className="text-destructive">*</span></label>

@@ -1,8 +1,10 @@
 import mongoose from 'mongoose';
 import Followup from '../models/followup.model.js';
+import Task from '../models/tasks.model.js';
 import Lead from '../models/lead.model.js';
 import Contact from '../models/contact.model.js';
 import Note from '../models/note.model.js';
+import User from '../models/user.model.js';
 import { google } from 'googleapis';
 
 const oAuth2Client = new google.auth.OAuth2(
@@ -17,11 +19,22 @@ if (process.env.GOOGLE_REFRESH_TOKEN && process.env.GOOGLE_REFRESH_TOKEN !== 'yo
 
 export const createFollowup = async (req, res, next) => {
     try {
-        const { date_time, type, notes, assigned_user, priority, contact_id, cc_emails, force } = req.body;
+        const { title, date_time, type, notes, assigned_user, priority, contact_id, cc_emails, force } = req.body;
         
         if (!date_time) {
             res.status(400);
             throw new Error('date_time is required');
+        }
+
+        // Sales Rep lead assignment check
+        const lead = await Lead.findById(req.params.schoolId).select('assigned_to name');
+        if (!lead) {
+            res.status(404);
+            throw new Error('Lead not found');
+        }
+        if (req.currentUserRole === 'sales_rep' && (!lead.assigned_to || lead.assigned_to.toString() !== req.user.id)) {
+            res.status(403);
+            throw new Error('Access denied. You can only create followups for leads assigned to you.');
         }
 
         // Handle CC emails: convert comma string to array if needed
@@ -66,14 +79,119 @@ export const createFollowup = async (req, res, next) => {
         }
 
         // ONLY NOW create database records
+        if (type && type.toLowerCase() === 'task') {
+            let assignedToId = req.user.id;
+            if (assigned_user && assigned_user !== 'self') {
+                const user = await User.findOne({
+                    $or: [
+                        { username: assigned_user },
+                        { email: assigned_user },
+                        { name: assigned_user }
+                    ]
+                });
+                if (user) {
+                    assignedToId = user._id;
+                }
+            }
+
+            const taskTitle = title || notes || `Task for ${lead.name}`;
+
+            const task = await Task.create({
+                title: taskTitle,
+                description: notes || '',
+                status: 'pending',
+                priority: (priority || 'medium').toLowerCase(),
+                dueDate: new Date(date_time),
+                assignedTo: assignedToId,
+                createdBy: req.user.id,
+                lead_id: req.params.schoolId
+            });
+
+            // Log to activity feed (Section 2D Requirement)
+            await Note.create({
+                lead_id: req.params.schoolId,
+                type: 'note',
+                content: `Created Task: ${taskTitle}\nDue Date: ${new Date(date_time).toLocaleString()}${notes ? `\nNotes: ${notes}` : ''}`,
+                metadata: { task_id: task._id, date_time, type: 'Task', notes }
+            });
+
+            // Google Calendar integration for Task
+            if (process.env.GOOGLE_REFRESH_TOKEN && process.env.GOOGLE_REFRESH_TOKEN !== 'your_google_refresh_token_here') {
+                try {
+                    const calendar = google.calendar({ version: 'v3', auth: oAuth2Client });
+                    
+                    const eventStartTime = new Date(date_time);
+                    const eventEndTime = new Date(eventStartTime.getTime() + 30 * 60000); // 30 min duration
+                    
+                    // Fetch client email (Primary Contact)
+                    let clientEmail = null;
+                    const primaryContact = await Contact.findOne({ lead_id: req.params.schoolId, is_primary: true });
+                    if (primaryContact?.email) {
+                        clientEmail = primaryContact.email;
+                    } else if (contact_id) {
+                        const contactInfo = await Contact.findById(contact_id);
+                        clientEmail = contactInfo?.email;
+                    }
+
+                    const attendees = [];
+                    if (clientEmail) attendees.push({ email: clientEmail });
+                    
+                    ccArray.forEach(email => {
+                        attendees.push({ email });
+                    });
+
+                    if (process.env.ADMIN_EMAIL) {
+                        attendees.push({ email: process.env.ADMIN_EMAIL });
+                    }
+
+                    const event = {
+                        summary: `Follow-up (Task): ${lead?.name || 'Lead'}`,
+                        description: `Priority: ${priority}\nNotes: ${notes}${ccArray.length > 0 ? `\n\nCC Recipients: ${ccArray.join(', ')}` : ''}`,
+                        start: {
+                            dateTime: eventStartTime.toISOString(),
+                            timeZone: 'America/New_York',
+                        },
+                        end: {
+                            dateTime: eventEndTime.toISOString(),
+                            timeZone: 'America/New_York',
+                        },
+                        attendees: attendees,
+                        reminders: {
+                            useDefault: false,
+                            overrides: [
+                                { method: 'email', minutes: 30 },
+                                { method: 'popup', minutes: 15 },
+                            ],
+                        },
+                    };
+
+                    const createdEvent = await calendar.events.insert({
+                        calendarId: 'primary',
+                        resource: event,
+                        sendUpdates: 'none',
+                    });
+
+                    task.google_event_id = createdEvent.data.id;
+                    await task.save();
+
+                } catch (calErr) {
+                    console.error("Google Calendar Error for Task:", calErr.message);
+                }
+            }
+
+            return res.json(task);
+        }
+
         const fu = await Followup.create({
             lead_id: req.params.schoolId,
+            title: title || '',
             date_time: new Date(date_time),
             type: type || 'Task',
             notes: notes || '',
             assigned_user: assigned_user || null,
             priority: priority || 'Medium',
-            cc_emails: ccArray
+            cc_emails: ccArray,
+            created_by: req.user.id
         });
 
         // Log to activity feed (Section 2D Requirement)
@@ -166,21 +284,28 @@ export const createFollowup = async (req, res, next) => {
 
 export const completeFollowup = async (req, res, next) => {
     try {
-        const fu = await Followup.findByIdAndUpdate(req.params.id, {
-            status: 'done',
-            completed_at: new Date()
-        }, { new: true });
-
+        const fu = await Followup.findById(req.params.id);
         if (!fu) {
             res.status(404);
             throw new Error('Follow-up not found');
         }
 
+        // Sales Rep lead assignment check
+        const lead = await Lead.findById(fu.lead_id).select('assigned_to');
+        if (req.currentUserRole === 'sales_rep' && (!lead || !lead.assigned_to || lead.assigned_to.toString() !== req.user.id)) {
+            res.status(403);
+            throw new Error('Access denied. You can only complete followups for leads assigned to you.');
+        }
+
+        fu.status = 'done';
+        fu.completed_at = new Date();
+        await fu.save();
+
         // Auto update last_contacted
-        await Lead.findByIdAndUpdate(
-            fu.lead_id,
-            { last_contacted: new Date() }
-        );
+        if (lead) {
+            lead.last_contacted = new Date();
+            await lead.save();
+        }
 
         res.json({ success: true });
     } catch (err) {
@@ -190,6 +315,16 @@ export const completeFollowup = async (req, res, next) => {
 
 export const getFollowupsBySchool = async (req, res, next) => {
     try {
+        const lead = await Lead.findById(req.params.schoolId).select('assigned_to');
+        if (!lead) {
+            res.status(404);
+            throw new Error('Lead not found');
+        }
+        if (req.currentUserRole === 'sales_rep' && (!lead.assigned_to || lead.assigned_to.toString() !== req.user.id)) {
+            res.status(403);
+            throw new Error('Access denied. This lead is not assigned to you.');
+        }
+
         const followups = await Followup.find({ lead_id: req.params.schoolId })
             .populate({
                 path: 'lead_id',
@@ -229,6 +364,11 @@ export const getGroupedFollowups = async (req, res, next) => {
             matchStage.lead_id = new mongoose.Types.ObjectId(schoolId);
         }
 
+        let dbUser = null;
+        if (req.currentUserRole === 'sales_rep') {
+            dbUser = await User.findById(req.user.id).lean();
+        }
+
         const pipeline = [
             { $match: matchStage },
             // Join lead info
@@ -241,10 +381,31 @@ export const getGroupedFollowups = async (req, res, next) => {
                 }
             },
             { $unwind: '$lead' },
+            // Optional sales_rep filter
+            ...(req.currentUserRole === 'sales_rep' && dbUser ? [
+                {
+                    $match: {
+                        $or: [
+                            // 1. Lead is assigned to the sales rep
+                            { 'lead.assigned_to': dbUser._id },
+                            // 2. Follow-up is explicitly assigned to them
+                            { assigned_user: { $in: [dbUser.username, dbUser.email, dbUser.name, dbUser._id.toString()] } },
+                            // 3. Follow-up was created by them and has no specific assignment (or "self")
+                            {
+                                $and: [
+                                    { created_by: dbUser._id },
+                                    { $or: [ { assigned_user: null }, { assigned_user: 'self' }, { assigned_user: '' } ] }
+                                ]
+                            }
+                        ]
+                    }
+                }
+            ] : []),
             // Optional campaign filter
             ...(campaignId && campaignId.match(/^[0-9a-fA-F]{24}$/) ? [
                 { $match: { 'lead.campaign_id': new mongoose.Types.ObjectId(campaignId) } }
             ] : []),
+
             // Join campaign info
             {
                 $lookup: {

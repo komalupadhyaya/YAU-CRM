@@ -3,6 +3,7 @@ import XLSX from 'xlsx';
 import Lead from '../models/lead.model.js';
 import Contact from '../models/contact.model.js';
 import Note from '../models/note.model.js';
+import LeadAssignmentHistory from '../models/leadAssignmentHistory.model.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/leads  –  Paginated master list with search / filter / enrichment
@@ -19,6 +20,12 @@ export const getLeads = async (req, res, next) => {
 
         // ── $match stage ──────────────────────────────────────────────────────
         const matchStage = {};
+
+        // Sales reps only see their own assigned leads
+        if (req.currentUserRole === 'sales_rep') {
+            matchStage.assigned_to = new mongoose.Types.ObjectId(req.user.id);
+        }
+
         if (status) {
             matchStage.status = status;
         }
@@ -119,7 +126,11 @@ export const getLeads = async (req, res, next) => {
 // ─────────────────────────────────────────────────────────────────────────────
 export const getLeadsByCampaign = async (req, res, next) => {
     try {
-        const leads = await Lead.find({ campaign_id: req.params.campaignId }).sort({ name: 1 });
+        const filter = { campaign_id: req.params.campaignId };
+        if (req.currentUserRole === 'sales_rep') {
+            filter.assigned_to = req.user.id;
+        }
+        const leads = await Lead.find(filter).sort({ name: 1 });
         res.json(leads);
     } catch (err) {
         next(err);
@@ -135,10 +146,20 @@ export const getLeadById = async (req, res, next) => {
             res.status(400);
             throw new Error('Invalid ID format');
         }
-        const lead = await Lead.findById(req.params.id).populate('campaign_id', 'name').lean();
+        const lead = await Lead.findById(req.params.id)
+            .populate('campaign_id', 'name')
+            .populate('assigned_to', 'name email role')
+            .lean();
         if (!lead) {
             res.status(404);
             throw new Error('Lead not found');
+        }
+        
+        // Sales reps can only view their own leads
+        const assignedId = lead.assigned_to?._id || lead.assigned_to;
+        if (req.currentUserRole === 'sales_rep' && (!assignedId || assignedId.toString() !== req.user.id)) {
+            res.status(403);
+            throw new Error('Access denied. This lead is not assigned to you.');
         }
         
         // Fetch contacts for this lead
@@ -161,7 +182,9 @@ export const createLead = async (req, res, next) => {
             main_contact_name, main_contact_email, contact_title, contact_department, contact_direct_phone, contact_extension,
             contact_email, contact_best_time, contact_preferred_method,
             // Secondary Contact
-            secondary_contact_name, secondary_contact_title, secondary_contact_department, secondary_contact_phone, secondary_contact_extension, secondary_contact_email
+            secondary_contact_name, secondary_contact_title, secondary_contact_department, secondary_contact_phone, secondary_contact_extension, secondary_contact_email,
+            // Assignment (admin/manager can assign to anyone; sales_rep is always auto-assigned to themselves)
+            assigned_to
         } = req.body;
 
         if (!name || !campaign_id || !main_contact_name || !contact_title || !contact_department || !contact_direct_phone || !contact_email || !contact_best_time || !contact_preferred_method) {
@@ -169,9 +192,24 @@ export const createLead = async (req, res, next) => {
             throw new Error('All primary contact details, organization name, and campaign are required');
         }
 
+        // Sales Reps are always assigned to their own leads
+        const resolvedAssignedTo = req.currentUserRole === 'sales_rep'
+            ? req.user.id
+            : (assigned_to || null);
+
         const lead = await Lead.create({
-            campaign_id, name, type, category_group, department, telephone, telephone_extension, start_time, end_time, address_number, address, city, state, zip, website
+            campaign_id, name, type, category_group, department, telephone, telephone_extension, start_time, end_time, address_number, address, city, state, zip, website,
+            assigned_to: resolvedAssignedTo
         });
+
+        if (resolvedAssignedTo) {
+            await LeadAssignmentHistory.create({
+                lead_id: lead._id,
+                assigned_by: req.user.id,
+                assigned_from: null,
+                assigned_to: resolvedAssignedTo
+            });
+        }
 
         // Create primary contact if name is provided
         if (main_contact_name) {
@@ -220,8 +258,26 @@ export const updateLead = async (req, res, next) => {
             main_contact_name, main_contact_email, contact_title, contact_department, contact_direct_phone, contact_extension,
             contact_email, contact_best_time, contact_preferred_method,
             // Secondary Contact
-            secondary_contact_name, secondary_contact_title, secondary_contact_department, secondary_contact_phone, secondary_contact_extension, secondary_contact_email
+            secondary_contact_name, secondary_contact_title, secondary_contact_department, secondary_contact_phone, secondary_contact_extension, secondary_contact_email,
+            // Assignment — only admin/manager can change this
+            assigned_to
         } = req.body;
+
+        const existingLead = await Lead.findById(req.params.id).select('assigned_to');
+        if (!existingLead) {
+            res.status(404);
+            throw new Error('Lead not found');
+        }
+
+        // Sales Rep ownership check: they can only edit leads assigned to themselves
+        if (req.currentUserRole === 'sales_rep') {
+            if (!existingLead.assigned_to || existingLead.assigned_to.toString() !== req.user.id) {
+                res.status(403);
+                throw new Error('You can only edit leads that are assigned to you.');
+            }
+        }
+
+        const oldAssignedTo = existingLead.assigned_to;
 
         if (name !== undefined && !name.trim()) {
             res.status(400);
@@ -231,6 +287,12 @@ export const updateLead = async (req, res, next) => {
         const updatePayload = {
             name, type, category_group, department, telephone, telephone_extension, start_time, end_time, address_number, address, city, state, zip, website, campaign_id, status
         };
+
+        // Only admin/manager can reassign a lead
+        if (assigned_to !== undefined && req.currentUserRole !== 'sales_rep') {
+            updatePayload.assigned_to = assigned_to || null;
+        }
+
         Object.keys(updatePayload).forEach(k => updatePayload[k] === undefined && delete updatePayload[k]);
 
         const lead = await Lead.findByIdAndUpdate(req.params.id, updatePayload, { new: true }).populate('campaign_id', 'name');
@@ -238,6 +300,19 @@ export const updateLead = async (req, res, next) => {
         if (!lead) {
             res.status(404);
             throw new Error('Lead not found');
+        }
+
+        // Log history if assignment changed
+        if (assigned_to !== undefined && req.currentUserRole !== 'sales_rep') {
+            const newAssignedTo = assigned_to || null;
+            if (String(oldAssignedTo || '') !== String(newAssignedTo || '')) {
+                await LeadAssignmentHistory.create({
+                    lead_id: lead._id,
+                    assigned_by: req.user.id,
+                    assigned_from: oldAssignedTo || null,
+                    assigned_to: newAssignedTo || null
+                });
+            }
         }
 
         // Handle Primary Contact Update
@@ -292,6 +367,19 @@ export const updateLeadStatus = async (req, res, next) => {
         if (!status) {
             res.status(400);
             throw new Error('status is required');
+        }
+
+        // Sales Rep ownership check for status updates too
+        if (req.currentUserRole === 'sales_rep') {
+            const existingLead = await Lead.findById(req.params.id).select('assigned_to');
+            if (!existingLead) {
+                res.status(404);
+                throw new Error('Lead not found');
+            }
+            if (!existingLead.assigned_to || existingLead.assigned_to.toString() !== req.user.id) {
+                res.status(403);
+                throw new Error('You can only update status of leads that are assigned to you.');
+            }
         }
 
         const lead = await Lead.findByIdAndUpdate(
@@ -408,3 +496,103 @@ export const exportLeadsToExcel = async (req, res, next) => {
         next(err);
     }
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PATCH /api/leads/:id/assign  –  Reassign lead to team member
+// ─────────────────────────────────────────────────────────────────────────────
+export const assignLead = async (req, res, next) => {
+    try {
+        const { assigned_to } = req.body;
+
+        const existingLead = await Lead.findById(req.params.id).select('assigned_to');
+        if (!existingLead) {
+            res.status(404);
+            throw new Error('Lead not found');
+        }
+
+        const oldAssignedTo = existingLead.assigned_to;
+        const newAssignedTo = assigned_to || null;
+
+        const lead = await Lead.findByIdAndUpdate(
+            req.params.id,
+            { assigned_to: newAssignedTo },
+            { new: true }
+        )
+        .populate('campaign_id', 'name')
+        .populate('assigned_to', 'name email role');
+
+        if (String(oldAssignedTo || '') !== String(newAssignedTo || '')) {
+            await LeadAssignmentHistory.create({
+                lead_id: lead._id,
+                assigned_by: req.user.id,
+                assigned_from: oldAssignedTo || null,
+                assigned_to: newAssignedTo || null
+            });
+        }
+
+        res.json(lead);
+    } catch (err) {
+        next(err);
+    }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PATCH /api/leads/assign-bulk  –  Bulk reassign leads to team member
+// ─────────────────────────────────────────────────────────────────────────────
+export const assignLeadsBulk = async (req, res, next) => {
+    try {
+        const { leadIds, assigned_to } = req.body;
+
+        if (!Array.isArray(leadIds) || leadIds.length === 0) {
+            res.status(400);
+            throw new Error('leadIds must be a non-empty array');
+        }
+
+        const existingLeads = await Lead.find({ _id: { $in: leadIds } }).select('assigned_to');
+        const newAssignedTo = assigned_to || null;
+
+        const result = await Lead.updateMany(
+            { _id: { $in: leadIds } },
+            { $set: { assigned_to: newAssignedTo } }
+        );
+
+        const historyDocs = [];
+        for (const existingLead of existingLeads) {
+            const oldAssignedTo = existingLead.assigned_to;
+            if (String(oldAssignedTo || '') !== String(newAssignedTo || '')) {
+                historyDocs.push({
+                    lead_id: existingLead._id,
+                    assigned_by: req.user.id,
+                    assigned_from: oldAssignedTo || null,
+                    assigned_to: newAssignedTo || null
+                });
+            }
+        }
+        if (historyDocs.length > 0) {
+            await LeadAssignmentHistory.insertMany(historyDocs);
+        }
+
+        res.json({
+            message: `Successfully reassigned ${result.modifiedCount} leads`,
+            modifiedCount: result.modifiedCount
+        });
+    } catch (err) {
+        next(err);
+    }
+};
+
+export const getAssignmentHistory = async (req, res, next) => {
+    try {
+        const history = await LeadAssignmentHistory.find()
+            .populate('lead_id', 'name')
+            .populate('assigned_by', 'name username')
+            .populate('assigned_from', 'name username')
+            .populate('assigned_to', 'name username')
+            .sort({ createdAt: -1 });
+        res.json(history);
+    } catch (err) {
+        next(err);
+    }
+};
+
+

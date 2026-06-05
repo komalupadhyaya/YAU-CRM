@@ -5,6 +5,8 @@ import AppLayout from "../layout/AppLayout";
 import { BarChart3, Download, FileSpreadsheet, PieChart, TrendingUp, Users, Building, Megaphone } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "../context/AuthContext";
+import { can } from "../utils/permissions";
 import {
     Table,
     TableBody,
@@ -43,6 +45,9 @@ export default function Reports() {
     const [performance, setPerformance] = useState<CampaignPerformance[]>([]);
     const [loading, setLoading] = useState(true);
     const navigate = useNavigate();
+    const { currentUser } = useAuth();
+    const permissions = can(currentUser?.role);
+    const isAuthorized = currentUser?.role === 'admin' || currentUser?.role === 'manager';
 
     const loadData = async () => {
         try {
@@ -65,10 +70,11 @@ export default function Reports() {
     }, []);
 
     const handleExport = (type: string) => {
-        const token = localStorage.getItem("token");
-        const url = `${api.defaults.baseURL}/reports/export?type=${type}&token=${token}`;
-        // We can't easily add headers to window.open, but our backend can accept token in query if we add it,
-        // or we can use a blob approach. Let's use a blob approach to stay secure.
+        if (!isAuthorized) {
+            toast.error("You have no authority");
+            return;
+        }
+        // Cookie is sent automatically by the api instance (withCredentials:true)
         api.get(`/reports/export?type=${type}`, { responseType: 'blob' })
             .then(response => {
                 const url = window.URL.createObjectURL(new Blob([response.data]));
@@ -93,15 +99,30 @@ export default function Reports() {
                         <p className="text-muted-foreground">Comprehensive CRM performance overview and data exports.</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                        <Button variant="outline" size="sm" className="gap-2" onClick={() => handleExport('leads')}>
+                        <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className={`gap-2 ${!isAuthorized ? "opacity-50 blur-[0.5px]" : ""}`}
+                            onClick={() => handleExport('leads')}
+                        >
                             <FileSpreadsheet size={16} />
                             Export Leads / Organizations
                         </Button>
-                        <Button variant="outline" size="sm" className="gap-2" onClick={() => handleExport('followups')}>
+                        <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className={`gap-2 ${!isAuthorized ? "opacity-50 blur-[0.5px]" : ""}`}
+                            onClick={() => handleExport('followups')}
+                        >
                             <FileSpreadsheet size={16} />
                             Export Follow-ups
                         </Button>
-                        <Button variant="outline" size="sm" className="gap-2" onClick={() => handleExport('campaigns')}>
+                        <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className={`gap-2 ${!isAuthorized ? "opacity-50 blur-[0.5px]" : ""}`}
+                            onClick={() => handleExport('campaigns')}
+                        >
                             <FileSpreadsheet size={16} />
                             Export Campaigns
                         </Button>

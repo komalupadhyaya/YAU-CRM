@@ -2,7 +2,10 @@ node_modules/
 .env
 .env.*
 !.env.example
-
+#extra
+create_admin.js
+reset-reminders.js
+test-daily-summary.js
 # Logs
 logs
 *.log

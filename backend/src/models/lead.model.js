@@ -42,6 +42,12 @@ const LeadSchema = new mongoose.Schema({
     last_contacted: {
         type: Date,
         default: null
+    },
+    assigned_to: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        default: null,
+        index: true
     }
 }, { timestamps: true });
 

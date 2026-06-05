@@ -1,5 +1,6 @@
 import { google } from 'googleapis';
 import Note from '../models/note.model.js';
+import Lead from '../models/lead.model.js';
 import dns from 'dns/promises';
 
 export const verifyEmailDomain = async (req, res) => {
@@ -44,6 +45,19 @@ export const sendEmail = async (req, res, next) => {
             throw new Error('to, subject, and body are required');
         }
 
+        // Sales Rep ownership check
+        if (lead_id) {
+            const lead = await Lead.findById(lead_id).select('assigned_to');
+            if (!lead) {
+                res.status(404);
+                throw new Error('Lead not found');
+            }
+            if (req.currentUserRole === 'sales_rep' && (!lead.assigned_to || lead.assigned_to.toString() !== req.user.id)) {
+                res.status(403);
+                throw new Error('Access denied. This lead is not assigned to you.');
+            }
+        }
+
         const gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
 
         // Encode the email
@@ -77,12 +91,14 @@ export const sendEmail = async (req, res, next) => {
         });
 
         // Log to activity feed
-        await Note.create({
-            lead_id,
-            type: 'email',
-            content: `Email Sent: ${subject}${cc ? ` (CC: ${cc})` : ''}`,
-            metadata: { to, cc, subject, body }
-        });
+        if (lead_id) {
+            await Note.create({
+                lead_id,
+                type: 'email',
+                content: `Email Sent: ${subject}${cc ? ` (CC: ${cc})` : ''}`,
+                metadata: { to, cc, subject, body }
+            });
+        }
 
         res.json({ success: true });
     } catch (err) {

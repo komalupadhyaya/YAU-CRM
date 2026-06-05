@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Daily Summary — YAU CRM</title>
+</head>
+<body style="margin:0;padding:0;background-color:#0f0f12;font-family:'Segoe UI',Arial,sans-serif;">
+
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#0f0f12;padding:40px 20px;">
+    <tr>
+      <td align="center">
+        <table width="650" cellpadding="0" cellspacing="0" style="max-width:650px;width:100%;">
+
+          <!-- Logo -->
+          <tr>
+            <td style="padding-bottom:24px;text-align:center;">
+              <span style="font-size:22px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;">
+                YAU<span style="color:#6366f1;">CRM</span>
+              </span>
+            </td>
+          </tr>
+
+          <!-- Card -->
+          <tr>
+            <td style="background-color:#18181b;border:1px solid #27272a;border-radius:16px;overflow:hidden;">
+
+              <!-- Accent Gradient bar -->
+              <div style="height:4px;background:linear-gradient(90deg,#6366f1,#8b5cf6,#a78bfa);"></div>
+
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="padding:32px 36px;">
+
+                    <!-- Greeting & Header -->
+                    <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px;">
+                      <tr>
+                        <td align="center">
+                          <div style="display:inline-block;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.25);border-radius:50%;width:52px;height:52px;line-height:52px;font-size:24px;text-align:center;margin-bottom:16px;">
+                            ☀️
+                          </div>
+                          <h1 style="margin:0 0 6px;font-size:22px;font-weight:700;color:#ffffff;text-align:center;">
+                            Good Morning!
+                          </h1>
+                          <p style="margin:0;font-size:14px;color:#a1a1aa;text-align:center;font-weight:500;">
+                            Here is your CRM follow-up and meeting summary for <span style="color:#ffffff;">{{DATE}}</span>.
+                          </p>
+                        </td>
+                      </tr>
+                    </table>
+
+                    <!-- Stats Strip -->
+                    <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:32px;">
+                      <tr>
+                        <!-- Stat 1 -->
+                        <td width="30%" style="background:#09090b;border:1px solid #27272a;border-radius:12px;padding:16px;text-align:center;">
+                          <span style="font-size:11px;color:#71717a;text-transform:uppercase;letter-spacing:0.8px;display:block;margin-bottom:6px;font-weight:700;">Today's Follow-ups</span>
+                          <span style="font-size:24px;font-weight:800;color:#6366f1;">{{TOTAL_COUNT}}</span>
+                        </td>
+                        <td width="5%">&nbsp;</td>
+                        <!-- Stat 2 -->
+                        <td width="30%" style="background:#09090b;border:1px solid #27272a;border-radius:12px;padding:16px;text-align:center;">
+                          <span style="font-size:11px;color:#71717a;text-transform:uppercase;letter-spacing:0.8px;display:block;margin-bottom:6px;font-weight:700;">High Priority</span>
+                          <span style="font-size:24px;font-weight:800;color:#ef4444;">{{HIGH_PRIORITY}}</span>
+                        </td>
+                        <td width="5%">&nbsp;</td>
+                        <!-- Stat 3 -->
+                        <td width="30%" style="background:#09090b;border:1px solid #27272a;border-radius:12px;padding:16px;text-align:center;">
+                          <span style="font-size:11px;color:#71717a;text-transform:uppercase;letter-spacing:0.8px;display:block;margin-bottom:6px;font-weight:700;">Meetings</span>
+                          <span style="font-size:24px;font-weight:800;color:#f59e0b;">{{MEETING_COUNT}}</span>
+                        </td>
+                      </tr>
+                    </table>
+
+                    <!-- Today's Schedule Section -->
+                    <div style="margin-bottom:32px;">
+                      <h2 style="margin:0 0 12px;font-size:15px;font-weight:700;color:#ffffff;text-transform:uppercase;letter-spacing:0.5px;">
+                        Today's Schedule
+                      </h2>
+                      <div style="background:#09090b;border:1px solid #27272a;border-radius:12px;overflow:hidden;">
+                        <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+                          <thead>
+                            <tr style="background:#18181b;border-bottom:1px solid #27272a;">
+                              <th style="padding:12px 16px;font-size:11px;font-weight:700;color:#71717a;text-transform:uppercase;text-align:left;letter-spacing:0.5px;width:15%;">Time</th>
+                              <th style="padding:12px 16px;font-size:11px;font-weight:700;color:#71717a;text-transform:uppercase;text-align:left;letter-spacing:0.5px;width:15%;">Type</th>
+                              <th style="padding:12px 16px;font-size:11px;font-weight:700;color:#71717a;text-transform:uppercase;text-align:left;letter-spacing:0.5px;width:25%;">Lead</th>
+                              <th style="padding:12px 16px;font-size:11px;font-weight:700;color:#71717a;text-transform:uppercase;text-align:left;letter-spacing:0.5px;width:15%;">Priority</th>
+                              <th style="padding:12px 16px;font-size:11px;font-weight:700;color:#71717a;text-transform:uppercase;text-align:left;letter-spacing:0.5px;width:30%;">Notes</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {{FOLLOWUP_ROWS}}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    <!-- Overdue Section Placeholder -->
+                    {{OVERDUE_SECTION}}
+
+                    <!-- CTA Button -->
+                    <div style="text-align:center;margin-top:12px;margin-bottom:28px;">
+                      <a href="{{CRM_URL}}/followups"
+                         style="display:inline-block;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#ffffff;text-decoration:none;font-weight:600;font-size:14px;padding:13px 36px;border-radius:10px;letter-spacing:0.3px;box-shadow:0 4px 12px rgba(99,102,241,0.2);">
+                        Open YAU CRM Followups →
+                      </a>
+                    </div>
+
+                    <!-- Security / System Notice -->
+                    <p style="margin:0;font-size:12px;color:#52525b;text-align:center;line-height:1.6;border-top:1px solid #27272a;padding-top:20px;">
+                      This is an automated daily summary sent from your YAU CRM system.<br/>
+                      For support or configuration changes, please contact
+                      <a href="mailto:{{ADMIN_EMAIL}}" style="color:#6366f1;text-decoration:none;">{{ADMIN_EMAIL}}</a>.
+                    </p>
+
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding-top:28px;text-align:center;">
+              <p style="margin:0;font-size:11px;color:#3f3f46;letter-spacing:0.3px;">
+                © {{YEAR}} YAU CRM · All rights reserved
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+
+</body>
+</html>

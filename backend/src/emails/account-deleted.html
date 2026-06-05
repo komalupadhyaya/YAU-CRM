@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Account Deleted — YAU CRM</title>
+</head>
+<body style="margin:0;padding:0;background-color:#0f0f12;font-family:'Segoe UI',Arial,sans-serif;">
+
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#0f0f12;padding:40px 20px;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+
+          <!-- Logo -->
+          <tr>
+            <td style="padding-bottom:28px;text-align:center;">
+              <span style="font-size:22px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;">
+                YAU<span style="color:#6366f1;">CRM</span>
+              </span>
+            </td>
+          </tr>
+
+          <!-- Card -->
+          <tr>
+            <td style="background-color:#18181b;border:1px solid #27272a;border-radius:16px;overflow:hidden;">
+
+              <!-- Red/Rose accent bar (signals deletion) -->
+              <div style="height:4px;background:linear-gradient(90deg,#f43f5e,#e11d48,#be123c);"></div>
+
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="padding:36px 40px;">
+
+                    <!-- Warning/Trash icon -->
+                    <div style="text-align:center;margin-bottom:24px;">
+                      <div style="display:inline-block;background:rgba(244,63,94,0.12);border:1px solid rgba(244,63,94,0.3);border-radius:50%;width:64px;height:64px;line-height:64px;font-size:28px;text-align:center;">
+                        🗑️
+                      </div>
+                    </div>
+
+                    <h1 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#ffffff;text-align:center;">
+                      Account Permanently Deleted
+                    </h1>
+                    <p style="margin:0 0 32px;font-size:14px;color:#a1a1aa;text-align:center;line-height:1.7;">
+                      Hi <strong style="color:#ffffff;">{{NAME}}</strong>, your YAU CRM account associated with
+                      <span style="color:#f43f5e;font-weight:600;">{{EMAIL}}</span> has been
+                      permanently deleted by an administrator.
+                    </p>
+
+                    <!-- Account details -->
+                    <table width="100%" cellpadding="0" cellspacing="0" style="background:#09090b;border:1px solid #27272a;border-radius:12px;margin-bottom:24px;">
+                      <tr>
+                        <td style="padding:24px 28px;">
+                          <p style="margin:0 0 16px;font-size:11px;font-weight:700;color:#f43f5e;text-transform:uppercase;letter-spacing:1px;">Deleted Account Details</p>
+
+                          <table width="100%" cellpadding="0" cellspacing="0">
+                            <tr>
+                              <td style="padding:8px 0;border-bottom:1px solid #1f1f23;">
+                                <span style="font-size:12px;color:#71717a;display:block;margin-bottom:2px;">Name</span>
+                                <span style="font-size:15px;font-weight:600;color:#ffffff;">{{NAME}}</span>
+                              </td>
+                            </tr>
+                            <tr>
+                              <td style="padding:8px 0;border-bottom:1px solid #1f1f23;">
+                                <span style="font-size:12px;color:#71717a;display:block;margin-bottom:2px;">Email / Username</span>
+                                <span style="font-size:15px;font-weight:600;color:#6366f1;">{{EMAIL}}</span>
+                              </td>
+                            </tr>
+                            <tr>
+                              <td style="padding:8px 0;border-bottom:1px solid #1f1f23;">
+                                <span style="font-size:12px;color:#71717a;display:block;margin-bottom:2px;">Role</span>
+                                <span style="display:inline-block;margin-top:4px;font-size:12px;font-weight:700;color:#8b5cf6;background:rgba(139,92,246,0.12);border:1px solid rgba(139,92,246,0.25);border-radius:20px;padding:3px 12px;text-transform:capitalize;">{{ROLE}}</span>
+                              </td>
+                            </tr>
+                            <tr>
+                              <td style="padding:8px 0;">
+                                <span style="font-size:12px;color:#71717a;display:block;margin-bottom:2px;">Deleted By</span>
+                                <span style="font-size:14px;color:#d4d4d8;">{{DELETED_BY}}</span>
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+                    </table>
+
+                    <!-- What this means -->
+                    <table width="100%" cellpadding="0" cellspacing="0" style="background:rgba(244,63,94,0.05);border:1px solid rgba(244,63,94,0.2);border-radius:10px;margin-bottom:24px;">
+                      <tr>
+                        <td style="padding:20px 22px;">
+                          <p style="margin:0 0 12px;font-size:12px;font-weight:700;color:#f43f5e;text-transform:uppercase;letter-spacing:0.8px;">What this means</p>
+                          <table width="100%" cellpadding="0" cellspacing="0">
+                            <tr>
+                              <td style="padding:4px 0;font-size:13px;color:#fecdd3;">🚫 &nbsp;You can no longer log in or access YAU CRM</td>
+                            </tr>
+                            <tr>
+                              <td style="padding:4px 0;font-size:13px;color:#fecdd3;">🚫 &nbsp;All active sessions and local access have been invalidated</td>
+                            </tr>
+                            <tr>
+                              <td style="padding:4px 0;font-size:13px;color:#fecdd3;">🚫 &nbsp;Your user profile has been permanently expunged from the active team registry</td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+                    </table>
+
+                    <p style="margin:0;font-size:12px;color:#52525b;text-align:center;line-height:1.6;">
+                      This is an automated security notification from YAU CRM.<br/>
+                      If you believe this was done in error, please contact your administrator immediately at
+                      <a href="mailto:{{ADMIN_EMAIL}}" style="color:#6366f1;text-decoration:none;">{{ADMIN_EMAIL}}</a>.
+                    </p>
+
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding-top:28px;text-align:center;">
+              <p style="margin:0;font-size:11px;color:#3f3f46;">
+                © {{YEAR}} YAU CRM · All rights reserved
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+
+</body>
+</html>

@@ -1,5 +1,6 @@
 import Note from '../models/note.model.js';
 import Contact from '../models/contact.model.js';
+import Lead from '../models/lead.model.js';
 import axios from 'axios';
 
 // Helper: fetch most recent call from JustCall API by contact phone
@@ -20,17 +21,39 @@ const fetchRecordingFromJustCall = async (contactPhone) => {
         });
 
         const calls = response.data?.data?.data || response.data?.data || [];
-        const match = calls.find(c => {
+        
+        // 1. Find the ABSOLUTE most recent call for this contact number
+        const mostRecentCall = calls.find(c => {
             const cPhone = c.contact_number?.toString().replace(/\D/g, '').slice(-10);
-            return cPhone === cleanPhone && c.call_info?.recording;
+            return cPhone === cleanPhone;
         });
 
-        if (match) {
+        if (!mostRecentCall) {
+            console.log('No recent calls found for phone:', cleanPhone);
+            return null;
+        }
+
+        // 2. Check if this call is too old (e.g., more than 10 minutes ago)
+        const callDateStr = mostRecentCall.datetime || `${mostRecentCall.call_date} ${mostRecentCall.call_time}`;
+        const callTime = new Date(callDateStr + " UTC").getTime();
+        const now = Date.now();
+        const diffMinutes = (now - callTime) / (1000 * 60);
+
+        if (diffMinutes > 10) {
+            console.log(`Most recent call for ${cleanPhone} is too old (${Math.round(diffMinutes)} mins ago). Ignoring.`);
+            return null;
+        }
+
+        // 3. Only return if it actually has a recording
+        const recordingUrl = mostRecentCall.call_info?.recording || mostRecentCall.recording_url;
+        if (recordingUrl) {
             return {
-                url: match.call_info.recording,
-                duration: match.call_duration?.total_duration || 0 // Correct path based on API example
+                url: recordingUrl,
+                duration: mostRecentCall.call_duration?.total_duration || mostRecentCall.duration || 0
             };
         }
+
+        console.log('Most recent call found but has no recording (declined/missed/short).');
         return null;
     } catch (err) {
         console.log('JustCall API fetch failed (non-fatal):', err.message);
@@ -46,6 +69,17 @@ export const logCallOutcome = async (req, res, next) => {
         if (!lead_id || !outcome) {
             res.status(400);
             throw new Error('lead_id and outcome are required');
+        }
+
+        // Sales Rep lead assignment check
+        const lead = await Lead.findById(lead_id).select('assigned_to');
+        if (!lead) {
+            res.status(404);
+            throw new Error('Lead not found');
+        }
+        if (req.currentUserRole === 'sales_rep' && (!lead.assigned_to || lead.assigned_to.toString() !== req.user.id)) {
+            res.status(403);
+            throw new Error('Access denied. This lead is not assigned to you.');
         }
 
         const content = `CALL LOG: ${outcome}\nContact: ${contact_name || 'Unknown'}\nNotes: ${notes || 'None'}`;
@@ -77,7 +111,7 @@ export const logCallOutcome = async (req, res, next) => {
             type: 'call',
             metadata: { 
                 outcome, 
-                recording_duration: actualDuration, // Actual from JustCall
+                recording_duration: actualDuration,
                 contact_name, 
                 recording_url: fetchedRecordingUrl 
             }
@@ -95,6 +129,12 @@ export const fetchAndAttachRecording = async (req, res, next) => {
         const note = await Note.findById(req.params.noteId);
         if (!note || note.type !== 'call') {
             return res.status(404).json({ success: false, message: 'Call note not found' });
+        }
+
+        // Sales Rep lead assignment check
+        const lead = await Lead.findById(note.lead_id).select('assigned_to');
+        if (req.currentUserRole === 'sales_rep' && (!lead || !lead.assigned_to || lead.assigned_to.toString() !== req.user.id)) {
+            return res.status(403).json({ success: false, error: 'Access denied. This lead is not assigned to you.' });
         }
 
         if (note.metadata?.recording_url) {
@@ -124,8 +164,6 @@ export const fetchAndAttachRecording = async (req, res, next) => {
     }
 };
 
-
-
 // 2. Send SMS
 export const sendSms = async (req, res, next) => {
     try {
@@ -136,39 +174,38 @@ export const sendSms = async (req, res, next) => {
             throw new Error('lead_id, to, and message are required');
         }
 
+        // Sales Rep lead assignment check
+        const lead = await Lead.findById(lead_id).select('assigned_to');
+        if (!lead) {
+            res.status(404);
+            throw new Error('Lead not found');
+        }
+        if (req.currentUserRole === 'sales_rep' && (!lead.assigned_to || lead.assigned_to.toString() !== req.user.id)) {
+            res.status(403);
+            throw new Error('Access denied. This lead is not assigned to you.');
+        }
+
         if (!process.env.JUSTCALL_API_KEY || !process.env.JUSTCALL_API_SECRET || !process.env.JUSTCALL_PHONE_NUMBER) {
             res.status(500);
             throw new Error('JustCall credentials are not configured.');
         }
 
         const justCallApiUrl = 'https://api.justcall.io/v2.1/texts/new';
-        
-        // JustCall v2.1 uses a non-standard Authorization header format: API_KEY:API_SECRET
         const authHeader = `${process.env.JUSTCALL_API_KEY}:${process.env.JUSTCALL_API_SECRET}`;
 
-        // Ensure numbers are in E.164 format (+ prefix)
         const formatPhone = (num) => {
             if (!num) return null;
             const clean = num.toString().replace(/\D/g, '');
-            
-            // If it starts with + return as is (but clean it up)
             if (num.toString().startsWith('+')) return `+${clean}`;
-
-            // If it's exactly 10 digits:
             if (clean.length === 10) {
-                // If it starts with 6,7,8,9, it's likely India (+91)
                 if (/^[6789]/.test(clean)) {
                     return `+91${clean}`;
                 }
-                // Default to USA (+1)
                 return `+1${clean}`;
             }
-            
-            // If it's already got a country code (like 1... or 91...) but no +, prepend +
             if (clean.length > 10) {
                 return `+${clean}`;
             }
-
             return clean.length >= 7 ? `+${clean}` : null;
         };
 
@@ -207,10 +244,7 @@ export const sendSms = async (req, res, next) => {
         res.json({ success: true, data: response.data });
 
     } catch (err) {
-        // Detailed logging for debugging
         console.error("JustCall API Error Response:", err.response?.data);
-        
-        // Extract the most helpful message
         const errorMessage = err.response?.data?.message || err.response?.data?.error || err.message;
         
         res.status(err.response?.status || 500).json({

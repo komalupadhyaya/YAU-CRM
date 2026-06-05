@@ -9,12 +9,10 @@ const API_URL =
 
 const api = axios.create({
   baseURL: API_URL,
-});
-
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("token");
-  if (token) config.headers.Authorization = "Bearer " + token;
-  return config;
+  // ── Cookie-based auth ──────────────────────────────────────────────────────
+  // This tells the browser to automatically include the httpOnly cookie
+  // (yau_crm_token) in every request to the backend. No localStorage needed.
+  withCredentials: true,
 });
 
 api.interceptors.response.use(
@@ -26,17 +24,15 @@ api.interceptors.response.use(
       error.message ||
       "An unexpected error occurred";
 
-    // Handle 401 Unauthorized
+    // Handle 401 Unauthorized — cookie is invalid or expired
     if (status === 401) {
-      // Clear token and redirect to login if not already there
-      localStorage.removeItem("token");
       if (!window.location.pathname.includes("/login")) {
         window.location.href = "/login";
-        return Promise.reject(error); // Stop here
+        return Promise.reject(error);
       }
     }
 
-    // Only show toast if not a 401 or if it's an explicit error
+    // Show error toast for all non-401 errors
     if (status !== 401) {
       toast.error(message);
     }
@@ -45,4 +41,4 @@ api.interceptors.response.use(
   }
 );
 
-export default api;
+export default api;

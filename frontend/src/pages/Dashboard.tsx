@@ -5,6 +5,8 @@ import { AlertCircle, Clock, Calendar, CheckCircle, Phone, Filter, Search, Plus,
 import { Link, useSearchParams, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useCampaignStore } from "../store/campaignStore";
+import { useAuth } from "../context/AuthContext";
+import { can } from "../utils/permissions";
 import { countryCodes } from "../utils/countryCodes";
 import {
   Dialog,
@@ -53,6 +55,10 @@ interface DashboardData {
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const { currentUser } = useAuth();
+  const permissions = can(currentUser?.role);
+  const isReadOnly = permissions.isReadOnly;
+  const isSalesrepOrReadOnly = currentUser?.role === 'sales_rep' || currentUser?.role === 'view_only';
   const statsRef = useRef<HTMLDivElement>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const [rawData, setRawData] = useState<DashboardData | null>(null);
@@ -112,6 +118,7 @@ export default function Dashboard() {
   const CAMPAIGNS_PER_PAGE = 5;
 
   const initiateCall = (leadToCall: Lead) => {
+    if (isReadOnly) return;
     const phone = leadToCall.telephone;
     if (phone) {
       const cleanPhone = phone.startsWith('+') ? phone : `${phonePrefix}${phone.replace(/\D/g, '')}`;
@@ -362,16 +369,18 @@ export default function Dashboard() {
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div className="flex flex-wrap items-center gap-3">
             <button
-              onClick={() => navigate("/campaigns?action=new-campaign")}
-              className="bg-primary hover:bg-primary/90 text-primary-foreground px-6 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all active:scale-[0.98] shadow-lg shadow-primary/20"
+              onClick={() => !isSalesrepOrReadOnly && navigate("/campaigns?action=new-campaign")}
+              className={`bg-primary hover:bg-primary/90 text-primary-foreground px-6 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all active:scale-[0.98] shadow-lg shadow-primary/20 ${isSalesrepOrReadOnly ? "opacity-50 blur-[0.5px] pointer-events-none" : ""}`}
               title="Create New Campaign"
+              disabled={isSalesrepOrReadOnly}
             >
               <Plus size={18} /> Create New Campaign
             </button>
             <button
-              onClick={() => setIsModalOpen(true)}
-              className="btn-secondary h-11 px-6 font-semibold flex items-center justify-center gap-2"
+              onClick={() => !isSalesrepOrReadOnly && setIsModalOpen(true)}
+              className={`btn-secondary h-11 px-6 font-semibold flex items-center justify-center gap-2 ${isSalesrepOrReadOnly ? "opacity-50 blur-[0.5px] pointer-events-none" : ""}`}
               title="Schedule New Follow-Up"
+              disabled={isSalesrepOrReadOnly}
             >
               <Clock size={18} /> New Follow-Up
             </button>
@@ -639,13 +648,16 @@ export default function Dashboard() {
                       <p className="text-[10px] text-muted-foreground truncate">{f.notes}</p>
                       <p className="text-[9px] font-medium opacity-70 mt-1">{new Date(f.date_time).toLocaleString()}</p>
                     </div>
+                    {!isReadOnly && (
                     <button onClick={() => markDone(f._id)} className="text-muted-foreground hover:text-success shrink-0"><CheckCircle size={16} /></button>
+                    )}
                   </div>
                 );
               })}
             </div>
           </div>
 
+          {!isReadOnly && (
           <div className="page-card dark:bg-card">
             <h2 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-4">Quick Actions</h2>
             <div className="grid grid-cols-2 gap-3">
@@ -669,6 +681,7 @@ export default function Dashboard() {
               ))}
             </div>
           </div>
+          )}
         </div>
       </div>
 
@@ -741,8 +754,9 @@ export default function Dashboard() {
                   </div>
                   <div className="flex flex-col items-end gap-2">
                     <button 
-                      onClick={() => initiateCall(selectedLeadResult)}
-                      className="btn-primary h-9 px-4 flex items-center justify-center gap-2 shadow-sm"
+                      onClick={() => !isReadOnly && initiateCall(selectedLeadResult)}
+                      disabled={isReadOnly}
+                      className={`btn-primary h-9 px-4 flex items-center justify-center gap-2 shadow-sm ${isReadOnly ? 'opacity-40 blur-[0.5px] pointer-events-none cursor-not-allowed' : ''}`}
                     >
                       <Phone size={14} fill="currentColor" />
                       <span>Call Now</span>
@@ -817,7 +831,9 @@ export default function Dashboard() {
           </div>
           <DialogFooter className="mt-2">
             <button className="btn-secondary h-10 px-6 rounded-lg text-xs" onClick={() => setIsModalOpen(false)}>Cancel</button>
-            <button className="btn-primary h-10 px-8 rounded-lg text-xs font-bold" onClick={() => submitFollowUp()}>Schedule Follow-up</button>
+            {!isReadOnly && (
+              <button className="btn-primary h-10 px-8 rounded-lg text-xs font-bold" onClick={() => submitFollowUp()}>Schedule Follow-up</button>
+            )}
           </DialogFooter>
 
         </DialogContent>

@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import Campaign from '../models/campaign.model.js';
 import Lead from '../models/lead.model.js';
 import Followup from '../models/followup.model.js';
@@ -9,7 +10,12 @@ import { Contact } from '../models/contact.model.js';
 // ─────────────────────────────────────────────────────────────────────────────
 export const getCampaigns = async (req, res, next) => {
     try {
-        const campaigns = await Campaign.find().sort({ createdAt: -1 });
+        let filter = {};
+        if (req.currentUserRole === 'sales_rep') {
+            const assignedCampaignIds = await Lead.distinct('campaign_id', { assigned_to: req.user.id });
+            filter = { _id: { $in: assignedCampaignIds } };
+        }
+        const campaigns = await Campaign.find(filter).sort({ createdAt: -1 });
         res.json(campaigns);
     } catch (err) {
         next(err);
@@ -58,9 +64,24 @@ export const getCampaignById = async (req, res, next) => {
             throw new Error('Campaign not found');
         }
 
+        // Check if Sales Rep has any assigned leads in this campaign
+        if (req.currentUserRole === 'sales_rep') {
+            const hasAssignedLead = await Lead.exists({ campaign_id: campaign._id, assigned_to: req.user.id });
+            if (!hasAssignedLead) {
+                res.status(403);
+                throw new Error('Access denied. You have no leads assigned in this campaign.');
+            }
+        }
+
+        // Match only assigned leads for Sales Rep metrics
+        const leadMatch = { campaign_id: campaign._id };
+        if (req.currentUserRole === 'sales_rep') {
+            leadMatch.assigned_to = new mongoose.Types.ObjectId(req.user.id);
+        }
+
         const [leadAgg, followupAgg] = await Promise.all([
             Lead.aggregate([
-                { $match: { campaign_id: campaign._id } },
+                { $match: leadMatch },
                 {
                     $group: {
                         _id: '$status',
@@ -81,7 +102,8 @@ export const getCampaignById = async (req, res, next) => {
                 { $unwind: '$lead' },
                 {
                     $match: {
-                        'lead.campaign_id': campaign._id
+                        'lead.campaign_id': campaign._id,
+                        ...(req.currentUserRole === 'sales_rep' ? { 'lead.assigned_to': new mongoose.Types.ObjectId(req.user.id) } : {})
                     }
                 },
                 {

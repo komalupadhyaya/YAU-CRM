@@ -12,18 +12,26 @@ import {
   Menu,
   X,
   ChevronRight,
-  Plus
+  Plus,
+  CalendarDays,
+  UserCheck,
+  History
 } from "lucide-react";
 import { useSidebar } from "./SidebarContext";
 import { useFollowUp } from "../context/FollowUpContext";
+import { useAuth } from "../context/AuthContext";
+import { can } from "../utils/permissions";
 
 const topNavItems = [
-  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/campaigns", label: "Campaigns", icon: Megaphone },
-  { to: "/followups", label: "Follow Ups", icon: Clock },
-  { to: "/tasks", label: "Tasks", icon: CheckSquare },
-  { to: "/reports", label: "Reports", icon: BarChart3 },
-  { to: "/team", label: "Team", icon: Users },
+  { to: "/dashboard",  label: "Dashboard",  icon: LayoutDashboard },
+  { to: "/campaigns",  label: "Campaigns",  icon: Megaphone },
+  // { to: "/calendar",   label: "Calendar",   icon: CalendarDays },
+  { to: "/followups",  label: "Follow Ups", icon: Clock },
+  { to: "/tasks",      label: "Tasks",      icon: CheckSquare },
+  { to: "/reports",    label: "Reports",    icon: BarChart3 },
+  // { to: "/lead-scheduler", label: "Lead Scheduler", icon: UserCheck },
+  // { to: "/history",    label: "History",    icon: History },
+  { to: "/team",       label: "Team",       icon: Users },
 ];
 
 const bottomNavItems = [
@@ -39,6 +47,21 @@ export default function Sidebar() {
   const navigate = useNavigate();
   const { collapsed, mobileOpen, toggleCollapsed, closeMobile } = useSidebar();
   const { dueTodayCount, dueTodayNames } = useFollowUp();
+  const { currentUser } = useAuth();
+  const permissions = can(currentUser?.role);
+
+  // Filter nav items based on the current user's role
+  const visibleTopNavItems = topNavItems.filter(item => {
+    if (item.to === '/team') return permissions.viewTeam;
+    if (item.to === '/lead-scheduler') return permissions.assignToOthers;
+    if (item.to === '/history') return permissions.assignToOthers;
+    return true;
+  });
+
+  const visibleBottomNavItems = bottomNavItems.filter(item => {
+    if (item.to === '/settings') return permissions.viewSettings;
+    return true;
+  });
 
   const renderNavItems = (items: typeof topNavItems, isMobile = false) => {
     return items.map(({ to, label, icon: Icon }) => {
@@ -126,12 +149,12 @@ export default function Sidebar() {
           {!collapsed && (
             <p className="text-[10px] uppercase tracking-widest text-sidebar-muted font-semibold px-3 mb-2">Menu</p>
           )}
-          {renderNavItems(topNavItems)}
+          {renderNavItems(visibleTopNavItems)}
         </nav>
 
         {/* Bottom Nav */}
         <nav className="pb-4 px-2 pt-4 border-t border-sidebar-border/40 space-y-1 flex-shrink-0">
-          {renderNavItems(bottomNavItems)}
+          {renderNavItems(visibleBottomNavItems)}
           {!collapsed && (
             <div className="text-[11px] text-sidebar-muted px-4 pt-4 border-t border-sidebar-border/10 mt-2">© {new Date().getFullYear()} YAU CRM</div>
           )}
@@ -163,12 +186,12 @@ export default function Sidebar() {
         {/* Mobile Top Nav */}
         <nav className="flex-1 py-4 px-2 space-y-1 overflow-y-auto">
           <p className="text-[10px] uppercase tracking-widest text-sidebar-muted font-semibold px-3 mb-2">Menu</p>
-          {renderNavItems(topNavItems, true)}
+          {renderNavItems(visibleTopNavItems, true)}
         </nav>
 
         {/* Mobile Bottom Nav */}
         <nav className="pb-4 px-2 pt-4 border-t border-sidebar-border/40 space-y-1 flex-shrink-0">
-          {renderNavItems(bottomNavItems, true)}
+          {renderNavItems(visibleBottomNavItems, true)}
           <div className="text-[11px] text-sidebar-muted px-4 pt-4 border-t border-sidebar-border/10 mt-2">© {new Date().getFullYear()} YAU CRM</div>
         </nav>
       </aside>

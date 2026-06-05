@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import mongoose from 'mongoose';
 import authRoutes from './routes/auth.routes.js';
 import campaignRoutes from './routes/campaign.routes.js';
@@ -17,6 +18,7 @@ import emailRoutes from './routes/email.routes.js';
 import webhookRoutes from './routes/webhook.routes.js';
 import justcallRoutes from './routes/justcall.routes.js';
 import errorHandler from './middleware/error.middleware.js';
+import notificationRoutes from './routes/notification.routes.js';
 
 const app = express();
 
@@ -37,11 +39,12 @@ app.use(cors({
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    allowedHeaders: ['Content-Type', 'Authorization', 'Cookie']
 }));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
 
 // ----------------------------
 // ROOT ROUTE
@@ -241,6 +244,7 @@ app.use('/api/contacts', contactRoutes);
 app.use('/api/emails', emailRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/justcall', justcallRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // Error Handling Middleware
 app.use(errorHandler);
