@@ -25,6 +25,16 @@ import {
   DialogTitle,
   DialogFooter
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 // --- Helpers ---
 const formatTimeForInput = (timeStr?: string) => {
@@ -63,11 +73,13 @@ interface Note {
 
 interface FollowUp {
   _id: string;
+  title?: string;
   date_time: string;
   type: string;
   notes: string;
   priority: string;
   status: string;
+  assigned_user?: string;
 }
 
 const formatNoteContent = (content: string) => {
@@ -174,14 +186,18 @@ export default function LeadDetail() {
   const [showSecondary, setShowSecondary] = useState(false);
 
   const [isFollowUpModalOpen, setIsFollowUpModalOpen] = useState(false);
+  const [followUpTitle, setFollowUpTitle] = useState("");
   const [followUpDate, setFollowUpDate] = useState("");
   const [followUpType, setFollowUpType] = useState("Task");
-  const [followUpPriority, setFollowUpPriority] = useState("Medium");
+  const [followUpPriority, setFollowUpPriority] = useState("");
   const [followUpNotes, setFollowUpNotes] = useState("");
   const [assignedTo, setAssignedTo] = useState("self");
   const [customAssignedTo, setCustomAssignedTo] = useState("");
+  const [followUpStatus, setFollowUpStatus] = useState("pending");
+  const [editingFollowUp, setEditingFollowUp] = useState<any | null>(null);
   const customAssignedRef = useRef<HTMLInputElement>(null);
   const [fuErrors, setFuErrors] = useState<Record<string, string>>({});
+  const [followUpToDelete, setFollowUpToDelete] = useState<string | null>(null);
 
   const [isMeetingModalOpen, setIsMeetingModalOpen] = useState(false);
   const [selectedContactForMeeting, setSelectedContactForMeeting] = useState<Contact | null>(null);
@@ -238,7 +254,6 @@ export default function LeadDetail() {
   const [meetingCcInput, setMeetingCcInput] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
-  const [followUpTitle, setFollowUpTitle] = useState("");
   const [createFollowUpInCall, setCreateFollowUpInCall] = useState(false);
   const [teamMembers, setTeamMembers] = useState<any[]>([]);
   const [loadingNotes, setLoadingNotes] = useState(false);
@@ -433,14 +448,59 @@ export default function LeadDetail() {
   };
 
   const handleOpenFollowUpModal = () => {
+    setEditingFollowUp(null);
+    setFollowUpTitle("");
     setFollowUpDate("");
     setFollowUpNotes("");
-    setFollowUpType("");
+    setFollowUpType("Call");
     setFollowUpPriority("");
     setAssignedTo("self");
     setCustomAssignedTo("");
+    setFollowUpStatus("pending");
     setFuErrors({});
     setIsFollowUpModalOpen(true);
+  };
+
+  const handleOpenEditFollowUpModal = (fu: any) => {
+    setEditingFollowUp(fu);
+    setFollowUpTitle(fu.title || "");
+    setFollowUpDate(fu.date_time ? new Date(new Date(fu.date_time).getTime() - new Date(fu.date_time).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : "");
+    setFollowUpNotes(fu.notes || "");
+    setFollowUpType(fu.type || "Call");
+    let p = fu.priority;
+    if (!p || p === "None") {
+      p = "";
+    } else {
+      p = p.charAt(0).toUpperCase() + p.slice(1).toLowerCase();
+    }
+    setFollowUpPriority(p);
+    setFollowUpStatus(fu.status || "pending");
+    if (!fu.assigned_user) {
+      setAssignedTo("self");
+      setCustomAssignedTo("");
+    } else {
+      setAssignedTo("other");
+      setCustomAssignedTo(fu.assigned_user);
+    }
+    setFuErrors({});
+    setIsFollowUpModalOpen(true);
+  };
+
+  const handleDeleteFollowUp = (fuId: string) => {
+    setFollowUpToDelete(fuId);
+  };
+
+  const confirmDeleteFollowUp = async () => {
+    if (!followUpToDelete) return;
+    try {
+      await api.delete(`/followups/${followUpToDelete}`);
+      toast.success("Follow-up deleted");
+      loadAll();
+    } catch (err) {
+      toast.error("Failed to delete follow-up");
+    } finally {
+      setFollowUpToDelete(null);
+    }
   };
 
   const submitFollowUp = async (contactId?: string, force = false) => {
@@ -450,19 +510,14 @@ export default function LeadDetail() {
 
     if (!followUpDate) {
       errors.date = "Date and time are required";
-    } else if (new Date(followUpDate) < now) {
+    } else if (!editingFollowUp && new Date(followUpDate) < now) {
       errors.date = "Date & Time cannot be in the past";
     }
 
     if (!followUpType) errors.type = "Type is required";
-    if (!followUpPriority) errors.priority = "Priority is required";
 
     if (!followUpNotes.trim()) {
       errors.notes = "Please provide a reason or notes for the follow-up";
-    }
-
-    if (assignedTo === "other" && !customAssignedTo.trim()) {
-      errors.assigned = "Please specify who this is assigned to";
     }
 
     if (Object.keys(errors).length > 0) {
@@ -473,20 +528,29 @@ export default function LeadDetail() {
 
     setIsSubmitting(true);
     try {
-      const finalAssigned = assignedTo === "self" ? "Me" : customAssignedTo.trim();
-      await api.post("/followups/" + id, {
+      const payload = {
+        title: followUpTitle.trim(),
         date_time: new Date(followUpDate).toISOString(),
         type: followUpType,
         priority: followUpPriority,
         notes: followUpNotes,
         contact_id: contactId,
-        assigned_user: finalAssigned === "Me" ? null : finalAssigned,
+        status: followUpStatus,
         force
-      });
-      toast.success("Follow-up scheduled");
+      };
+
+      if (editingFollowUp) {
+        await api.put(`/followups/${editingFollowUp._id}`, payload);
+        toast.success("Follow-up updated");
+      } else {
+        await api.post("/followups/" + id, payload);
+        toast.success("Follow-up scheduled");
+      }
       setIsFollowUpModalOpen(false);
       setFuErrors({});
       setCustomAssignedTo("");
+      setEditingFollowUp(null);
+      setFollowUpTitle("");
       loadAll();
     } catch (err: unknown) {
       if ((err as CRMError).response?.status === 409) {
@@ -530,10 +594,11 @@ export default function LeadDetail() {
     setIsSubmitting(true);
     try {
       const res = await api.post("/followups/" + id, {
+        title: meetingData.title,
         date_time: new Date(meetingData.date_time).toISOString(),
         type: 'Meeting',
-        priority: 'High',
-        notes: `Meeting: ${meetingData.title}\nType: ${meetingData.type}\nNotes: ${meetingData.notes}`,
+        priority: null,
+        notes: meetingData.notes,
         contact_id: selectedContactForMeeting?._id,
         cc_emails: meetingCc,
         force
@@ -589,7 +654,7 @@ export default function LeadDetail() {
     setFollowUpDate("");
     setFollowUpNotes("");
     setFollowUpType("Call");
-    setFollowUpPriority("Medium");
+    setFollowUpPriority("");
     setAssignedTo("self");
     setCustomAssignedTo("");
     setFuErrors({});
@@ -609,9 +674,6 @@ export default function LeadDetail() {
         newErrors.date = "Date & Time is required";
       } else if (new Date(followUpDate) < new Date()) {
         newErrors.date = "Date & Time cannot be in the past";
-      }
-      if (assignedTo === "other" && !customAssignedTo.trim()) {
-        newErrors.assignedTo = "Please specify who this is assigned to";
       }
     }
 
@@ -642,7 +704,6 @@ export default function LeadDetail() {
             type: followUpType,
             priority: followUpPriority,
             notes: followUpNotes || `Call Follow-Up: ${followUpTitle}`,
-            assigned_user: assignedTo === "self" ? "self" : (assignedTo === "other" ? customAssignedTo : assignedTo),
             force: true
           });
           toast.success("Follow-up scheduled!");
@@ -656,7 +717,7 @@ export default function LeadDetail() {
       setFollowUpDate("");
       setFollowUpNotes("");
       setFollowUpType("Call");
-      setFollowUpPriority("Medium");
+      setFollowUpPriority("");
       setAssignedTo("self");
       setCustomAssignedTo("");
       setCreateFollowUpInCall(false);
@@ -1393,21 +1454,39 @@ export default function LeadDetail() {
                   return (
                     <div key={f._id} className={`p-3 rounded-lg border border-l-4 transition-all ${getStatusStyles(f.date_time)}`}>
                       <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <div className="flex items-center justify-center gap-2 mb-1">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2 mb-1">
                             <span className="text-[10px] font-bold uppercase tracking-wider bg-primary/10 text-primary px-1.5 py-0.5 rounded">{f.type}</span>
                             <span className="text-xs font-bold text-foreground">{new Date(f.date_time).toLocaleString()}</span>
                           </div>
-                          {f.notes && <p className="text-sm text-muted-foreground mt-0.5">{f.notes}</p>}
+                          {f.title && <h4 className="text-xs font-bold text-foreground mb-0.5">{f.title}</h4>}
+                          {f.notes && <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed break-words">{f.notes}</p>}
                         </div>
-                        <button
-                          onClick={!isReadOnly ? () => markDone(f._id) : undefined}
-                          disabled={isReadOnly}
-                          className={`text-xs border px-2 py-1 rounded transition-colors whitespace-nowrap ${isReadOnly ? 'opacity-40 blur-[0.5px] cursor-not-allowed pointer-events-none text-muted-foreground border-border' : 'text-muted-foreground hover:text-success border-border hover:border-success'}`}
-                          title={isReadOnly ? 'Read-only access' : 'Mark as done'}
-                        >
-                          Mark Done
-                        </button>
+                        {!isReadOnly && (
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              onClick={() => markDone(f._id)}
+                              className="p-1 hover:bg-success/15 text-muted-foreground hover:text-success rounded transition-colors"
+                              title="Mark done"
+                            >
+                              <CheckCircle2 size={14} />
+                            </button>
+                            <button
+                              onClick={() => handleOpenEditFollowUpModal(f)}
+                              className="p-1 hover:bg-primary/15 text-muted-foreground hover:text-primary rounded transition-colors"
+                              title="Edit follow-up"
+                            >
+                              <Edit size={14} />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteFollowUp(f._id)}
+                              className="p-1 hover:bg-destructive/15 text-muted-foreground hover:text-destructive rounded transition-colors"
+                              title="Delete follow-up"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
@@ -1433,14 +1512,29 @@ export default function LeadDetail() {
         open={isFollowUpModalOpen}
         onOpenChange={(open) => {
           setIsFollowUpModalOpen(open);
-          if (!open) setFuErrors({});
+          if (!open) {
+            setFuErrors({});
+            setEditingFollowUp(null);
+          }
         }}
       >
         <DialogContent aria-describedby={undefined} className="w-[90vw] max-w-md dark:bg-card max-h-[90vh] overflow-y-auto custom-scrollbar">
           <DialogHeader>
-            <DialogTitle className="dark:text-foreground">Schedule Follow-up</DialogTitle>
+            <DialogTitle className="dark:text-foreground">{editingFollowUp ? "Edit Follow-up" : "Schedule Follow-up"}</DialogTitle>
           </DialogHeader>
           <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <label htmlFor="title" className="text-sm font-medium">Title</label>
+              <input
+                id="title"
+                type="text"
+                name="title"
+                className="input-field dark:bg-card"
+                placeholder="e.g. Discuss proposal details"
+                value={followUpTitle || ""}
+                onChange={(e) => setFollowUpTitle(e.target.value)}
+              />
+            </div>
             <div className="grid gap-2">
               <label htmlFor="date" className="text-sm font-medium">Follow-up Time <span className="text-destructive">*</span></label>
               <input
@@ -1457,7 +1551,7 @@ export default function LeadDetail() {
               />
               {fuErrors.date && <p className="text-xs text-destructive mt-1 font-medium">{fuErrors.date}</p>}
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-4 items-start">
               <div className="grid gap-2">
                 <label className="text-sm font-medium">Type <span className="text-destructive">*</span></label>
                 <select
@@ -1478,7 +1572,7 @@ export default function LeadDetail() {
                 {fuErrors.type && <p className="text-xs text-destructive mt-1 font-medium">{fuErrors.type}</p>}
               </div>
               <div className="grid gap-2">
-                <label className="text-sm font-medium">Priority <span className="text-destructive">*</span></label>
+                <label className="text-sm font-medium">Priority (optional)</label>
                 <select
                   name="priority"
                   className={`input-field dark:bg-card ${fuErrors.priority ? "border-destructive focus:ring-destructive/20" : ""}`}
@@ -1488,45 +1582,32 @@ export default function LeadDetail() {
                     if (fuErrors.priority) setFuErrors(prev => ({ ...prev, priority: "" }));
                   }}
                 >
-                  <option value="">Select priority...</option>
+                  <option value="">NO</option>
                   <option value="Low">Low</option>
                   <option value="Medium">Medium</option>
                   <option value="High">High</option>
                 </select>
                 {fuErrors.priority && <p className="text-xs text-destructive mt-1 font-medium">{fuErrors.priority}</p>}
+                {(!followUpPriority || followUpPriority === "") && (
+                  <p className="text-xs text-muted-foreground mt-1">The Priority is not required</p>
+                )}
               </div>
             </div>
-            <div className="grid gap-2">
-              <label className="text-sm font-medium">Assigned User <span className="text-destructive">*</span></label>
-              <select
-                name="assignedTo"
-                className={`input-field dark:bg-card ${fuErrors.assigned ? "border-destructive focus:ring-destructive/20" : ""}`}
-                value={assignedTo || ""}
-                onChange={e => {
-                  setAssignedTo(e.target.value);
-                  if (fuErrors.assigned) setFuErrors(prev => ({ ...prev, assigned: "" }));
-                }}
-              >
-                <option value="self">Assign to Me</option>
-                <option value="other">Other</option>
-              </select>
-              {assignedTo === "other" && (
-                <div className="mt-2 animate-in fade-in slide-in-from-top-1 duration-200">
-                  <input
-                    name="customAssignedTo"
-                    ref={customAssignedRef}
-                    className={`input-field ${fuErrors.assigned ? "border-destructive focus:ring-destructive/20" : ""}`}
-                    placeholder="Enter name..."
-                    value={customAssignedTo || ""}
-                    onChange={(e) => {
-                      setCustomAssignedTo(e.target.value);
-                      if (fuErrors.assigned) setFuErrors(prev => ({ ...prev, assigned: "" }));
-                    }}
-                  />
-                </div>
-              )}
-              {fuErrors.assigned && <p className="text-xs text-destructive mt-1 font-medium">{fuErrors.assigned}</p>}
-            </div>
+
+            {editingFollowUp && (
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Status <span className="text-destructive">*</span></label>
+                <select
+                  name="status"
+                  className="input-field dark:bg-card"
+                  value={followUpStatus || ""}
+                  onChange={e => setFollowUpStatus(e.target.value)}
+                >
+                  <option value="pending">Pending</option>
+                  <option value="done">Completed / Done</option>
+                </select>
+              </div>
+            )}
             <div className="grid gap-2">
               <label htmlFor="reason" className="text-sm font-medium">Notes / Instructions <span className="text-destructive">*</span></label>
               <textarea
@@ -1547,17 +1628,41 @@ export default function LeadDetail() {
             <button className="btn-secondary" onClick={() => {
               setIsFollowUpModalOpen(false);
               setFuErrors({});
+              setEditingFollowUp(null);
             }}>Cancel</button>
             <button
               disabled={isSubmitting}
               className={`btn-primary ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`}
               onClick={() => submitFollowUp()}
             >
-              {isSubmitting ? "Saving..." : "Save Follow-up"}
+              {isSubmitting ? "Saving..." : editingFollowUp ? "Update Follow-up" : "Save Follow-up"}
             </button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Follow-up Confirmation Dialog */}
+      <AlertDialog open={!!followUpToDelete} onOpenChange={(open) => !open && setFollowUpToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-red-600 dark:text-red-400 font-bold flex items-center gap-2">
+              Confirm Permanent Deletion
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-sm">
+              Are you sure you want to permanently delete this follow-up? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>No, Keep It</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDeleteFollowUp}
+              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground font-semibold"
+            >
+              Yes, Delete Permanently
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Meeting Modal */}
       <Dialog
@@ -1614,8 +1719,15 @@ export default function LeadDetail() {
               </div>
               <div className="grid gap-2">
                 <label className="text-sm font-medium">Invitees</label>
-                <div className="p-2 bg-accent/30 rounded border text-xs text-foreground">
-                  Automatically inviting: <strong>{selectedContactForMeeting?.email}</strong>
+                <div className="p-2 bg-accent/30 rounded border text-xs text-foreground space-y-1">
+                  <div>
+                    Automatically inviting client: <strong>{selectedContactForMeeting?.email || 'No email saved'}</strong>
+                  </div>
+                  {lead?.assigned_to?.email && (
+                    <div>
+                      Automatically inviting team member: <strong>{lead.assigned_to.email}</strong> ({lead.assigned_to.name})
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="grid gap-2">
@@ -1967,7 +2079,7 @@ export default function LeadDetail() {
                     {fuErrors.date && <p className="text-[10px] text-destructive font-medium">{fuErrors.date}</p>}
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-4 items-start">
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold uppercase text-muted-foreground">Type</label>
                       <select className="input-field dark:bg-card" value={followUpType} onChange={e => setFollowUpType(e.target.value)}>
@@ -1978,49 +2090,20 @@ export default function LeadDetail() {
                       </select>
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-xs font-bold uppercase text-muted-foreground">Priority</label>
-                      <select className="input-field dark:bg-card" value={followUpPriority} onChange={e => setFollowUpPriority(e.target.value)}>
+                      <label className="text-xs font-bold uppercase text-muted-foreground">Priority (optional)</label>
+                      <select className="input-field dark:bg-card" value={followUpPriority || ""} onChange={e => setFollowUpPriority(e.target.value)}>
+                        <option value="">NO</option>
                         <option value="Low">Low</option>
                         <option value="Medium">Medium</option>
                         <option value="High">High</option>
                       </select>
+                      {(!followUpPriority || followUpPriority === "") && (
+                        <p className="text-xs text-muted-foreground mt-1">The Priority is not required</p>
+                      )}
                     </div>
                   </div>
 
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold uppercase text-muted-foreground">Assigned User</label>
-                    <select
-                      className="input-field dark:bg-card"
-                      value={assignedTo}
-                      onChange={e => {
-                        setAssignedTo(e.target.value);
-                        if (fuErrors.assignedTo) setFuErrors(prev => ({ ...prev, assignedTo: "" }));
-                      }}
-                    >
-                      <option value="self">Assign to Me</option>
-                      {teamMembers.map(user => (
-                        <option key={user._id} value={user.name || user.username}>
-                          {user.name || user.username.split('@')[0]} ({user.role === 'sales_rep' ? 'Sales Rep' : user.role})
-                        </option>
-                      ))}
-                      <option value="other">Other (Specify Name)</option>
-                    </select>
-                    {assignedTo === "other" && (
-                      <div className="space-y-1">
-                        <input
-                          ref={customAssignedRef}
-                          className={`input-field mt-2 ${fuErrors.assignedTo ? "border-destructive focus:ring-destructive/20" : ""}`}
-                          placeholder="Enter name..."
-                          value={customAssignedTo}
-                          onChange={(e) => {
-                            setCustomAssignedTo(e.target.value);
-                            if (fuErrors.assignedTo) setFuErrors(prev => ({ ...prev, assignedTo: "" }));
-                          }}
-                        />
-                        {fuErrors.assignedTo && <p className="text-[10px] text-destructive font-medium">{fuErrors.assignedTo}</p>}
-                      </div>
-                    )}
-                  </div>
+
 
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold uppercase text-muted-foreground">Follow-up Notes</label>

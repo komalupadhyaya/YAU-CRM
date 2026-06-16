@@ -189,7 +189,7 @@ export const createFollowup = async (req, res, next) => {
             type: type || 'Task',
             notes: notes || '',
             assigned_user: assigned_user || null,
-            priority: priority || 'Medium',
+            priority: priority || null,
             cc_emails: ccArray,
             created_by: req.user.id
         });
@@ -203,7 +203,10 @@ export const createFollowup = async (req, res, next) => {
         });
 
         // TIER 2: Google Calendar Integration - CREATE EVENT
-        if (process.env.GOOGLE_REFRESH_TOKEN && process.env.GOOGLE_REFRESH_TOKEN !== 'your_google_refresh_token_here') {
+        // Meetings ALWAYS get a calendar event (they are real meeting invites).
+        // Other follow-up types only sync when a priority has been selected.
+        const shouldCreateCalendarEvent = type === 'Meeting' || priority;
+        if (shouldCreateCalendarEvent && process.env.GOOGLE_REFRESH_TOKEN && process.env.GOOGLE_REFRESH_TOKEN !== 'your_google_refresh_token_here') {
             try {
                 const calendar = google.calendar({ version: 'v3', auth: oAuth2Client });
                 
@@ -235,9 +238,29 @@ export const createFollowup = async (req, res, next) => {
                     attendees.push({ email: process.env.ADMIN_EMAIL });
                 }
 
+                // Add assigned user email as an attendee
+                if (leadInfo?.assigned_to) {
+                    const assignedUser = await User.findById(leadInfo.assigned_to);
+                    if (assignedUser?.email) {
+                        const emailLower = assignedUser.email.toLowerCase();
+                        if (
+                            (!clientEmail || clientEmail.toLowerCase() !== emailLower) &&
+                            (!process.env.ADMIN_EMAIL || process.env.ADMIN_EMAIL.toLowerCase() !== emailLower) &&
+                            !ccArray.some(e => e.toLowerCase() === emailLower)
+                        ) {
+                            attendees.push({ email: assignedUser.email });
+                        }
+                    }
+                }
+
+                const descriptionParts = [];
+                if (priority) descriptionParts.push(`Priority: ${priority}`);
+                if (notes) descriptionParts.push(`Notes: ${notes}`);
+                if (ccArray.length > 0) descriptionParts.push(`\nCC Recipients: ${ccArray.join(', ')}`);
+
                 const event = {
-                    summary: `Follow-up (${type}): ${leadInfo?.name || 'Lead'}`,
-                    description: `Priority: ${priority}\nNotes: ${notes}${ccArray.length > 0 ? `\n\nCC Recipients: ${ccArray.join(', ')}` : ''}`,
+                    summary: title ? `${title} (${type}) - ${leadInfo?.name || 'Lead'}` : `Follow-up (${type}): ${leadInfo?.name || 'Lead'}`,
+                    description: descriptionParts.join('\n'),
                     start: {
                         dateTime: eventStartTime.toISOString(),
                         timeZone: 'America/New_York',
@@ -266,15 +289,11 @@ export const createFollowup = async (req, res, next) => {
                 await fu.save();
 
             } catch (calErr) {
+                // Non-fatal: log the error but still return the saved follow-up record
                 console.error("Google Calendar Error:", calErr.message);
-                // Return a specific error if calendar fails, so the user knows
-                return res.status(500).json({ 
-                    error: 'Google Calendar Error', 
-                    message: calErr.message,
-                    details: calErr.response?.data 
-                });
             }
         }
+
 
         res.json(fu);
     } catch (err) {
@@ -475,4 +494,207 @@ export const getGroupedFollowups = async (req, res, next) => {
 export const getDashboardFollowups = async (req, res, next) => {
    // getGroupedFollowups is handling dashboard followups logic in the current implementation
     getGroupedFollowups(req, res, next);
+};
+
+export const updateFollowup = async (req, res, next) => {
+    try {
+        const fu = await Followup.findById(req.params.id);
+        if (!fu) {
+            res.status(404);
+            throw new Error('Follow-up not found');
+        }
+
+        // Ownership check: sales_rep can only edit follow-ups they created
+        if (req.currentUserRole === 'sales_rep') {
+            if (!fu.created_by || fu.created_by.toString() !== req.user.id) {
+                res.status(403);
+                throw new Error('Access denied. You can only edit follow-ups that you created.');
+            }
+        }
+
+        const lead = await Lead.findById(fu.lead_id).select('assigned_to name');
+
+        const { title, notes, date_time, type, assigned_user, priority, status, cc_emails } = req.body;
+
+        const oldStatus = fu.status;
+
+        if (title !== undefined) fu.title = title;
+        if (notes !== undefined) fu.notes = notes;
+        if (date_time !== undefined) fu.date_time = new Date(date_time);
+        if (type !== undefined) fu.type = type;
+        if (assigned_user !== undefined) fu.assigned_user = assigned_user;
+        if (priority !== undefined) fu.priority = priority;
+        if (status !== undefined) {
+            fu.status = status;
+            if (status === 'done' && oldStatus !== 'done') {
+                fu.completed_at = new Date();
+                if (lead) {
+                    lead.last_contacted = new Date();
+                    await lead.save();
+                }
+            } else if (status === 'pending') {
+                fu.completed_at = undefined;
+            }
+        }
+        
+        let ccArray = [];
+        if (cc_emails !== undefined) {
+            if (Array.isArray(cc_emails)) {
+                ccArray = cc_emails;
+            } else if (typeof cc_emails === 'string' && cc_emails.trim()) {
+                ccArray = cc_emails.split(',').map(e => e.trim()).filter(Boolean);
+            }
+            fu.cc_emails = ccArray;
+        } else {
+            ccArray = fu.cc_emails || [];
+        }
+
+        await fu.save();
+
+        // Google Calendar integration
+        if (process.env.GOOGLE_REFRESH_TOKEN && process.env.GOOGLE_REFRESH_TOKEN !== 'your_google_refresh_token_here') {
+            const hasPriority = fu.priority && fu.priority !== 'None' && fu.priority !== '';
+            // Meetings ALWAYS keep their calendar event; other types only sync when priority is set.
+            const shouldSyncCalendar = fu.type === 'Meeting' || hasPriority;
+            
+            if (shouldSyncCalendar) {
+                try {
+                    const calendar = google.calendar({ version: 'v3', auth: oAuth2Client });
+                    
+                    const eventStartTime = new Date(fu.date_time);
+                    const eventEndTime = new Date(eventStartTime.getTime() + 30 * 60000); // 30 min duration
+                    
+                    // Fetch primary contact client email
+                    let clientEmail = null;
+                    const primaryContact = await Contact.findOne({ lead_id: fu.lead_id, is_primary: true });
+                    if (primaryContact?.email) {
+                        clientEmail = primaryContact.email;
+                    }
+
+                    const attendees = [];
+                    if (clientEmail) attendees.push({ email: clientEmail });
+                    ccArray.forEach(email => attendees.push({ email }));
+                    if (process.env.ADMIN_EMAIL) attendees.push({ email: process.env.ADMIN_EMAIL });
+
+                    // Add assigned user email as an attendee
+                    if (lead?.assigned_to) {
+                        const assignedUser = await User.findById(lead.assigned_to);
+                        if (assignedUser?.email) {
+                            const emailLower = assignedUser.email.toLowerCase();
+                            if (
+                                (!clientEmail || clientEmail.toLowerCase() !== emailLower) &&
+                                (!process.env.ADMIN_EMAIL || process.env.ADMIN_EMAIL.toLowerCase() !== emailLower) &&
+                                !ccArray.some(e => e.toLowerCase() === emailLower)
+                            ) {
+                                attendees.push({ email: assignedUser.email });
+                            }
+                        }
+                    }
+
+                    // Build description without showing "Priority: null" or "Priority: "
+                    const descParts = [];
+                    if (hasPriority) descParts.push(`Priority: ${fu.priority}`);
+                    if (fu.notes) descParts.push(`Notes: ${fu.notes}`);
+                    if (ccArray.length > 0) descParts.push(`\nCC Recipients: ${ccArray.join(', ')}`);
+
+                    const event = {
+                        summary: fu.title ? `${fu.title} (${fu.type}) - ${lead?.name || 'Lead'}` : `Follow-up (${fu.type}): ${lead?.name || 'Lead'}`,
+                        description: descParts.join('\n'),
+                        start: {
+                            dateTime: eventStartTime.toISOString(),
+                            timeZone: 'America/New_York',
+                        },
+                        end: {
+                            dateTime: eventEndTime.toISOString(),
+                            timeZone: 'America/New_York',
+                        },
+                        attendees: attendees,
+                        reminders: {
+                            useDefault: false,
+                            overrides: [
+                                { method: 'email', minutes: 30 },
+                                { method: 'popup', minutes: 15 },
+                            ],
+                        },
+                    };
+
+                    if (fu.google_event_id) {
+                        // Update existing event
+                        await calendar.events.update({
+                            calendarId: 'primary',
+                            eventId: fu.google_event_id,
+                            resource: event,
+                            sendUpdates: fu.type === 'Meeting' ? 'all' : 'none',
+                        });
+                    } else {
+                        // Create new event since priority was added
+                        const createdEvent = await calendar.events.insert({
+                            calendarId: 'primary',
+                            resource: event,
+                            sendUpdates: fu.type === 'Meeting' ? 'all' : 'none',
+                        });
+                        fu.google_event_id = createdEvent.data.id;
+                        await fu.save();
+                    }
+                } catch (calErr) {
+                    console.error("Google Calendar Update/Insert Error:", calErr.message);
+                }
+            } else if (fu.google_event_id) {
+                // Priority was removed for a non-Meeting follow-up: delete the calendar event
+                try {
+                    const calendar = google.calendar({ version: 'v3', auth: oAuth2Client });
+                    await calendar.events.delete({
+                        calendarId: 'primary',
+                        eventId: fu.google_event_id,
+                        sendUpdates: 'none',
+                    });
+                    fu.google_event_id = undefined;
+                    await fu.save();
+                } catch (calErr) {
+                    console.error("Google Calendar Delete on Update Error:", calErr.message);
+                }
+            }
+        }
+
+        res.json(fu);
+    } catch (err) {
+        next(err);
+    }
+};
+
+export const deleteFollowup = async (req, res, next) => {
+    try {
+        const fu = await Followup.findById(req.params.id);
+        if (!fu) {
+            res.status(404);
+            throw new Error('Follow-up not found');
+        }
+
+        // Sales Rep lead assignment check
+        const lead = await Lead.findById(fu.lead_id).select('assigned_to');
+        if (req.currentUserRole === 'sales_rep' && (!lead || !lead.assigned_to || lead.assigned_to.toString() !== req.user.id)) {
+            res.status(403);
+            throw new Error('Access denied. You can only delete followups for leads assigned to you.');
+        }
+
+        // Google Calendar integration
+        if (fu.google_event_id && process.env.GOOGLE_REFRESH_TOKEN && process.env.GOOGLE_REFRESH_TOKEN !== 'your_google_refresh_token_here') {
+            try {
+                const calendar = google.calendar({ version: 'v3', auth: oAuth2Client });
+                await calendar.events.delete({
+                    calendarId: 'primary',
+                    eventId: fu.google_event_id,
+                    sendUpdates: fu.type === 'Meeting' ? 'all' : 'none',
+                });
+            } catch (calErr) {
+                console.error("Google Calendar Delete Error:", calErr.message);
+            }
+        }
+
+        await Followup.findByIdAndDelete(req.params.id);
+
+        res.json({ success: true, message: 'Follow-up deleted successfully' });
+    } catch (err) {
+        next(err);
+    }
 };

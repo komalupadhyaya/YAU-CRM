@@ -14,8 +14,8 @@ const FollowupSchema = new mongoose.Schema({
     assigned_user: { type: String },
     priority: {
         type: String,
-        enum: ['Low', 'Medium', 'High'],
-        default: 'Medium'
+        enum: ['Low', 'Medium', 'High', 'None', '', null],
+        default: null
     },
     status: { type: String, default: 'pending' },
     google_event_id: { type: String },

@@ -22,4 +22,10 @@ router.post('/:schoolId', auth, requireRole(...canWrite), followupController.cre
 // Complete follow-up — view_only cannot complete
 router.put('/:id/complete', auth, requireRole(...canWrite), followupController.completeFollowup);
 
+// Update follow-up — view_only cannot update
+router.put('/:id', auth, requireRole(...canWrite), followupController.updateFollowup);
+
+// Delete follow-up — only admins and managers can delete
+router.delete('/:id', auth, requireRole('admin', 'manager'), followupController.deleteFollowup);
+
 export default router;

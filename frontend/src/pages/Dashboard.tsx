@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import api from "../api/api";
 import AppLayout from "../layout/AppLayout";
-import { AlertCircle, Clock, Calendar, CheckCircle, Phone, Filter, Search, Plus, Building, Megaphone, Info, ArrowRight, Mail, Send, Globe, ChevronDown, ChevronLeft, ChevronRight, X, PhoneCall } from "lucide-react";
+import { AlertCircle, Clock, Calendar, CheckCircle, Phone, Filter, Search, Plus, Building, Megaphone, Info, ArrowRight, Mail, Send, Globe, ChevronDown, ChevronLeft, ChevronRight, X, PhoneCall, Edit, Trash2 } from "lucide-react";
 import { Link, useSearchParams, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useCampaignStore } from "../store/campaignStore";
@@ -15,6 +15,16 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface Campaign {
   _id: string;
@@ -32,6 +42,7 @@ interface Lead {
 
 interface FollowUp {
   _id: string;
+  title?: string;
   notes: string;
   date_time: string;
   type: string;
@@ -78,7 +89,7 @@ export default function Dashboard() {
   const [selectedLeadResult, setSelectedLeadResult] = useState<Lead | null>(null);
   const [followUpDate, setFollowUpDate] = useState("");
   const [followUpType, setFollowUpType] = useState("Task");
-  const [followUpPriority, setFollowUpPriority] = useState("Medium");
+  const [followUpPriority, setFollowUpPriority] = useState("");
   const [followUpNotes, setFollowUpNotes] = useState("");
   const [callOutcome, setCallOutcome] = useState("Answered - Interested");
   const [callDuration, setCallDuration] = useState("");
@@ -112,6 +123,13 @@ export default function Dashboard() {
   const [isConfirmDoneOpen, setIsConfirmDoneOpen] = useState(false);
   const [taskToComplete, setTaskToComplete] = useState<string | null>(null);
   const [quickFollowUpErrors, setQuickFollowUpErrors] = useState<Record<string, string>>({});
+  // Follow-up editing states
+  const [isFollowUpEditModalOpen, setIsFollowUpEditModalOpen] = useState(false);
+  const [followUpTitle, setFollowUpTitle] = useState("");
+  const [followUpStatus, setFollowUpStatus] = useState("pending");
+  const [editingFollowUp, setEditingFollowUp] = useState<any | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [followUpToDelete, setFollowUpToDelete] = useState<string | null>(null);
   const [quickEmailErrors, setQuickEmailErrors] = useState<Record<string, string>>({});
   const [phonePrefix, setPhonePrefix] = useState("+1");
   const [campaignPage, setCampaignPage] = useState(0);
@@ -233,6 +251,101 @@ export default function Dashboard() {
     } catch { }
   };
 
+  const handleOpenEditFollowUpModal = (fu: any) => {
+    setEditingFollowUp(fu);
+    setFollowUpTitle(fu.title || "");
+    setFollowUpDate(fu.date_time ? new Date(new Date(fu.date_time).getTime() - new Date(fu.date_time).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : "");
+    setFollowUpNotes(fu.notes || "");
+    setFollowUpType(fu.type || "Call");
+    let p = fu.priority;
+    if (!p || p === "None") {
+      p = "";
+    } else {
+      p = p.charAt(0).toUpperCase() + p.slice(1).toLowerCase();
+    }
+    setFollowUpPriority(p);
+    setFollowUpStatus(fu.status || "pending");
+    if (!fu.assigned_user) {
+      setAssignedTo("self");
+      setCustomAssignedTo("");
+    } else {
+      setAssignedTo("other");
+      setCustomAssignedTo(fu.assigned_user);
+    }
+    setQuickFollowUpErrors({});
+    setIsFollowUpEditModalOpen(true);
+  };
+
+  const handleDeleteFollowUp = (fuId: string) => {
+    setFollowUpToDelete(fuId);
+  };
+
+  const confirmDeleteFollowUp = async () => {
+    if (!followUpToDelete) return;
+    try {
+      await api.delete(`/followups/${followUpToDelete}`);
+      toast.success("Follow-up deleted");
+      load();
+    } catch (err) {
+      toast.error("Failed to delete follow-up");
+    } finally {
+      setFollowUpToDelete(null);
+    }
+  };
+
+  const submitEditFollowUp = async (force = false) => {
+    if (isSubmitting) return;
+    const errors: Record<string, string> = {};
+
+    if (!followUpDate) {
+      errors.date = "Date and time are required";
+    }
+
+    if (!followUpNotes.trim()) {
+      errors.notes = "Please provide notes/instructions";
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setQuickFollowUpErrors(errors);
+      toast.error("Please fill in all required fields");
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const payload = {
+        title: followUpTitle.trim(),
+        date_time: new Date(followUpDate).toISOString(),
+        type: followUpType,
+        priority: followUpPriority,
+        notes: followUpNotes,
+        status: followUpStatus,
+        force
+      };
+
+      await api.put(`/followups/${editingFollowUp._id}`, payload);
+      toast.success("Follow-up updated");
+      setIsFollowUpEditModalOpen(false);
+      setEditingFollowUp(null);
+      setFollowUpTitle("");
+      load();
+    } catch (err: any) {
+      if (err.response?.status === 409) {
+        const conflicts = err.response.data.conflicts || [];
+        const conflictNames = conflicts.map((c: any) => c.summary).join(", ");
+        if (window.confirm(`Conflict detected: "${conflictNames || 'Existing Event'}". Update anyway?`)) {
+          setIsSubmitting(false);
+          submitEditFollowUp(true);
+          return;
+        }
+      } else {
+        toast.error(err.response?.data?.message || "Failed to update follow-up");
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const submitFollowUp = async (force = false) => {
     const errors: Record<string, string> = {};
     if (!selectedLeadResult) errors.lead = "Please select a lead first";
@@ -299,7 +412,7 @@ export default function Dashboard() {
     setLeadSearch("");
     setFollowUpDate("");
     setFollowUpType("Call");
-    setFollowUpPriority("Medium");
+    setFollowUpPriority("");
     setFollowUpNotes("");
     setAssignedTo("self");
     setCustomAssignedTo("");
@@ -640,16 +753,39 @@ export default function Dashboard() {
                 return (
                   <div 
                     key={f._id} 
-                    title={`${f.lead_name} - ${f.type}: ${f.notes || "No notes"}`}
+                    title={`${f.lead_name} - ${f.type}${f.title ? ` (${f.title})` : ''}: ${f.notes || "No notes"}`}
                     className={`border rounded-xl p-3 group flex items-start justify-between border-l-4 transition-all hover:shadow-sm ${statusStyles}`}
                   >
                     <div className="min-w-0">
                       <p className="text-xs font-bold truncate">{f.lead_name}</p>
-                      <p className="text-[10px] text-muted-foreground truncate">{f.notes}</p>
+                      {f.title && <p className="text-[10px] font-semibold text-foreground truncate mt-0.5">{f.title}</p>}
+                      <p className="text-[10px] text-muted-foreground truncate mt-0.5">{f.notes}</p>
                       <p className="text-[9px] font-medium opacity-70 mt-1">{new Date(f.date_time).toLocaleString()}</p>
                     </div>
                     {!isReadOnly && (
-                    <button onClick={() => markDone(f._id)} className="text-muted-foreground hover:text-success shrink-0"><CheckCircle size={16} /></button>
+                      <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={() => markDone(f._id)}
+                          className="p-1 hover:bg-success/15 text-muted-foreground hover:text-success rounded transition-colors"
+                          title="Mark done"
+                        >
+                          <CheckCircle size={14} />
+                        </button>
+                        <button
+                          onClick={() => handleOpenEditFollowUpModal(f)}
+                          className="p-1 hover:bg-primary/15 text-muted-foreground hover:text-primary rounded transition-colors"
+                          title="Edit follow-up"
+                        >
+                          <Edit size={14} />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteFollowUp(f._id)}
+                          className="p-1 hover:bg-destructive/15 text-muted-foreground hover:text-destructive rounded transition-colors"
+                          title="Delete follow-up"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
                     )}
                   </div>
                 );
@@ -1012,7 +1148,7 @@ export default function Dashboard() {
           <DialogHeader>
             <DialogTitle className="dark:text-foreground text-center font-bold">Confirm Completion</DialogTitle>
           </DialogHeader>
-          <div className="py-6 text-center">
+          <div className="py-4 text-center">
             <p className="text-muted-foreground text-sm">
               Are you sure you want to mark this task as completed?
             </p>
@@ -1023,6 +1159,143 @@ export default function Dashboard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Edit Follow-up Modal */}
+      <Dialog
+        open={isFollowUpEditModalOpen}
+        onOpenChange={(open) => {
+          setIsFollowUpEditModalOpen(open);
+          if (!open) {
+            setQuickFollowUpErrors({});
+            setEditingFollowUp(null);
+          }
+        }}
+      >
+        <DialogContent aria-describedby={undefined} className="w-[90vw] max-w-md dark:bg-card max-h-[90vh] overflow-y-auto custom-scrollbar">
+          <DialogHeader>
+            <DialogTitle className="dark:text-foreground">Edit Follow-up</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <label htmlFor="edit-title" className="text-sm font-medium">Title</label>
+              <input
+                id="edit-title"
+                type="text"
+                name="title"
+                className="input-field dark:bg-card"
+                placeholder="e.g. Discuss proposal details"
+                value={followUpTitle || ""}
+                onChange={(e) => setFollowUpTitle(e.target.value)}
+              />
+            </div>
+            <div className="grid gap-2">
+              <label htmlFor="edit-date" className="text-sm font-medium">Follow-up Time <span className="text-destructive">*</span></label>
+              <input
+                id="edit-date"
+                type="datetime-local"
+                name="date"
+                className={`input-field dark:bg-card dark:color-scheme-dark`}
+                value={followUpDate || ""}
+                onChange={(e) => setFollowUpDate(e.target.value)}
+                required
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4 items-start">
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Type <span className="text-destructive">*</span></label>
+                <select
+                  name="type"
+                  className="input-field dark:bg-card"
+                  value={followUpType || ""}
+                  onChange={e => setFollowUpType(e.target.value)}
+                >
+                  <option value="Call">Call</option>
+                  <option value="Email">Email</option>
+                  <option value="Meeting">Meeting</option>
+                  <option value="Task">Task</option>
+                </select>
+              </div>
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Priority (optional)</label>
+                <select
+                  name="priority"
+                  className="input-field dark:bg-card"
+                  value={followUpPriority || ""}
+                  onChange={e => setFollowUpPriority(e.target.value)}
+                >
+                  <option value="">NO</option>
+                  <option value="Low">Low</option>
+                  <option value="Medium">Medium</option>
+                  <option value="High">High</option>
+                </select>
+                {(!followUpPriority || followUpPriority === "") && (
+                  <p className="text-xs text-muted-foreground mt-1">The Priority is not required</p>
+                )}
+              </div>
+            </div>
+
+            <div className="grid gap-2">
+              <label className="text-sm font-medium">Status <span className="text-destructive">*</span></label>
+              <select
+                name="status"
+                className="input-field dark:bg-card"
+                value={followUpStatus || ""}
+                onChange={e => setFollowUpStatus(e.target.value)}
+              >
+                <option value="pending">Pending</option>
+                <option value="done">Completed / Done</option>
+              </select>
+            </div>
+            <div className="grid gap-2">
+              <label htmlFor="edit-notes" className="text-sm font-medium">Notes / Instructions <span className="text-destructive">*</span></label>
+              <textarea
+                id="edit-notes"
+                name="notes"
+                className="input-field min-h-[80px]"
+                placeholder="What needs to happen?"
+                value={followUpNotes || ""}
+                onChange={(e) => setFollowUpNotes(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <button className="btn-secondary" onClick={() => {
+              setIsFollowUpEditModalOpen(false);
+              setEditingFollowUp(null);
+            }}>Cancel</button>
+            <button
+              disabled={isSubmitting}
+              className={`btn-primary ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`}
+              onClick={() => submitEditFollowUp()}
+            >
+              {isSubmitting ? "Saving..." : "Update Follow-up"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Follow-up Confirmation Dialog */}
+      <AlertDialog open={!!followUpToDelete} onOpenChange={(open) => !open && setFollowUpToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-red-600 dark:text-red-400 font-bold flex items-center gap-2">
+              Confirm Permanent Deletion
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-sm">
+              Are you sure you want to permanently delete this follow-up? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>No, Keep It</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDeleteFollowUp}
+              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground font-semibold"
+            >
+              Yes, Delete Permanently
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppLayout>
   );
 }

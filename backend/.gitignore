@@ -6,6 +6,7 @@ node_modules/
 create_admin.js
 reset-reminders.js
 test-daily-summary.js
+check-db.js
 # Logs
 logs
 *.log

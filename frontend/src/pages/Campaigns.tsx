@@ -41,7 +41,9 @@ import {
   X,
   CalendarPlus,
   Zap,
-  FileText
+  FileText,
+  CheckCircle2,
+  Edit
 } from "lucide-react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 
@@ -147,6 +149,16 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 // --- Helpers ---
 const formatTimeForInput = (timeStr?: string) => {
@@ -186,6 +198,7 @@ interface Note {
 
 interface FollowUp {
   _id: string;
+  title?: string;
   date_time: string;
   notes: string;
   type: string;
@@ -314,13 +327,16 @@ const Campaigns = () => {
   const [isFollowUpModalOpen, setIsFollowUpModalOpen] = useState(false);
   const [followUpDate, setFollowUpDate] = useState("");
   const [followUpType, setFollowUpType] = useState("Task");
-  const [followUpPriority, setFollowUpPriority] = useState("Medium");
+  const [followUpPriority, setFollowUpPriority] = useState("");
   const [followUpNotes, setFollowUpNotes] = useState("");
+  const [followUpStatus, setFollowUpStatus] = useState("pending");
+  const [editingFollowUp, setEditingFollowUp] = useState<any | null>(null);
 
   // Confirmation Modals
   const [isDeleteAllConfirmOpen, setIsDeleteAllConfirmOpen] = useState(false);
   const [isConfirmDoneOpen, setIsConfirmDoneOpen] = useState(false);
   const [taskToComplete, setTaskToComplete] = useState<string | null>(null);
+  const [followUpToDelete, setFollowUpToDelete] = useState<string | null>(null);
 
   // Email Modal
   const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
@@ -697,6 +713,50 @@ const Campaigns = () => {
     } catch (error) { console.error(error); }
   };
 
+  const handleOpenEditFollowUpModal = (fu: any) => {
+    setEditingFollowUp(fu);
+    setFollowUpTitle(fu.title || "");
+    setFollowUpDate(fu.date_time ? new Date(new Date(fu.date_time).getTime() - new Date(fu.date_time).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : "");
+    setFollowUpNotes(fu.notes || "");
+    setFollowUpType(fu.type || "Call");
+    let p = fu.priority;
+    if (!p || p === "None") {
+      p = "";
+    } else {
+      p = p.charAt(0).toUpperCase() + p.slice(1).toLowerCase();
+    }
+    setFollowUpPriority(p);
+    setFollowUpStatus(fu.status || "pending");
+    if (!fu.assigned_user) {
+      setAssignedTo("self");
+      setCustomAssignedTo("");
+    } else {
+      setAssignedTo("other");
+      setCustomAssignedTo(fu.assigned_user);
+    }
+    setFuErrors({});
+    setIsFollowUpModalOpen(true);
+  };
+
+  const handleDeleteFollowUp = (fuId: string) => {
+    setFollowUpToDelete(fuId);
+  };
+
+  const confirmDeleteFollowUp = async () => {
+    if (!followUpToDelete) return;
+    try {
+      await api.delete(`/followups/${followUpToDelete}`);
+      toast.success("Follow-up deleted");
+      if (selectedLead) {
+        fetchDetails(selectedLead._id, true);
+      }
+    } catch (err) {
+      toast.error("Failed to delete follow-up");
+    } finally {
+      setFollowUpToDelete(null);
+    }
+  };
+
   const submitFollowUp = async (force = false) => {
     if (isSubmitting) return;
     const newErrors: Record<string, string> = {};
@@ -704,7 +764,7 @@ const Campaigns = () => {
 
     if (!followUpDate) {
       newErrors.date = "Date & Time is required";
-    } else if (new Date(followUpDate) < now) {
+    } else if (!editingFollowUp && new Date(followUpDate) < now) {
       newErrors.date = "Date & Time cannot be in the past";
     }
 
@@ -726,20 +786,32 @@ const Campaigns = () => {
 
     setIsSubmitting(true);
     try {
-      await api.post(`/followups/${selectedLead._id}`, {
+      const payload = {
+        title: followUpTitle.trim(),
         date_time: new Date(followUpDate).toISOString(),
         type: followUpType,
         priority: followUpPriority,
         notes: followUpNotes,
-        assigned_user: assignedTo === "self" ? "self" : customAssignedTo,
+        assigned_user: assignedTo === "self" ? null : customAssignedTo,
+        status: followUpStatus,
         force
-      });
-      toast.success("Follow-up scheduled");
+      };
+
+      if (editingFollowUp) {
+        await api.put(`/followups/${editingFollowUp._id}`, payload);
+        toast.success("Follow-up updated");
+      } else {
+        await api.post(`/followups/${selectedLead._id}`, payload);
+        toast.success("Follow-up scheduled");
+      }
+
       setIsFollowUpModalOpen(false);
       setFollowUpDate("");
       setFollowUpNotes("");
-      setFollowUpType("Task");
-      setFollowUpPriority("Medium");
+      setFollowUpType("Call");
+      setFollowUpPriority("");
+      setFollowUpTitle("");
+      setEditingFollowUp(null);
       setFuErrors({});
 
       fetchDetails(selectedLead._id, true);
@@ -750,7 +822,6 @@ const Campaigns = () => {
           submitFollowUp(true);
           return;
         } else {
-          // User chose to cancel - Log the cancellation to the activity feed
           try {
             await api.post(`/notes/${selectedLead._id}`, {
               content: `The ${followUpType} scheduled for ${new Date(followUpDate).toLocaleString()} was CANCELED due to a calendar conflict.`
@@ -761,7 +832,7 @@ const Campaigns = () => {
           }
         }
       } else {
-        toast.error((err as CRMError).response?.data?.message || "Failed to schedule follow-up");
+        toast.error((err as CRMError).response?.data?.message || "Failed to schedule/update follow-up");
       }
     } finally {
       setIsSubmitting(false);
@@ -789,12 +860,15 @@ const Campaigns = () => {
   };
 
   const handleOpenFollowUpModal = () => {
+    setEditingFollowUp(null);
+    setFollowUpTitle("");
     setFollowUpDate("");
     setFollowUpNotes("");
     setFollowUpType("Call");
-    setFollowUpPriority("Medium");
+    setFollowUpPriority("");
     setAssignedTo("self");
     setCustomAssignedTo("");
+    setFollowUpStatus("pending");
     setFuErrors({});
     setIsFollowUpModalOpen(true);
   };
@@ -814,7 +888,7 @@ const Campaigns = () => {
     setFollowUpDate("");
     setFollowUpNotes("");
     setFollowUpType("Call");
-    setFollowUpPriority("Medium");
+    setFollowUpPriority("");
     setAssignedTo("self");
     setCustomAssignedTo("");
     setFuErrors({});
@@ -882,7 +956,7 @@ const Campaigns = () => {
       setFollowUpDate("");
       setFollowUpNotes("");
       setFollowUpType("Call");
-      setFollowUpPriority("Medium");
+      setFollowUpPriority("");
       setAssignedTo("self");
       setCustomAssignedTo("");
       setCreateFollowUpInCall(false);
@@ -957,10 +1031,11 @@ const Campaigns = () => {
     setIsSubmitting(true);
     try {
       await api.post("/followups/" + selectedLead?._id, {
+        title: meetingData.title,
         date_time: new Date(meetingData.date_time).toISOString(),
         type: 'Meeting',
-        priority: 'High',
-        notes: `Meeting: ${meetingData.title}\nType: ${meetingData.type}\nNotes: ${meetingData.notes}`,
+        priority: null,
+        notes: meetingData.notes,
         contact_id: selectedLead?.contacts?.[0]?._id,
         cc_emails: meetingCc,
         force
@@ -1174,7 +1249,7 @@ const Campaigns = () => {
                     }}
                   />
                 </div>
-                <div className="flex items-center justify-center gap-2">
+                <div className="flex items-center justify-end gap-2">
                   <Filter size={12} className="text-muted-foreground" />
                   <select
                     className="text-[10px] bg-transparent border-none focus:ring-0 outline-none font-medium cursor-pointer"
@@ -1289,15 +1364,7 @@ const Campaigns = () => {
                             Unassigned
                           </span>
                         )}
-                        <div className="flex items-center justify-center gap-2 ml-auto">
-                          <button
-                            onClick={() => !permissions.isReadOnly && initiateCall(selectedLead)}
-                            disabled={permissions.isReadOnly}
-                            className={`bg-orange-500 hover:bg-orange-600 text-white px-3 py-1 rounded-lg font-bold text-[10px] flex items-center gap-1.5 shadow-sm transition-all active:scale-95 ${permissions.isReadOnly ? 'opacity-40 blur-[0.5px] pointer-events-none cursor-not-allowed' : ''}`}
-                          >
-                            <Phone size={12} /> Call Now
-                          </button>
-                        </div>
+
                       </div>
                     </div>
                     <button
@@ -1326,10 +1393,10 @@ const Campaigns = () => {
                     <button 
                       onClick={() => !permissions.isReadOnly && initiateCall(selectedLead)} 
                       disabled={permissions.isReadOnly}
-                      className={`flex flex-col items-center gap-1.5 p-2.5 rounded-lg bg-accent/50 hover:bg-orange-500/10 border border-transparent hover:border-orange-500/20 transition-all group ${permissions.isReadOnly ? 'opacity-40 blur-[0.5px] pointer-events-none cursor-not-allowed' : ''}`}
+                      className={`flex flex-col items-center gap-1.5 p-2.5 rounded-lg bg-[#fd6a02] hover:bg-[#e05d02] text-white border border-transparent transition-all shadow-sm ${permissions.isReadOnly ? 'opacity-40 blur-[0.5px] pointer-events-none cursor-not-allowed' : ''}`}
                     >
-                      <Phone size={15} className="text-muted-foreground group-hover:text-orange-500" />
-                      <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground group-hover:text-orange-500">Make Call</span>
+                      <Phone size={15} className="text-white" />
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-white">MAKE CALL</span>
                     </button>
                     <button 
                       onClick={() => { if (!permissions.isReadOnly) { setSmsMessage(""); setIsSmsModalOpen(true); } }} 
@@ -1589,15 +1656,34 @@ const Campaigns = () => {
                                 <span className="text-[8px] uppercase tracking-widest font-bold bg-primary/10 text-primary px-1.5 py-0.5 rounded">{f.type || 'Task'}</span>
                                 <span className="text-[9px] font-bold text-foreground">{new Date(f.date_time).toLocaleString()}</span>
                               </div>
-                              <button 
-                                onClick={() => !permissions.isReadOnly && markFollowupDone(f._id)} 
-                                disabled={permissions.isReadOnly}
-                                className={`text-[8px] transition-all ${permissions.isReadOnly ? 'text-muted-foreground/30 cursor-not-allowed pointer-events-none opacity-40 blur-[0.5px] ml-2' : 'text-muted-foreground hover:text-success opacity-0 group-hover:opacity-100'}`}
-                              >
-                                Done
-                              </button>
+                              {!permissions.isReadOnly && (
+                                <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <button
+                                    onClick={() => markFollowupDone(f._id)}
+                                    className="p-1 hover:bg-success/15 text-muted-foreground hover:text-success rounded transition-colors"
+                                    title="Mark done"
+                                  >
+                                    <CheckCircle2 size={12} />
+                                  </button>
+                                  <button
+                                    onClick={() => handleOpenEditFollowUpModal(f)}
+                                    className="p-1 hover:bg-primary/15 text-muted-foreground hover:text-primary rounded transition-colors"
+                                    title="Edit follow-up"
+                                  >
+                                    <Edit size={12} />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteFollowUp(f._id)}
+                                    className="p-1 hover:bg-destructive/15 text-muted-foreground hover:text-destructive rounded transition-colors"
+                                    title="Delete follow-up"
+                                  >
+                                    <Trash2 size={12} />
+                                  </button>
+                                </div>
+                              )}
                             </div>
-                            <p className="text-[10px] text-foreground/80 mt-1 line-clamp-1">{f.notes || "No notes"}</p>
+                            {f.title && <h4 className="text-[10px] font-bold text-foreground mt-1">{f.title}</h4>}
+                            <p className="text-[10px] text-foreground/80 mt-0.5 line-clamp-1">{f.notes || "No notes"}</p>
                           </div>
                         );
                       })
@@ -1677,11 +1763,23 @@ const Campaigns = () => {
 
       <Dialog open={isFollowUpModalOpen} onOpenChange={(open) => {
         setIsFollowUpModalOpen(open);
-        if (!open) setFuErrors({});
+        if (!open) {
+          setFuErrors({});
+          setEditingFollowUp(null);
+        }
       }}>
         <DialogContent aria-describedby={undefined} className="sm:max-w-md dark:bg-card max-h-[90vh] overflow-y-auto custom-scrollbar">
-          <DialogHeader><DialogTitle className="dark:text-foreground">Schedule Follow-up</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle className="dark:text-foreground">{editingFollowUp ? "Edit Follow-up" : "Schedule Follow-up"}</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold uppercase text-muted-foreground">Title</label>
+              <input
+                placeholder="e.g. Discuss proposal details"
+                className="input-field"
+                value={followUpTitle}
+                onChange={e => setFollowUpTitle(e.target.value)}
+              />
+            </div>
             <div className="space-y-1.5">
               <label className="text-xs font-bold uppercase text-muted-foreground">Date & Time *</label>
               <input
@@ -1695,7 +1793,7 @@ const Campaigns = () => {
               />
               {fuErrors.date && <p className="text-[10px] text-destructive font-medium">{fuErrors.date}</p>}
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-4 items-start">
               <div className="space-y-1.5">
                 <label className="text-xs font-bold uppercase text-muted-foreground">Type</label>
                 <select className="input-field dark:bg-card" value={followUpType} onChange={e => setFollowUpType(e.target.value)}>
@@ -1706,14 +1804,32 @@ const Campaigns = () => {
                 </select>
               </div>
               <div className="space-y-1.5">
-                <label className="text-xs font-bold uppercase text-muted-foreground">Priority</label>
-                <select className="input-field dark:bg-card" value={followUpPriority} onChange={e => setFollowUpPriority(e.target.value)}>
+                <label className="text-xs font-bold uppercase text-muted-foreground">Priority (optional)</label>
+                <select className="input-field dark:bg-card" value={followUpPriority || ""} onChange={e => setFollowUpPriority(e.target.value)}>
+                  <option value="">NO</option>
                   <option value="Low">Low</option>
                   <option value="Medium">Medium</option>
                   <option value="High">High</option>
                 </select>
+                {(!followUpPriority || followUpPriority === "") && (
+                  <p className="text-xs text-muted-foreground mt-1">The Priority is not required</p>
+                )}
               </div>
             </div>
+            {editingFollowUp && (
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold uppercase text-muted-foreground">Status *</label>
+                <select
+                  name="status"
+                  className="input-field dark:bg-card"
+                  value={followUpStatus || ""}
+                  onChange={e => setFollowUpStatus(e.target.value)}
+                >
+                  <option value="pending">Pending</option>
+                  <option value="done">Completed / Done</option>
+                </select>
+              </div>
+            )}
             <div className="space-y-1.5">
               <label className="text-xs font-bold uppercase text-muted-foreground">Notes *</label>
               <textarea
@@ -1730,17 +1846,40 @@ const Campaigns = () => {
 
           </div>
           <DialogFooter>
-            <button className="btn-secondary" onClick={() => { setIsFollowUpModalOpen(false); setFuErrors({}); }}>Cancel</button>
+            <button className="btn-secondary" onClick={() => { setIsFollowUpModalOpen(false); setFuErrors({}); setEditingFollowUp(null); }}>Cancel</button>
             <button
               disabled={isSubmitting}
               className={`btn-primary ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`}
               onClick={() => submitFollowUp()}
             >
-              {isSubmitting ? "Scheduling..." : "Schedule"}
+              {isSubmitting ? "Saving..." : editingFollowUp ? "Update Follow-up" : "Schedule"}
             </button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Follow-up Confirmation Dialog */}
+      <AlertDialog open={!!followUpToDelete} onOpenChange={(open) => !open && setFollowUpToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-red-600 dark:text-red-400 font-bold flex items-center gap-2">
+              Confirm Permanent Deletion
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-sm">
+              Are you sure you want to permanently delete this follow-up? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>No, Keep It</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDeleteFollowUp}
+              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground font-semibold"
+            >
+              Yes, Delete Permanently
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={isCreateLeadOpen} onOpenChange={setIsCreateLeadOpen}>
         <DialogContent aria-describedby={undefined} className="sm:max-w-3xl dark:bg-card max-h-[90vh] overflow-y-auto custom-scrollbar">
@@ -2515,7 +2654,7 @@ const Campaigns = () => {
                     {fuErrors.date && <p className="text-[10px] text-destructive font-medium">{fuErrors.date}</p>}
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-4 items-start">
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold uppercase text-muted-foreground">Type</label>
                       <select className="input-field dark:bg-card" value={followUpType} onChange={e => setFollowUpType(e.target.value)}>
@@ -2526,12 +2665,16 @@ const Campaigns = () => {
                       </select>
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-xs font-bold uppercase text-muted-foreground">Priority</label>
-                      <select className="input-field dark:bg-card" value={followUpPriority} onChange={e => setFollowUpPriority(e.target.value)}>
+                      <label className="text-xs font-bold uppercase text-muted-foreground">Priority (optional)</label>
+                      <select className="input-field dark:bg-card" value={followUpPriority || ""} onChange={e => setFollowUpPriority(e.target.value)}>
+                        <option value="">NO</option>
                         <option value="Low">Low</option>
                         <option value="Medium">Medium</option>
                         <option value="High">High</option>
                       </select>
+                      {(!followUpPriority || followUpPriority === "") && (
+                        <p className="text-xs text-muted-foreground mt-1">The Priority is not required</p>
+                      )}
                     </div>
                   </div>
 
@@ -2780,8 +2923,15 @@ const Campaigns = () => {
               </div>
               <div className="grid gap-2">
                 <label className="text-sm font-medium">Invitees</label>
-                <div className="p-2 bg-accent/30 rounded border text-xs text-foreground">
-                  Automatically inviting: <strong>{selectedLead?.contacts?.[0]?.email || 'No email saved'}</strong>
+                <div className="p-2 bg-accent/30 rounded border text-xs text-foreground space-y-1">
+                  <div>
+                    Automatically inviting client: <strong>{selectedLead?.contacts?.[0]?.email || 'No email saved'}</strong>
+                  </div>
+                  {selectedLead?.assigned_to?.email && (
+                    <div>
+                      Automatically inviting team member: <strong>{selectedLead.assigned_to.email}</strong> ({selectedLead.assigned_to.name})
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="grid gap-2">

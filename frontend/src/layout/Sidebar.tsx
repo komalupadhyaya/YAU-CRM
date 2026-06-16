@@ -29,7 +29,7 @@ const topNavItems = [
   { to: "/followups",  label: "Follow Ups", icon: Clock },
   { to: "/tasks",      label: "Tasks",      icon: CheckSquare },
   { to: "/reports",    label: "Reports",    icon: BarChart3 },
-  // { to: "/lead-scheduler", label: "Lead Scheduler", icon: UserCheck },
+  { to: "/lead-scheduler", label: "Lead Scheduler", icon: UserCheck },
   // { to: "/history",    label: "History",    icon: History },
   { to: "/team",       label: "Team",       icon: Users },
 ];

@@ -659,7 +659,7 @@ function TaskCard({ task, onEdit, onDelete, onComplete, onRestore, onViewDetails
                                         </div>
                                         {task.createdBy && (
                                             <div className="border-t border-border pt-1.5 mt-0.5 space-y-0.5">
-                                                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Assigned By</p>
+                                                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Assigned From</p>
                                                 <p className="text-xs font-semibold">{task.createdBy.name}</p>
                                                 <p className="text-[11px] text-muted-foreground font-medium">{task.createdBy.email}</p>
                                             </div>
@@ -937,8 +937,8 @@ export default function Tasks() {
                         );
                     }
                     if (field === 'dueDate') {
-                        const oldVal = value.old ? new Date(value.old).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric" }) : 'None';
-                        const newVal = value.new ? new Date(value.new).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric" }) : 'None';
+                        const oldVal = value.old ? new Date(value.old).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true }) : 'None';
+                        const newVal = value.new ? new Date(value.new).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true }) : 'None';
                         return (
                             <p key={field} className="flex items-center gap-1 flex-wrap">
                                 📅 <span className="font-semibold text-foreground/80">Due Date:</span> 
@@ -988,13 +988,14 @@ export default function Tasks() {
 
         if (item.action === 'complete') {
             return (
-                <div className="flex gap-2">
+                <div className="flex gap-2 w-full">
                     <span className="w-2 h-2 rounded-full bg-blue-500 mt-1.5 shrink-0" />
-                    <div>
+                    <div className="w-full">
                         <p className="font-semibold text-foreground text-xs">Task Completed</p>
                         <p className="text-muted-foreground text-[11px] leading-relaxed">
                             Completed by <span className="font-bold text-foreground/80">{actor}</span>
                         </p>
+                        {renderChanges(item.changes)}
                         <p className="text-[10px] text-muted-foreground/60 mt-0.5">{dateStr}</p>
                     </div>
                 </div>
