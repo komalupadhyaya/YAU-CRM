@@ -819,7 +819,7 @@ export const deleteMeeting = async (req, res, next) => {
 export const getCandidates = async (req, res, next) => {
     try {
         const candidates = await Candidate.find()
-            .select('name email phone applying_for status')
+            .select('name email phone applying_for status createdAt')
             .sort({ createdAt: -1 });
         res.json(candidates);
     } catch (err) {

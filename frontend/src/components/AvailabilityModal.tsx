@@ -245,180 +245,182 @@ export default function AvailabilityModal({ user, open, onClose }: { user: Avail
 
     return (
         <Dialog open={open} onOpenChange={onClose}>
-            <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
-                <DialogHeader>
-                    <DialogTitle className="flex items-center gap-2">
+            <DialogContent className="sm:max-w-lg p-0 overflow-hidden flex flex-col max-h-[90vh]">
+                <DialogHeader className="p-6 pb-4 border-b border-border">
+                    <DialogTitle className="flex items-center gap-2 text-foreground">
                         <CalendarDays size={16} className="text-primary" />
                         Availability — {user.name || user.username}
                     </DialogTitle>
                     <DialogDescription>Set weekly working hours and blocked dates for meeting scheduling.</DialogDescription>
                 </DialogHeader>
 
-                {loading ? (
-                    <div className="flex items-center justify-center py-12">
-                        <Loader2 size={24} className="animate-spin text-muted-foreground" />
-                    </div>
-                ) : (
-                    <div className="space-y-5 py-2">
-                        {/* Weekly schedule */}
-                        <div>
-                            <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-3">Weekly Schedule</p>
-                            <div className="space-y-2">
-                                {DAYS.map(day => (
-                                    <div key={day} className={`flex items-start gap-3 p-2.5 rounded-lg border transition-colors ${schedule[day].enabled ? 'border-primary/30 bg-primary/5' : 'border-border bg-background'}`}>
-                                        <button
-                                            type="button"
-                                            onClick={() => toggleDay(day)}
-                                            className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors mt-1
-                                                ${schedule[day].enabled ? 'bg-primary border-primary' : 'border-border hover:border-primary/50'}`}
-                                        >
-                                            {schedule[day].enabled && <X size={10} className="text-primary-foreground" />}
-                                        </button>
-                                        <span className="text-sm font-medium w-24 capitalize shrink-0 text-foreground mt-0.5">{day}</span>
-                                        {schedule[day].enabled ? (
-                                            <div className="flex-1 space-y-2">
-                                                {(schedule[day].slots || []).map((slot, index) => (
-                                                    <div key={index} className="flex items-center gap-2">
-                                                        <div className="relative flex-1 flex items-center">
-                                                            <input
-                                                                type="text"
-                                                                placeholder="09:00"
-                                                                value={slot.start}
-                                                                onChange={e => {
-                                                                    const formatted = formatTimeInput(e.target.value);
-                                                                    updateSlot(day, index, 'start', formatted);
-                                                                }}
-                                                                onBlur={e => {
-                                                                    const normalized = normalizeTimeOnBlur(e.target.value);
-                                                                    updateSlot(day, index, 'start', normalized);
-                                                                }}
-                                                                className="w-full text-center text-xs pl-2 pr-7 py-1 rounded border border-border bg-background text-foreground"
-                                                            />
-                                                            <button
-                                                                type="button"
-                                                                onClick={e => {
-                                                                    const hiddenInput = e.currentTarget.parentElement?.querySelector('input[type="time"]') as HTMLInputElement;
-                                                                    if (hiddenInput) {
-                                                                        try {
-                                                                            hiddenInput.showPicker();
-                                                                        } catch (err) {
-                                                                            hiddenInput.focus();
-                                                                            hiddenInput.click();
-                                                                        }
-                                                                    }
-                                                                }}
-                                                                className="absolute right-1.5 text-muted-foreground hover:text-foreground p-0.5 rounded transition-colors"
-                                                            >
-                                                                <Clock size={12} />
-                                                            </button>
-                                                            <input
-                                                                type="time"
-                                                                value={slot.start}
-                                                                onChange={e => {
-                                                                    updateSlot(day, index, 'start', e.target.value);
-                                                                }}
-                                                                className="opacity-0 absolute right-0 top-0 w-0 h-0 pointer-events-none"
-                                                            />
-                                                        </div>
-                                                        <span className="text-xs text-muted-foreground shrink-0">to</span>
-                                                        <div className="relative flex-1 flex items-center">
-                                                            <input
-                                                                type="text"
-                                                                placeholder="17:00"
-                                                                value={slot.end}
-                                                                onChange={e => {
-                                                                    const formatted = formatTimeInput(e.target.value);
-                                                                    updateSlot(day, index, 'end', formatted);
-                                                                }}
-                                                                onBlur={e => {
-                                                                    const normalized = normalizeTimeOnBlur(e.target.value);
-                                                                    updateSlot(day, index, 'end', normalized);
-                                                                }}
-                                                                className="w-full text-center text-xs pl-2 pr-7 py-1 rounded border border-border bg-background text-foreground"
-                                                            />
-                                                            <button
-                                                                type="button"
-                                                                onClick={e => {
-                                                                    const hiddenInput = e.currentTarget.parentElement?.querySelector('input[type="time"]') as HTMLInputElement;
-                                                                    if (hiddenInput) {
-                                                                        try {
-                                                                            hiddenInput.showPicker();
-                                                                        } catch (err) {
-                                                                            hiddenInput.focus();
-                                                                            hiddenInput.click();
-                                                                        }
-                                                                    }
-                                                                }}
-                                                                className="absolute right-1.5 text-muted-foreground hover:text-foreground p-0.5 rounded transition-colors"
-                                                            >
-                                                                <Clock size={12} />
-                                                            </button>
-                                                            <input
-                                                                type="time"
-                                                                value={slot.end}
-                                                                onChange={e => {
-                                                                    updateSlot(day, index, 'end', e.target.value);
-                                                                }}
-                                                                className="opacity-0 absolute right-0 top-0 w-0 h-0 pointer-events-none"
-                                                            />
-                                                        </div>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => removeSlot(day, index)}
-                                                            className="text-muted-foreground hover:text-destructive shrink-0 p-1 rounded hover:bg-muted"
-                                                        >
-                                                            <X size={12} />
-                                                        </button>
-                                                    </div>
-                                                ))}
-                                                <button
-                                                    type="button"
-                                                    onClick={() => addSlot(day)}
-                                                    className="text-xs text-primary hover:underline flex items-center gap-1 font-medium pt-1"
-                                                >
-                                                    <Plus size={12} /> Add time slot
-                                                </button>
-                                            </div>
-                                        ) : (
-                                            <span className="text-xs text-muted-foreground mt-0.5">Not available</span>
-                                        )}
-                                    </div>
-                                ))}
-                            </div>
+                <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-5">
+                    {loading ? (
+                        <div className="flex items-center justify-center py-12">
+                            <Loader2 size={24} className="animate-spin text-muted-foreground" />
                         </div>
-
-                        {/* Blocked dates */}
-                        <div>
-                            <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Blocked Dates</p>
-                            <p className="text-[11px] text-muted-foreground mb-2.5">Mark specific dates as fully unavailable (e.g. vacation, sick leave).</p>
-                            <div className="flex gap-2">
-                                <input
-                                    type="date"
-                                    value={newBlockedDate}
-                                    onChange={e => setNewBlockedDate(e.target.value)}
-                                    className="flex-1 text-sm px-3 py-2 rounded-lg border border-border bg-background text-foreground [color-scheme:light] dark:[color-scheme:dark]"
-                                />
-                                <Button type="button" size="sm" variant="outline" onClick={addBlockedDate} disabled={!newBlockedDate}>
-                                    <Plus size={14} />
-                                </Button>
-                            </div>
-                            {blockedDates.length > 0 && (
-                                <div className="flex flex-wrap gap-1.5 mt-2.5">
-                                    {blockedDates.map(d => (
-                                        <span key={d} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-destructive/10 text-destructive text-xs border border-destructive/20">
-                                            {new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                                            <button type="button" onClick={() => removeBlockedDate(d)} className="hover:opacity-70 ml-0.5">
-                                                <X size={10} />
+                    ) : (
+                        <div className="space-y-5">
+                            {/* Weekly schedule */}
+                            <div>
+                                <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-3">Weekly Schedule</p>
+                                <div className="space-y-2">
+                                    {DAYS.map(day => (
+                                        <div key={day} className={`flex items-start gap-3 p-2.5 rounded-lg border transition-colors ${schedule[day].enabled ? 'border-primary/30 bg-primary/5' : 'border-border bg-background'}`}>
+                                            <button
+                                                type="button"
+                                                onClick={() => toggleDay(day)}
+                                                className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors mt-1
+                                                    ${schedule[day].enabled ? 'bg-primary border-primary' : 'border-border hover:border-primary/50'}`}
+                                            >
+                                                {schedule[day].enabled && <X size={10} className="text-primary-foreground" />}
                                             </button>
-                                        </span>
+                                            <span className="text-sm font-medium w-24 capitalize shrink-0 text-foreground mt-0.5">{day}</span>
+                                            {schedule[day].enabled ? (
+                                                <div className="flex-1 space-y-2">
+                                                    {(schedule[day].slots || []).map((slot, index) => (
+                                                        <div key={index} className="flex items-center gap-2">
+                                                            <div className="relative flex-1 flex items-center">
+                                                                <input
+                                                                    type="text"
+                                                                    placeholder="09:00"
+                                                                    value={slot.start}
+                                                                    onChange={e => {
+                                                                        const formatted = formatTimeInput(e.target.value);
+                                                                        updateSlot(day, index, 'start', formatted);
+                                                                    }}
+                                                                    onBlur={e => {
+                                                                        const normalized = normalizeTimeOnBlur(e.target.value);
+                                                                        updateSlot(day, index, 'start', normalized);
+                                                                    }}
+                                                                    className="w-full text-center text-xs pl-2 pr-7 py-1 rounded border border-border bg-background text-foreground"
+                                                                />
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={e => {
+                                                                        const hiddenInput = e.currentTarget.parentElement?.querySelector('input[type="time"]') as HTMLInputElement;
+                                                                        if (hiddenInput) {
+                                                                            try {
+                                                                                hiddenInput.showPicker();
+                                                                            } catch (err) {
+                                                                                hiddenInput.focus();
+                                                                                hiddenInput.click();
+                                                                            }
+                                                                        }
+                                                                    }}
+                                                                    className="absolute right-1.5 text-muted-foreground hover:text-foreground p-0.5 rounded transition-colors"
+                                                                >
+                                                                    <Clock size={12} />
+                                                                </button>
+                                                                <input
+                                                                    type="time"
+                                                                    value={slot.start}
+                                                                    onChange={e => {
+                                                                        updateSlot(day, index, 'start', e.target.value);
+                                                                    }}
+                                                                    className="opacity-0 absolute right-0 top-0 w-0 h-0 pointer-events-none"
+                                                                />
+                                                            </div>
+                                                            <span className="text-xs text-muted-foreground shrink-0">to</span>
+                                                            <div className="relative flex-1 flex items-center">
+                                                                <input
+                                                                    type="text"
+                                                                    placeholder="17:00"
+                                                                    value={slot.end}
+                                                                    onChange={e => {
+                                                                        const formatted = formatTimeInput(e.target.value);
+                                                                        updateSlot(day, index, 'end', formatted);
+                                                                    }}
+                                                                    onBlur={e => {
+                                                                        const normalized = normalizeTimeOnBlur(e.target.value);
+                                                                        updateSlot(day, index, 'end', normalized);
+                                                                    }}
+                                                                    className="w-full text-center text-xs pl-2 pr-7 py-1 rounded border border-border bg-background text-foreground"
+                                                                />
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={e => {
+                                                                        const hiddenInput = e.currentTarget.parentElement?.querySelector('input[type="time"]') as HTMLInputElement;
+                                                                        if (hiddenInput) {
+                                                                            try {
+                                                                                hiddenInput.showPicker();
+                                                                            } catch (err) {
+                                                                                hiddenInput.focus();
+                                                                                hiddenInput.click();
+                                                                            }
+                                                                        }
+                                                                    }}
+                                                                    className="absolute right-1.5 text-muted-foreground hover:text-foreground p-0.5 rounded transition-colors"
+                                                                >
+                                                                    <Clock size={12} />
+                                                                </button>
+                                                                <input
+                                                                    type="time"
+                                                                    value={slot.end}
+                                                                    onChange={e => {
+                                                                        updateSlot(day, index, 'end', e.target.value);
+                                                                    }}
+                                                                    className="opacity-0 absolute right-0 top-0 w-0 h-0 pointer-events-none"
+                                                                />
+                                                            </div>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => removeSlot(day, index)}
+                                                                className="text-muted-foreground hover:text-destructive shrink-0 p-1 rounded hover:bg-muted"
+                                                            >
+                                                                <X size={12} />
+                                                            </button>
+                                                        </div>
+                                                    ))}
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => addSlot(day)}
+                                                        className="text-xs text-primary hover:underline flex items-center gap-1 font-medium pt-1"
+                                                    >
+                                                        <Plus size={12} /> Add time slot
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <span className="text-xs text-muted-foreground mt-0.5">Not available</span>
+                                            )}
+                                        </div>
                                     ))}
                                 </div>
-                            )}
-                        </div>
-                    </div>
-                )}
+                            </div>
 
-                <DialogFooter className="gap-2">
+                            {/* Blocked dates */}
+                            <div>
+                                <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Blocked Dates</p>
+                                <p className="text-[11px] text-muted-foreground mb-2.5">Mark specific dates as fully unavailable (e.g. vacation, sick leave).</p>
+                                <div className="flex gap-2">
+                                    <input
+                                        type="date"
+                                        value={newBlockedDate}
+                                        onChange={e => setNewBlockedDate(e.target.value)}
+                                        className="flex-1 text-sm px-3 py-2 rounded-lg border border-border bg-background text-foreground [color-scheme:light] dark:[color-scheme:dark]"
+                                    />
+                                    <Button type="button" size="sm" variant="outline" onClick={addBlockedDate} disabled={!newBlockedDate}>
+                                        <Plus size={14} />
+                                    </Button>
+                                </div>
+                                {blockedDates.length > 0 && (
+                                    <div className="flex flex-wrap gap-1.5 mt-2.5">
+                                        {blockedDates.map(d => (
+                                            <span key={d} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-destructive/10 text-destructive text-xs border border-destructive/20">
+                                                {new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                                <button type="button" onClick={() => removeBlockedDate(d)} className="hover:opacity-70 ml-0.5">
+                                                    <X size={10} />
+                                                </button>
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                <DialogFooter className="p-6 pt-4 border-t border-border gap-2">
                     <Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
                     <Button onClick={handleSave} disabled={saving || loading} className="gap-2">
                         {saving ? <><Loader2 size={14} className="animate-spin" /> Saving...</> : <><CalendarDays size={14} /> Save Availability</>}

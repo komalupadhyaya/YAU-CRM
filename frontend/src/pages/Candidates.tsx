@@ -12,6 +12,8 @@ import {
     UserPlus,
     UserCheck,
     Clock,
+    UserX,
+    Award,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
@@ -188,8 +190,11 @@ export default function Candidates() {
 
     // Stats
     const totalCandidates = candidates.length;
+    const appliedCount = candidates.filter((c) => c.status === "applied").length;
     const interviewingCount = candidates.filter((c) => c.status === "interviewing").length;
+    const offeredCount = candidates.filter((c) => c.status === "offered").length;
     const hiredCount = candidates.filter((c) => c.status === "hired").length;
+    const rejectedCount = candidates.filter((c) => c.status === "rejected").length;
 
     if (!isAuthorized) {
         return (
@@ -227,32 +232,65 @@ export default function Candidates() {
                 </div>
 
                 {/* ── Stats Strip ── */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                    {/* Total Applicants */}
                     <div className="bg-card border rounded-xl p-4 flex items-center gap-3 shadow-sm">
-                        <div className="w-10 h-10 rounded-lg bg-violet-500/10 flex items-center justify-center">
+                        <div className="w-10 h-10 rounded-lg bg-violet-500/10 flex items-center justify-center shrink-0">
                             <UserPlus size={18} className="text-violet-500" />
                         </div>
-                        <div>
+                        <div className="min-w-0">
                             <p className="text-2xl font-bold">{totalCandidates}</p>
-                            <p className="text-xs text-muted-foreground">Total Applicants</p>
+                            <p className="text-xs text-muted-foreground truncate">Total Applicants</p>
                         </div>
                     </div>
+                    {/* Applied */}
                     <div className="bg-card border rounded-xl p-4 flex items-center gap-3 shadow-sm">
-                        <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                        <div className="w-10 h-10 rounded-lg bg-zinc-500/10 flex items-center justify-center shrink-0">
+                            <Users size={18} className="text-zinc-400" />
+                        </div>
+                        <div className="min-w-0">
+                            <p className="text-2xl font-bold">{appliedCount}</p>
+                            <p className="text-xs text-muted-foreground truncate">Applied</p>
+                        </div>
+                    </div>
+                    {/* Interviewing */}
+                    <div className="bg-card border rounded-xl p-4 flex items-center gap-3 shadow-sm">
+                        <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center shrink-0">
                             <Clock size={18} className="text-blue-500" />
                         </div>
-                        <div>
+                        <div className="min-w-0">
                             <p className="text-2xl font-bold">{interviewingCount}</p>
-                            <p className="text-xs text-muted-foreground">Interviewing</p>
+                            <p className="text-xs text-muted-foreground truncate">Interviewing</p>
                         </div>
                     </div>
+                    {/* Offered */}
                     <div className="bg-card border rounded-xl p-4 flex items-center gap-3 shadow-sm">
-                        <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+                        <div className="w-10 h-10 rounded-lg bg-amber-500/10 flex items-center justify-center shrink-0">
+                            <Award size={18} className="text-amber-500" />
+                        </div>
+                        <div className="min-w-0">
+                            <p className="text-2xl font-bold">{offeredCount}</p>
+                            <p className="text-xs text-muted-foreground truncate">Offered</p>
+                        </div>
+                    </div>
+                    {/* Hired */}
+                    <div className="bg-card border rounded-xl p-4 flex items-center gap-3 shadow-sm">
+                        <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0">
                             <UserCheck size={18} className="text-emerald-500" />
                         </div>
-                        <div>
+                        <div className="min-w-0">
                             <p className="text-2xl font-bold">{hiredCount}</p>
-                            <p className="text-xs text-muted-foreground">Hired</p>
+                            <p className="text-xs text-muted-foreground truncate">Hired</p>
+                        </div>
+                    </div>
+                    {/* Rejected */}
+                    <div className="bg-card border rounded-xl p-4 flex items-center gap-3 shadow-sm">
+                        <div className="w-10 h-10 rounded-lg bg-red-500/10 flex items-center justify-center shrink-0">
+                            <UserX size={18} className="text-red-500" />
+                        </div>
+                        <div className="min-w-0">
+                            <p className="text-2xl font-bold">{rejectedCount}</p>
+                            <p className="text-xs text-muted-foreground truncate">Rejected</p>
                         </div>
                     </div>
                 </div>
@@ -640,11 +678,11 @@ export default function Candidates() {
                             <Trash2 size={16} className="text-destructive" />
                             Remove Candidate?
                         </AlertDialogTitle>
-                        <DialogDescription>
+                        <AlertDialogDescription>
                             This will permanently delete candidate{" "}
                             <strong>{deleteTarget?.name}</strong> from the database.
                             This action cannot be undone.
-                        </DialogDescription>
+                        </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                         <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>

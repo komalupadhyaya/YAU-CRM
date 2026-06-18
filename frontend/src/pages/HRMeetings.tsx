@@ -160,12 +160,38 @@ function MultiUserPicker({ teamMembers, selected, onChange, placeholder = 'Selec
             </div>
             {open && (
                 <div className="absolute z-50 mt-1 w-full bg-popover border border-border rounded-xl shadow-xl overflow-hidden">
-                    <div className="p-2 border-b border-border">
-                        <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-muted/60">
+                    <div className="p-2 border-b border-border flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-muted/60 flex-1">
                             <Search size={13} className="text-muted-foreground shrink-0" />
                             <input autoFocus type="text" placeholder="Search team members..." value={query}
                                 onChange={e => setQuery(e.target.value)}
                                 className="flex-1 bg-transparent text-sm outline-none text-foreground placeholder:text-muted-foreground" />
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                            {filtered.length > 0 && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        onChange([...selected, ...filtered]);
+                                        setQuery('');
+                                    }}
+                                    className="text-xs text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 font-bold shrink-0 px-2 py-1 rounded hover:bg-emerald-500/10 transition-colors"
+                                >
+                                    Select All
+                                </button>
+                            )}
+                            {selected.length > 0 && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        onChange([]);
+                                        setQuery('');
+                                    }}
+                                    className="text-xs text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 font-bold shrink-0 px-2 py-1 rounded hover:bg-rose-500/10 transition-colors"
+                                >
+                                    Deselect All
+                                </button>
+                            )}
                         </div>
                     </div>
                     <div className="max-h-44 overflow-y-auto">
@@ -201,11 +227,6 @@ function MultiCandidatePicker({ candidates, selected, onChange }: {
 }) {
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState('');
-    const [showCreate, setShowCreate] = useState(false);
-    const [newName, setNewName] = useState('');
-    const [newEmail, setNewEmail] = useState('');
-    const [newRole, setNewRole] = useState('');
-    const [creating, setCreating] = useState(false);
     const ref = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -213,7 +234,6 @@ function MultiCandidatePicker({ candidates, selected, onChange }: {
             if (ref.current && !ref.current.contains(e.target as Node)) {
                 setOpen(false);
                 setQuery('');
-                setShowCreate(false);
             }
         };
         document.addEventListener('mousedown', handler);
@@ -225,24 +245,6 @@ function MultiCandidatePicker({ candidates, selected, onChange }: {
         !selectedIds.has(c._id) &&
         (c.name.toLowerCase().includes(query.toLowerCase()) || c.email?.toLowerCase().includes(query.toLowerCase()))
     );
-
-    const handleCreate = async () => {
-        if (!newName.trim()) return;
-        setCreating(true);
-        try {
-            const res = await api.post('/meetings/candidates', { name: newName.trim(), email: newEmail.trim(), applying_for: newRole.trim() });
-            onChange([...selected, res.data]);
-            candidates.push(res.data);
-            setShowCreate(false);
-            setNewName(''); setNewEmail(''); setNewRole('');
-            setOpen(false);
-            toast.success('Candidate created');
-        } catch {
-            toast.error('Failed to create candidate');
-        } finally {
-            setCreating(false);
-        }
-    };
 
     const add = (candidate: Candidate) => {
         onChange([...selected, candidate]);
@@ -284,8 +286,8 @@ function MultiCandidatePicker({ candidates, selected, onChange }: {
 
             {open && (
                 <div className="absolute z-50 mt-1 w-full bg-popover border border-border rounded-xl shadow-xl overflow-hidden animate-fadeIn">
-                    <div className="p-2 border-b border-border">
-                        <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-muted/60">
+                    <div className="p-2 border-b border-border flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-muted/60 flex-1">
                             <Search size={13} className="text-muted-foreground shrink-0" />
                             <input
                                 autoFocus
@@ -295,6 +297,32 @@ function MultiCandidatePicker({ candidates, selected, onChange }: {
                                 onChange={e => setQuery(e.target.value)}
                                 className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
                             />
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                            {filtered.length > 0 && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        onChange([...selected, ...filtered]);
+                                        setQuery('');
+                                    }}
+                                    className="text-xs text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 font-bold shrink-0 px-2 py-1 rounded hover:bg-emerald-500/10 transition-colors"
+                                >
+                                    Select All
+                                </button>
+                            )}
+                            {selected.length > 0 && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        onChange([]);
+                                        setQuery('');
+                                    }}
+                                    className="text-xs text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 font-bold shrink-0 px-2 py-1 rounded hover:bg-rose-500/10 transition-colors"
+                                >
+                                    Deselect All
+                                </button>
+                            )}
                         </div>
                     </div>
                     <div className="max-h-48 overflow-y-auto">
@@ -311,69 +339,12 @@ function MultiCandidatePicker({ candidates, selected, onChange }: {
                                 <Plus size={12} className="text-emerald-500 shrink-0" />
                             </button>
                         ))}
-                        {filtered.length === 0 && !showCreate && (
+                        {filtered.length === 0 && (
                             <div className="px-3 py-4 text-center text-sm text-muted-foreground">
                                 {candidates.length === selected.length ? 'All candidates selected' : 'No candidates found'}
                             </div>
                         )}
                     </div>
-
-                    {!showCreate ? (
-                        <div className="p-2 border-t border-border">
-                            <button
-                                type="button"
-                                onClick={() => setShowCreate(true)}
-                                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-emerald-500 hover:bg-emerald-500/10 rounded-lg transition-colors"
-                            >
-                                <Plus size={13} /> Add new candidate...
-                            </button>
-                        </div>
-                    ) : (
-                        <div className="p-3 border-t border-border space-y-2">
-                            <p className="text-xs font-semibold text-muted-foreground">New Candidate</p>
-                            <input
-                                type="text"
-                                placeholder="Full name *"
-                                value={newName}
-                                onChange={e => setNewName(e.target.value)}
-                                className="input-field text-xs py-1.5"
-                            />
-                            <input
-                                type="email"
-                                placeholder="Email"
-                                value={newEmail}
-                                onChange={e => setNewEmail(e.target.value)}
-                                className="input-field text-xs py-1.5"
-                            />
-                            <input
-                                type="text"
-                                placeholder="Role (e.g. Coach, Volunteer)"
-                                value={newRole}
-                                onChange={e => setNewRole(e.target.value)}
-                                className="input-field text-xs py-1.5"
-                            />
-                            <div className="flex gap-2">
-                                <Button
-                                    type="button"
-                                    size="sm"
-                                    className="flex-1 text-xs h-7 bg-emerald-600 hover:bg-emerald-700 text-white"
-                                    onClick={handleCreate}
-                                    disabled={creating || !newName.trim()}
-                                >
-                                    {creating ? <Loader2 size={11} className="animate-spin" /> : 'Create'}
-                                </Button>
-                                <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="outline"
-                                    className="text-xs h-7"
-                                    onClick={() => setShowCreate(false)}
-                                >
-                                    Cancel
-                                </Button>
-                            </div>
-                        </div>
-                    )}
                 </div>
             )}
         </div>
@@ -984,6 +955,12 @@ function AvailabilityCalendarModal({
                                     Confirm
                                 </Button>
                             </div>
+
+                            <div className="bg-muted/30 border border-border/50 rounded-xl p-3.5 text-center">
+                                <p className="text-xs text-muted-foreground leading-relaxed">
+                                    💡 <strong>Pick Manually</strong> bypasses all automatic availability checks, allowing you to set a custom meeting time regardless of calendar conflicts or team working hours.
+                                </p>
+                            </div>
                         </div>
                     </div>
                 ) : (
@@ -1029,47 +1006,56 @@ function AvailabilityCalendarModal({
                                         const isCurrentMonth = day.getMonth() === month;
                                         const isSelected = selectedDate && isSameDate(day, selectedDate);
                                         const isToday = isSameDate(day, new Date());
+                                        const today = new Date();
+                                        today.setHours(0, 0, 0, 0);
+                                        const isPast = day < today;
                                         const avail = getDateAvailability(day);
                                         const countText = internalAttendees.length > 0 ? `(${avail.availableCount}/${internalAttendees.length})` : '';
 
                                         // Determine colors based on availability status
-                                        let cellBg = 'bg-background hover:bg-accent/40';
+                                        let cellBg = 'bg-background hover:bg-zinc-50 dark:hover:bg-zinc-900/50 cursor-pointer';
                                         let borderCol = 'border-border';
-                                        let textCol = 'text-foreground';
+                                        let textCol = 'text-foreground font-medium';
 
                                         if (internalAttendees.length > 0 && isCurrentMonth) {
                                             if (avail.status === 'all-free') {
-                                                cellBg = 'bg-emerald-500/10 hover:bg-emerald-500/20';
-                                                borderCol = 'border-emerald-500/20';
-                                                textCol = 'text-emerald-400 font-semibold';
+                                                cellBg = 'bg-emerald-500/10 hover:bg-emerald-500/20 cursor-pointer';
+                                                borderCol = 'border-emerald-500/30';
+                                                textCol = 'text-emerald-700 dark:text-emerald-400 font-semibold';
                                             } else if (avail.status === 'some-free') {
-                                                cellBg = 'bg-amber-500/10 hover:bg-amber-500/20';
-                                                borderCol = 'border-amber-500/20';
-                                                textCol = 'text-amber-400 font-semibold';
+                                                cellBg = 'bg-amber-500/10 hover:bg-amber-500/20 cursor-pointer';
+                                                borderCol = 'border-amber-500/30';
+                                                textCol = 'text-amber-700 dark:text-amber-400 font-semibold';
                                             } else if (avail.status === 'busy') {
-                                                cellBg = 'bg-zinc-500/5 hover:bg-zinc-500/10';
+                                                cellBg = 'bg-zinc-500/5 hover:bg-zinc-500/10 cursor-pointer';
                                                 borderCol = 'border-border/60';
                                                 textCol = 'text-muted-foreground/60';
                                             }
                                         }
 
                                         if (!isCurrentMonth) {
-                                            textCol = 'text-muted-foreground/30';
-                                            cellBg = 'bg-transparent';
+                                            cellBg = 'bg-transparent cursor-not-allowed';
+                                            borderCol = 'border-transparent';
+                                            textCol = 'text-muted-foreground/15';
+                                        } else if (isPast) {
+                                            cellBg = 'bg-zinc-500/5 cursor-not-allowed';
+                                            borderCol = 'border-border/40';
+                                            textCol = 'text-muted-foreground/40';
                                         }
 
                                         return (
                                             <button
                                                 key={idx}
                                                 type="button"
+                                                disabled={isPast || !isCurrentMonth}
                                                 onClick={() => {
                                                     setSelectedDate(day);
                                                     setSelectedTimeSlot(null);
                                                 }}
-                                                className={`h-14 flex flex-col justify-between p-1 rounded-xl border text-left transition-all relative overflow-hidden group
+                                                className={`h-14 flex flex-col justify-between p-2 rounded-xl border text-left transition-all relative overflow-hidden group
                                                     ${cellBg} ${borderCol} ${textCol}
                                                     ${isSelected ? 'ring-2 ring-emerald-500 border-transparent scale-95 shadow-sm' : ''}
-                                                    ${isToday ? 'border-emerald-500/40' : ''}`}
+                                                    ${isToday ? 'border-emerald-600/50 dark:border-emerald-500/50 shadow-sm' : ''}`}
                                             >
                                                 <div className="flex justify-between w-full">
                                                     <span className={`text-xs ${isToday ? 'bg-emerald-600 text-white font-bold rounded-full w-5 h-5 flex items-center justify-center' : ''}`}>

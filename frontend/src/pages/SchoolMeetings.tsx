@@ -715,6 +715,12 @@ function AvailabilityCalendarModal({
                                     Confirm
                                 </Button>
                             </div>
+
+                            <div className="bg-muted/30 border border-border/50 rounded-xl p-3.5 text-center">
+                                <p className="text-xs text-muted-foreground leading-relaxed">
+                                    💡 <strong>Pick Manually</strong> bypasses all automatic availability checks, allowing you to set a custom meeting time regardless of calendar conflicts or team working hours.
+                                </p>
+                            </div>
                         </div>
                     </div>
                 ) : (
@@ -760,41 +766,54 @@ function AvailabilityCalendarModal({
                                         const isCurrentMonth = day.getMonth() === month;
                                         const isSelected = selectedDate && isSameDate(day, selectedDate);
                                         const isToday = isSameDate(day, new Date());
+                                        const today = new Date();
+                                        today.setHours(0, 0, 0, 0);
+                                        const isPast = day < today;
                                         const avail = getDateAvailability(day);
                                         const countText = internalAttendees.length > 0 ? `(${avail.availableCount}/${internalAttendees.length})` : '';
 
                                         // Determine colors based on availability status
-                                        let cellBg = 'bg-background hover:bg-accent/40';
+                                        let cellBg = 'bg-background hover:bg-zinc-50 dark:hover:bg-zinc-900/50 cursor-pointer';
                                         let borderCol = 'border-border';
-                                        let textCol = 'text-foreground';
+                                        let textCol = 'text-foreground font-medium';
 
                                         if (internalAttendees.length > 0 && isCurrentMonth) {
                                             if (avail.status === 'all-free') {
-                                                cellBg = 'bg-primary/10 hover:bg-primary/20';
-                                                borderCol = 'border-primary/20';
+                                                cellBg = 'bg-primary/10 hover:bg-primary/20 cursor-pointer';
+                                                borderCol = 'border-primary/30';
                                                 textCol = 'text-primary font-semibold';
                                             } else if (avail.status === 'some-free') {
-                                                cellBg = 'bg-amber-500/10 hover:bg-amber-500/20';
-                                                borderCol = 'border-amber-500/20';
-                                                textCol = 'text-amber-500 dark:text-amber-400 font-semibold';
+                                                cellBg = 'bg-amber-500/10 hover:bg-amber-500/20 cursor-pointer';
+                                                borderCol = 'border-amber-500/30';
+                                                textCol = 'text-amber-700 dark:text-amber-400 font-semibold';
                                             } else if (avail.status === 'busy') {
-                                                cellBg = 'bg-zinc-500/5 hover:bg-zinc-500/10';
+                                                cellBg = 'bg-zinc-500/5 hover:bg-zinc-500/10 cursor-pointer';
                                                 borderCol = 'border-border/60';
                                                 textCol = 'text-muted-foreground/60';
                                             }
+                                        }
+
+                                        if (!isCurrentMonth) {
+                                            cellBg = 'bg-transparent cursor-not-allowed';
+                                            borderCol = 'border-transparent';
+                                            textCol = 'text-muted-foreground/15';
+                                        } else if (isPast) {
+                                            cellBg = 'bg-zinc-500/5 cursor-not-allowed';
+                                            borderCol = 'border-border/40';
+                                            textCol = 'text-muted-foreground/40';
                                         }
 
                                         return (
                                             <button
                                                 key={idx}
                                                 type="button"
-                                                disabled={!isCurrentMonth}
+                                                disabled={!isCurrentMonth || isPast}
                                                 onClick={() => {
                                                     setSelectedDate(day);
                                                     setSelectedTimeSlot(null);
                                                 }}
                                                 className={`aspect-square flex flex-col items-center justify-center rounded-xl border text-[10px] font-semibold transition-all duration-150 relative
-                                                    ${isCurrentMonth ? `${cellBg} ${borderCol} ${textCol} cursor-pointer` : 'opacity-20 cursor-default bg-transparent border-transparent'}
+                                                    ${cellBg} ${borderCol} ${textCol}
                                                     ${isSelected ? '!border-primary ring-2 ring-primary/30 shadow-sm' : ''}
                                                     ${isToday && !isSelected ? 'ring-1 ring-primary/40' : ''}
                                                 `}
@@ -964,8 +983,8 @@ function MultiUserPicker({
             </div>
             {open && (
                 <div className="absolute z-50 mt-1 w-full bg-popover border border-border rounded-xl shadow-xl overflow-hidden">
-                    <div className="p-2 border-b border-border">
-                        <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-muted/60">
+                    <div className="p-2 border-b border-border flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-muted/60 flex-1">
                             <Search size={13} className="text-muted-foreground shrink-0" />
                             <input
                                 autoFocus
@@ -975,6 +994,32 @@ function MultiUserPicker({
                                 onChange={e => setQuery(e.target.value)}
                                 className="flex-1 bg-transparent text-sm outline-none text-foreground placeholder:text-muted-foreground"
                             />
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                            {filtered.length > 0 && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        onChange([...selected, ...filtered]);
+                                        setQuery('');
+                                    }}
+                                    className="text-xs text-primary hover:text-primary/80 font-bold shrink-0 px-2 py-1 rounded hover:bg-primary/10 transition-colors"
+                                >
+                                    Select All
+                                </button>
+                            )}
+                            {selected.length > 0 && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        onChange([]);
+                                        setQuery('');
+                                    }}
+                                    className="text-xs text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 font-bold shrink-0 px-2 py-1 rounded hover:bg-rose-500/10 transition-colors"
+                                >
+                                    Deselect All
+                                </button>
+                            )}
                         </div>
                     </div>
                     <div className="max-h-44 overflow-y-auto">
@@ -1067,8 +1112,8 @@ function MultiLeadPicker({ leads, selected, onChange }: {
             {/* Dropdown */}
             {open && (
                 <div className="absolute z-50 mt-1 w-full bg-popover border border-border rounded-xl shadow-xl overflow-hidden">
-                    <div className="p-2 border-b border-border">
-                        <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-muted/60">
+                    <div className="p-2 border-b border-border flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-muted/60 flex-1">
                             <Search size={13} className="text-muted-foreground shrink-0" />
                             <input
                                 autoFocus
@@ -1078,6 +1123,32 @@ function MultiLeadPicker({ leads, selected, onChange }: {
                                 onChange={e => setQuery(e.target.value)}
                                 className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
                             />
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                            {filtered.length > 0 && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        onChange([...selected, ...filtered]);
+                                        setQuery('');
+                                    }}
+                                    className="text-xs text-primary hover:text-primary/80 font-bold shrink-0 px-2 py-1 rounded hover:bg-primary/10 transition-colors"
+                                >
+                                    Select All
+                                </button>
+                            )}
+                            {selected.length > 0 && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        onChange([]);
+                                        setQuery('');
+                                    }}
+                                    className="text-xs text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 font-bold shrink-0 px-2 py-1 rounded hover:bg-rose-500/10 transition-colors"
+                                >
+                                    Deselect All
+                                </button>
+                            )}
                         </div>
                     </div>
                     <div className="max-h-48 overflow-y-auto">
