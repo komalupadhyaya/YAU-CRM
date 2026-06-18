@@ -476,3 +476,250 @@ export async function sendReminderEmail({ to, userName, title, type, dueAt }) {
     }
 }
 
+/**
+ * Send email notifications for an HR meeting.
+ * Called WITHOUT await — fully non-blocking fire-and-forget.
+ *
+ * @param {{
+ *   meeting: any,
+ *   actionType: 'created' | 'rescheduled' | 'canceled'
+ * }} options
+ */
+export async function sendHRMeetingEmails({ meeting, actionType }) {
+    const crmUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
+    const year = new Date().getFullYear().toString();
+    
+    const statusLabel = actionType === 'created' ? 'Scheduled' : actionType === 'rescheduled' ? 'Rescheduled' : 'Canceled';
+    const formattedDate = new Date(meeting.date_time).toLocaleString('en-US', {
+        dateStyle: 'long',
+        timeStyle: 'short',
+    });
+
+    // Determine candidates list
+    const candidates = (meeting.candidate_ids && meeting.candidate_ids.length > 0)
+        ? meeting.candidate_ids
+        : (meeting.candidate_id ? [meeting.candidate_id] : []);
+
+    const candidateNames = candidates.map(c => c.name).join(', ') || 'Candidate';
+    const candidateEmails = candidates.map(c => c.email).filter(Boolean).join(', ') || '';
+    const candidateRoles = candidates.map(c => c.applying_for).filter(Boolean).join(', ') || 'N/A';
+
+    // 1. Send to internal attendees
+    const attendeesList = meeting.internal_attendees?.map(a => `${a.name} (${a.email})`).join('\n') || '';
+
+    const internalHtml = renderTemplate('hr-meeting-internal.html', {
+        STATUS: statusLabel,
+        TITLE: meeting.title,
+        CANDIDATE_NAME: candidateNames,
+        CANDIDATE_EMAIL: candidateEmails,
+        CANDIDATE_ROLE: candidateRoles,
+        DATE_TIME: formattedDate,
+        DURATION: meeting.duration_minutes.toString(),
+        ATTENDEES_LIST: attendeesList,
+        NOTES: meeting.notes || 'None',
+        CRM_URL: crmUrl,
+        YEAR: year
+    });
+
+    const subjectInternal = `[HR Meeting] ${meeting.title} — ${statusLabel}`;
+
+    // Send to each internal attendee
+    if (meeting.internal_attendees && meeting.internal_attendees.length > 0) {
+        for (const attendee of meeting.internal_attendees) {
+            if (attendee.email) {
+                try {
+                    await sendMail({
+                        to: attendee.email,
+                        subject: subjectInternal,
+                        html: internalHtml
+                    });
+                    console.log(`✅ HR Meeting internal email sent to ${attendee.email}`);
+                } catch (err) {
+                    console.error(`❌ Failed to send HR Meeting internal email to ${attendee.email}:`, err.message);
+                }
+            }
+        }
+    }
+
+    // 2. Send to CC emails (external_emails contains manually typed CC emails)
+    if (meeting.external_emails && meeting.external_emails.length > 0) {
+        for (const email of meeting.external_emails) {
+            try {
+                await sendMail({
+                    to: email,
+                    subject: subjectInternal,
+                    html: internalHtml
+                });
+                console.log(`✅ HR Meeting CC email sent to ${email}`);
+            } catch (err) {
+                console.error(`❌ Failed to send HR Meeting CC email to ${email}:`, err.message);
+            }
+        }
+    }
+
+    // 3. Send to each candidate
+    for (const candidate of candidates) {
+        if (candidate.email) {
+            try {
+                const notesHtml = meeting.notes
+                    ? `<tr>
+                        <td style="padding:10px 0;">
+                          <span style="font-size:12px;color:#71717a;display:block;margin-bottom:4px;">Notes</span>
+                          <div style="font-size:13px;color:#d4d4d8;background:#18181b;border:1px solid #27272a;border-radius:8px;padding:12px;margin-top:4px;line-height:1.5;white-space:pre-wrap;">${meeting.notes}</div>
+                        </td>
+                      </tr>`
+                    : '';
+
+                const candidateHtml = renderTemplate('hr-meeting-candidate.html', {
+                    STATUS: statusLabel,
+                    TITLE: meeting.title,
+                    DATE_TIME: formattedDate,
+                    DURATION: meeting.duration_minutes.toString(),
+                    TEAM_MEMBERS: attendeesList || 'None',
+                    YEAR: year
+                }).replace('{NOTES_SECTION}', notesHtml);
+
+                const subjectCandidate = `Meeting Invitation: ${meeting.title} — ${statusLabel}`;
+
+                await sendMail({
+                    to: candidate.email,
+                    subject: subjectCandidate,
+                    html: candidateHtml
+                });
+                console.log(`✅ HR Meeting candidate email sent to ${candidate.email}`);
+            } catch (err) {
+                console.error(`❌ Failed to send HR Meeting candidate email to ${candidate.email}:`, err.message);
+            }
+        }
+    }
+}
+
+/**
+ * Send email notifications for a School meeting.
+ * Called WITHOUT await — fully non-blocking fire-and-forget.
+ *
+ * @param {{
+ *   meeting: any,
+ *   actionType: 'created' | 'rescheduled' | 'canceled'
+ * }} options
+ */
+export async function sendSchoolMeetingEmails({ meeting, actionType }) {
+    const crmUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
+    const year = new Date().getFullYear().toString();
+    
+    const statusLabel = actionType === 'created' ? 'Scheduled' : actionType === 'rescheduled' ? 'Rescheduled' : 'Canceled';
+    const formattedDate = new Date(meeting.date_time).toLocaleString('en-US', {
+        dateStyle: 'long',
+        timeStyle: 'short',
+    });
+
+    // Determine schools/leads list
+    const leads = (meeting.lead_ids && meeting.lead_ids.length > 0)
+        ? meeting.lead_ids
+        : (meeting.lead_id ? [meeting.lead_id] : []);
+    
+    const schoolsList = leads.map(l => l.name).join('\n') || 'None';
+
+    // Format internal attendees list
+    const attendeesList = meeting.internal_attendees?.map(a => `${a.name} (${a.email})`).join('\n') || 'None';
+
+    // 1. Send to internal attendees
+    const internalHtml = renderTemplate('school-meeting-internal.html', {
+        STATUS: statusLabel,
+        TITLE: meeting.title,
+        SCHOOLS_LIST: schoolsList,
+        DATE_TIME: formattedDate,
+        DURATION: meeting.duration_minutes.toString(),
+        ATTENDEES_LIST: attendeesList,
+        NOTES: meeting.notes || 'None',
+        CRM_URL: crmUrl,
+        YEAR: year
+    });
+
+    const subjectInternal = `[School Meeting] ${meeting.title} — ${statusLabel}`;
+
+    if (meeting.internal_attendees && meeting.internal_attendees.length > 0) {
+        for (const attendee of meeting.internal_attendees) {
+            if (attendee.email) {
+                try {
+                    await sendMail({
+                        to: attendee.email,
+                        subject: subjectInternal,
+                        html: internalHtml
+                    });
+                    console.log(`✅ School Meeting internal email sent to ${attendee.email}`);
+                } catch (err) {
+                    console.error(`❌ Failed to send School Meeting internal email to ${attendee.email}:`, err.message);
+                }
+            }
+        }
+    }
+
+    // 2. Send to CC emails
+    if (meeting.external_emails && meeting.external_emails.length > 0) {
+        for (const email of meeting.external_emails) {
+            try {
+                await sendMail({
+                    to: email,
+                    subject: subjectInternal,
+                    html: internalHtml
+                });
+                console.log(`✅ School Meeting CC email sent to ${email}`);
+            } catch (err) {
+                console.error(`❌ Failed to send School Meeting CC email to ${email}:`, err.message);
+            }
+        }
+    }
+
+    // 3. Send to all contacts associated with the selected leads/schools
+    if (leads.length > 0) {
+        try {
+            // Retrieve dynamic import of Contact model inside function to avoid circular dependencies
+            const { Contact } = await import('../models/contact.model.js');
+            const leadIds = leads.map(l => l._id);
+            const contacts = await Contact.find({ lead_id: { $in: leadIds } });
+            
+            const contactEmails = contacts.map(c => c.email?.trim()).filter(Boolean);
+            const uniqueEmails = [...new Set(contactEmails)];
+
+            if (uniqueEmails.length > 0) {
+                const notesHtml = meeting.notes
+                    ? `<tr>
+                        <td style="padding:10px 0;">
+                          <span style="font-size:12px;color:#71717a;display:block;margin-bottom:4px;">Notes</span>
+                          <div style="font-size:13px;color:#d4d4d8;background:#18181b;border:1px solid #27272a;border-radius:8px;padding:12px;margin-top:4px;line-height:1.5;white-space:pre-wrap;">${meeting.notes}</div>
+                        </td>
+                      </tr>`
+                    : '';
+
+                const leadHtml = renderTemplate('school-meeting-lead.html', {
+                    STATUS: statusLabel,
+                    TITLE: meeting.title,
+                    DATE_TIME: formattedDate,
+                    DURATION: meeting.duration_minutes.toString(),
+                    TEAM_MEMBERS: attendeesList,
+                    YEAR: year
+                }).replace('{NOTES_SECTION}', notesHtml);
+
+                const subjectLead = `Meeting Invitation: ${meeting.title} — ${statusLabel}`;
+
+                for (const email of uniqueEmails) {
+                    try {
+                        await sendMail({
+                            to: email,
+                            subject: subjectLead,
+                            html: leadHtml
+                        });
+                        console.log(`✅ School Meeting lead email sent to ${email}`);
+                    } catch (err) {
+                        console.error(`❌ Failed to send School Meeting lead email to ${email}:`, err.message);
+                    }
+                }
+            }
+        } catch (err) {
+            console.error('❌ Failed to retrieve school contacts or send lead emails:', err.message);
+        }
+    }
+}
+
+

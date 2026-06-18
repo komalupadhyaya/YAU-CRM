@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HR Meeting Update</title>
+</head>
+<body style="margin:0;padding:0;background-color:#0f0f12;font-family:'Segoe UI',Arial,sans-serif;">
+
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#0f0f12;padding:40px 20px;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+
+          <!-- Logo -->
+          <tr>
+            <td style="padding-bottom:28px;text-align:center;">
+              <span style="font-size:22px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;">
+                YAU<span style="color:#6366f1;">CRM</span>
+              </span>
+            </td>
+          </tr>
+
+          <!-- Card -->
+          <tr>
+            <td style="background-color:#18181b;border:1px solid #27272a;border-radius:16px;overflow:hidden;">
+
+              <!-- Gradient accent bar -->
+              <div style="height:4px;background:linear-gradient(90deg,#6366f1,#8b5cf6,#a78bfa);"></div>
+
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="padding:36px 40px;">
+
+                    <!-- Hero emoji/icon -->
+                    <div style="text-align:center;margin-bottom:24px;">
+                      <div style="display:inline-block;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);border-radius:50%;width:64px;height:64px;line-height:64px;font-size:28px;text-align:center;">
+                        📅
+                      </div>
+                    </div>
+
+                    <h1 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#ffffff;text-align:center;">
+                      HR Meeting — {{STATUS}}
+                    </h1>
+                    <p style="margin:0 0 32px;font-size:14px;color:#a1a1aa;text-align:center;line-height:1.6;">
+                      An HR meeting has been scheduled/updated. Please review the details below.
+                    </p>
+
+                    <!-- Details Box -->
+                    <table width="100%" cellpadding="0" cellspacing="0" style="background:#09090b;border:1px solid #27272a;border-radius:12px;margin-bottom:28px;">
+                      <tr>
+                        <td style="padding:24px 28px;">
+                          <p style="margin:0 0 16px;font-size:11px;font-weight:700;color:#6366f1;text-transform:uppercase;letter-spacing:1px;">Meeting Details</p>
+
+                          <table width="100%" cellpadding="0" cellspacing="0">
+                            <tr>
+                              <td style="padding:10px 0;border-bottom:1px solid #1f1f23;">
+                                <span style="font-size:12px;color:#71717a;display:block;margin-bottom:4px;">Title</span>
+                                <span style="font-size:15px;font-weight:600;color:#ffffff;">{{TITLE}}</span>
+                              </td>
+                            </tr>
+                            <tr>
+                              <td style="padding:10px 0;border-bottom:1px solid #1f1f23;">
+                                <span style="font-size:12px;color:#71717a;display:block;margin-bottom:4px;">Candidate</span>
+                                <span style="font-size:15px;font-weight:600;color:#ffffff;">{{CANDIDATE_NAME}}</span>
+                                <span style="font-size:12px;color:#a1a1aa;display:block;margin-top:2px;">{{CANDIDATE_EMAIL}} (Role: {{CANDIDATE_ROLE}})</span>
+                              </td>
+                            </tr>
+                            <tr>
+                              <td style="padding:10px 0;border-bottom:1px solid #1f1f23;">
+                                <span style="font-size:12px;color:#71717a;display:block;margin-bottom:4px;">Date & Time</span>
+                                <span style="font-size:15px;font-weight:600;color:#ffffff;">{{DATE_TIME}}</span>
+                              </td>
+                            </tr>
+                            <tr>
+                              <td style="padding:10px 0;border-bottom:1px solid #1f1f23;">
+                                <span style="font-size:12px;color:#71717a;display:block;margin-bottom:4px;">Duration</span>
+                                <span style="font-size:15px;font-weight:600;color:#ffffff;">{{DURATION}} minutes</span>
+                              </td>
+                            </tr>
+                            <tr>
+                              <td style="padding:10px 0;border-bottom:1px solid #1f1f23;">
+                                <span style="font-size:12px;color:#71717a;display:block;margin-bottom:4px;">Attendees</span>
+                                <span style="font-size:14px;color:#ffffff;line-height:1.5;white-space:pre-wrap;">{{ATTENDEES_LIST}}</span>
+                              </td>
+                            </tr>
+                            <tr>
+                              <td style="padding:10px 0;">
+                                <span style="font-size:12px;color:#71717a;display:block;margin-bottom:4px;">Notes</span>
+                                <div style="font-size:13px;color:#d4d4d8;background:#18181b;border:1px solid #27272a;border-radius:8px;padding:12px;margin-top:4px;line-height:1.5;white-space:pre-wrap;">{{NOTES}}</div>
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+                    </table>
+
+                    <!-- CTA Button -->
+                    <div style="text-align:center;margin-bottom:28px;">
+                      <a href="{{CRM_URL}}/hr-meetings" style="display:inline-block;background:#6366f1;color:#ffffff;font-size:14px;font-weight:700;text-decoration:none;padding:12px 32px;border-radius:8px;box-shadow:0 4px 12px rgba(99,102,241,0.25);">
+                        View Meeting in CRM
+                      </a>
+                    </div>
+
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding-top:24px;text-align:center;">
+              <p style="margin:0;font-size:12px;color:#52525b;line-height:1.5;">
+                This email was sent automatically by YAU CRM.<br />
+                © {{YEAR}} YAU CRM. All rights reserved.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+
+</body>
+</html>

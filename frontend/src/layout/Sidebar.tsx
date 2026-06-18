@@ -15,7 +15,9 @@ import {
   Plus,
   CalendarDays,
   UserCheck,
-  History
+  UserPlus,
+  History,
+  Building2
 } from "lucide-react";
 import { useSidebar } from "./SidebarContext";
 import { useFollowUp } from "../context/FollowUpContext";
@@ -23,15 +25,18 @@ import { useAuth } from "../context/AuthContext";
 import { can } from "../utils/permissions";
 
 const topNavItems = [
-  { to: "/dashboard",  label: "Dashboard",  icon: LayoutDashboard },
-  { to: "/campaigns",  label: "Campaigns",  icon: Megaphone },
-  // { to: "/calendar",   label: "Calendar",   icon: CalendarDays },
-  { to: "/followups",  label: "Follow Ups", icon: Clock },
-  { to: "/tasks",      label: "Tasks",      icon: CheckSquare },
-  { to: "/reports",    label: "Reports",    icon: BarChart3 },
-  { to: "/lead-scheduler", label: "Lead Scheduler", icon: UserCheck },
-  // { to: "/history",    label: "History",    icon: History },
-  { to: "/team",       label: "Team",       icon: Users },
+  { to: "/dashboard",       label: "Dashboard",       icon: LayoutDashboard },
+  { to: "/campaigns",       label: "Campaigns",       icon: Megaphone },
+  // { to: "/calendar",     label: "Calendar",        icon: CalendarDays },
+  { to: "/followups",       label: "Follow Ups",      icon: Clock },
+  { to: "/tasks",           label: "Tasks",           icon: CheckSquare },
+  { to: "/meetings/school", label: "School Meetings", icon: School },
+  { to: "/meetings/hr",     label: "HR Meetings",     icon: Building2 },
+  { to: "/reports",         label: "Reports",         icon: BarChart3 },
+  { to: "/lead-scheduler",  label: "Lead Scheduler",  icon: UserCheck },
+  { to: "/candidates",      label: "Candidates",      icon: UserPlus },
+  // { to: "/history",      label: "History",         icon: History },
+  { to: "/team",            label: "Team",            icon: Users },
 ];
 
 const bottomNavItems = [
@@ -46,7 +51,7 @@ export default function Sidebar() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const { collapsed, mobileOpen, toggleCollapsed, closeMobile } = useSidebar();
-  const { dueTodayCount, dueTodayNames } = useFollowUp();
+  const { dueTodayCount, dueTodayNames, schoolMeetingCount, hrMeetingCount } = useFollowUp();
   const { currentUser } = useAuth();
   const permissions = can(currentUser?.role);
 
@@ -54,7 +59,9 @@ export default function Sidebar() {
   const visibleTopNavItems = topNavItems.filter(item => {
     if (item.to === '/team') return permissions.viewTeam;
     if (item.to === '/lead-scheduler') return permissions.assignToOthers;
+    if (item.to === '/candidates') return permissions.assignToOthers; // admin + manager only
     if (item.to === '/history') return permissions.assignToOthers;
+    if (item.to === '/meetings/hr') return permissions.createEdit; // admin, manager, sales_rep
     return true;
   });
 
@@ -66,11 +73,19 @@ export default function Sidebar() {
   const renderNavItems = (items: typeof topNavItems, isMobile = false) => {
     return items.map(({ to, label, icon: Icon }) => {
       const active = pathname === to || pathname.startsWith(to + "/");
-      const showBadge = to === "/followups" && dueTodayCount > 0;
+      const isFollowUps = to === "/followups" && dueTodayCount > 0;
+      const isSchoolMeetings = to === "/meetings/school" && schoolMeetingCount > 0;
+      const isHRMeetings = to === "/meetings/hr" && hrMeetingCount > 0;
+      const showBadge = isFollowUps || isSchoolMeetings || isHRMeetings;
+      const badgeCount = isFollowUps ? dueTodayCount : isSchoolMeetings ? schoolMeetingCount : hrMeetingCount;
       
       let tooltipContent = label;
-      if (to === "/followups" && dueTodayCount > 0) {
+      if (isFollowUps) {
         tooltipContent = `${label} (${dueTodayCount} due today: ${dueTodayNames.join(", ")})`;
+      } else if (isSchoolMeetings) {
+        tooltipContent = `${label} (${schoolMeetingCount} upcoming)`;
+      } else if (isHRMeetings) {
+        tooltipContent = `${label} (${hrMeetingCount} upcoming)`;
       }
 
       return (
@@ -95,7 +110,7 @@ export default function Sidebar() {
               <span>{label}</span>
               {showBadge && (
                 <span className="bg-destructive text-destructive-foreground text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                  {dueTodayCount}
+                  {badgeCount}
                 </span>
               )}
             </div>

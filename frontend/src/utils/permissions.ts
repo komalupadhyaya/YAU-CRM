@@ -28,6 +28,8 @@ export interface Permissions {
   createEdit: boolean;
   /** Can delete records */
   deleteRecords: boolean;
+  /** Can schedule School or HR meetings */
+  scheduleMeetings: boolean;
   /** Can see all leads (admin/manager); sales_rep only sees own */
   viewAllLeads: boolean;
   /** Can create or delete campaigns, import leads */
@@ -49,6 +51,7 @@ export const can = (role: string | undefined): Permissions => {
     viewSettings:    r === 'admin',
     createEdit:      r === 'admin' || r === 'manager' || r === 'sales_rep',
     deleteRecords:   r === 'admin' || r === 'manager',
+    scheduleMeetings: r === 'admin' || r === 'manager',
     viewAllLeads:    r === 'admin' || r === 'manager' || r === 'view_only',
     manageCampaigns: r === 'admin' || r === 'manager',
     completeItems:   r === 'admin' || r === 'manager' || r === 'sales_rep',

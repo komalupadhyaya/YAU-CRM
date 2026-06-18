@@ -73,9 +73,10 @@ export default function CalendarPage() {
     const fetchEvents = useCallback(async () => {
         setLoading(true);
         try {
-            const [fuRes, taskRes] = await Promise.all([
+            const [fuRes, taskRes, meetingRes] = await Promise.all([
                 api.get("/followups/grouped").catch(() => ({ data: null })),
                 api.get("/tasks").catch(() => ({ data: [] })),
+                api.get("/meetings").catch(() => ({ data: [] })),
             ]);
  
             const all: CalEvent[] = [];
@@ -104,7 +105,6 @@ export default function CalendarPage() {
  
             const rawTasks = taskRes.data || [];
             // Backend already filters tasks for sales_rep (assignedTo = req.user.id)
-
             rawTasks.forEach((t: any) => {
                 if (!t.dueDate) return;
                 all.push({
@@ -116,6 +116,40 @@ export default function CalendarPage() {
                     priority:        t.priority,
                     taskDescription: t.description,
                     assignedToName:  t.assignedTo?.name || t.assignedTo?.username,
+                });
+            });
+
+            const rawMeetings = meetingRes.data || [];
+            rawMeetings.filter((m: any) => m.status !== 'canceled').forEach((m: any) => {
+                const leads = (m.lead_ids && m.lead_ids.length > 0)
+                    ? m.lead_ids
+                    : m.lead_id ? [m.lead_id] : [];
+                
+                const candidates = (m.candidate_ids && m.candidate_ids.length > 0)
+                    ? m.candidate_ids
+                    : m.candidate_id ? [m.candidate_id] : [];
+
+                const leadNames = leads.map((l: any) => l.name).join(', ');
+                const candidateNames = candidates.map((c: any) => c.name).join(', ');
+
+                let subTitle = "";
+                if (m.category === 'school' && leadNames) {
+                    subTitle = ` (${leadNames})`;
+                } else if (m.category === 'hr' && candidateNames) {
+                    subTitle = ` (${candidateNames})`;
+                }
+
+                all.push({
+                    id:           m._id,
+                    type:         "followup",
+                    title:        `${m.title}${subTitle}`,
+                    date:         new Date(m.date_time),
+                    status:       m.status,
+                    priority:     "High",
+                    leadId:       leads[0]?._id,
+                    notes:        m.notes,
+                    followUpType: m.category === 'school' ? 'School Meeting' : 'HR Meeting',
+                    leadName:     leadNames || candidateNames || undefined,
                 });
             });
  

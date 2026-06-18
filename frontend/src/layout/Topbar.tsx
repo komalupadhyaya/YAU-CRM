@@ -7,6 +7,7 @@ import { useThemeStore } from "../store/themeStore";
 import { useAuth } from "../context/AuthContext";
 // import CalendarPopover from "../components/CalendarPopover";
 import api from "../api/api";
+import AvailabilityModal from "../components/AvailabilityModal";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -254,6 +255,7 @@ export default function Topbar() {
   const { theme, toggleTheme } = useThemeStore();
   const { currentUser, logout } = useAuth();
   const [isHovered, setIsHovered] = useState(false);
+  const [availabilityOpen, setAvailabilityOpen] = useState(false);
 
   const handleLogout = async () => {
     toast.success("Signed out successfully");
@@ -278,57 +280,69 @@ export default function Topbar() {
       <div className="flex items-center gap-3">
         {/* User Profile Avatar */}
         {currentUser && (
-          <div
-            className="relative flex items-center gap-2 cursor-pointer"
-            onMouseEnter={() => setIsHovered(true)}
-            onMouseLeave={() => setIsHovered(false)}
-          >
-            <span className="hidden md:inline text-xs font-semibold text-muted-foreground mr-1 select-none">
-              Hi, <span className="text-foreground">{currentUser.name || currentUser.username.split("@")[0]}</span>
-            </span>
-            <div className="w-8 h-8 rounded-full bg-primary hover:brightness-105 text-primary-foreground flex items-center justify-center font-bold text-sm shadow-sm border border-primary/20 transition-all duration-200 select-none">
-              {(currentUser.name || currentUser.username).charAt(0).toUpperCase()}
+          <>
+            <div
+              className="relative flex items-center gap-2 cursor-pointer"
+              onMouseEnter={() => setIsHovered(true)}
+              onMouseLeave={() => setIsHovered(false)}
+            >
+              <span className="hidden md:inline text-xs font-semibold text-muted-foreground mr-1 select-none">
+                Hi, <span className="text-foreground">{currentUser.name || currentUser.username.split("@")[0]}</span>
+              </span>
+              <div className="w-8 h-8 rounded-full bg-primary hover:brightness-105 text-primary-foreground flex items-center justify-center font-bold text-sm shadow-sm border border-primary/20 transition-all duration-200 select-none">
+                {(currentUser.name || currentUser.username).charAt(0).toUpperCase()}
+              </div>
+
+              {/* Hover details card */}
+              {isHovered && (
+                <div className="absolute right-0 top-9 w-64 bg-card border border-border shadow-xl rounded-2xl p-4 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
+                  <div className="flex items-center gap-3 border-b border-border pb-3 mb-3">
+                    <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-base border border-primary/20 select-none">
+                      {(currentUser.name || currentUser.username).charAt(0).toUpperCase()}
+                    </div>
+                    <div className="min-w-0">
+                      <h4 className="font-semibold text-sm text-foreground truncate">
+                        {currentUser.name || "CRM User"}
+                      </h4>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {currentUser.email || currentUser.username}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">Role:</span>
+                      <span className={`inline-flex items-center gap-1 font-semibold px-2.5 py-0.5 rounded-full border text-[10px] uppercase tracking-wider
+                        ${currentUser.role === "admin"     ? "bg-violet-500/15 text-violet-500 border-violet-500/30" :
+                          currentUser.role === "manager"   ? "bg-blue-500/15 text-blue-500 border-blue-500/30" :
+                          currentUser.role === "sales_rep" ? "bg-emerald-500/15 text-emerald-500 border-emerald-500/30" :
+                          "bg-zinc-500/15 text-zinc-400 border-zinc-500/30"}`}
+                      >
+                        {currentUser.role === "sales_rep" ? "Sales Rep" : currentUser.role || "User"}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">Access level:</span>
+                      <span className="text-foreground font-medium capitalize">
+                        {currentUser.role === "admin" ? "Full Access" : currentUser.role === "manager" ? "Elevated" : currentUser.role === "sales_rep" ? "Standard" : "Basic"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
-            {/* Hover details card */}
-            {isHovered && (
-              <div className="absolute right-0 top-9 w-64 bg-card border border-border shadow-xl rounded-2xl p-4 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
-                <div className="flex items-center gap-3 border-b border-border pb-3 mb-3">
-                  <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-base border border-primary/20 select-none">
-                    {(currentUser.name || currentUser.username).charAt(0).toUpperCase()}
-                  </div>
-                  <div className="min-w-0">
-                    <h4 className="font-semibold text-sm text-foreground truncate">
-                      {currentUser.name || "CRM User"}
-                    </h4>
-                    <p className="text-xs text-muted-foreground truncate">
-                      {currentUser.email || currentUser.username}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground">Role:</span>
-                    <span className={`inline-flex items-center gap-1 font-semibold px-2.5 py-0.5 rounded-full border text-[10px] uppercase tracking-wider
-                      ${currentUser.role === "admin"     ? "bg-violet-500/15 text-violet-500 border-violet-500/30" :
-                        currentUser.role === "manager"   ? "bg-blue-500/15 text-blue-500 border-blue-500/30" :
-                        currentUser.role === "sales_rep" ? "bg-emerald-500/15 text-emerald-500 border-emerald-500/30" :
-                        "bg-zinc-500/15 text-zinc-400 border-zinc-500/30"}`}
-                    >
-                      {currentUser.role === "sales_rep" ? "Sales Rep" : currentUser.role || "User"}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground">Access level:</span>
-                    <span className="text-foreground font-medium capitalize">
-                      {currentUser.role === "admin" ? "Full Access" : currentUser.role === "manager" ? "Elevated" : currentUser.role === "sales_rep" ? "Standard" : "Basic"}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
+            {/* Availability Icon Button */}
+            <button
+              onClick={() => setAvailabilityOpen(true)}
+              className="p-2 text-muted-foreground hover:text-foreground rounded-xl hover:bg-accent transition-all duration-200"
+              title="My Availability"
+              aria-label="Manage my availability"
+            >
+              <CalendarClock size={20} />
+            </button>
+          </>
         )}
 
         {/* Calendar Popover */}
@@ -353,6 +367,11 @@ export default function Topbar() {
           <span className="hidden sm:inline">Logout</span>
         </button>
       </div>
+      <AvailabilityModal
+        user={currentUser ? { _id: currentUser._id, name: currentUser.name, username: currentUser.username } : null}
+        open={availabilityOpen}
+        onClose={() => setAvailabilityOpen(false)}
+      />
     </div>
   );
 }

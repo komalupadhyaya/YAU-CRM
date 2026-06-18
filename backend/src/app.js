@@ -19,6 +19,9 @@ import webhookRoutes from './routes/webhook.routes.js';
 import justcallRoutes from './routes/justcall.routes.js';
 import errorHandler from './middleware/error.middleware.js';
 import notificationRoutes from './routes/notification.routes.js';
+import meetingRoutes from './routes/meeting.routes.js';
+import availabilityRoutes from './routes/availability.routes.js';
+import { startCronJobs } from './utils/cron.utils.js';
 
 const app = express();
 
@@ -245,8 +248,15 @@ app.use('/api/emails', emailRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/justcall', justcallRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/meetings', meetingRoutes);
+app.use('/api/availability', availabilityRoutes);
 
 // Error Handling Middleware
 app.use(errorHandler);
+
+// ----------------------------
+// CRON JOBS
+// ----------------------------
+startCronJobs();
 
 export default app;

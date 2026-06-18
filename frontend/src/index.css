@@ -111,7 +111,7 @@
 
 @layer components {
   .sidebar-item {
-    @apply flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-200;
+    @apply flex items-center gap-3 px-4 h-10 rounded-xl text-sm font-medium transition-all duration-200;
   }
 
   .sidebar-item-active {
@@ -267,7 +267,7 @@
 
 .ql-snow .ql-tooltip input[type=text]:focus {
   border-color: hsl(var(--primary)) !important;
-  ring: 2px solid hsl(var(--primary) / 0.2) !important;
+  box-shadow: 0 0 0 2px hsl(var(--primary) / 0.2) !important;
 }
 
 .ql-snow .ql-tooltip a.ql-action::after {

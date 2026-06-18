@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import api from "../api/api";
 import AppLayout from "../layout/AppLayout";
 import {
@@ -14,10 +14,15 @@ import {
     KeyRound,
     ChevronDown,
     Search,
+    Clock,
+    CalendarDays,
+    Loader2,
+    X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
 import { can } from "../utils/permissions";
+import AvailabilityModal from "../components/AvailabilityModal";
 import {
     Table,
     TableBody,
@@ -67,6 +72,7 @@ interface TeamUser {
     createdAt: string;
 }
 
+
 const ROLES = [
     { value: "admin",     label: "Admin",     color: "bg-violet-500/15 text-violet-500 border-violet-500/30" },
     { value: "manager",   label: "Manager",   color: "bg-blue-500/15 text-blue-500 border-blue-500/30" },
@@ -94,14 +100,17 @@ export default function Team() {
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState("");
 
-    // Modal state
+    // Modal state for user
     const [modalOpen, setModalOpen] = useState(false);
     const [editingUser, setEditingUser] = useState<TeamUser | null>(null);
     const [form, setForm] = useState(defaultForm);
     const [submitting, setSubmitting] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
 
-    // Delete state
+    // Availability modal state
+    const [availabilityTarget, setAvailabilityTarget] = useState<TeamUser | null>(null);
+
+    // Delete state for user
     const [deleteTarget, setDeleteTarget] = useState<TeamUser | null>(null);
     const [deleting, setDeleting] = useState(false);
 
@@ -110,8 +119,7 @@ export default function Team() {
 
     // Role-based permissions
     const permissions = can(currentUser?.role);
-    // Keep isDefaultAdmin for backward compat but now it means admin role
-    const isDefaultAdmin = permissions.manageTeam;
+    const isDefaultAdmin = permissions.manageTeam; // admin only
 
     const loadUsers = async () => {
         try {
@@ -126,7 +134,7 @@ export default function Team() {
 
     useEffect(() => {
         loadUsers();
-    }, []);
+    }, [currentUser?.role]);
 
     const openCreate = () => {
         if (!isDefaultAdmin) return;
@@ -247,15 +255,17 @@ export default function Team() {
                               : 'View your team members and their roles.'}
                         </p>
                     </div>
-                    <Button
-                        id="btn-invite-member"
-                        className={`gap-2 shrink-0 transition-all ${!isDefaultAdmin ? "blur-[0.5px] opacity-40 cursor-not-allowed pointer-events-none" : ""}`}
-                        onClick={openCreate}
-                        disabled={!isDefaultAdmin}
-                    >
-                        <Plus size={16} />
-                        Invite Team Member
-                    </Button>
+                    <div className="flex items-center gap-2 shrink-0">
+                        <Button
+                            id="btn-invite-member"
+                            className={`gap-2 shrink-0 transition-all ${!isDefaultAdmin ? "blur-[0.5px] opacity-40 cursor-not-allowed pointer-events-none" : ""}`}
+                            onClick={openCreate}
+                            disabled={!isDefaultAdmin}
+                        >
+                            <Plus size={16} />
+                            Invite Team Member
+                        </Button>
+                    </div>
                 </div>
 
                 {/* ── Stats strip ── */}
@@ -302,263 +312,283 @@ export default function Team() {
                 </div>
 
                 {/* ── Desktop Tabular View (hidden on mobile/tablet/iPad) ── */}
-                <div className="hidden lg:block bg-card border rounded-xl overflow-hidden shadow-sm">
-                    <Table>
-                        <TableHeader>
-                            <TableRow className="hover:bg-transparent">
-                                <TableHead className="w-[260px]">Member</TableHead>
-                                <TableHead>Email</TableHead>
-                                <TableHead>Role</TableHead>
-                                <TableHead>Status</TableHead>
-                                <TableHead>Joined</TableHead>
-                                <TableHead className="text-right">Actions</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {loading ? (
-                                Array.from({ length: 3 }).map((_, i) => (
-                                    <TableRow key={i}>
-                                        {Array.from({ length: 6 }).map((_, j) => (
-                                            <TableCell key={j}>
-                                                <div className="h-4 bg-muted animate-pulse rounded" />
-                                            </TableCell>
-                                        ))}
-                                    </TableRow>
-                                ))
-                            ) : filtered.length === 0 ? (
-                                <TableRow>
-                                    <TableCell colSpan={6} className="h-40 text-center text-muted-foreground">
-                                        <div className="flex flex-col items-center gap-2">
-                                            <Users size={32} className="text-muted-foreground/30" />
-                                            <span>
-                                                {search ? "No results match your search." : "No team members yet. Invite someone to get started."}
-                                            </span>
-                                        </div>
-                                    </TableCell>
+                    <div className="hidden lg:block bg-card border rounded-xl overflow-hidden shadow-sm">
+                        <Table>
+                            <TableHeader>
+                                <TableRow className="hover:bg-transparent">
+                                    <TableHead className="w-[260px]">Member</TableHead>
+                                    <TableHead>Email</TableHead>
+                                    <TableHead>Role</TableHead>
+                                    <TableHead>Status</TableHead>
+                                    <TableHead>Joined</TableHead>
+                                    <TableHead className="text-right">Actions</TableHead>
                                 </TableRow>
-                            ) : (
-                                filtered.map((user) => (
-                                    <TableRow key={user._id} className={!user.isActive ? "bg-muted/10 border-dashed" : ""}>
-                                        {/* Avatar + Name */}
-                                        <TableCell>
-                                            <div className="flex items-center gap-3">
-                                                <div
-                                                    className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm shrink-0
-                                                        ${user.isActive
-                                                            ? "bg-primary/20 text-primary"
-                                                            : "bg-muted text-muted-foreground"
-                                                        }`}
-                                                >
-                                                    {(user.name || user.username).charAt(0).toUpperCase()}
-                                                </div>
-                                                <div className="min-w-0">
-                                                    <p className="font-medium text-sm truncate">
-                                                        {user.name || "—"}
-                                                    </p>
-                                                    <p className="text-[11px] text-muted-foreground truncate">
-                                                        {user.username}
-                                                    </p>
-                                                </div>
-                                            </div>
-                                        </TableCell>
-
-                                        {/* Email */}
-                                        <TableCell>
-                                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                                <Mail size={13} />
-                                                <span className="truncate max-w-[200px]">
-                                                    {user.email || user.username}
+                            </TableHeader>
+                            <TableBody>
+                                {loading ? (
+                                    Array.from({ length: 3 }).map((_, i) => (
+                                        <TableRow key={i}>
+                                            {Array.from({ length: 6 }).map((_, j) => (
+                                                <TableCell key={j}>
+                                                    <div className="h-4 bg-muted animate-pulse rounded" />
+                                                </TableCell>
+                                            ))}
+                                        </TableRow>
+                                    ))
+                                ) : filtered.length === 0 ? (
+                                    <TableRow>
+                                        <TableCell colSpan={6} className="h-40 text-center text-muted-foreground">
+                                            <div className="flex flex-col items-center gap-2">
+                                                <Users size={32} className="text-muted-foreground/30" />
+                                                <span>
+                                                    {search ? "No results match your search." : "No team members yet. Invite someone to get started."}
                                                 </span>
                                             </div>
                                         </TableCell>
+                                    </TableRow>
+                                ) : (
+                                    filtered.map((user) => (
+                                        <TableRow key={user._id} className={!user.isActive ? "bg-muted/10 border-dashed" : ""}>
+                                            {/* Avatar + Name */}
+                                            <TableCell>
+                                                <div className="flex items-center gap-3">
+                                                    <div
+                                                        className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm shrink-0
+                                                            ${user.isActive
+                                                                ? "bg-primary/20 text-primary"
+                                                                : "bg-muted text-muted-foreground"
+                                                            }`}
+                                                    >
+                                                        {(user.name || user.username).charAt(0).toUpperCase()}
+                                                    </div>
+                                                    <div className="min-w-0">
+                                                        <p className="font-medium text-sm truncate">
+                                                            {user.name || "—"}
+                                                        </p>
+                                                        <p className="text-[11px] text-muted-foreground truncate">
+                                                            {user.username}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            </TableCell>
+
+                                            {/* Email */}
+                                            <TableCell>
+                                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                                    <Mail size={13} />
+                                                    <span className="truncate max-w-[200px]">
+                                                        {user.email || user.username}
+                                                    </span>
+                                                </div>
+                                            </TableCell>
+
+                                            {/* Role Badge */}
+                                            <TableCell>
+                                                <span
+                                                    className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full border ${getRoleStyle(user.role)}`}
+                                                >
+                                                    <Shield size={10} />
+                                                    {getRoleLabel(user.role)}
+                                                </span>
+                                            </TableCell>
+
+                                            {/* Active Toggle */}
+                                            <TableCell>
+                                                <div className={`flex items-center gap-2 transition-all ${!isDefaultAdmin ? "blur-[0.5px] opacity-40 cursor-not-allowed pointer-events-none" : ""}`}>
+                                                    <Switch
+                                                        id={`toggle-${user._id}`}
+                                                        checked={user.isActive}
+                                                        onCheckedChange={() => handleToggle(user)}
+                                                        disabled={toggling[user._id] || !isDefaultAdmin}
+                                                        aria-label={user.isActive ? "Deactivate user" : "Activate user"}
+                                                    />
+                                                    <span className={`text-xs ${user.isActive ? "text-emerald-500" : "text-muted-foreground"}`}>
+                                                        {user.isActive ? "Active" : "Inactive"}
+                                                    </span>
+                                                </div>
+                                            </TableCell>
+
+                                            {/* Joined date */}
+                                            <TableCell>
+                                                <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                                                    <Calendar size={13} />
+                                                    {new Date(user.createdAt).toLocaleDateString()}
+                                                </div>
+                                            </TableCell>
+
+                                            {/* Actions */}
+                                            <TableCell className="text-right">
+                                                <div className={`flex items-center justify-end gap-1 transition-all ${!isDefaultAdmin ? "blur-[0.5px] opacity-40 cursor-not-allowed pointer-events-none" : ""}`}>
+                                                    <Button
+                                                        id={`availability-user-${user._id}`}
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10"
+                                                        onClick={() => setAvailabilityTarget(user)}
+                                                        title="Set availability"
+                                                    >
+                                                        <CalendarDays size={14} />
+                                                    </Button>
+                                                    <Button
+                                                        id={`edit-user-${user._id}`}
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                                                        onClick={() => openEdit(user)}
+                                                        disabled={!isDefaultAdmin}
+                                                        aria-label="Edit user"
+                                                    >
+                                                        <Pencil size={14} />
+                                                    </Button>
+                                                    <Button
+                                                        id={`delete-user-${user._id}`}
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                                                        onClick={() => setDeleteTarget(user)}
+                                                        disabled={!isDefaultAdmin}
+                                                        aria-label="Delete user"
+                                                    >
+                                                        <Trash2 size={14} />
+                                                    </Button>
+                                                </div>
+                                            </TableCell>
+                                        </TableRow>
+                                    ))
+                                )}
+                            </TableBody>
+                        </Table>
+                    </div>
+
+                {/* ── Mobile/Tablet/iPad Grid View ── */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 lg:hidden">
+                        {loading ? (
+                            Array.from({ length: 3 }).map((_, i) => (
+                                <div key={i} className="bg-card border rounded-xl p-5 space-y-4 shadow-sm animate-pulse">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-full bg-muted" />
+                                        <div className="space-y-2 flex-1">
+                                            <div className="h-4 bg-muted rounded w-1/2" />
+                                            <div className="h-3 bg-muted rounded w-3/4" />
+                                        </div>
+                                    </div>
+                                    <div className="h-4 bg-muted rounded w-1/3" />
+                                    <div className="h-8 bg-muted rounded" />
+                                </div>
+                            ))
+                        ) : filtered.length === 0 ? (
+                            <div className="col-span-full bg-card border rounded-xl p-8 text-center text-muted-foreground shadow-sm">
+                                <div className="flex flex-col items-center gap-2">
+                                    <Users size={32} className="text-muted-foreground/30" />
+                                    <span>
+                                        {search ? "No results match your search." : "No team members yet. Invite someone to get started."}
+                                    </span>
+                                </div>
+                            </div>
+                        ) : (
+                            filtered.map((user) => (
+                                <div 
+                                    key={user._id} 
+                                    className={`bg-card border rounded-xl p-5 space-y-4 shadow-sm relative transition-all duration-200 ${!user.isActive ? "bg-muted/10 border-dashed" : ""}`}
+                                >
+                                    {/* Header: Avatar, Name, Email, and Role Badge */}
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            <div
+                                                className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0 select-none
+                                                    ${user.isActive
+                                                        ? "bg-primary/20 text-primary"
+                                                        : "bg-muted text-muted-foreground"
+                                                    }`}
+                                            >
+                                                {(user.name || user.username).charAt(0).toUpperCase()}
+                                            </div>
+                                            <div className="min-w-0">
+                                                <p className="font-semibold text-sm text-foreground truncate">
+                                                    {user.name || "—"}
+                                                </p>
+                                                <p className="text-xs text-muted-foreground truncate">
+                                                    {user.username}
+                                                </p>
+                                            </div>
+                                        </div>
 
                                         {/* Role Badge */}
-                                        <TableCell>
-                                            <span
-                                                className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full border ${getRoleStyle(user.role)}`}
-                                            >
-                                                <Shield size={10} />
-                                                {getRoleLabel(user.role)}
-                                            </span>
-                                        </TableCell>
+                                        <span
+                                            className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2.5 py-0.5 rounded-full border shrink-0 ${getRoleStyle(user.role)}`}
+                                        >
+                                            <Shield size={10} />
+                                            {getRoleLabel(user.role)}
+                                        </span>
+                                    </div>
 
-                                        {/* Active Toggle */}
-                                        <TableCell>
+                                    {/* Body: Status & Joined Date */}
+                                    <div className="grid grid-cols-2 gap-4 py-2 border-y border-border/50 text-xs">
+                                        <div>
+                                            <p className="text-muted-foreground mb-1">Status</p>
                                             <div className={`flex items-center gap-2 transition-all ${!isDefaultAdmin ? "blur-[0.5px] opacity-40 cursor-not-allowed pointer-events-none" : ""}`}>
                                                 <Switch
-                                                    id={`toggle-${user._id}`}
+                                                    id={`toggle-mobile-${user._id}`}
                                                     checked={user.isActive}
                                                     onCheckedChange={() => handleToggle(user)}
                                                     disabled={toggling[user._id] || !isDefaultAdmin}
                                                     aria-label={user.isActive ? "Deactivate user" : "Activate user"}
                                                 />
-                                                <span className={`text-xs ${user.isActive ? "text-emerald-500" : "text-muted-foreground"}`}>
+                                                <span className={`font-semibold ${user.isActive ? "text-emerald-500" : "text-muted-foreground"}`}>
                                                     {user.isActive ? "Active" : "Inactive"}
                                                 </span>
                                             </div>
-                                        </TableCell>
-
-                                        {/* Joined date */}
-                                        <TableCell>
-                                            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                                        </div>
+                                        <div>
+                                            <p className="text-muted-foreground mb-1">Joined</p>
+                                            <div className="flex items-center gap-1.5 text-muted-foreground font-medium mt-1">
                                                 <Calendar size={13} />
                                                 {new Date(user.createdAt).toLocaleDateString()}
                                             </div>
-                                        </TableCell>
-
-                                        {/* Actions */}
-                                        <TableCell className="text-right">
-                                            <div className={`flex items-center justify-end gap-1 transition-all ${!isDefaultAdmin ? "blur-[0.5px] opacity-40 cursor-not-allowed pointer-events-none" : ""}`}>
-                                                <Button
-                                                    id={`edit-user-${user._id}`}
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                                                    onClick={() => openEdit(user)}
-                                                    disabled={!isDefaultAdmin}
-                                                    aria-label="Edit user"
-                                                >
-                                                    <Pencil size={14} />
-                                                </Button>
-                                                <Button
-                                                    id={`delete-user-${user._id}`}
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                                                    onClick={() => setDeleteTarget(user)}
-                                                    disabled={!isDefaultAdmin}
-                                                    aria-label="Delete user"
-                                                >
-                                                    <Trash2 size={14} />
-                                                </Button>
-                                            </div>
-                                        </TableCell>
-                                    </TableRow>
-                                ))
-                            )}
-                        </TableBody>
-                    </Table>
-                </div>
-
-                {/* ── Mobile/Tablet/iPad Grid View ── */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 lg:hidden">
-                    {loading ? (
-                        Array.from({ length: 3 }).map((_, i) => (
-                            <div key={i} className="bg-card border rounded-xl p-5 space-y-4 shadow-sm animate-pulse">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 rounded-full bg-muted" />
-                                    <div className="space-y-2 flex-1">
-                                        <div className="h-4 bg-muted rounded w-1/2" />
-                                        <div className="h-3 bg-muted rounded w-3/4" />
+                                        </div>
                                     </div>
-                                </div>
-                                <div className="h-4 bg-muted rounded w-1/3" />
-                                <div className="h-8 bg-muted rounded" />
-                            </div>
-                        ))
-                    ) : filtered.length === 0 ? (
-                        <div className="col-span-full bg-card border rounded-xl p-8 text-center text-muted-foreground shadow-sm">
-                            <div className="flex flex-col items-center gap-2">
-                                <Users size={32} className="text-muted-foreground/30" />
-                                <span>
-                                    {search ? "No results match your search." : "No team members yet. Invite someone to get started."}
-                                </span>
-                            </div>
-                        </div>
-                    ) : (
-                        filtered.map((user) => (
-                            <div 
-                                key={user._id} 
-                                className={`bg-card border rounded-xl p-5 space-y-4 shadow-sm relative transition-all duration-200 ${!user.isActive ? "bg-muted/10 border-dashed" : ""}`}
-                            >
-                                {/* Header: Avatar, Name, Email, and Role Badge */}
-                                <div className="flex items-start justify-between gap-3">
-                                    <div className="flex items-center gap-3 min-w-0">
-                                        <div
-                                            className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0 select-none
-                                                ${user.isActive
-                                                    ? "bg-primary/20 text-primary"
-                                                    : "bg-muted text-muted-foreground"
-                                                }`}
+
+                                    {/* Footer Actions */}
+                                    <div className="flex items-center justify-end gap-2 pt-1">
+                                        <Button
+                                            id={`availability-mobile-${user._id}`}
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-8 gap-1.5 text-xs text-primary border-primary/20 hover:bg-primary/10"
+                                            onClick={() => setAvailabilityTarget(user)}
                                         >
-                                            {(user.name || user.username).charAt(0).toUpperCase()}
-                                        </div>
-                                        <div className="min-w-0">
-                                            <p className="font-semibold text-sm text-foreground truncate">
-                                                {user.name || "—"}
-                                            </p>
-                                            <p className="text-xs text-muted-foreground truncate">
-                                                {user.username}
-                                            </p>
-                                        </div>
-                                    </div>
-
-                                    {/* Role Badge */}
-                                    <span
-                                        className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border shrink-0 ${getRoleStyle(user.role)}`}
-                                    >
-                                        <Shield size={10} />
-                                        {getRoleLabel(user.role)}
-                                    </span>
-                                </div>
-
-                                {/* Body: Status & Joined Date */}
-                                <div className="grid grid-cols-2 gap-4 py-2 border-y border-border/50 text-xs">
-                                    <div>
-                                        <p className="text-muted-foreground mb-1">Status</p>
+                                            <CalendarDays size={12} />
+                                            Availability
+                                        </Button>
                                         <div className={`flex items-center gap-2 transition-all ${!isDefaultAdmin ? "blur-[0.5px] opacity-40 cursor-not-allowed pointer-events-none" : ""}`}>
-                                            <Switch
-                                                id={`toggle-mobile-${user._id}`}
-                                                checked={user.isActive}
-                                                onCheckedChange={() => handleToggle(user)}
-                                                disabled={toggling[user._id] || !isDefaultAdmin}
-                                                aria-label={user.isActive ? "Deactivate user" : "Activate user"}
-                                            />
-                                            <span className={`font-semibold ${user.isActive ? "text-emerald-500" : "text-muted-foreground"}`}>
-                                                {user.isActive ? "Active" : "Inactive"}
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <p className="text-muted-foreground mb-1">Joined</p>
-                                        <div className="flex items-center gap-1.5 text-muted-foreground font-medium mt-1">
-                                            <Calendar size={13} />
-                                            {new Date(user.createdAt).toLocaleDateString()}
+                                            <Button
+                                                id={`edit-user-mobile-${user._id}`}
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                                                onClick={() => openEdit(user)}
+                                                disabled={!isDefaultAdmin}
+                                            >
+                                                <Pencil size={12} />
+                                                Edit
+                                            </Button>
+                                            <Button
+                                                id={`delete-user-mobile-${user._id}`}
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-8 gap-1.5 text-xs text-destructive hover:bg-destructive/10 border-destructive/20 hover:border-destructive/30"
+                                                onClick={() => setDeleteTarget(user)}
+                                                disabled={!isDefaultAdmin}
+                                            >
+                                                <Trash2 size={12} />
+                                                Delete
+                                            </Button>
                                         </div>
                                     </div>
                                 </div>
-
-                                {/* Footer Actions */}
-                                <div className="flex items-center justify-end gap-2 pt-1">
-                                    <div className={`flex items-center gap-2 transition-all ${!isDefaultAdmin ? "blur-[0.5px] opacity-40 cursor-not-allowed pointer-events-none" : ""}`}>
-                                        <Button
-                                            id={`edit-user-mobile-${user._id}`}
-                                            variant="outline"
-                                            size="sm"
-                                            className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-                                            onClick={() => openEdit(user)}
-                                            disabled={!isDefaultAdmin}
-                                        >
-                                            <Pencil size={12} />
-                                            Edit
-                                        </Button>
-                                        <Button
-                                            id={`delete-user-mobile-${user._id}`}
-                                            variant="outline"
-                                            size="sm"
-                                            className="h-8 gap-1.5 text-xs text-destructive hover:bg-destructive/10 border-destructive/20 hover:border-destructive/30"
-                                            onClick={() => setDeleteTarget(user)}
-                                            disabled={!isDefaultAdmin}
-                                        >
-                                            <Trash2 size={12} />
-                                            Delete
-                                        </Button>
-                                    </div>
-                                </div>
-                            </div>
-                        ))
-                    )}
-                </div>
+                            ))
+                        )}
+                    </div>
 
                 {/* ── How it works callout ── */}
                 <div className="rounded-xl border border-dashed border-primary/30 bg-primary/5 p-4 flex gap-3 items-start">
@@ -578,7 +608,7 @@ export default function Team() {
                 </div>
             </div>
 
-            {/* ── Add / Edit Modal ── */}
+            {/* ── Add / Edit Team Member Modal ── */}
             <Dialog open={modalOpen} onOpenChange={setModalOpen}>
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
@@ -720,7 +750,8 @@ export default function Team() {
                 </DialogContent>
             </Dialog>
 
-            {/* ── Delete Confirmation ── */}
+
+            {/* ── Team Member Delete Confirmation ── */}
             <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
@@ -747,6 +778,15 @@ export default function Team() {
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
+
+
+
+            {/* ── Availability Modal ── */}
+            <AvailabilityModal
+                user={availabilityTarget}
+                open={!!availabilityTarget}
+                onClose={() => setAvailabilityTarget(null)}
+            />
         </AppLayout>
     );
 }
