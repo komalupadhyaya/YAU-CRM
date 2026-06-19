@@ -54,10 +54,12 @@ export default function Login() {
         <form onSubmit={handleLogin} className="page-card shadow-2xl border-border/50 backdrop-blur-sm bg-card/80">
           <div className="space-y-6">
             <div>
-              <label className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2 ml-1">
+              <label htmlFor="login-username" className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2 ml-1">
                 Username
               </label>
               <input
+                id="login-username"
+                name="username"
                 type="text"
                 className="input-field"
                 placeholder="Enter username"
@@ -68,11 +70,13 @@ export default function Login() {
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2 ml-1">
+              <label htmlFor="login-password" className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2 ml-1">
                 Password
               </label>
               <div className="relative group">
                 <input
+                  id="login-password"
+                  name="password"
                   type={showPassword ? "text" : "password"}
                   className="input-field pr-12"
                   placeholder="••••••••"

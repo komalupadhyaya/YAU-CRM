@@ -282,6 +282,8 @@ function UserSearchDropdown({ teamMembers, value, onChange, disabled }: UserSear
                             <Search size={13} className="text-muted-foreground shrink-0" />
                             <input
                                 ref={inputRef}
+                                id="task-assignee-search"
+                                name="task-assignee-search"
                                 type="text"
                                 placeholder="Search team members..."
                                 value={query}
@@ -412,11 +414,12 @@ function TaskForm({ teamMembers, currentUser, editingTask, onSuccess, onCancelEd
         <form onSubmit={handleSubmit} className="space-y-4">
             {/* Title */}
             <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                <label htmlFor="task-title" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                     Title <span className="text-destructive">*</span>
                 </label>
                 <input
                     id="task-title"
+                    name="task-title"
                     type="text"
                     placeholder="Task title..."
                     value={title}
@@ -428,11 +431,12 @@ function TaskForm({ teamMembers, currentUser, editingTask, onSuccess, onCancelEd
 
             {/* Description */}
             <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                <label htmlFor="task-description" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                     Description
                 </label>
                 <textarea
                     id="task-description"
+                    name="task-description"
                     placeholder="Add a description..."
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
@@ -443,12 +447,13 @@ function TaskForm({ teamMembers, currentUser, editingTask, onSuccess, onCancelEd
 
             {/* Due Date */}
             <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                <label htmlFor="task-due-date" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                     <Calendar size={11} />
                     Due Date
                 </label>
                 <input
                     id="task-due-date"
+                    name="task-due-date"
                     type="datetime-local"
                     value={dueDate}
                     onChange={(e) => setDueDate(e.target.value)}
@@ -459,10 +464,10 @@ function TaskForm({ teamMembers, currentUser, editingTask, onSuccess, onCancelEd
             {/* Assigned User */}
             {currentUser?.role !== 'sales_rep' && (
                 <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                         <UserIcon size={11} />
                         Assigned User
-                    </label>
+                    </span>
                     <UserSearchDropdown
                         teamMembers={teamMembers}
                         value={assignedTo}
@@ -473,10 +478,10 @@ function TaskForm({ teamMembers, currentUser, editingTask, onSuccess, onCancelEd
 
             {/* Priority */}
             <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                     <Flag size={11} />
                     Priority
-                </label>
+                </span>
                 <div className="grid grid-cols-3 gap-2">
                     {(["high", "medium", "low"] as const).map((p) => {
                         const cfg = PRIORITY_CONFIG[p];
@@ -503,10 +508,10 @@ function TaskForm({ teamMembers, currentUser, editingTask, onSuccess, onCancelEd
             {/* Status — only shown when editing AND user has permission */}
             {isEditing && canChangeStatus && (
                 <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                         <CheckCircle2 size={11} />
                         Status
-                    </label>
+                    </span>
                     <div className="grid grid-cols-2 gap-2">
                         {(["pending", "completed"] as const).map((s) => (
                             <button
@@ -1181,6 +1186,8 @@ export default function Tasks() {
                                 <Search size={14} />
                             </span>
                             <input
+                                id="tasks-search"
+                                name="tasks-search"
                                 type="text"
                                 placeholder="Search tasks by title or assigned team member..."
                                 className="input-field pl-9 pr-10 py-2 text-sm dark:bg-card w-full shadow-sm rounded-xl"

@@ -240,6 +240,8 @@ export default function LeadScheduler() {
               ) : (
                 <div className="relative">
                   <select
+                    id="select-field-1"
+                    name="select-field-1"
                     value={selectedCampaign?._id || ""}
                     onChange={(e) => handleCampaignChange(e.target.value)}
                     className="w-full px-3 py-2.5 text-sm bg-background border border-border rounded-lg outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all text-foreground [color-scheme:light] dark:[color-scheme:dark]"
@@ -279,6 +281,8 @@ export default function LeadScheduler() {
                       <Search size={15} className="text-muted-foreground" />
                     </div>
                     <input
+                    id="filter-leads-in-this-campaign"
+                    name="filter-leads-in-this-campaign"
                       type="text"
                       placeholder="Filter leads in this campaign..."
                       value={searchQuery}

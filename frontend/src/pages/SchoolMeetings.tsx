@@ -226,6 +226,8 @@ function CcEmailPicker({
                 ))}
                 <input
                     ref={inputRef}
+                    id="school-cc-email-input"
+                    name="school-cc-email-input"
                     type="text"
                     value={inputValue}
                     onChange={(e) => {
@@ -668,10 +670,12 @@ function AvailabilityCalendarModal({
 
                             <div className="space-y-4">
                                 <div className="space-y-1.5">
-                                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                                    <label htmlFor="school-manual-datetime" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                                         <Calendar size={11} /> Date & Time <span className="text-destructive">*</span>
                                     </label>
                                     <input
+                                        id="school-manual-datetime"
+                                        name="school-manual-datetime"
                                         type="datetime-local"
                                         value={manualDateTime}
                                         onChange={e => setManualDateTime(e.target.value)}
@@ -681,10 +685,12 @@ function AvailabilityCalendarModal({
                                 </div>
 
                                 <div className="space-y-1.5">
-                                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                                    <label htmlFor="school-manual-duration" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                                         <Clock size={11} /> Duration
                                     </label>
                                     <select
+                                        id="school-manual-duration"
+                                        name="school-manual-duration"
                                         value={duration}
                                         onChange={e => setDuration(Number(e.target.value))}
                                         className="w-full h-10 text-sm bg-background border border-border rounded-lg text-foreground px-3 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 transition-all"
@@ -854,8 +860,14 @@ function AvailabilityCalendarModal({
 
                                 {/* Duration settings */}
                                 <div className="space-y-1.5">
-                                    <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Duration</label>
-                                    <select value={duration} onChange={e => setDuration(Number(e.target.value))} className="w-full h-8 text-xs bg-background border border-border rounded-lg text-foreground px-2">
+                                    <label htmlFor="school-meeting-duration" className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Duration</label>
+                                    <select
+                                        id="school-meeting-duration"
+                                        name="school-meeting-duration"
+                                        value={duration}
+                                        onChange={e => setDuration(Number(e.target.value))}
+                                        className="w-full h-8 text-xs bg-background border border-border rounded-lg text-foreground px-2"
+                                    >
                                         {[15, 30, 45, 60, 90, 120].map(d => <option key={d} value={d}>{d} min</option>)}
                                     </select>
                                 </div>
@@ -987,6 +999,8 @@ function MultiUserPicker({
                         <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-muted/60 flex-1">
                             <Search size={13} className="text-muted-foreground shrink-0" />
                             <input
+                                id="school-team-member-search"
+                                name="school-team-member-search"
                                 autoFocus
                                 type="text"
                                 placeholder="Search team members..."
@@ -1116,6 +1130,8 @@ function MultiLeadPicker({ leads, selected, onChange }: {
                         <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-muted/60 flex-1">
                             <Search size={13} className="text-muted-foreground shrink-0" />
                             <input
+                                id="school-lead-search"
+                                name="school-lead-search"
                                 autoFocus
                                 type="text"
                                 placeholder="Search leads..."
@@ -1341,8 +1357,10 @@ function MeetingForm({ teamMembers, leads, editingMeeting, onSuccess, onCancelEd
                             <span className="font-semibold">{c.name}:</span> {c.reason}
                         </div>
                     ))}
-                    <label className="flex items-center gap-2 mt-2 pt-1.5 border-t border-destructive/10 text-xs text-destructive font-semibold cursor-pointer select-none">
+                    <label htmlFor="school-force-schedule" className="flex items-center gap-2 mt-2 pt-1.5 border-t border-destructive/10 text-xs text-destructive font-semibold cursor-pointer select-none">
                         <input
+                            id="school-force-schedule"
+                            name="school-force-schedule"
                             type="checkbox"
                             checked={force}
                             onChange={(e) => setForce(e.target.checked)}
@@ -1393,10 +1411,12 @@ function MeetingForm({ teamMembers, leads, editingMeeting, onSuccess, onCancelEd
             <div className="min-h-[70px] py-1">
                 {step === 1 && (
                     <div className="space-y-1.5 animate-fadeIn">
-                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                        <label htmlFor="school-meeting-title" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                             Meeting Title <span className="text-destructive">*</span>
                         </label>
                         <input
+                            id="school-meeting-title"
+                            name="school-meeting-title"
                             type="text"
                             placeholder="e.g. Principal Introduction Meeting"
                             value={title}
@@ -1409,9 +1429,9 @@ function MeetingForm({ teamMembers, leads, editingMeeting, onSuccess, onCancelEd
 
                 {step === 2 && (
                     <div className="space-y-1.5 animate-fadeIn">
-                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                             <School size={11} /> Leads / Schools <span className="text-destructive">*</span>
-                        </label>
+                        </span>
                         <MultiLeadPicker leads={leads} selected={selectedLeads} onChange={setSelectedLeads} />
                         <p className="text-[10px] text-muted-foreground">Select one or more schools/leads associated with this meeting.</p>
                     </div>
@@ -1419,9 +1439,9 @@ function MeetingForm({ teamMembers, leads, editingMeeting, onSuccess, onCancelEd
 
                 {step === 3 && (
                     <div className="space-y-1.5 animate-fadeIn">
-                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                             <Users size={11} /> Internal Attendees <span className="text-destructive">*</span>
-                        </label>
+                        </span>
                         <MultiUserPicker teamMembers={teamMembers} selected={internalAttendees} onChange={setInternalAttendees} placeholder="Select members..." />
                         <p className="text-[10px] text-muted-foreground">Select the team members to check availability.</p>
                     </div>
@@ -1429,7 +1449,7 @@ function MeetingForm({ teamMembers, leads, editingMeeting, onSuccess, onCancelEd
 
                 {step === 4 && (
                     <div className="space-y-1.5 animate-fadeIn">
-                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                        <label htmlFor="school-cc-email-input" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                             <Mail size={11} /> Optional CC Attendees
                         </label>
                         <CcEmailPicker teamMembers={teamMembers} emails={ccEmails} onChange={setCcEmails} />
@@ -1440,9 +1460,9 @@ function MeetingForm({ teamMembers, leads, editingMeeting, onSuccess, onCancelEd
                 {step === 5 && (
                     <div className="space-y-3 animate-fadeIn">
                         <div className="space-y-1.5">
-                            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                                 <Calendar size={11} /> Selected Date & Time
-                            </label>
+                            </span>
                             
                             {dateTime ? (
                                 <div className="bg-primary/5 border border-primary/20 rounded-xl p-3 flex items-center justify-between">
@@ -1480,10 +1500,12 @@ function MeetingForm({ teamMembers, leads, editingMeeting, onSuccess, onCancelEd
                         </div>
 
                         <div className="space-y-1.5">
-                            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                            <label htmlFor="school-meeting-notes" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                                 <FileText size={11} /> Notes
                             </label>
                             <textarea
+                                id="school-meeting-notes"
+                                name="school-meeting-notes"
                                 placeholder="Meeting agenda, preparation notes, etc."
                                 value={notes}
                                 onChange={e => setNotes(e.target.value)}
@@ -1494,7 +1516,7 @@ function MeetingForm({ teamMembers, leads, editingMeeting, onSuccess, onCancelEd
 
                         {isEditing && (
                             <div className="space-y-1.5">
-                                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Status</label>
+                                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Status</span>
                                 <div className="grid grid-cols-3 gap-1">
                                     {(Object.keys(STATUS_CONFIG) as Meeting['status'][]).map(s => {
                                         const cfg = STATUS_CONFIG[s];
@@ -1916,6 +1938,8 @@ export default function SchoolMeetings() {
                                     <Search size={14} />
                                 </span>
                                 <input
+                                    id="school-search-meetings"
+                                    name="school-search-meetings"
                                     type="text"
                                     placeholder="Search meetings by title or lead..."
                                     className="input-field pl-9 pr-10 py-2 text-sm dark:bg-card w-full shadow-sm rounded-xl"
@@ -1934,6 +1958,8 @@ export default function SchoolMeetings() {
 
                             {/* Status filter */}
                             <select
+                                id="school-meetings-status-filter"
+                                name="school-meetings-status-filter"
                                 value={statusFilter}
                                 onChange={e => setStatusFilter(e.target.value)}
                                 className="text-xs px-3 py-2 rounded-xl border border-border bg-card text-foreground shadow-sm h-11 shrink-0"

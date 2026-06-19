@@ -353,6 +353,8 @@ export default function FollowUps() {
                             <Search size={14} />
                         </span>
                         <input
+                            id="followups-search"
+                            name="followups-search"
                             type="text"
                             placeholder="Search follow-ups by lead or notes..."
                             className="input-field pl-9 pr-10 py-1.5 text-xs dark:bg-card w-full shadow-sm rounded-xl"
@@ -441,8 +443,9 @@ export default function FollowUps() {
                         </div>
                         <div className="grid grid-cols-2 gap-4 items-start">
                             <div className="grid gap-2">
-                                <label className="text-sm font-medium">Type <span className="text-destructive">*</span></label>
+                                <label htmlFor="fu-type" className="text-sm font-medium">Type <span className="text-destructive">*</span></label>
                                 <select
+                                    id="fu-type"
                                     name="type"
                                     className={`input-field dark:bg-card ${fuErrors.type ? "border-destructive focus:ring-destructive/20" : ""}`}
                                     value={followUpType || ""}
@@ -460,8 +463,9 @@ export default function FollowUps() {
                                 {fuErrors.type && <p className="text-xs text-destructive mt-1 font-medium">{fuErrors.type}</p>}
                             </div>
                             <div className="grid gap-2">
-                                <label className="text-sm font-medium">Priority (optional)</label>
+                                <label htmlFor="fu-priority" className="text-sm font-medium">Priority (optional)</label>
                                 <select
+                                    id="fu-priority"
                                     name="priority"
                                     className={`input-field dark:bg-card ${fuErrors.priority ? "border-destructive focus:ring-destructive/20" : ""}`}
                                     value={followUpPriority || ""}
@@ -483,8 +487,9 @@ export default function FollowUps() {
                         </div>
 
                         <div className="grid gap-2">
-                            <label className="text-sm font-medium">Status <span className="text-destructive">*</span></label>
+                            <label htmlFor="fu-status" className="text-sm font-medium">Status <span className="text-destructive">*</span></label>
                             <select
+                                id="fu-status"
                                 name="status"
                                 className="input-field dark:bg-card"
                                 value={followUpStatus || ""}

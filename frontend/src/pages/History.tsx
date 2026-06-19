@@ -79,6 +79,8 @@ export default function HistoryPage() {
                                 <Search size={14} />
                             </span>
                             <input
+                                id="history-search"
+                                name="history-search"
                                 type="text"
                                 placeholder="Search logs..."
                                 className="input-field pl-9 pr-4 py-1.5 text-xs dark:bg-card w-full"

@@ -106,6 +106,9 @@ const RecordingPlayer = ({ url, duration }: { url?: string, duration?: number })
           style={{ width: `${totalDuration ? (currentTime / totalDuration) * 100 : 0}%` }}
         />
         <input
+            id="input-range-3"
+            name="input-range-3"
+        
           type="range"
           min="0"
           max={totalDuration || 0}
@@ -1138,6 +1141,9 @@ const Campaigns = () => {
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" size={12} />
               <input
+                  id="search"
+                  name="search"
+              
                 placeholder="Search..."
                 className="w-full bg-accent/50 border-none rounded-lg pl-8 pr-2 py-1.5 text-xs focus:ring-1 ring-primary outline-none"
                 value={campaignSearch}
@@ -1232,6 +1238,9 @@ const Campaigns = () => {
                 <div className="relative">
                   <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" size={12} />
                   <input
+                      id="search-leads"
+                      name="search-leads"
+                  
                     placeholder="Search leads..."
                     className="w-full bg-accent/50 border-none rounded-lg pl-8 pr-2 py-1.5 text-xs focus:ring-1 ring-primary outline-none"
                     value={leadSearch}
@@ -1252,6 +1261,9 @@ const Campaigns = () => {
                 <div className="flex items-center justify-end gap-2">
                   <Filter size={12} className="text-muted-foreground" />
                   <select
+                      id="status-filter"
+                      name="status-filter"
+                  
                     className="text-[10px] bg-transparent border-none focus:ring-0 outline-none font-medium cursor-pointer"
                     value={statusFilter}
                     onChange={e => setStatusFilter(e.target.value)}
@@ -1466,6 +1478,9 @@ const Campaigns = () => {
                   <div className="flex-1 overflow-y-auto p-4 space-y-5">
                     <div className={`bg-accent/10 dark:bg-accent/5 rounded-xl p-3 border border-dashed border-primary/20 ${permissions.isReadOnly ? 'opacity-40 blur-[0.5px] pointer-events-none select-none' : ''}`}>
                       <textarea
+                          id="note-content"
+                          name="note-content"
+                      
                         placeholder={permissions.isReadOnly ? 'Read-only access — cannot add notes' : 'Add a note...'}
                         className="w-full bg-transparent border-none text-xs outline-none resize-none min-h-[50px] dark:text-foreground"
                         value={noteContent}
@@ -1709,6 +1724,9 @@ const Campaigns = () => {
           <div className="py-2 space-y-2">
             <label className="text-xs font-bold uppercase text-muted-foreground">Campaign Name *</label>
             <input
+                id="e-g-summer-outreach"
+                name="e-g-summer-outreach"
+            
               placeholder="e.g. Summer Outreach"
               className={`input-field ${campaignError ? "border-destructive focus:ring-destructive/20" : ""}`}
               value={newCampaignName}
@@ -1774,6 +1792,9 @@ const Campaigns = () => {
             <div className="space-y-1.5">
               <label className="text-xs font-bold uppercase text-muted-foreground">Title</label>
               <input
+                  id="e-g-discuss-proposal-details"
+                  name="e-g-discuss-proposal-details"
+              
                 placeholder="e.g. Discuss proposal details"
                 className="input-field"
                 value={followUpTitle}
@@ -1783,6 +1804,9 @@ const Campaigns = () => {
             <div className="space-y-1.5">
               <label className="text-xs font-bold uppercase text-muted-foreground">Date & Time *</label>
               <input
+                  id="input-datetime-local-10"
+                  name="input-datetime-local-10"
+              
                 type="datetime-local"
                 className={`input-field dark:color-scheme-dark ${fuErrors.date ? "border-destructive focus:ring-destructive/20" : ""}`}
                 value={followUpDate}
@@ -1796,7 +1820,9 @@ const Campaigns = () => {
             <div className="grid grid-cols-2 gap-4 items-start">
               <div className="space-y-1.5">
                 <label className="text-xs font-bold uppercase text-muted-foreground">Type</label>
-                <select className="input-field dark:bg-card" value={followUpType} onChange={e => setFollowUpType(e.target.value)}>
+                <select
+                    id="follow-up-type"
+                    name="follow-up-type" className="input-field dark:bg-card" value={followUpType} onChange={e => setFollowUpType(e.target.value)}>
                   <option value="Call">Call</option>
                   <option value="Email">Email</option>
                   <option value="Meeting">Meeting</option>
@@ -1805,7 +1831,9 @@ const Campaigns = () => {
               </div>
               <div className="space-y-1.5">
                 <label className="text-xs font-bold uppercase text-muted-foreground">Priority (optional)</label>
-                <select className="input-field dark:bg-card" value={followUpPriority || ""} onChange={e => setFollowUpPriority(e.target.value)}>
+                <select
+                    id="select-field-12"
+                    name="select-field-12" className="input-field dark:bg-card" value={followUpPriority || ""} onChange={e => setFollowUpPriority(e.target.value)}>
                   <option value="">NO</option>
                   <option value="Low">Low</option>
                   <option value="Medium">Medium</option>
@@ -1833,6 +1861,9 @@ const Campaigns = () => {
             <div className="space-y-1.5">
               <label className="text-xs font-bold uppercase text-muted-foreground">Notes *</label>
               <textarea
+                  id="reason-for-follow-up"
+                  name="reason-for-follow-up"
+              
                 placeholder="Reason for follow-up"
                 className={`input-field min-h-[80px] ${fuErrors.notes ? "border-destructive focus:ring-destructive/20" : ""}`}
                 value={followUpNotes}
@@ -1928,6 +1959,9 @@ const Campaigns = () => {
                   {errors.contact_title && <p className="text-[10px] text-destructive">{errors.contact_title}</p>}
                   {leadFormData.contact_title === "Other" && (
                     <input
+                        id="specify-title"
+                        name="specify-title"
+                    
                       className="input-field mt-2"
                       placeholder="Specify title..."
                       value={customTitle}
@@ -1956,6 +1990,9 @@ const Campaigns = () => {
                         {leadFormData.contact_phone_prefix}
                       </div>
                       <select
+                          id="select-field-15"
+                          name="select-field-15"
+                      
                         className="input-field w-full dark:bg-card px-2 text-transparent appearance-none bg-no-repeat"
                         style={{
                           backgroundImage: `url(https://flagcdn.com/w20/${(countryCodes.find(c => c.dialCode === leadFormData.contact_phone_prefix)?.code || 'US').toLowerCase()}.png)`,
@@ -2103,6 +2140,9 @@ const Campaigns = () => {
                           {leadFormData.secondary_phone_prefix}
                         </div>
                         <select
+                            id="select-field-16"
+                            name="select-field-16"
+                        
                           className="input-field w-full dark:bg-card px-2 text-transparent appearance-none bg-no-repeat"
                           style={{
                             backgroundImage: `url(https://flagcdn.com/w20/${(countryCodes.find(c => c.dialCode === leadFormData.secondary_phone_prefix)?.code || 'US').toLowerCase()}.png)`,
@@ -2185,6 +2225,9 @@ const Campaigns = () => {
                   </select>
                   {leadFormData.type === "Other" && (
                     <input
+                        id="specify-lead-type"
+                        name="specify-lead-type"
+                    
                       placeholder="Specify lead type..."
                       className="input-field mt-2 animate-in slide-in-from-top-1 duration-200"
                       value={customLeadType}
@@ -2220,6 +2263,9 @@ const Campaigns = () => {
                         {leadFormData.telephone_prefix}
                       </div>
                       <select
+                          id="select-field-18"
+                          name="select-field-18"
+                      
                         className="input-field w-full dark:bg-card px-2 text-transparent appearance-none bg-no-repeat"
                         style={{
                           backgroundImage: `url(https://flagcdn.com/w20/${(countryCodes.find(c => c.dialCode === leadFormData.telephone_prefix)?.code || 'US').toLowerCase()}.png)`,
@@ -2594,7 +2640,9 @@ const Campaigns = () => {
             <div className="grid gap-4">
               <div className="grid gap-2">
                 <label className="text-sm font-medium">Outcome</label>
-                <select className="input-field dark:bg-card" value={callOutcome} onChange={e => setCallOutcome(e.target.value)}>
+                <select
+                    id="call-outcome"
+                    name="call-outcome" className="input-field dark:bg-card" value={callOutcome} onChange={e => setCallOutcome(e.target.value)}>
                   <option>Answered - Interested</option>
                   <option>Answered - Not Interested</option>
                   <option>Answered - Follow-Up Needed</option>
@@ -2605,7 +2653,9 @@ const Campaigns = () => {
               </div>
               <div className="grid gap-2">
                 <label className="text-sm font-medium">Add Notes</label>
-                <textarea className="input-field min-h-[80px]" placeholder="Briefly summarize the conversation..." value={callNotes} onChange={e => setCallNotes(e.target.value)} />
+                <textarea
+                    id="briefly-summarize-the-conversation"
+                    name="briefly-summarize-the-conversation" className="input-field min-h-[80px]" placeholder="Briefly summarize the conversation..." value={callNotes} onChange={e => setCallNotes(e.target.value)} />
               </div>
 
               {/* Seamless Follow-up Checkbox */}
@@ -2629,6 +2679,9 @@ const Campaigns = () => {
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold uppercase text-muted-foreground">Task Title *</label>
                     <input
+                        id="e-g-call-to-finalize-contract"
+                        name="e-g-call-to-finalize-contract"
+                    
                       className={`input-field ${fuErrors.followUpTitle ? "border-destructive focus:ring-destructive/20" : ""}`}
                       placeholder="e.g. Call to finalize contract"
                       value={followUpTitle}
@@ -2643,6 +2696,9 @@ const Campaigns = () => {
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold uppercase text-muted-foreground">Date & Time *</label>
                     <input
+                        id="input-datetime-local-22"
+                        name="input-datetime-local-22"
+                    
                       type="datetime-local"
                       className={`input-field dark:color-scheme-dark ${fuErrors.date ? "border-destructive focus:ring-destructive/20" : ""}`}
                       value={followUpDate}
@@ -2657,7 +2713,9 @@ const Campaigns = () => {
                   <div className="grid grid-cols-2 gap-4 items-start">
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold uppercase text-muted-foreground">Type</label>
-                      <select className="input-field dark:bg-card" value={followUpType} onChange={e => setFollowUpType(e.target.value)}>
+                      <select
+                          id="follow-up-type"
+                          name="follow-up-type" className="input-field dark:bg-card" value={followUpType} onChange={e => setFollowUpType(e.target.value)}>
                         <option value="Call">Call</option>
                         <option value="Email">Email</option>
                         <option value="Meeting">Meeting</option>
@@ -2666,7 +2724,9 @@ const Campaigns = () => {
                     </div>
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold uppercase text-muted-foreground">Priority (optional)</label>
-                      <select className="input-field dark:bg-card" value={followUpPriority || ""} onChange={e => setFollowUpPriority(e.target.value)}>
+                      <select
+                          id="select-field-24"
+                          name="select-field-24" className="input-field dark:bg-card" value={followUpPriority || ""} onChange={e => setFollowUpPriority(e.target.value)}>
                         <option value="">NO</option>
                         <option value="Low">Low</option>
                         <option value="Medium">Medium</option>
@@ -2683,6 +2743,9 @@ const Campaigns = () => {
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold uppercase text-muted-foreground">Follow-up Notes</label>
                     <textarea
+                        id="reason-for-follow-up"
+                        name="reason-for-follow-up"
+                    
                       placeholder="Reason for follow-up"
                       className="input-field min-h-[60px]"
                       value={followUpNotes}
@@ -2724,6 +2787,9 @@ const Campaigns = () => {
               <div className="grid gap-1">
                 <label className="text-xs font-bold text-muted-foreground uppercase">To <span className="text-destructive">*</span></label>
                 <input
+                    id="input-field-26"
+                    name="input-field-26"
+                
                   className={`input-field text-sm ${emailErrors.to ? "border-destructive focus:ring-destructive/20" : ""}`}
                   placeholder={!emailData.to ? "No email on file — type recipient email..." : "Recipient email..."}
                   value={emailData.to || ""}
@@ -2759,6 +2825,9 @@ const Campaigns = () => {
                     </div>
                   ))}
                   <input
+                      id="cc-input"
+                      name="cc-input"
+                  
                     className="flex-1 bg-transparent border-none outline-none text-sm min-w-[120px] placeholder:text-muted-foreground/50"
                     placeholder={emailData.cc.length === 0 ? "Add email and press Enter..." : ""}
                     value={ccInput}
@@ -2790,6 +2859,9 @@ const Campaigns = () => {
               <div className="grid gap-2">
                 <label className="text-sm font-medium">Subject <span className="text-destructive">*</span></label>
                 <input
+                    id="following-up"
+                    name="following-up"
+                
                   className={`input-field ${emailErrors.subject ? "border-destructive focus:border-destructive focus:ring-destructive/20" : ""}`}
                   placeholder="Following up"
                   value={emailData.subject}
@@ -2849,6 +2921,9 @@ const Campaigns = () => {
               <div className="grid gap-2">
                 <label className="text-sm font-medium">Message <span className="text-destructive">*</span></label>
                 <textarea
+                    id="type-your-sms-message"
+                    name="type-your-sms-message"
+                
                   className={`input-field min-h-[120px]`}
                   placeholder="Type your SMS message..."
                   value={smsMessage}
@@ -2890,6 +2965,9 @@ const Campaigns = () => {
               <div className="grid gap-2">
                 <label className="text-sm font-medium">Meeting Title <span className="text-destructive">*</span></label>
                 <input
+                    id="e-g-initial-strategy-session"
+                    name="e-g-initial-strategy-session"
+                
                   className={`input-field ${meetingErrors.title ? "border-destructive focus:border-destructive focus:ring-destructive/20" : ""}`}
                   placeholder="e.g. Initial Strategy Session"
                   value={meetingData.title}
@@ -2903,6 +2981,9 @@ const Campaigns = () => {
               <div className="grid gap-2">
                 <label className="text-sm font-medium">Date & Time <span className="text-destructive">*</span></label>
                 <input
+                    id="input-datetime-local-31"
+                    name="input-datetime-local-31"
+                
                   type="datetime-local"
                   className={`input-field dark:color-scheme-dark ${meetingErrors.date_time ? "border-destructive focus:border-destructive focus:ring-destructive/20" : ""}`}
                   value={meetingData.date_time}
@@ -2915,7 +2996,9 @@ const Campaigns = () => {
               </div>
               <div className="grid gap-2">
                 <label className="text-sm font-medium">Meeting Type</label>
-                <select className="input-field dark:bg-card" value={meetingData.type} onChange={e => setMeetingData({ ...meetingData, type: e.target.value })}>
+                <select
+                    id="select-field-32"
+                    name="select-field-32" className="input-field dark:bg-card" value={meetingData.type} onChange={e => setMeetingData({ ...meetingData, type: e.target.value })}>
                   <option value="Virtual">Virtual (Google Meet)</option>
                   <option value="Phone Call">Phone Call</option>
                   <option value="In-Person">In-Person</option>
@@ -2973,6 +3056,9 @@ const Campaigns = () => {
                     );
                   })}
                   <input
+                      id="meeting-cc-input"
+                      name="meeting-cc-input"
+                  
                     className="flex-1 bg-transparent border-none outline-none text-sm min-w-[120px] placeholder:text-muted-foreground/50"
                     placeholder={meetingCc.length === 0 ? "Add email and press Enter..." : ""}
                     value={meetingCcInput}
@@ -3006,7 +3092,9 @@ const Campaigns = () => {
               </div>
               <div className="grid gap-2">
                 <label className="text-sm font-medium">Notes</label>
-                <textarea className="input-field min-h-[80px]" placeholder="Agenda or location details..." value={meetingData.notes} onChange={e => setMeetingData({ ...meetingData, notes: e.target.value })} />
+                <textarea
+                    id="agenda-or-location-details"
+                    name="agenda-or-location-details" className="input-field min-h-[80px]" placeholder="Agenda or location details..." value={meetingData.notes} onChange={e => setMeetingData({ ...meetingData, notes: e.target.value })} />
               </div>
             </div>
           </div>

@@ -503,6 +503,9 @@ export default function Dashboard() {
             <div className="relative flex-1 min-w-[200px]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
               <input
+                  id="search-leads-across-all-campaigns"
+                  name="search-leads-across-all-campaigns"
+              
                 placeholder="Search leads across all campaigns..."
                 className="input-field pl-10 h-11"
                 value={globalSearch}
@@ -562,6 +565,9 @@ export default function Dashboard() {
             <div className="flex items-center justify-center gap-2 h-11 px-3 bg-accent/30 border rounded-xl min-w-[150px]">
               <Filter size={14} className="text-muted-foreground" />
               <select
+                  id="selected-campaign"
+                  name="selected-campaign"
+              
                 className="bg-transparent text-xs font-bold uppercase tracking-wider focus:outline-none flex-1"
                 value={selectedCampaign}
                 onChange={(e) => setSelectedCampaign(e.target.value)}
@@ -834,6 +840,9 @@ export default function Dashboard() {
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={14} />
                   <input
+                      id="search-by-lead-name"
+                      name="search-by-lead-name"
+                  
                     className={`input-field pl-9 ${quickFollowUpErrors.lead ? "border-destructive focus:ring-destructive/20" : ""}`}
                     placeholder="Search by lead name..."
                     value={leadSearch}
@@ -935,7 +944,9 @@ export default function Dashboard() {
                     <label className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider flex items-center gap-1.5">
                       <Calendar size={12} /> Next Follow-up
                     </label>
-                    <input 
+                    <input
+                        id="input-datetime-local-45"
+                        name="input-datetime-local-45" 
                       type="datetime-local" 
                       className={`input-field h-10 text-xs dark:color-scheme-dark ${quickFollowUpErrors.date ? "border-destructive focus:ring-destructive/20" : ""}`}
                       value={followUpDate} 
@@ -950,6 +961,9 @@ export default function Dashboard() {
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Notes & Details</label>
                   <textarea
+                      id="briefly-describe-the-interaction"
+                      name="briefly-describe-the-interaction"
+                  
                     className="input-field min-h-[80px] text-xs py-2.5"
                     placeholder="Briefly describe the interaction..."
                     value={followUpNotes}
@@ -984,6 +998,9 @@ export default function Dashboard() {
               <div className="grid gap-3">
                 <label className="text-sm font-semibold">Select Lead to Email</label>
                 <input
+                    id="search-by-lead-name"
+                    name="search-by-lead-name"
+                
                   className={`input-field ${quickEmailErrors.lead ? "border-destructive" : ""}`}
                   placeholder="Search by lead name..."
                   value={leadSearch}
@@ -1027,12 +1044,16 @@ export default function Dashboard() {
                 <div className="grid gap-2">
                   <label className="text-sm font-semibold">Recipient Email <span className="text-destructive">*</span></label>
                   {leadContacts.length > 0 ? (
-                    <select className="input-field" value={selectedContactEmail} onChange={e => setSelectedContactEmail(e.target.value)}>
+                    <select
+                        id="selected-contact-email"
+                        name="selected-contact-email" className="input-field" value={selectedContactEmail} onChange={e => setSelectedContactEmail(e.target.value)}>
                       {leadContacts.map(c => <option key={c._id} value={c.email}>{c.name} ({c.email})</option>)}
                     </select>
                   ) : (
                     <div>
-                      <input 
+                      <input
+                          id="no-email-on-file-contact-has-no-saved-em"
+                          name="no-email-on-file-contact-has-no-saved-em" 
                         className="input-field text-sm opacity-50 cursor-not-allowed" 
                         disabled 
                         placeholder="No email on file — contact has no saved emails" 
@@ -1082,6 +1103,9 @@ export default function Dashboard() {
                       );
                     })}
                     <input
+                        id="cc-input"
+                        name="cc-input"
+                    
                       className="flex-1 bg-transparent border-none outline-none text-sm min-w-[120px] placeholder:text-muted-foreground/50"
                       placeholder={emailData.cc.length === 0 ? "Add email and press Enter..." : ""}
                       value={ccInput}
@@ -1118,12 +1142,16 @@ export default function Dashboard() {
                 </div>
                 <div className="grid gap-2">
                   <label className="text-sm font-semibold">Email Subject <span className="text-destructive">*</span></label>
-                  <input className={`input-field ${quickEmailErrors.subject ? "border-destructive" : ""}`} value={emailData.subject} onChange={e => setEmailData({ ...emailData, subject: e.target.value })} />
+                  <input
+                      id="input-field-51"
+                      name="input-field-51" className={`input-field ${quickEmailErrors.subject ? "border-destructive" : ""}`} value={emailData.subject} onChange={e => setEmailData({ ...emailData, subject: e.target.value })} />
                   {quickEmailErrors.subject && <p className="text-xs text-destructive">{quickEmailErrors.subject}</p>}
                 </div>
                 <div className="grid gap-2">
                   <label className="text-sm font-semibold">Message Content <span className="text-destructive">*</span></label>
-                  <textarea className={`input-field min-h-[150px] ${quickEmailErrors.body ? "border-destructive" : ""}`} value={emailData.body} onChange={e => setEmailData({ ...emailData, body: e.target.value })} />
+                  <textarea
+                      id="textarea-field-52"
+                      name="textarea-field-52" className={`input-field min-h-[150px] ${quickEmailErrors.body ? "border-destructive" : ""}`} value={emailData.body} onChange={e => setEmailData({ ...emailData, body: e.target.value })} />
                   {quickEmailErrors.body && <p className="text-xs text-destructive">{quickEmailErrors.body}</p>}
                 </div>
               </>

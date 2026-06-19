@@ -139,6 +139,9 @@ const RecordingPlayer = ({ url, duration }: { url: string, duration?: number }) 
           style={{ width: `${totalDuration ? (currentTime / totalDuration) * 100 : 0}%` }}
         />
         <input
+            id="input-range-55"
+            name="input-range-55"
+        
           type="range"
           min="0"
           max={totalDuration || 0}
@@ -955,6 +958,9 @@ export default function LeadDetail() {
                         </select>
                         {(editData[key] === "Other" || (editData[key] && !["Public", "Private", "Parent"].includes(editData[key]))) && (
                           <input
+                              id="specify-lead-type"
+                              name="specify-lead-type"
+                          
                             placeholder="Specify lead type..."
                             className="input-field animate-in slide-in-from-top-1 duration-200"
                             value={customType}
@@ -1005,6 +1011,9 @@ export default function LeadDetail() {
                             {phonePrefix}
                           </div>
                           <select
+                              id="phone-prefix"
+                              name="phone-prefix"
+                          
                             className="input-field w-full dark:bg-card px-2 text-transparent appearance-none bg-no-repeat"
                             style={{
                               backgroundImage: `url(https://flagcdn.com/w20/${(countryCodes.find(c => c.dialCode === phonePrefix)?.code || 'US').toLowerCase()}.png)`,
@@ -1089,6 +1098,9 @@ export default function LeadDetail() {
                               {contactPhonePrefix}
                             </div>
                             <select
+                                id="contact-phone-prefix"
+                                name="contact-phone-prefix"
+                            
                               className="input-field w-full dark:bg-card px-2 text-transparent appearance-none bg-no-repeat"
                               style={{
                                 backgroundImage: `url(https://flagcdn.com/w20/${(countryCodes.find(c => c.dialCode === contactPhonePrefix)?.code || 'US').toLowerCase()}.png)`,
@@ -1146,6 +1158,9 @@ export default function LeadDetail() {
                               {secondaryPhonePrefix}
                             </div>
                             <select
+                                id="secondary-phone-prefix"
+                                name="secondary-phone-prefix"
+                            
                               className="input-field w-full dark:bg-card px-2 text-transparent appearance-none bg-no-repeat"
                               style={{
                                 backgroundImage: `url(https://flagcdn.com/w20/${(countryCodes.find(c => c.dialCode === secondaryPhonePrefix)?.code || 'US').toLowerCase()}.png)`,
@@ -1362,6 +1377,9 @@ export default function LeadDetail() {
             <div className="mb-6">
               <label className="block text-sm font-medium text-foreground mb-1.5">Add a new note</label>
               <textarea
+                  id="details-of-the-call-or-email"
+                  name="details-of-the-call-or-email"
+              
                 className="input-field min-h-[100px] mb-3"
                 placeholder="Details of the call or email..."
                 value={noteContent}
@@ -2054,6 +2072,9 @@ export default function LeadDetail() {
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold uppercase text-muted-foreground">Task Title *</label>
                     <input
+                        id="e-g-call-to-finalize-contract"
+                        name="e-g-call-to-finalize-contract"
+                    
                       className={`input-field ${fuErrors.followUpTitle ? "border-destructive focus:ring-destructive/20" : ""}`}
                       placeholder="e.g. Call to finalize contract"
                       value={followUpTitle}
@@ -2068,6 +2089,9 @@ export default function LeadDetail() {
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold uppercase text-muted-foreground">Date & Time *</label>
                     <input
+                        id="input-datetime-local-62"
+                        name="input-datetime-local-62"
+                    
                       type="datetime-local"
                       className={`input-field dark:color-scheme-dark ${fuErrors.date ? "border-destructive focus:ring-destructive/20" : ""}`}
                       value={followUpDate}
@@ -2082,7 +2106,9 @@ export default function LeadDetail() {
                   <div className="grid grid-cols-2 gap-4 items-start">
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold uppercase text-muted-foreground">Type</label>
-                      <select className="input-field dark:bg-card" value={followUpType} onChange={e => setFollowUpType(e.target.value)}>
+                      <select
+                          id="follow-up-type"
+                          name="follow-up-type" className="input-field dark:bg-card" value={followUpType} onChange={e => setFollowUpType(e.target.value)}>
                         <option value="Call">Call</option>
                         <option value="Email">Email</option>
                         <option value="Meeting">Meeting</option>
@@ -2091,7 +2117,9 @@ export default function LeadDetail() {
                     </div>
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold uppercase text-muted-foreground">Priority (optional)</label>
-                      <select className="input-field dark:bg-card" value={followUpPriority || ""} onChange={e => setFollowUpPriority(e.target.value)}>
+                      <select
+                          id="select-field-64"
+                          name="select-field-64" className="input-field dark:bg-card" value={followUpPriority || ""} onChange={e => setFollowUpPriority(e.target.value)}>
                         <option value="">NO</option>
                         <option value="Low">Low</option>
                         <option value="Medium">Medium</option>
@@ -2108,6 +2136,9 @@ export default function LeadDetail() {
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold uppercase text-muted-foreground">Follow-up Notes</label>
                     <textarea
+                        id="reason-for-follow-up"
+                        name="reason-for-follow-up"
+                    
                       placeholder="Reason for follow-up"
                       className="input-field min-h-[60px]"
                       value={followUpNotes}

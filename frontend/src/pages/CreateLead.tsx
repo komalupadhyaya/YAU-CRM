@@ -203,6 +203,9 @@ export default function CreateLead() {
                         {isCreatingCampaign ? (
                             <div className="flex gap-2">
                                 <input
+                                    id="enter-new-campaign-name"
+                                    name="enter-new-campaign-name"
+                                
                                     autoFocus
                                     className="input-field flex-grow"
                                     placeholder="Enter new campaign name..."
@@ -289,6 +292,9 @@ export default function CreateLead() {
                                 {formData.contact_title === "Other" && (
                                     <div className="mt-2 animate-in fade-in slide-in-from-top-1 duration-200">
                                         <input
+                                            id="please-specify-title"
+                                            name="please-specify-title"
+                                        
                                             className={`input-field ${errors.contact_title ? "border-destructive focus:ring-destructive/20" : ""}`}
                                             placeholder="Please specify title..."
                                             value={customTitle}
@@ -325,6 +331,9 @@ export default function CreateLead() {
                                             {formData.contact_phone_prefix}
                                         </div>
                                         <select
+                                            id="select-field-37"
+                                            name="select-field-37"
+                                        
                                             className="input-field w-full dark:bg-card px-2 text-transparent appearance-none bg-no-repeat"
                                             style={{
                                                 backgroundImage: `url(https://flagcdn.com/w20/${(countryCodes.find(c => c.dialCode === formData.contact_phone_prefix)?.code || 'US').toLowerCase()}.png)`,
@@ -465,6 +474,9 @@ export default function CreateLead() {
                                         {formData.secondary_contact_title === "Other" && (
                                             <div className="mt-2 animate-in fade-in slide-in-from-top-1 duration-200">
                                                 <input
+                                                    id="please-specify-title"
+                                                    name="please-specify-title"
+                                                
                                                     className="input-field"
                                                     placeholder="Please specify title..."
                                                     value={secondaryCustomTitle}
@@ -492,6 +504,9 @@ export default function CreateLead() {
                                                     {formData.secondary_phone_prefix}
                                                 </div>
                                                 <select
+                                                    id="select-field-39"
+                                                    name="select-field-39"
+                                                
                                                     className="input-field w-full dark:bg-card px-2 text-transparent appearance-none bg-no-repeat"
                                                     style={{
                                                         backgroundImage: `url(https://flagcdn.com/w20/${(countryCodes.find(c => c.dialCode === formData.secondary_phone_prefix)?.code || 'US').toLowerCase()}.png)`,
@@ -573,6 +588,9 @@ export default function CreateLead() {
                             {formData.type === "Other" && (
                                 <div className="mt-2 animate-in fade-in slide-in-from-top-1 duration-200">
                                     <input
+                                        id="please-specify-lead-type"
+                                        name="please-specify-lead-type"
+                                    
                                         className="input-field"
                                         placeholder="Please specify lead type..."
                                         value={customLeadType}
@@ -601,6 +619,9 @@ export default function CreateLead() {
                                         {formData.telephone_prefix}
                                     </div>
                                     <select
+                                        id="select-field-41"
+                                        name="select-field-41"
+                                    
                                         className="input-field w-full dark:bg-card px-2 text-transparent appearance-none bg-no-repeat"
                                         style={{
                                             backgroundImage: `url(https://flagcdn.com/w20/${(countryCodes.find(c => c.dialCode === formData.telephone_prefix)?.code || 'US').toLowerCase()}.png)`,

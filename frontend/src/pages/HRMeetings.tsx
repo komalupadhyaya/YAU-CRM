@@ -1106,8 +1106,14 @@ function AvailabilityCalendarModal({
 
                                 {/* Duration settings */}
                                 <div className="space-y-1.5">
-                                    <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Duration</label>
-                                    <select value={duration} onChange={e => setDuration(Number(e.target.value))} className="w-full h-8 text-xs bg-background border border-border rounded-lg text-foreground px-2 focus:outline-none focus:ring-1 focus:ring-emerald-500/30">
+                                    <label htmlFor="hr-meeting-duration" className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Duration</label>
+                                    <select
+                                        id="hr-meeting-duration"
+                                        name="hr-meeting-duration"
+                                        value={duration}
+                                        onChange={e => setDuration(Number(e.target.value))}
+                                        className="w-full h-8 text-xs bg-background border border-border rounded-lg text-foreground px-2 focus:outline-none focus:ring-1 focus:ring-emerald-500/30"
+                                    >
                                         {[15, 30, 45, 60, 90, 120].map(d => <option key={d} value={d}>{d} min</option>)}
                                     </select>
                                 </div>
@@ -1346,8 +1352,10 @@ function HRMeetingForm({ teamMembers, candidates, editingMeeting, onSuccess, onC
                             <span className="font-semibold">{c.name}:</span> {c.reason}
                         </div>
                     ))}
-                    <label className="flex items-center gap-2 mt-2 pt-1.5 border-t border-destructive/10 text-xs text-destructive font-semibold cursor-pointer select-none">
+                    <label htmlFor="hr-force-schedule" className="flex items-center gap-2 mt-2 pt-1.5 border-t border-destructive/10 text-xs text-destructive font-semibold cursor-pointer select-none">
                         <input
+                            id="hr-force-schedule"
+                            name="hr-force-schedule"
                             type="checkbox"
                             checked={force}
                             onChange={(e) => setForce(e.target.checked)}
@@ -1398,10 +1406,12 @@ function HRMeetingForm({ teamMembers, candidates, editingMeeting, onSuccess, onC
             <div className="min-h-[70px] py-1">
                 {step === 1 && (
                     <div className="space-y-1.5 animate-fadeIn">
-                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                        <label htmlFor="hr-meeting-title" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                             Meeting Title <span className="text-destructive">*</span>
                         </label>
                         <input 
+                            id="hr-meeting-title"
+                            name="hr-meeting-title"
                             type="text" 
                             placeholder="e.g. Coach Interview — John Smith" 
                             value={title}
@@ -1414,9 +1424,9 @@ function HRMeetingForm({ teamMembers, candidates, editingMeeting, onSuccess, onC
 
                 {step === 2 && (
                     <div className="space-y-1.5 animate-fadeIn">
-                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                             <UserIcon size={11} /> Candidates
-                        </label>
+                        </span>
                         <MultiCandidatePicker
                             candidates={candidates}
                             selected={selectedCandidates}
@@ -1428,9 +1438,9 @@ function HRMeetingForm({ teamMembers, candidates, editingMeeting, onSuccess, onC
 
                 {step === 3 && (
                     <div className="space-y-1.5 animate-fadeIn">
-                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                             <Users size={11} /> Internal Attendees <span className="text-destructive">*</span>
-                        </label>
+                        </span>
                         <MultiUserPicker 
                             teamMembers={teamMembers} 
                             selected={internalAttendees} 
@@ -1443,7 +1453,7 @@ function HRMeetingForm({ teamMembers, candidates, editingMeeting, onSuccess, onC
 
                 {step === 4 && (
                     <div className="space-y-1.5 animate-fadeIn">
-                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                        <label htmlFor="hr-cc-email-input" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                             <Mail size={11} /> Optional CC Attendees
                         </label>
                         <CcEmailPicker 
@@ -1458,9 +1468,9 @@ function HRMeetingForm({ teamMembers, candidates, editingMeeting, onSuccess, onC
                 {step === 5 && (
                     <div className="space-y-3 animate-fadeIn">
                         <div className="space-y-1.5">
-                            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                                 <Calendar size={11} /> Selected Date & Time
-                            </label>
+                            </span>
                             
                             {dateTime ? (
                                 <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3 flex items-center justify-between">
@@ -1498,7 +1508,7 @@ function HRMeetingForm({ teamMembers, candidates, editingMeeting, onSuccess, onC
                         </div>
 
                         <div className="space-y-1.5">
-                            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                            <label htmlFor="interview-agenda-prep-questions" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                                 <FileText size={11} /> Notes
                             </label>
                             <textarea 
@@ -1512,7 +1522,7 @@ function HRMeetingForm({ teamMembers, candidates, editingMeeting, onSuccess, onC
 
                         {isEditing && (
                             <div className="space-y-1.5">
-                                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Status</label>
+                                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Status</span>
                                 <div className="grid grid-cols-3 gap-1">
                                     {(Object.keys(STATUS_CONFIG) as Meeting['status'][]).map(s => {
                                         const cfg = STATUS_CONFIG[s];
@@ -1918,6 +1928,8 @@ export default function HRMeetings() {
                                     <Search size={14} />
                                 </span>
                                 <input
+                                    id="hr-search-meetings"
+                                    name="hr-search-meetings"
                                     type="text"
                                     placeholder="Search meetings by title or candidate..."
                                     className="input-field pl-9 pr-10 py-2 text-sm dark:bg-card w-full shadow-sm rounded-xl"
@@ -1936,6 +1948,8 @@ export default function HRMeetings() {
 
                             {/* Status filter */}
                             <select
+                                id="hr-meetings-status-filter"
+                                name="hr-meetings-status-filter"
                                 value={statusFilter}
                                 onChange={e => setStatusFilter(e.target.value)}
                                 className="text-xs px-3 py-2 rounded-xl border border-border bg-card text-foreground shadow-sm h-11 shrink-0"
