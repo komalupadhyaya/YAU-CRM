@@ -17,10 +17,12 @@ import contactRoutes from './routes/contact.routes.js';
 import emailRoutes from './routes/email.routes.js';
 import webhookRoutes from './routes/webhook.routes.js';
 import justcallRoutes from './routes/justcall.routes.js';
+import eaLeadRoutes from './routes/eaLead.routes.js';
 import errorHandler from './middleware/error.middleware.js';
 import notificationRoutes from './routes/notification.routes.js';
 import meetingRoutes from './routes/meeting.routes.js';
 import availabilityRoutes from './routes/availability.routes.js';
+
 import { startCronJobs } from './utils/cron.utils.js';
 
 const app = express();
@@ -29,8 +31,10 @@ const allowedOrigins = [
     'https://crm.yauapp.com',
     'http://localhost:8080',
     'http://127.0.0.1:8080',
+    'https://softiatric.com',
     process.env.FRONTEND_URL
 ].filter(Boolean);
+
 
 app.use(cors({
     origin: function (origin, callback) {
@@ -250,6 +254,8 @@ app.use('/api/justcall', justcallRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/meetings', meetingRoutes);
 app.use('/api/availability', availabilityRoutes);
+app.use('/api/ea-leads', eaLeadRoutes);
+
 
 // Error Handling Middleware
 app.use(errorHandler);

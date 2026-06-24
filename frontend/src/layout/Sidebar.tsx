@@ -17,7 +17,8 @@ import {
   UserCheck,
   UserPlus,
   History,
-  Building2
+  Building2,
+  Sparkles
 } from "lucide-react";
 import { useSidebar } from "./SidebarContext";
 import { useFollowUp } from "../context/FollowUpContext";
@@ -34,6 +35,7 @@ const topNavItems = [
   { to: "/meetings/hr",     label: "HR Meetings",     icon: Building2 },
   { to: "/reports",         label: "Reports",         icon: BarChart3 },
   { to: "/lead-scheduler",  label: "Lead Scheduler",  icon: UserCheck },
+  { to: "/ea-leads",        label: "EA Leads",        icon: Sparkles },
   { to: "/candidates",      label: "HC Candidates",      icon: UserPlus },
   // { to: "/history",      label: "History",         icon: History },
   { to: "/team",            label: "Team",            icon: Users },

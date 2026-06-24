@@ -18,6 +18,7 @@ import Help from "./pages/Help";
 import Calendar from "./pages/Calendar";
 import LeadScheduler from "./pages/LeadScheduler";
 import HistoryPage from "./pages/History";
+import EALeads from "@/pages/EALeads";
 import SchoolMeetings from "./pages/SchoolMeetings";
 import HRMeetings from "./pages/HRMeetings";
 
@@ -57,6 +58,7 @@ const App = () => {
               <Route path="/team" element={<RequireAuth><RequireRole roles={['admin', 'manager']}><Team /></RequireRole></RequireAuth>} />
               <Route path="/candidates" element={<RequireAuth><RequireRole roles={['admin', 'manager']}><Candidates /></RequireRole></RequireAuth>} />
               <Route path="/lead-scheduler" element={<RequireAuth><RequireRole roles={['admin', 'manager']}><LeadScheduler /></RequireRole></RequireAuth>} />
+              <Route path="/ea-leads" element={<RequireAuth><EALeads /></RequireAuth>} />
               <Route path="/history" element={<RequireAuth><RequireRole roles={['admin', 'manager']}><HistoryPage /></RequireRole></RequireAuth>} />
               <Route path="/settings" element={<RequireAuth><RequireRole roles={['admin']}><Settings /></RequireRole></RequireAuth>} />
               <Route path="/tasks" element={<RequireAuth><Tasks /></RequireAuth>} />
