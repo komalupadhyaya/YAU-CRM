@@ -4,6 +4,7 @@ import Task from '../models/tasks.model.js';
 import Lead from '../models/lead.model.js';
 import Contact from '../models/contact.model.js';
 import Note from '../models/note.model.js';
+import Candidate from '../models/candidate.model.js';
 import User from '../models/user.model.js';
 import { google } from 'googleapis';
 
@@ -399,7 +400,27 @@ export const getGroupedFollowups = async (req, res, next) => {
                     as: 'lead'
                 }
             },
-            { $unwind: '$lead' },
+            {
+                $unwind: {
+                    path: '$lead',
+                    preserveNullAndEmptyArrays: true
+                }
+            },
+            // Join candidate info
+            {
+                $lookup: {
+                    from: 'candidates',
+                    localField: 'candidate_id',
+                    foreignField: '_id',
+                    as: 'candidate'
+                }
+            },
+            {
+                $unwind: {
+                    path: '$candidate',
+                    preserveNullAndEmptyArrays: true
+                }
+            },
             // Optional sales_rep filter
             ...(req.currentUserRole === 'sales_rep' && dbUser ? [
                 {
@@ -443,6 +464,12 @@ export const getGroupedFollowups = async (req, res, next) => {
             // Determine the bucket using date_time
             {
                 $addFields: {
+                    lead_name: { $ifNull: ['$lead.name', '$candidate.name'] },
+                    lead_id_val: '$lead._id',
+                    candidate_id_val: '$candidate._id',
+                    telephone: { $ifNull: ['$lead.telephone', '$candidate.phone'] },
+                    campaign_name: { $ifNull: ['$campaign.name', 'HC Candidates'] },
+                    campaign_id_val: { $ifNull: ['$campaign._id', 'candidate'] },
                     bucket: {
                         $switch: {
                             branches: [
@@ -694,6 +721,167 @@ export const deleteFollowup = async (req, res, next) => {
         await Followup.findByIdAndDelete(req.params.id);
 
         res.json({ success: true, message: 'Follow-up deleted successfully' });
+    } catch (err) {
+        next(err);
+    }
+};
+
+export const getFollowupsByCandidate = async (req, res, next) => {
+    try {
+        const followups = await Followup.find({ candidate_id: req.params.candidateId })
+            .populate('candidate_id', 'name email phone')
+            .sort({ date_time: 1 });
+        res.json(followups);
+    } catch (err) {
+        next(err);
+    }
+};
+
+export const createCandidateFollowup = async (req, res, next) => {
+    try {
+        const { title, date_time, type, notes, assigned_user, priority, cc_emails, force } = req.body;
+        
+        if (!date_time) {
+            res.status(400);
+            throw new Error('date_time is required');
+        }
+
+        const candidate = await Candidate.findById(req.params.candidateId);
+        if (!candidate) {
+            res.status(404);
+            throw new Error('Candidate not found');
+        }
+
+        // CC emails
+        let ccArray = [];
+        if (Array.isArray(cc_emails)) {
+            ccArray = cc_emails;
+        } else if (typeof cc_emails === 'string' && cc_emails.trim()) {
+            ccArray = cc_emails.split(',').map(e => e.trim()).filter(Boolean);
+        }
+
+        // ── DB-level conflict check (works without Google Calendar) ──────────
+        if (!force) {
+            const eventStartTime = new Date(date_time);
+            const windowStart = new Date(eventStartTime.getTime() - 30 * 60000); // -30 min
+            const windowEnd   = new Date(eventStartTime.getTime() + 30 * 60000); // +30 min
+
+            const existingConflict = await Followup.findOne({
+                candidate_id: req.params.candidateId,
+                date_time: { $gte: windowStart, $lte: windowEnd },
+                status: { $ne: 'done' }
+            });
+
+            if (existingConflict) {
+                return res.status(409).json({
+                    error: 'Conflict detected',
+                    message: `A follow-up is already scheduled at this time (${existingConflict.type} – ${new Date(existingConflict.date_time).toLocaleString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', hour12: true, month: 'short', day: 'numeric' })})`,
+                    conflicts: [{
+                        summary: `${existingConflict.type} – ${existingConflict.notes?.substring(0, 60) || 'Follow-up'}`,
+                        start: existingConflict.date_time,
+                        end: new Date(new Date(existingConflict.date_time).getTime() + 30 * 60000)
+                    }]
+                });
+            }
+        }
+
+        // ── Google Calendar conflict check (only if configured) ──────────────
+        if (process.env.GOOGLE_REFRESH_TOKEN && process.env.GOOGLE_REFRESH_TOKEN !== 'your_google_refresh_token_here') {
+            try {
+                const calendar = google.calendar({ version: 'v3', auth: oAuth2Client });
+                const eventStartTime = new Date(date_time);
+                const eventEndTime = new Date(eventStartTime.getTime() + 30 * 60000);
+                
+                if (!force) {
+                    const conflicts = await calendar.events.list({
+                        calendarId: 'primary',
+                        timeMin: eventStartTime.toISOString(),
+                        timeMax: eventEndTime.toISOString(),
+                        singleEvents: true,
+                    });
+
+                    if (conflicts.data.items && conflicts.data.items.length > 0) {
+                        return res.status(409).json({
+                            error: 'Conflict detected',
+                            conflicts: conflicts.data.items.map(item => ({
+                                summary: item.summary,
+                                start: item.start.dateTime || item.start.date,
+                                end: item.end.dateTime || item.end.date
+                            }))
+                        });
+                    }
+                }
+            } catch (err) {
+                console.error('Google Calendar Conflict Check Error:', err);
+            }
+        }
+
+
+        const fu = await Followup.create({
+            candidate_id: req.params.candidateId,
+            title: title || '',
+            date_time: new Date(date_time),
+            type: type || 'Call',
+            notes: notes || '',
+            assigned_user: assigned_user || null,
+            priority: priority || null,
+            cc_emails: ccArray,
+            created_by: req.user.id
+        });
+
+        // Google Calendar Event
+        const shouldCreateCalendarEvent = type === 'Meeting' || priority;
+        if (shouldCreateCalendarEvent && process.env.GOOGLE_REFRESH_TOKEN && process.env.GOOGLE_REFRESH_TOKEN !== 'your_google_refresh_token_here') {
+            try {
+                const calendar = google.calendar({ version: 'v3', auth: oAuth2Client });
+                const eventStartTime = new Date(date_time);
+                const eventEndTime = new Date(eventStartTime.getTime() + 30 * 60000);
+                
+                const attendees = [];
+                if (candidate.email) attendees.push({ email: candidate.email });
+                ccArray.forEach(email => attendees.push({ email }));
+                if (process.env.ADMIN_EMAIL) attendees.push({ email: process.env.ADMIN_EMAIL });
+
+                const descriptionParts = [];
+                if (priority) descriptionParts.push(`Priority: ${priority}`);
+                if (notes) descriptionParts.push(`Notes: ${notes}`);
+                if (ccArray.length > 0) descriptionParts.push(`\nCC Recipients: ${ccArray.join(', ')}`);
+
+                const event = {
+                    summary: title ? `${title} (${type}) - ${candidate.name}` : `Follow-up (${type}): ${candidate.name}`,
+                    description: descriptionParts.join('\n'),
+                    start: {
+                        dateTime: eventStartTime.toISOString(),
+                        timeZone: 'America/New_York',
+                    },
+                    end: {
+                        dateTime: eventEndTime.toISOString(),
+                        timeZone: 'America/New_York',
+                    },
+                    attendees: attendees,
+                    reminders: {
+                        useDefault: false,
+                        overrides: [
+                            { method: 'email', minutes: 30 },
+                            { method: 'popup', minutes: 15 },
+                        ],
+                    },
+                };
+
+                const createdEvent = await calendar.events.insert({
+                    calendarId: 'primary',
+                    resource: event,
+                    sendUpdates: type === 'Meeting' ? 'all' : 'none',
+                });
+
+                fu.google_event_id = createdEvent.data.id;
+                await fu.save();
+            } catch (calErr) {
+                console.error("Google Calendar Error for Candidate Followup:", calErr.message);
+            }
+        }
+
+        res.json(fu);
     } catch (err) {
         next(err);
     }

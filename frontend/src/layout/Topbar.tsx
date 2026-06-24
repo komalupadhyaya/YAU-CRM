@@ -5,7 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { useSidebar } from "./SidebarContext";
 import { useThemeStore } from "../store/themeStore";
 import { useAuth } from "../context/AuthContext";
-// import CalendarPopover from "../components/CalendarPopover";
+import CalendarPopover from "../components/CalendarPopover";
 import api from "../api/api";
 import AvailabilityModal from "../components/AvailabilityModal";
 
@@ -346,7 +346,7 @@ export default function Topbar() {
         )}
 
         {/* Calendar Popover */}
-        {/* <CalendarPopover /> */}
+        <CalendarPopover />
 
         {/* Notification Bell */}
         <NotificationBell />

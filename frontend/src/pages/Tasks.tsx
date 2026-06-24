@@ -12,6 +12,7 @@ import { useAuth } from "../context/AuthContext";
 import { can } from "../utils/permissions";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { DateTimePicker } from "@/components/ui/datetime-picker";
 import {
     AlertDialog,
     AlertDialogAction,
@@ -247,7 +248,7 @@ function UserSearchDropdown({ teamMembers, value, onChange, disabled }: UserSear
                 type="button"
                 onClick={handleOpen}
                 disabled={disabled}
-                className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-all duration-150
+                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg border text-sm transition-all duration-150
                     ${open ? "border-primary ring-2 ring-primary/20" : "border-border hover:border-primary/50"}
                     bg-background text-foreground disabled:opacity-60 disabled:cursor-not-allowed`}
             >
@@ -256,12 +257,14 @@ function UserSearchDropdown({ teamMembers, value, onChange, disabled }: UserSear
                         <UserAvatar
                             user={{ _id: value._id, name: value.name, email: value.email, role: value.role }}
                         />
-                        <span className="flex-1 text-left truncate">{value.name}</span>
-                        <span className="text-[10px] text-muted-foreground truncate">{value.email}</span>
+                        <div className="flex-1 min-w-0 flex flex-col text-left">
+                            <span className="font-semibold text-xs text-foreground truncate leading-normal">{value.name}</span>
+                            <span className="text-[10px] text-muted-foreground truncate leading-none mt-0.5">{value.email}</span>
+                        </div>
                         <button
                             type="button"
                             onClick={(e) => { e.stopPropagation(); handleSelect(null); }}
-                            className="ml-1 text-muted-foreground hover:text-destructive transition-colors"
+                            className="ml-1 text-muted-foreground hover:text-destructive transition-colors shrink-0"
                         >
                             <X size={12} />
                         </button>
@@ -451,14 +454,7 @@ function TaskForm({ teamMembers, currentUser, editingTask, onSuccess, onCancelEd
                     <Calendar size={11} />
                     Due Date
                 </label>
-                <input
-                    id="task-due-date"
-                    name="task-due-date"
-                    type="datetime-local"
-                    value={dueDate}
-                    onChange={(e) => setDueDate(e.target.value)}
-                    className="input-field [color-scheme:light] dark:[color-scheme:dark]"
-                />
+                <DateTimePicker id="task-due-date" value={dueDate} onChange={setDueDate} layout="stacked" />
             </div>
 
             {/* Assigned User */}
@@ -1144,7 +1140,7 @@ export default function Tasks() {
                     {/* ── Sidebar: Form ── */}
                     {(currentUser?.role === 'admin' || currentUser?.role === 'manager') && (
                     <div className="lg:sticky lg:top-6">
-                        <div className="bg-card border rounded-2xl shadow-sm overflow-hidden">
+                        <div className="bg-card border rounded-2xl shadow-sm">
                             <div className={`px-4 sm:px-5 py-4 border-b ${editingTask ? "bg-primary/5" : ""}`}>
                                 <h2 className="text-sm font-bold flex items-center gap-2">
                                     {editingTask ? (

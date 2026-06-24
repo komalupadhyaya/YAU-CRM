@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, Fragment } from "react";
 import api from "../api/api";
 import AppLayout from "../layout/AppLayout";
 import {
@@ -14,6 +14,9 @@ import {
     Clock,
     UserX,
     Award,
+    MessageSquare,
+    CheckCircle,
+    AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
@@ -53,6 +56,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { DateTimePicker } from "@/components/ui/datetime-picker";
+import { toESTDate, formatAsEST } from "../utils/timezoneHelper";
 
 interface Candidate {
     _id: string;
@@ -63,6 +68,22 @@ interface Candidate {
     status: string;
     notes?: string;
     createdAt: string;
+}
+
+interface CandidateNote {
+    text: string;
+    author: string;
+    date: string;
+}
+
+interface CandidateFollowUp {
+    _id: string;
+    title?: string;
+    date_time: string;
+    type: string;
+    priority?: string;
+    notes: string;
+    status: string;
 }
 
 const CANDIDATE_STATUS_CONFIG = {
@@ -98,7 +119,306 @@ export default function Candidates() {
     const [deleteTarget, setDeleteTarget] = useState<Candidate | null>(null);
     const [deleting, setDeleting] = useState(false);
 
+    // Note Delete state
+    const [noteDeleteTarget, setNoteDeleteTarget] = useState<{ candidate: Candidate; index: number } | null>(null);
+    const [deletingNote, setDeletingNote] = useState(false);
+
+    // Notes & Follow-ups state
+    const [expandedCandidateId, setExpandedCandidateId] = useState<string | null>(null);
+    const [candidateFollowups, setCandidateFollowups] = useState<Record<string, CandidateFollowUp[]>>({});
+    const [loadingFollowups, setLoadingFollowups] = useState<Record<string, boolean>>({});
+    const [activeTabMap, setActiveTabMap] = useState<Record<string, "notes" | "followups">>({});
+    const [newNoteText, setNewNoteText] = useState("");
+    const [savingNote, setSavingNote] = useState(false);
+
+    const [followUpDate, setFollowUpDate] = useState("");
+    const [followUpType, setFollowUpType] = useState("Call");
+    const [followUpPriority, setFollowUpPriority] = useState("");
+    const [followUpNotes, setFollowUpNotes] = useState("");
+    const [schedulingFollowup, setSchedulingFollowup] = useState(false);
+
+    // Conflict dialog state
+    const [conflictDialogOpen, setConflictDialogOpen] = useState(false);
+    const [conflictCandidateId, setConflictCandidateId] = useState<string | null>(null);
+
+    // Edit follow-up state
+    const [editingFollowup, setEditingFollowup] = useState<CandidateFollowUp | null>(null);
+    const [editFollowupCandId, setEditFollowupCandId] = useState<string | null>(null);
+    const [editFollowUpDate, setEditFollowUpDate] = useState("");
+    const [editFollowUpType, setEditFollowUpType] = useState("Call");
+    const [editFollowUpPriority, setEditFollowUpPriority] = useState("");
+    const [editFollowUpNotes, setEditFollowUpNotes] = useState("");
+    const [savingEditFollowup, setSavingEditFollowup] = useState(false);
+
+    // Delete follow-up confirmation state
+    const [followupDeleteTarget, setFollowupDeleteTarget] = useState<{ candId: string; fuId: string } | null>(null);
+    const [deletingFollowup, setDeletingFollowup] = useState(false);
+
+    // Conflict message from backend
+    const [conflictMessage, setConflictMessage] = useState("");
+
     const isAuthorized = currentUser?.role === 'admin' || currentUser?.role === 'manager';
+
+    const getActiveTab = (candId: string): "notes" | "followups" => {
+        return activeTabMap[candId] || "notes";
+    };
+
+    const setActiveTab = (candId: string, tab: "notes" | "followups") => {
+        setActiveTabMap(prev => ({ ...prev, [candId]: tab }));
+    };
+
+    const parseCandidateNotes = (notesStr?: string): CandidateNote[] => {
+        if (!notesStr) return [];
+        try {
+            const parsed = JSON.parse(notesStr);
+            if (Array.isArray(parsed)) {
+                return parsed;
+            }
+        } catch (e) {
+            if (notesStr.trim()) {
+                return [{
+                    text: notesStr,
+                    author: "System / Legacy Note",
+                    date: new Date().toISOString()
+                }];
+            }
+        }
+        return [];
+    };
+
+    const loadFollowupsForCandidate = async (candId: string) => {
+        setLoadingFollowups(prev => ({ ...prev, [candId]: true }));
+        try {
+            const res = await api.get(`/followups/candidate/${candId}`);
+            setCandidateFollowups(prev => ({ ...prev, [candId]: res.data }));
+        } catch (e) {
+            toast.error("Failed to load follow-ups for candidate");
+        } finally {
+            setLoadingFollowups(prev => ({ ...prev, [candId]: false }));
+        }
+    };
+
+    const toggleExpand = (candId: string) => {
+        if (expandedCandidateId === candId) {
+            setExpandedCandidateId(null);
+        } else {
+            setExpandedCandidateId(candId);
+            loadFollowupsForCandidate(candId);
+        }
+    };
+
+    const handleAddNote = async (cand: Candidate) => {
+        if (!newNoteText.trim()) return;
+        setSavingNote(true);
+        try {
+            const currentNotes = parseCandidateNotes(cand.notes);
+            const newNote: CandidateNote = {
+                text: newNoteText.trim(),
+                author: currentUser?.name || currentUser?.username || "Unknown User",
+                date: new Date().toISOString()
+            };
+            const updatedNotes = [...currentNotes, newNote];
+            const notesJson = JSON.stringify(updatedNotes);
+            
+            const res = await api.put(`/meetings/candidates/${cand._id}`, {
+                name: cand.name,
+                email: cand.email,
+                phone: cand.phone,
+                applying_for: cand.applying_for,
+                status: cand.status,
+                notes: notesJson
+            });
+            
+            setCandidates(prev => prev.map(c => c._id === cand._id ? res.data : c));
+            setNewNoteText("");
+            toast.success("Note added successfully");
+        } catch (e) {
+            toast.error("Failed to add note");
+        } finally {
+            setSavingNote(false);
+        }
+    };
+
+    const handleDeleteNote = (cand: Candidate, noteIndex: number) => {
+        setNoteDeleteTarget({ candidate: cand, index: noteIndex });
+    };
+
+    const confirmDeleteNote = async () => {
+        if (!noteDeleteTarget) return;
+        const { candidate, index } = noteDeleteTarget;
+        setDeletingNote(true);
+        try {
+            const currentNotes = parseCandidateNotes(candidate.notes);
+            const updatedNotes = currentNotes.filter((_, i) => i !== index);
+            const notesJson = JSON.stringify(updatedNotes);
+            
+            const res = await api.put(`/meetings/candidates/${candidate._id}`, {
+                name: candidate.name,
+                email: candidate.email,
+                phone: candidate.phone,
+                applying_for: candidate.applying_for,
+                status: candidate.status,
+                notes: notesJson
+            });
+            
+            setCandidates(prev => prev.map(c => c._id === candidate._id ? res.data : c));
+            toast.success("Note deleted successfully");
+            setNoteDeleteTarget(null);
+        } catch (e) {
+            toast.error("Failed to delete note");
+        } finally {
+            setDeletingNote(false);
+        }
+    };
+
+    const handleScheduleFollowup = async (candId: string, force = false) => {
+        if (!followUpDate) {
+            toast.error("Please select a follow-up date");
+            return;
+        }
+        if (!followUpNotes.trim()) {
+            toast.error("Please provide notes or details");
+            return;
+        }
+        setSchedulingFollowup(true);
+        try {
+            const res = await api.post(`/followups/candidate/${candId}`, {
+                date_time: followUpDate,
+                type: followUpType,
+                priority: followUpPriority || null,
+                notes: followUpNotes,
+                force
+            });
+            
+            setCandidateFollowups(prev => ({
+                ...prev,
+                [candId]: [...(prev[candId] || []), res.data].sort((a, b) => new Date(a.date_time).getTime() - new Date(b.date_time).getTime())
+            }));
+
+            setFollowUpDate("");
+            setFollowUpType("Call");
+            setFollowUpPriority("");
+            setFollowUpNotes("");
+
+            toast.success("Follow-up scheduled successfully");
+        } catch (err: any) {
+            if (err.response?.status === 409) {
+                // Open proper conflict dialog instead of window.confirm
+                setConflictCandidateId(candId);
+                setConflictMessage(err.response.data?.message || "A follow-up is already scheduled at this time.");
+                setConflictDialogOpen(true);
+            } else {
+                toast.error(err.response?.data?.message || "Failed to schedule follow-up");
+            }
+        } finally {
+            setSchedulingFollowup(false);
+        }
+    };
+
+    const handleForceScheduleFollowup = async () => {
+        if (!conflictCandidateId) return;
+        setConflictDialogOpen(false);
+        const candId = conflictCandidateId;
+        setConflictCandidateId(null);
+        setSchedulingFollowup(true);
+        try {
+            const res = await api.post(`/followups/candidate/${candId}`, {
+                date_time: followUpDate,
+                type: followUpType,
+                priority: followUpPriority || null,
+                notes: followUpNotes,
+                force: true
+            });
+            setCandidateFollowups(prev => ({
+                ...prev,
+                [candId]: [...(prev[candId] || []), res.data].sort((a, b) => new Date(a.date_time).getTime() - new Date(b.date_time).getTime())
+            }));
+            setFollowUpDate("");
+            setFollowUpType("Call");
+            setFollowUpPriority("");
+            setFollowUpNotes("");
+            toast.success("Follow-up scheduled successfully");
+        } catch (err: any) {
+            toast.error(err.response?.data?.message || "Failed to schedule follow-up");
+        } finally {
+            setSchedulingFollowup(false);
+        }
+    };
+
+    const openEditFollowup = (candId: string, fu: CandidateFollowUp) => {
+        setEditingFollowup(fu);
+        setEditFollowupCandId(candId);
+        setEditFollowUpDate(fu.date_time);
+        setEditFollowUpType(fu.type);
+        setEditFollowUpPriority(fu.priority || "");
+        setEditFollowUpNotes(fu.notes);
+    };
+
+    const handleSaveEditFollowup = async () => {
+        if (!editingFollowup || !editFollowupCandId) return;
+        if (!editFollowUpDate) {
+            toast.error("Please select a date");
+            return;
+        }
+        setSavingEditFollowup(true);
+        try {
+            const res = await api.put(`/followups/${editingFollowup._id}`, {
+                date_time: editFollowUpDate,
+                type: editFollowUpType,
+                priority: editFollowUpPriority || null,
+                notes: editFollowUpNotes,
+            });
+            setCandidateFollowups(prev => ({
+                ...prev,
+                [editFollowupCandId]: (prev[editFollowupCandId] || []).map(f =>
+                    f._id === editingFollowup._id ? res.data : f
+                ).sort((a, b) => new Date(a.date_time).getTime() - new Date(b.date_time).getTime())
+            }));
+            toast.success("Follow-up updated successfully");
+            setEditingFollowup(null);
+            setEditFollowupCandId(null);
+        } catch (err: any) {
+            toast.error(err.response?.data?.message || "Failed to update follow-up");
+        } finally {
+            setSavingEditFollowup(false);
+        }
+    };
+
+    const handleCompleteFollowup = async (candId: string, fuId: string) => {
+        try {
+            await api.put(`/followups/${fuId}/complete`);
+            toast.success("Follow-up marked as completed");
+            setCandidateFollowups(prev => ({
+                ...prev,
+                [candId]: (prev[candId] || []).map(f => f._id === fuId ? { ...f, status: 'done' } : f)
+            }));
+        } catch (e) {
+            toast.error("Failed to complete follow-up");
+        }
+    };
+
+    const handleDeleteFollowup = (candId: string, fuId: string) => {
+        setFollowupDeleteTarget({ candId, fuId });
+    };
+
+    const confirmDeleteFollowup = async () => {
+        if (!followupDeleteTarget) return;
+        const { candId, fuId } = followupDeleteTarget;
+        setDeletingFollowup(true);
+        try {
+            await api.delete(`/followups/${fuId}`);
+            toast.success("Follow-up deleted");
+            setCandidateFollowups(prev => ({
+                ...prev,
+                [candId]: (prev[candId] || []).filter(f => f._id !== fuId)
+            }));
+            setFollowupDeleteTarget(null);
+        } catch (e) {
+            toast.error("Failed to delete follow-up");
+        } finally {
+            setDeletingFollowup(false);
+        }
+    };
 
     const loadCandidates = useCallback(async () => {
         setLoading(true);
@@ -126,13 +446,14 @@ export default function Candidates() {
 
     const openEdit = (c: Candidate) => {
         setEditingCandidate(c);
+        const parsedNotes = parseCandidateNotes(c.notes);
         setForm({
             name: c.name,
             email: c.email ?? "",
             phone: c.phone ?? "",
             applying_for: c.applying_for ?? "",
             status: c.status ?? "applied",
-            notes: c.notes ?? ""
+            notes: parsedNotes[0]?.text || ""
         });
         setModalOpen(true);
     };
@@ -145,13 +466,48 @@ export default function Candidates() {
         setSubmitting(true);
         try {
             if (editingCandidate) {
-                const res = await api.put(`/meetings/candidates/${editingCandidate._id}`, form);
+                const originalNotes = parseCandidateNotes(editingCandidate.notes);
+                const newInitialText = form.notes.trim();
+                
+                let notesJson = editingCandidate.notes;
+                if (originalNotes.length > 0) {
+                    // Update only the first note's text, keeping all other notes intact
+                    const updatedNotes = originalNotes.map((note, idx) => 
+                        idx === 0 ? { ...note, text: newInitialText } : note
+                    );
+                    notesJson = JSON.stringify(updatedNotes);
+                } else if (newInitialText) {
+                    // If no notes existed, create the first note
+                    notesJson = JSON.stringify([{
+                        text: newInitialText,
+                        author: currentUser?.name || currentUser?.username || "System",
+                        date: new Date().toISOString()
+                    }]);
+                } else {
+                    notesJson = "";
+                }
+
+                const payload = {
+                    ...form,
+                    notes: notesJson
+                };
+                const res = await api.put(`/meetings/candidates/${editingCandidate._id}`, payload);
                 setCandidates((prev) =>
                     prev.map((c) => (c._id === editingCandidate._id ? res.data : c))
                 );
                 toast.success("Candidate updated successfully");
             } else {
-                const res = await api.post("/meetings/candidates", form);
+                const payload = {
+                    ...form,
+                    notes: form.notes.trim()
+                        ? JSON.stringify([{
+                            text: form.notes.trim(),
+                            author: currentUser?.name || currentUser?.username || "System",
+                            date: new Date().toISOString()
+                        }])
+                        : ""
+                };
+                const res = await api.post("/meetings/candidates", payload);
                 setCandidates((prev) => [res.data, ...prev]);
                 toast.success("Candidate created successfully");
             }
@@ -214,9 +570,9 @@ export default function Candidates() {
                 {/* ── Header ── */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div>
-                        <h1 className="text-3xl font-bold tracking-tight">Candidate Management</h1>
+                        <h1 className="text-3xl font-bold tracking-tight">HC Candidates</h1>
                         <p className="text-muted-foreground mt-1">
-                            Create and manage internal candidates and job applicants for role hiring.
+                            Create and manage internal HC candidates and job applicants for role hiring.
                         </p>
                     </div>
                     <div className="shrink-0">
@@ -226,7 +582,7 @@ export default function Candidates() {
                             onClick={openCreate}
                         >
                             <Plus size={16} />
-                            Add Candidate
+                            Add HC Candidate
                         </Button>
                     </div>
                 </div>
@@ -240,7 +596,7 @@ export default function Candidates() {
                         </div>
                         <div className="min-w-0">
                             <p className="text-2xl font-bold">{totalCandidates}</p>
-                            <p className="text-xs text-muted-foreground truncate">Total Applicants</p>
+                            <p className="text-xs text-muted-foreground truncate">Total HC Candidates</p>
                         </div>
                     </div>
                     {/* Applied */}
@@ -344,7 +700,8 @@ export default function Candidates() {
                                 </TableRow>
                             ) : (
                                 filtered.map((cand) => (
-                                    <TableRow key={cand._id}>
+                                    <Fragment key={cand._id}>
+                                        <TableRow>
                                         {/* Avatar + Name */}
                                         <TableCell>
                                             <div className="flex items-center gap-3">
@@ -410,13 +767,27 @@ export default function Candidates() {
                                         <TableCell>
                                             <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                                                 <Calendar size={13} />
-                                                {new Date(cand.createdAt).toLocaleDateString()}
+                                                {toESTDate(cand.createdAt).toLocaleDateString()}
                                             </div>
                                         </TableCell>
 
                                         {/* Actions */}
                                         <TableCell className="text-right">
                                             <div className="flex items-center justify-end gap-1">
+                                                <Button
+                                                    id={`notes-candidate-${cand._id}`}
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className={`h-8 w-8 transition-colors ${
+                                                        expandedCandidateId === cand._id 
+                                                            ? 'text-violet-500 bg-violet-500/10' 
+                                                            : 'text-muted-foreground hover:text-foreground'
+                                                    }`}
+                                                    onClick={() => toggleExpand(cand._id)}
+                                                    aria-label="Notes and follow-ups"
+                                                >
+                                                    <MessageSquare size={14} />
+                                                </Button>
                                                 <Button
                                                     id={`edit-candidate-${cand._id}`}
                                                     variant="ghost"
@@ -440,6 +811,229 @@ export default function Candidates() {
                                             </div>
                                         </TableCell>
                                     </TableRow>
+                                    {expandedCandidateId === cand._id && (
+                                        <TableRow className="bg-muted/30 border-t-0 hover:bg-muted/30 transition-all duration-300">
+                                            <TableCell colSpan={6} className="p-6">
+                                                <div className="bg-card border rounded-xl p-5 shadow-inner space-y-6">
+                                                    {/* Custom Tab Switcher */}
+                                                    <div className="flex gap-4 border-b border-border/50 pb-2">
+                                                        <button
+                                                            onClick={() => setActiveTab(cand._id, "notes")}
+                                                            className={`text-sm font-semibold pb-2 border-b-2 transition-all relative ${
+                                                                getActiveTab(cand._id) === "notes"
+                                                                    ? "border-violet-500 text-violet-500 font-bold"
+                                                                    : "border-transparent text-muted-foreground hover:text-foreground"
+                                                            }`}
+                                                        >
+                                                            Notes Log ({parseCandidateNotes(cand.notes).length})
+                                                        </button>
+                                                        <button
+                                                            onClick={() => setActiveTab(cand._id, "followups")}
+                                                            className={`text-sm font-semibold pb-2 border-b-2 transition-all relative ${
+                                                                getActiveTab(cand._id) === "followups"
+                                                                    ? "border-violet-500 text-violet-500 font-bold"
+                                                                    : "border-transparent text-muted-foreground hover:text-foreground"
+                                                            }`}
+                                                        >
+                                                            Follow-ups ({candidateFollowups[cand._id]?.length || 0})
+                                                        </button>
+                                                    </div>
+
+                                                    {/* Tab Contents */}
+                                                    {getActiveTab(cand._id) === "notes" && (
+                                                        <div className="space-y-4">
+                                                            {/* Note List */}
+                                                            <div className="space-y-3 max-h-[250px] overflow-y-auto pr-2 custom-scrollbar">
+                                                                {parseCandidateNotes(cand.notes).length === 0 ? (
+                                                                    <p className="text-sm text-muted-foreground italic">No notes added yet for this candidate.</p>
+                                                                ) : (
+                                                                    parseCandidateNotes(cand.notes).map((note, index) => (
+                                                                        <div key={index} className="bg-muted/40 border border-border/30 rounded-lg p-3 flex justify-between items-center gap-3 relative group">
+                                                                            <div className="flex-1 min-w-0">
+                                                                                <div className="flex justify-between items-center text-xs mb-1">
+                                                                                    <span className="font-semibold text-violet-400">{note.author}</span>
+                                                                                    <span className="text-[10px] text-muted-foreground">{formatAsEST(note.date)}</span>
+                                                                                </div>
+                                                                                <p className="text-sm text-foreground whitespace-pre-wrap">{note.text}</p>
+                                                                            </div>
+                                                                            <button
+                                                                                onClick={() => handleDeleteNote(cand, index)}
+                                                                                className="opacity-0 group-hover:opacity-100 p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded transition-all shrink-0 self-center"
+                                                                                title="Delete Note"
+                                                                            >
+                                                                                <Trash2 size={14} />
+                                                                            </button>
+                                                                        </div>
+                                                                    ))
+                                                                )}
+                                                            </div>
+
+                                                            {/* Add Note Form */}
+                                                            <div className="flex gap-2 items-end pt-2 border-t border-border/40">
+                                                                <div className="flex-1">
+                                                                    <textarea
+                                                                        placeholder="Add a new note..."
+                                                                        value={newNoteText}
+                                                                        onChange={(e) => setNewNoteText(e.target.value)}
+                                                                        className="w-full min-h-[60px] max-h-[120px] rounded-lg border border-border bg-background p-4 text-sm focus:outline-none focus:ring-1 focus:ring-violet-500 text-foreground placeholder:text-muted-foreground"
+                                                                    />
+                                                                </div>
+                                                                <Button
+                                                                    onClick={() => handleAddNote(cand)}
+                                                                    disabled={savingNote || !newNoteText.trim()}
+                                                                    className="bg-violet-600 hover:bg-violet-700 text-white shrink-0 h-10 px-4"
+                                                                >
+                                                                    {savingNote ? "Saving..." : "Add Note"}
+                                                                </Button>
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    {getActiveTab(cand._id) === "followups" && (
+                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                                            {/* Follow-up List */}
+                                                            <div className="space-y-4">
+                                                                <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Scheduled Follow-ups</h4>
+                                                                <div className="space-y-3 max-h-[280px] overflow-y-auto pr-2 custom-scrollbar">
+                                                                    {loadingFollowups[cand._id] ? (
+                                                                        <p className="text-sm text-muted-foreground animate-pulse">Loading follow-ups...</p>
+                                                                    ) : !candidateFollowups[cand._id] || candidateFollowups[cand._id].length === 0 ? (
+                                                                        <p className="text-sm text-muted-foreground italic">No follow-ups scheduled.</p>
+                                                                    ) : (
+                                                                        candidateFollowups[cand._id].map((fu) => (
+                                                                            <div key={fu._id} className={`border rounded-lg p-3 flex justify-between items-start ${
+                                                                                fu.status === 'done'
+                                                                                    ? "bg-emerald-500/5 border-emerald-500/20 opacity-80"
+                                                                                    : "bg-muted/40 border-border/30"
+                                                                            }`}>
+                                                                                <div className="space-y-1 min-w-0">
+                                                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                                                                                            fu.type === 'Call'
+                                                                                                ? "bg-orange-500/10 text-orange-500"
+                                                                                                : fu.type === 'Email'
+                                                                                                    ? "bg-indigo-500/10 text-indigo-500"
+                                                                                                    : "bg-blue-500/10 text-blue-500"
+                                                                                        }`}>
+                                                                                            {fu.type}
+                                                                                        </span>
+                                                                                        {fu.priority && (
+                                                                                            <span className={`text-[9px] font-semibold uppercase px-1.5 py-0.5 rounded ${
+                                                                                                fu.priority === 'High'
+                                                                                                    ? "bg-red-500/10 text-red-500"
+                                                                                                    : fu.priority === 'Medium'
+                                                                                                        ? "bg-amber-500/10 text-amber-500"
+                                                                                                        : "bg-zinc-500/10 text-zinc-400"
+                                                                                            }`}>
+                                                                                                {fu.priority} Priority
+                                                                                            </span>
+                                                                                        )}
+                                                                                        <span className="text-[10px] text-muted-foreground">
+                                                                                            {formatAsEST(fu.date_time)}
+                                                                                        </span>
+                                                                                    </div>
+                                                                                    {fu.title && <p className="text-xs font-semibold text-foreground truncate">{fu.title}</p>}
+                                                                                    <p className="text-xs text-muted-foreground whitespace-pre-wrap">{fu.notes}</p>
+                                                                                </div>
+                                                                                
+                                                                                <div className="flex items-center gap-1 shrink-0 ml-2">
+                                                                                    {fu.status !== 'done' && (
+                                                                                        <button
+                                                                                            onClick={() => handleCompleteFollowup(cand._id, fu._id)}
+                                                                                            className="p-1 hover:bg-emerald-500/10 text-muted-foreground hover:text-emerald-500 rounded transition-colors"
+                                                                                            title="Mark Completed"
+                                                                                        >
+                                                                                            <CheckCircle size={14} />
+                                                                                        </button>
+                                                                                    )}
+                                                                                    <button
+                                                                                        onClick={() => openEditFollowup(cand._id, fu)}
+                                                                                        className="p-1 hover:bg-violet-500/10 text-muted-foreground hover:text-violet-500 rounded transition-colors"
+                                                                                        title="Edit Follow-up"
+                                                                                    >
+                                                                                        <Pencil size={14} />
+                                                                                    </button>
+                                                                                    <button
+                                                                                        onClick={() => handleDeleteFollowup(cand._id, fu._id)}
+                                                                                        className="p-1 hover:bg-red-500/10 text-muted-foreground hover:text-red-500 rounded transition-colors"
+                                                                                        title="Delete Follow-up"
+                                                                                    >
+                                                                                        <Trash2 size={14} />
+                                                                                    </button>
+                                                                                </div>
+                                                                            </div>
+                                                                        ))
+                                                                    )}
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Scheduler Form */}
+                                                            <div className="space-y-4 border-t md:border-t-0 md:border-l border-border/40 pt-4 md:pt-0 md:pl-6">
+                                                                <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Schedule Follow-up</h4>
+                                                                <div className="space-y-3">
+                                                                    <div className="space-y-1">
+                                                                        <Label className="text-xs text-muted-foreground">Date & Time</Label>
+                                                                        <DateTimePicker value={followUpDate} onChange={setFollowUpDate} />
+                                                                    </div>
+                                                                    <div className="grid grid-cols-2 gap-3">
+                                                                        <div className="space-y-1">
+                                                                            <Label className="text-xs text-muted-foreground">Type</Label>
+                                                                            <Select
+                                                                                value={followUpType}
+                                                                                onValueChange={setFollowUpType}
+                                                                            >
+                                                                                <SelectTrigger className="h-9">
+                                                                                    <SelectValue />
+                                                                                </SelectTrigger>
+                                                                                <SelectContent>
+                                                                                    <SelectItem value="Call">Call</SelectItem>
+                                                                                    <SelectItem value="Email">Email</SelectItem>
+                                                                                    <SelectItem value="Meeting">Meeting</SelectItem>
+                                                                                </SelectContent>
+                                                                            </Select>
+                                                                        </div>
+                                                                        <div className="space-y-1">
+                                                                            <Label className="text-xs text-muted-foreground">Priority</Label>
+                                                                            <Select
+                                                                                value={followUpPriority}
+                                                                                onValueChange={setFollowUpPriority}
+                                                                            >
+                                                                                <SelectTrigger className="h-9">
+                                                                                    <SelectValue placeholder="None" />
+                                                                                </SelectTrigger>
+                                                                                <SelectContent>
+                                                                                    <SelectItem value="Low">Low</SelectItem>
+                                                                                    <SelectItem value="Medium">Medium</SelectItem>
+                                                                                    <SelectItem value="High">High</SelectItem>
+                                                                                </SelectContent>
+                                                                            </Select>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="space-y-1">
+                                                                        <Label className="text-xs text-muted-foreground">Instructions / Notes</Label>
+                                                                        <textarea
+                                                                            placeholder="e.g. Call candidate to confirm interview schedule"
+                                                                            value={followUpNotes}
+                                                                            onChange={(e) => setFollowUpNotes(e.target.value)}
+                                                                            className="w-full min-h-[60px] rounded-lg border border-border bg-background p-2 text-sm focus:outline-none focus:ring-1 focus:ring-violet-500"
+                                                                        />
+                                                                    </div>
+                                                                    <Button
+                                                                        onClick={() => handleScheduleFollowup(cand._id)}
+                                                                        disabled={schedulingFollowup || !followUpDate || !followUpNotes.trim()}
+                                                                        className="w-full bg-violet-600 hover:bg-violet-700 text-white h-9"
+                                                                    >
+                                                                        {schedulingFollowup ? "Scheduling..." : "Schedule"}
+                                                                    </Button>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </TableCell>
+                                        </TableRow>
+                                    )}
+                                    </Fragment>
                                 ))
                             )}
                         </TableBody>
@@ -504,32 +1098,256 @@ export default function Candidates() {
                                         <p className="text-muted-foreground mb-1">Created</p>
                                         <div className="flex items-center gap-1.5 text-muted-foreground font-medium mt-1">
                                             <Calendar size={13} />
-                                            {new Date(cand.createdAt).toLocaleDateString()}
+                                            {toESTDate(cand.createdAt).toLocaleDateString()}
                                         </div>
                                     </div>
                                 </div>
-                                <div className="flex items-center justify-end gap-2 pt-1">
+                                <div className="flex items-center justify-between pt-1 border-t border-border/50">
                                     <Button
-                                        id={`edit-candidate-mobile-${cand._id}`}
-                                        variant="outline"
+                                        variant="ghost"
                                         size="sm"
-                                        className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-                                        onClick={() => openEdit(cand)}
+                                        className={`h-8 gap-1.5 text-xs ${
+                                            expandedCandidateId === cand._id 
+                                                ? 'text-violet-500 bg-violet-500/10 font-bold' 
+                                                : 'text-muted-foreground hover:text-foreground'
+                                        }`}
+                                        onClick={() => toggleExpand(cand._id)}
                                     >
-                                        <Pencil size={12} />
-                                        Edit
+                                        <MessageSquare size={13} />
+                                        Notes & Follow-ups
                                     </Button>
-                                    <Button
-                                        id={`delete-candidate-mobile-${cand._id}`}
-                                        variant="outline"
-                                        size="sm"
-                                        className="h-8 gap-1.5 text-xs text-destructive hover:bg-destructive/10 border-destructive/20 hover:border-destructive/30"
-                                        onClick={() => setDeleteTarget(cand)}
-                                    >
-                                        <Trash2 size={12} />
-                                        Delete
-                                    </Button>
+                                    <div className="flex items-center gap-2">
+                                        <Button
+                                            id={`edit-candidate-mobile-${cand._id}`}
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                                            onClick={() => openEdit(cand)}
+                                        >
+                                            <Pencil size={12} />
+                                            Edit
+                                        </Button>
+                                        <Button
+                                            id={`delete-candidate-mobile-${cand._id}`}
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-8 gap-1.5 text-xs text-destructive hover:bg-destructive/10 border-destructive/20 hover:border-destructive/30"
+                                            onClick={() => setDeleteTarget(cand)}
+                                        >
+                                            <Trash2 size={12} />
+                                            Delete
+                                        </Button>
+                                    </div>
                                 </div>
+
+                                {expandedCandidateId === cand._id && (
+                                    <div className="border-t border-border/50 pt-4 mt-2 space-y-4">
+                                        {/* Mobile Tab Switcher */}
+                                        <div className="flex gap-4 border-b border-border/50 pb-2">
+                                            <button
+                                                onClick={() => setActiveTab(cand._id, "notes")}
+                                                className={`text-xs font-semibold pb-1.5 border-b-2 transition-all relative ${
+                                                    getActiveTab(cand._id) === "notes"
+                                                        ? "border-violet-500 text-violet-500 font-bold"
+                                                        : "border-transparent text-muted-foreground hover:text-foreground"
+                                                }`}
+                                            >
+                                                Notes ({parseCandidateNotes(cand.notes).length})
+                                            </button>
+                                            <button
+                                                onClick={() => setActiveTab(cand._id, "followups")}
+                                                className={`text-xs font-semibold pb-1.5 border-b-2 transition-all relative ${
+                                                    getActiveTab(cand._id) === "followups"
+                                                        ? "border-violet-500 text-violet-500 font-bold"
+                                                        : "border-transparent text-muted-foreground hover:text-foreground"
+                                                }`}
+                                            >
+                                                Follow-ups ({candidateFollowups[cand._id]?.length || 0})
+                                            </button>
+                                        </div>
+
+                                        {/* Mobile Tab Contents */}
+                                        {getActiveTab(cand._id) === "notes" && (
+                                            <div className="space-y-4">
+                                                {/* Note List */}
+                                                <div className="space-y-3 max-h-[200px] overflow-y-auto pr-1 custom-scrollbar">
+                                                    {parseCandidateNotes(cand.notes).length === 0 ? (
+                                                        <p className="text-xs text-muted-foreground italic">No notes added yet.</p>
+                                                    ) : (
+                                                        parseCandidateNotes(cand.notes).map((note, index) => (
+                                                            <div key={index} className="bg-muted/40 border border-border/30 rounded-lg p-2.5 flex justify-between items-center gap-2 relative group">
+                                                                <div className="flex-1 min-w-0">
+                                                                    <div className="flex justify-between items-center text-[10px] mb-0.5">
+                                                                        <span className="font-semibold text-violet-400">{note.author}</span>
+                                                                        <span className="text-[9px] text-muted-foreground">{formatAsEST(note.date)}</span>
+                                                                    </div>
+                                                                    <p className="text-xs text-foreground whitespace-pre-wrap">{note.text}</p>
+                                                                </div>
+                                                                <button
+                                                                    onClick={() => handleDeleteNote(cand, index)}
+                                                                    className="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded transition-all shrink-0 self-center"
+                                                                    title="Delete Note"
+                                                                >
+                                                                    <Trash2 size={12} />
+                                                                </button>
+                                                            </div>
+                                                        ))
+                                                    )}
+                                                </div>
+
+                                                <div className="flex gap-2 items-end pt-2 border-t border-border/40 font-normal">
+                                                    <div className="flex-1">
+                                                        <textarea
+                                                            placeholder="Add a new note..."
+                                                            value={newNoteText}
+                                                            onChange={(e) => setNewNoteText(e.target.value)}
+                                                            className="w-full min-h-[50px] max-h-[100px] rounded-lg border border-border bg-background p-3.5 text-xs focus:outline-none focus:ring-1 focus:ring-violet-500 text-foreground placeholder:text-muted-foreground"
+                                                        />
+                                                    </div>
+                                                    <Button
+                                                        onClick={() => handleAddNote(cand)}
+                                                        disabled={savingNote || !newNoteText.trim()}
+                                                        className="bg-violet-600 hover:bg-violet-700 text-white shrink-0 h-9 px-3 text-xs"
+                                                    >
+                                                        Add
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {getActiveTab(cand._id) === "followups" && (
+                                            <div className="space-y-4">
+                                                {/* Follow-up List */}
+                                                <div className="space-y-3">
+                                                    <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Scheduled Follow-ups</h4>
+                                                    <div className="space-y-2.5 max-h-[200px] overflow-y-auto pr-1 custom-scrollbar">
+                                                        {loadingFollowups[cand._id] ? (
+                                                            <p className="text-xs text-muted-foreground animate-pulse">Loading...</p>
+                                                        ) : !candidateFollowups[cand._id] || candidateFollowups[cand._id].length === 0 ? (
+                                                            <p className="text-xs text-muted-foreground italic">No follow-ups.</p>
+                                                        ) : (
+                                                            candidateFollowups[cand._id].map((fu) => (
+                                                                <div key={fu._id} className={`border rounded-lg p-2.5 flex justify-between items-start ${
+                                                                    fu.status === 'done'
+                                                                        ? "bg-emerald-500/5 border-emerald-500/20 opacity-80"
+                                                                        : "bg-muted/40 border-border/30"
+                                                                }`}>
+                                                                    <div className="space-y-1 min-w-0">
+                                                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                                                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                                                                                fu.type === 'Call'
+                                                                                    ? "bg-orange-500/10 text-orange-500"
+                                                                                    : fu.type === 'Email'
+                                                                                        ? "bg-indigo-500/10 text-indigo-500"
+                                                                                        : "bg-blue-500/10 text-blue-500"
+                                                                            }`}>
+                                                                                {fu.type}
+                                                                            </span>
+                                                                            {fu.priority && (
+                                                                                <span className="text-[8px] font-semibold uppercase px-1 py-0.2 bg-zinc-500/10 text-zinc-400 rounded">
+                                                                                    {fu.priority}
+                                                                                </span>
+                                                                            )}
+                                                                            <span className="text-[9px] text-muted-foreground">
+                                                                                {formatAsEST(fu.date_time)}
+                                                                            </span>
+                                                                        </div>
+                                                                        <p className="text-xs text-muted-foreground whitespace-pre-wrap">{fu.notes}</p>
+                                                                    </div>
+                                                                    
+                                                                    <div className="flex items-center gap-0.5 shrink-0 ml-1">
+                                                                        {fu.status !== 'done' && (
+                                                                            <button
+                                                                                onClick={() => handleCompleteFollowup(cand._id, fu._id)}
+                                                                                className="p-1 hover:bg-emerald-500/10 text-muted-foreground hover:text-emerald-500 rounded transition-colors"
+                                                                            >
+                                                                                <CheckCircle size={12} />
+                                                                            </button>
+                                                                        )}
+                                                                        <button
+                                                                            onClick={() => openEditFollowup(cand._id, fu)}
+                                                                            className="p-1 hover:bg-violet-500/10 text-muted-foreground hover:text-violet-500 rounded transition-colors"
+                                                                            title="Edit"
+                                                                        >
+                                                                            <Pencil size={12} />
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={() => handleDeleteFollowup(cand._id, fu._id)}
+                                                                            className="p-1 hover:bg-red-500/10 text-muted-foreground hover:text-red-500 rounded transition-colors"
+                                                                        >
+                                                                            <Trash2 size={12} />
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                            ))
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                {/* Scheduler Form */}
+                                                <div className="space-y-3 pt-3 border-t border-border/40">
+                                                    <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Schedule Follow-up</h4>
+                                                    <div className="space-y-2.5">
+                                                        <div className="space-y-1">
+                                                            <Label className="text-[10px] text-muted-foreground">Date & Time</Label>
+                                                            <DateTimePicker value={followUpDate} onChange={setFollowUpDate} size="sm" />
+                                                        </div>
+                                                        <div className="grid grid-cols-2 gap-2">
+                                                            <div className="space-y-1">
+                                                                <Label className="text-[10px] text-muted-foreground">Type</Label>
+                                                                <Select
+                                                                    value={followUpType}
+                                                                    onValueChange={setFollowUpType}
+                                                                >
+                                                                    <SelectTrigger className="h-8 text-xs">
+                                                                        <SelectValue />
+                                                                    </SelectTrigger>
+                                                                    <SelectContent>
+                                                                        <SelectItem value="Call">Call</SelectItem>
+                                                                        <SelectItem value="Email">Email</SelectItem>
+                                                                        <SelectItem value="Meeting">Meeting</SelectItem>
+                                                                    </SelectContent>
+                                                                </Select>
+                                                            </div>
+                                                            <div className="space-y-1">
+                                                                <Label className="text-[10px] text-muted-foreground">Priority</Label>
+                                                                <Select
+                                                                    value={followUpPriority}
+                                                                    onValueChange={setFollowUpPriority}
+                                                                >
+                                                                    <SelectTrigger className="h-8 text-xs">
+                                                                        <SelectValue placeholder="None" />
+                                                                    </SelectTrigger>
+                                                                    <SelectContent>
+                                                                        <SelectItem value="Low">Low</SelectItem>
+                                                                        <SelectItem value="Medium">Medium</SelectItem>
+                                                                        <SelectItem value="High">High</SelectItem>
+                                                                    </SelectContent>
+                                                                </Select>
+                                                            </div>
+                                                        </div>
+                                                        <div className="space-y-1">
+                                                            <Label className="text-[10px] text-muted-foreground">Instructions / Notes</Label>
+                                                            <textarea
+                                                                placeholder="e.g. Call candidate to confirm..."
+                                                                value={followUpNotes}
+                                                                onChange={(e) => setFollowUpNotes(e.target.value)}
+                                                                className="w-full min-h-[50px] rounded-lg border border-border bg-background p-2 text-xs focus:outline-none focus:ring-1 focus:ring-violet-500"
+                                                            />
+                                                        </div>
+                                                        <Button
+                                                            onClick={() => handleScheduleFollowup(cand._id)}
+                                                            disabled={schedulingFollowup || !followUpDate || !followUpNotes.trim()}
+                                                            className="w-full bg-violet-600 hover:bg-violet-700 text-white h-8 text-xs"
+                                                        >
+                                                            {schedulingFollowup ? "Scheduling..." : "Schedule"}
+                                                        </Button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                             </div>
                         ))
                     )}
@@ -538,23 +1356,23 @@ export default function Candidates() {
 
             {/* ── Add / Edit Candidate Modal ── */}
             <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-                <DialogContent className="sm:max-w-md">
+                <DialogContent aria-describedby={undefined} className="sm:max-w-md">
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
                             {editingCandidate ? (
                                 <>
                                     <Pencil size={16} className="text-violet-500" />
-                                    Edit Candidate
+                                    Edit HC Candidate
                                 </>
                             ) : (
                                 <>
                                     <Plus size={16} className="text-violet-500" />
-                                    Add Candidate
+                                    Add HC Candidate
                                 </>
                             )}
                         </DialogTitle>
                         <DialogDescription>
-                            {editingCandidate ? "Update the candidate's details." : "Add a new candidate."}
+                            {editingCandidate ? "Update the HC candidate's details." : "Add a new HC candidate."}
                         </DialogDescription>
                     </DialogHeader>
 
@@ -631,11 +1449,12 @@ export default function Candidates() {
                         {/* Notes */}
                         <div className="space-y-1.5">
                             <Label htmlFor="cand-notes">Notes</Label>
-                            <Input
+                            <textarea
                                 id="cand-notes"
                                 placeholder="Interview performance, references, etc."
                                 value={form.notes}
                                 onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                                className="w-full min-h-[80px] rounded-lg border border-border bg-background p-3 text-sm focus:outline-none focus:ring-1 focus:ring-violet-500 text-foreground placeholder:text-muted-foreground"
                             />
                         </div>
                     </div>
@@ -662,7 +1481,7 @@ export default function Candidates() {
                                 </>
                             ) : (
                                 <>
-                                    <Plus size={14} /> Add Candidate
+                                    <Plus size={14} /> Add HC Candidate
                                 </>
                             )}
                         </Button>
@@ -670,16 +1489,166 @@ export default function Candidates() {
                 </DialogContent>
             </Dialog>
 
+            {/* ── Candidate Note Delete Confirmation ── */}
+            <AlertDialog open={!!noteDeleteTarget} onOpenChange={(open) => !open && setNoteDeleteTarget(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle className="flex items-center gap-2">
+                            <Trash2 size={16} className="text-destructive" />
+                            Delete Note?
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Are you sure you want to delete this note? This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={deletingNote}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            id="btn-confirm-delete-note"
+                            onClick={confirmDeleteNote}
+                            disabled={deletingNote}
+                            className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+                        >
+                            {deletingNote ? "Deleting…" : "Yes, Delete"}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            {/* ── Conflict Dialog ── */}
+            <AlertDialog open={conflictDialogOpen} onOpenChange={(open) => { if (!open) { setConflictDialogOpen(false); setConflictCandidateId(null); } }}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle className="flex items-center gap-2">
+                            <AlertTriangle size={16} className="text-amber-500" />
+                            Scheduling Conflict
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                            {conflictMessage || "Another follow-up is already scheduled at this time."} Do you want to schedule anyway and override the conflict?
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel onClick={() => { setConflictDialogOpen(false); setConflictCandidateId(null); }}>
+                            Cancel
+                        </AlertDialogCancel>
+                        <AlertDialogAction
+                            id="btn-force-schedule-followup"
+                            onClick={handleForceScheduleFollowup}
+                            className="bg-amber-600 hover:bg-amber-700 text-white"
+                        >
+                            Schedule Anyway
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            {/* ── Edit Follow-up Dialog ── */}
+            <Dialog open={!!editingFollowup} onOpenChange={(open) => { if (!open) { setEditingFollowup(null); setEditFollowupCandId(null); } }}>
+                <DialogContent aria-describedby={undefined} className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <Pencil size={16} className="text-violet-500" />
+                            Edit Follow-up
+                        </DialogTitle>
+                        <DialogDescription>
+                            Update the details of this follow-up.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-2">
+                        <div className="space-y-1.5">
+                            <Label>Date &amp; Time</Label>
+                            <DateTimePicker value={editFollowUpDate} onChange={setEditFollowUpDate} />
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1.5">
+                                <Label>Type</Label>
+                                <Select value={editFollowUpType} onValueChange={setEditFollowUpType}>
+                                    <SelectTrigger className="h-9">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="Call">Call</SelectItem>
+                                        <SelectItem value="Email">Email</SelectItem>
+                                        <SelectItem value="Meeting">Meeting</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="space-y-1.5">
+                                <Label>Priority</Label>
+                                <Select value={editFollowUpPriority} onValueChange={setEditFollowUpPriority}>
+                                    <SelectTrigger className="h-9">
+                                        <SelectValue placeholder="None" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="Low">Low</SelectItem>
+                                        <SelectItem value="Medium">Medium</SelectItem>
+                                        <SelectItem value="High">High</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </div>
+                        <div className="space-y-1.5">
+                            <Label>Instructions / Notes</Label>
+                            <textarea
+                                placeholder="e.g. Call candidate to confirm interview schedule"
+                                value={editFollowUpNotes}
+                                onChange={(e) => setEditFollowUpNotes(e.target.value)}
+                                className="w-full min-h-[80px] rounded-lg border border-border bg-background p-3 text-sm focus:outline-none focus:ring-1 focus:ring-violet-500 text-foreground placeholder:text-muted-foreground"
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter className="gap-2">
+                        <Button variant="outline" onClick={() => { setEditingFollowup(null); setEditFollowupCandId(null); }} disabled={savingEditFollowup}>
+                            Cancel
+                        </Button>
+                        <Button
+                            id="btn-save-edit-followup"
+                            onClick={handleSaveEditFollowup}
+                            disabled={savingEditFollowup || !editFollowUpDate}
+                            className="gap-2 bg-violet-600 hover:bg-violet-700 text-white"
+                        >
+                            {savingEditFollowup ? "Saving…" : <><Pencil size={14} /> Save Changes</>}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* ── Delete Follow-up Confirmation ── */}
+            <AlertDialog open={!!followupDeleteTarget} onOpenChange={(open) => !open && setFollowupDeleteTarget(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle className="flex items-center gap-2">
+                            <Trash2 size={16} className="text-destructive" />
+                            Delete Follow-up?
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Are you sure you want to delete this follow-up? This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={deletingFollowup}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            id="btn-confirm-delete-followup"
+                            onClick={confirmDeleteFollowup}
+                            disabled={deletingFollowup}
+                            className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+                        >
+                            {deletingFollowup ? "Deleting…" : "Yes, Delete"}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
             {/* ── Candidate Delete Confirmation ── */}
             <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
                         <AlertDialogTitle className="flex items-center gap-2">
                             <Trash2 size={16} className="text-destructive" />
-                            Remove Candidate?
+                            Remove HC Candidate?
                         </AlertDialogTitle>
                         <AlertDialogDescription>
-                            This will permanently delete candidate{" "}
+                            This will permanently delete HC candidate{" "}
                             <strong>{deleteTarget?.name}</strong> from the database.
                             This action cannot be undone.
                         </AlertDialogDescription>

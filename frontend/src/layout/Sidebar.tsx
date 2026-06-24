@@ -27,14 +27,14 @@ import { can } from "../utils/permissions";
 const topNavItems = [
   { to: "/dashboard",       label: "Dashboard",       icon: LayoutDashboard },
   { to: "/campaigns",       label: "Campaigns",       icon: Megaphone },
-  // { to: "/calendar",     label: "Calendar",        icon: CalendarDays },
+  { to: "/calendar",     label: "Calendar",        icon: CalendarDays },
   { to: "/followups",       label: "Follow Ups",      icon: Clock },
   { to: "/tasks",           label: "Tasks",           icon: CheckSquare },
   { to: "/meetings/school", label: "School Meetings", icon: School },
   { to: "/meetings/hr",     label: "HR Meetings",     icon: Building2 },
   { to: "/reports",         label: "Reports",         icon: BarChart3 },
   { to: "/lead-scheduler",  label: "Lead Scheduler",  icon: UserCheck },
-  { to: "/candidates",      label: "Candidates",      icon: UserPlus },
+  { to: "/candidates",      label: "HC Candidates",      icon: UserPlus },
   // { to: "/history",      label: "History",         icon: History },
   { to: "/team",            label: "Team",            icon: Users },
 ];
@@ -61,7 +61,7 @@ export default function Sidebar() {
     if (item.to === '/lead-scheduler') return permissions.assignToOthers;
     if (item.to === '/candidates') return permissions.assignToOthers; // admin + manager only
     if (item.to === '/history') return permissions.assignToOthers;
-    if (item.to === '/meetings/hr') return permissions.createEdit; // admin, manager, sales_rep
+    if (item.to === '/meetings/hr') return true;
     return true;
   });
 

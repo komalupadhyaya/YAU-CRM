@@ -16,8 +16,14 @@ router.get('/grouped', auth, requireRole(...allRoles), followupController.getGro
 // Get follow-ups for a lead — all roles can view
 router.get('/lead/:schoolId', auth, requireRole(...allRoles), followupController.getFollowupsBySchool);
 
+// Get follow-ups for a candidate — all roles can view
+router.get('/candidate/:candidateId', auth, requireRole(...allRoles), followupController.getFollowupsByCandidate);
+
 // Create follow-up — view_only cannot create
 router.post('/:schoolId', auth, requireRole(...canWrite), followupController.createFollowup);
+
+// Create follow-up for a candidate — view_only cannot create
+router.post('/candidate/:candidateId', auth, requireRole(...canWrite), followupController.createCandidateFollowup);
 
 // Complete follow-up — view_only cannot complete
 router.put('/:id/complete', auth, requireRole(...canWrite), followupController.completeFollowup);

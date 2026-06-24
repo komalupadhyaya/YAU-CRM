@@ -31,6 +31,9 @@ export const getAvailability = async (req, res, next) => {
                     saturday:  { enabled: false, start: null, end: null },
                     sunday:    { enabled: false, start: null, end: null }
                 },
+                date_range_start: null,
+                date_range_end: null,
+                custom_schedule: [],
                 blocked_dates: []
             });
         }
@@ -49,7 +52,7 @@ export const getAvailability = async (req, res, next) => {
 export const setAvailability = async (req, res, next) => {
     try {
         const { userId } = req.params;
-        const { weekly_schedule, blocked_dates } = req.body;
+        const { weekly_schedule, blocked_dates, date_range_start, date_range_end, custom_schedule } = req.body;
 
         // Permission check: user can only update their own availability unless admin
         if (req.currentUserRole !== 'admin' && req.user.id !== userId) {
@@ -68,7 +71,10 @@ export const setAvailability = async (req, res, next) => {
             {
                 user_id: userId,
                 weekly_schedule: weekly_schedule || {},
-                blocked_dates: blocked_dates || []
+                blocked_dates: blocked_dates || [],
+                date_range_start: date_range_start || null,
+                date_range_end: date_range_end || null,
+                custom_schedule: custom_schedule || []
             },
             { upsert: true, new: true, runValidators: true }
         );

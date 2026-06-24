@@ -167,17 +167,19 @@ export const getDashboardStats = async (req, res, next) => {
                 select: 'name telephone campaign_id assigned_to',
                 populate: { path: 'campaign_id', select: 'name' }
             })
+            .populate('candidate_id', 'name email phone')
             .sort({ date_time: 1 });
 
         let flatAll = all.map(f => {
             const data = f.toJSON();
             return {
                 ...data,
-                lead_name: data.lead_id?.name,
+                lead_name: data.lead_id?.name || data.candidate_id?.name,
                 lead_id_val: data.lead_id?._id,
-                telephone: data.lead_id?.telephone,
-                campaign_name: data.lead_id?.campaign_id?.name,
-                campaign_id_val: data.lead_id?.campaign_id?._id
+                candidate_id_val: data.candidate_id?._id,
+                telephone: data.lead_id?.telephone || data.candidate_id?.phone,
+                campaign_name: data.lead_id?.campaign_id?.name || "HC Candidates",
+                campaign_id_val: data.lead_id?.campaign_id?._id || "candidate"
             };
         });
 

@@ -610,7 +610,7 @@ export default function Team() {
 
             {/* ── Add / Edit Team Member Modal ── */}
             <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-                <DialogContent className="sm:max-w-md">
+                <DialogContent aria-describedby={undefined} className="sm:max-w-md">
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
                             {editingUser ? (

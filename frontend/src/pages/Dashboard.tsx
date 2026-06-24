@@ -25,6 +25,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { DateTimePicker } from "@/components/ui/datetime-picker";
+import { toESTDate } from "../utils/timezoneHelper";
 
 interface Campaign {
   _id: string;
@@ -766,7 +768,7 @@ export default function Dashboard() {
                       <p className="text-xs font-bold truncate">{f.lead_name}</p>
                       {f.title && <p className="text-[10px] font-semibold text-foreground truncate mt-0.5">{f.title}</p>}
                       <p className="text-[10px] text-muted-foreground truncate mt-0.5">{f.notes}</p>
-                      <p className="text-[9px] font-medium opacity-70 mt-1">{new Date(f.date_time).toLocaleString()}</p>
+                      <p className="text-[9px] font-medium opacity-70 mt-1">{toESTDate(f.date_time).toLocaleString()}</p>
                     </div>
                     {!isReadOnly && (
                       <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -944,16 +946,14 @@ export default function Dashboard() {
                     <label className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider flex items-center gap-1.5">
                       <Calendar size={12} /> Next Follow-up
                     </label>
-                    <input
-                        id="input-datetime-local-45"
-                        name="input-datetime-local-45" 
-                      type="datetime-local" 
-                      className={`input-field h-10 text-xs dark:color-scheme-dark ${quickFollowUpErrors.date ? "border-destructive focus:ring-destructive/20" : ""}`}
-                      value={followUpDate} 
-                      onChange={e => {
-                        setFollowUpDate(e.target.value);
-                        if (e.target.value) setQuickFollowUpErrors({...quickFollowUpErrors, date: ""});
-                      }} 
+                    <DateTimePicker
+                      id="input-datetime-local-45"
+                      size="sm"
+                      value={followUpDate}
+                      onChange={(val) => {
+                        setFollowUpDate(val);
+                        if (val) setQuickFollowUpErrors({...quickFollowUpErrors, date: ""});
+                      }}
                     />
                   </div>
                 </div>
@@ -1199,7 +1199,7 @@ export default function Dashboard() {
           }
         }}
       >
-        <DialogContent aria-describedby={undefined} className="w-[90vw] max-w-md dark:bg-card max-h-[90vh] overflow-y-auto custom-scrollbar">
+        <DialogContent aria-describedby={undefined} className="w-[90vw] sm:max-w-lg dark:bg-card">
           <DialogHeader>
             <DialogTitle className="dark:text-foreground">Edit Follow-up</DialogTitle>
           </DialogHeader>
@@ -1218,14 +1218,10 @@ export default function Dashboard() {
             </div>
             <div className="grid gap-2">
               <label htmlFor="edit-date" className="text-sm font-medium">Follow-up Time <span className="text-destructive">*</span></label>
-              <input
+              <DateTimePicker
                 id="edit-date"
-                type="datetime-local"
-                name="date"
-                className={`input-field dark:bg-card dark:color-scheme-dark`}
                 value={followUpDate || ""}
-                onChange={(e) => setFollowUpDate(e.target.value)}
-                required
+                onChange={setFollowUpDate}
               />
             </div>
             <div className="grid grid-cols-2 gap-4 items-start">

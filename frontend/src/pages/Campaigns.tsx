@@ -162,6 +162,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { DateTimePicker } from "@/components/ui/datetime-picker";
+import { toESTDate } from "../utils/timezoneHelper";
 
 // --- Helpers ---
 const formatTimeForInput = (timeStr?: string) => {
@@ -827,7 +829,7 @@ const Campaigns = () => {
         } else {
           try {
             await api.post(`/notes/${selectedLead._id}`, {
-              content: `The ${followUpType} scheduled for ${new Date(followUpDate).toLocaleString()} was CANCELED due to a calendar conflict.`
+              content: `The ${followUpType} scheduled for ${toESTDate(followUpDate).toLocaleString()} was CANCELED due to a calendar conflict.`
             });
             fetchDetails(selectedLead._id, true);
           } catch (noteErr) {
@@ -1060,7 +1062,7 @@ const Campaigns = () => {
         } else {
           try {
             await api.post("/notes/" + selectedLead?._id, {
-              content: `The meeting "${meetingData.title}" scheduled for ${new Date(meetingData.date_time).toLocaleString()} was CANCELED due to a calendar conflict.`
+              content: `The meeting "${meetingData.title}" scheduled for ${toESTDate(meetingData.date_time).toLocaleString()} was CANCELED due to a calendar conflict.`
             });
             if (selectedLead) fetchDetails(selectedLead._id, true);
           } catch (noteErr) {
@@ -1669,7 +1671,7 @@ const Campaigns = () => {
                             <div className="flex items-center justify-between">
                               <div className="flex items-center justify-center gap-2">
                                 <span className="text-[8px] uppercase tracking-widest font-bold bg-primary/10 text-primary px-1.5 py-0.5 rounded">{f.type || 'Task'}</span>
-                                <span className="text-[9px] font-bold text-foreground">{new Date(f.date_time).toLocaleString()}</span>
+                                <span className="text-[9px] font-bold text-foreground">{toESTDate(f.date_time).toLocaleString()}</span>
                               </div>
                               {!permissions.isReadOnly && (
                                 <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -1786,7 +1788,7 @@ const Campaigns = () => {
           setEditingFollowUp(null);
         }
       }}>
-        <DialogContent aria-describedby={undefined} className="sm:max-w-md dark:bg-card max-h-[90vh] overflow-y-auto custom-scrollbar">
+        <DialogContent aria-describedby={undefined} className="w-[90vw] sm:max-w-lg dark:bg-card">
           <DialogHeader><DialogTitle className="dark:text-foreground">{editingFollowUp ? "Edit Follow-up" : "Schedule Follow-up"}</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-1.5">
@@ -1803,15 +1805,11 @@ const Campaigns = () => {
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-bold uppercase text-muted-foreground">Date & Time *</label>
-              <input
-                  id="input-datetime-local-10"
-                  name="input-datetime-local-10"
-              
-                type="datetime-local"
-                className={`input-field dark:color-scheme-dark ${fuErrors.date ? "border-destructive focus:ring-destructive/20" : ""}`}
-                value={followUpDate}
-                onChange={e => {
-                  setFollowUpDate(e.target.value);
+              <DateTimePicker
+                id="input-datetime-local-10"
+                value={followUpDate || ""}
+                onChange={val => {
+                  setFollowUpDate(val);
                   if (fuErrors.date) setFuErrors(prev => ({ ...prev, date: "" }));
                 }}
               />
@@ -2695,17 +2693,14 @@ const Campaigns = () => {
 
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold uppercase text-muted-foreground">Date & Time *</label>
-                    <input
-                        id="input-datetime-local-22"
-                        name="input-datetime-local-22"
-                    
-                      type="datetime-local"
-                      className={`input-field dark:color-scheme-dark ${fuErrors.date ? "border-destructive focus:ring-destructive/20" : ""}`}
-                      value={followUpDate}
-                      onChange={e => {
-                        setFollowUpDate(e.target.value);
-                        if (fuErrors.date) setFuErrors(prev => ({ ...prev, date: "" }));
+                    <DateTimePicker
+                      id="input-datetime-local-22"
+                      value={followUpDate || ""}
+                      onChange={val => {
+                        setFollowUpDate(val);
+                        if (val) setFuErrors(prev => ({ ...prev, date: "" }));
                       }}
+                      className={fuErrors.date ? "border-destructive focus:ring-destructive/20" : ""}
                     />
                     {fuErrors.date && <p className="text-[10px] text-destructive font-medium">{fuErrors.date}</p>}
                   </div>
@@ -2980,17 +2975,14 @@ const Campaigns = () => {
               </div>
               <div className="grid gap-2">
                 <label className="text-sm font-medium">Date & Time <span className="text-destructive">*</span></label>
-                <input
-                    id="input-datetime-local-31"
-                    name="input-datetime-local-31"
-                
-                  type="datetime-local"
-                  className={`input-field dark:color-scheme-dark ${meetingErrors.date_time ? "border-destructive focus:border-destructive focus:ring-destructive/20" : ""}`}
-                  value={meetingData.date_time}
-                  onChange={e => {
-                    setMeetingData({ ...meetingData, date_time: e.target.value });
-                    if (e.target.value) setMeetingErrors({ ...meetingErrors, date_time: "" });
+                <DateTimePicker
+                  id="input-datetime-local-31"
+                  value={meetingData.date_time || ""}
+                  onChange={val => {
+                    setMeetingData({ ...meetingData, date_time: val });
+                    if (val) setMeetingErrors({ ...meetingErrors, date_time: "" });
                   }}
+                  className={meetingErrors.date_time ? "border-destructive focus:border-destructive focus:ring-destructive/20" : ""}
                 />
                 {meetingErrors.date_time && <p className="text-xs text-destructive font-medium">{meetingErrors.date_time}</p>}
               </div>

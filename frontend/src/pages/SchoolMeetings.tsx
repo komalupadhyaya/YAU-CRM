@@ -11,7 +11,9 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "../context/AuthContext";
 import { can } from "../utils/permissions";
+import { getESTDateParts, formatDateToESTString, toESTDateTimeString, format24hTimeTo12h, toESTDate } from "../utils/timezoneHelper";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { DateTimePicker } from "@/components/ui/datetime-picker";
 import {
     AlertDialog,
     AlertDialogAction,
@@ -83,19 +85,16 @@ const STATUS_CONFIG = {
 };
 
 const formatDateTime = (d: string) =>
-    new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+    toESTDate(d).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
 
 const toLocalDateTimeString = (dateOrStr: string | Date | undefined | null) => {
-    if (!dateOrStr) return '';
-    const date = new Date(dateOrStr);
-    if (isNaN(date.getTime())) return '';
-    return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    return toESTDateTimeString(dateOrStr);
 };
 
 function StatusBadge({ status }: { status: Meeting['status'] }) {
     const cfg = STATUS_CONFIG[status] || STATUS_CONFIG.scheduled;
     return (
-        <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${cfg.bg} ${cfg.color} ${cfg.border}`}>
+        <span className={`w-fit inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${cfg.bg} ${cfg.color} ${cfg.border}`}>
             {cfg.label}
         </span>
     );
@@ -411,30 +410,50 @@ function AvailabilityCalendarModal({
         setCurrentMonth(new Date(year, month + 1, 1));
     };
 
+    const isOutsideActiveRange = (date: Date) => {
+        if (internalAttendees.length === 0 || !availabilityData) return false;
+        const dStr = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
+        return internalAttendees.some(attendee => {
+            const sched = availabilityData.schedules[attendee._id];
+            if (sched && sched.date_range_start && sched.date_range_end) {
+                return dStr < sched.date_range_start || dStr > sched.date_range_end;
+            }
+            return false;
+        });
+    };
+
     // Calculate availability details for a given date
     const getDateAvailability = (date: Date) => {
         if (internalAttendees.length === 0) return { status: 'neutral', availableCount: 0 };
         if (!availabilityData) return { status: 'loading', availableCount: 0 };
 
-        const dayName = DAY_NAMES[date.getDay()];
+        const dStr = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
+        const est = getESTDateParts(date);
+        const dayName = est.weekday;
         let availableCount = 0;
 
         for (const attendee of internalAttendees) {
             const sched = availabilityData.schedules[attendee._id];
             if (!sched) continue;
 
-            const daySched = sched.weekly_schedule?.[dayName];
-            if (!daySched?.enabled) continue;
-
             const isBlocked = sched.blocked_dates?.some((bd: string) => {
-                const b = new Date(bd);
-                return b.getFullYear() === date.getFullYear() &&
-                       b.getMonth() === date.getMonth() &&
-                       b.getDate() === date.getDate();
+                return bd.slice(0, 10) === dStr;
             });
+            if (isBlocked) continue;
 
-            if (!isBlocked) {
-                availableCount++;
+            if (sched.date_range_start && sched.date_range_end) {
+                if (dStr < sched.date_range_start || dStr > sched.date_range_end) {
+                    continue;
+                }
+                const override = (sched.custom_schedule || []).find((cs: any) => cs.date === dStr);
+                if (override && override.enabled && override.slots && override.slots.length > 0) {
+                    availableCount++;
+                }
+            } else {
+                const daySched = sched.weekly_schedule?.[dayName];
+                if (daySched?.enabled) {
+                    availableCount++;
+                }
             }
         }
 
@@ -451,7 +470,9 @@ function AvailabilityCalendarModal({
     // Calculate free timeslots for selectedDate
     const timeSlots = useMemo(() => {
         if (!selectedDate || !availabilityData || internalAttendees.length === 0) return [];
-        const dayName = DAY_NAMES[selectedDate.getDay()];
+        const dStr = `${selectedDate.getFullYear()}-${(selectedDate.getMonth() + 1).toString().padStart(2, '0')}-${selectedDate.getDate().toString().padStart(2, '0')}`;
+        const est = getESTDateParts(selectedDate);
+        const dayName = est.weekday;
 
         // Free intervals list for each attendee
         let attendeeIntervalsList: { start: number; end: number }[][] = [];
@@ -460,17 +481,8 @@ function AvailabilityCalendarModal({
             const sched = availabilityData.schedules[attendee._id];
             if (!sched) continue;
 
-            const daySched = sched.weekly_schedule?.[dayName];
-            if (!daySched?.enabled) {
-                attendeeIntervalsList.push([]);
-                continue;
-            }
-
             const isBlocked = sched.blocked_dates?.some((bd: string) => {
-                const b = new Date(bd);
-                return b.getFullYear() === selectedDate.getFullYear() &&
-                       b.getMonth() === selectedDate.getMonth() &&
-                       b.getDate() === selectedDate.getDate();
+                return bd.slice(0, 10) === dStr;
             });
 
             if (isBlocked) {
@@ -479,12 +491,32 @@ function AvailabilityCalendarModal({
             }
 
             let slots: { start: string; end: string }[] = [];
-            if (daySched.slots && daySched.slots.length > 0) {
-                slots = daySched.slots;
-            } else if (daySched.start && daySched.end) {
-                slots = [{ start: daySched.start, end: daySched.end }];
+            if (sched.date_range_start && sched.date_range_end) {
+                if (dStr < sched.date_range_start || dStr > sched.date_range_end) {
+                    attendeeIntervalsList.push([]);
+                    continue;
+                }
+                const override = (sched.custom_schedule || []).find((cs: any) => cs.date === dStr);
+                if (override && override.enabled && override.slots && override.slots.length > 0) {
+                    slots = override.slots;
+                } else {
+                    attendeeIntervalsList.push([]);
+                    continue;
+                }
             } else {
-                slots = [{ start: '09:00', end: '17:00' }];
+                const daySched = sched.weekly_schedule?.[dayName];
+                if (!daySched?.enabled) {
+                    attendeeIntervalsList.push([]);
+                    continue;
+                }
+
+                if (daySched.slots && daySched.slots.length > 0) {
+                    slots = daySched.slots;
+                } else if (daySched.start && daySched.end) {
+                    slots = [{ start: daySched.start, end: daySched.end }];
+                } else {
+                    slots = [{ start: '09:00', end: '17:00' }];
+                }
             }
 
             let freeIntervals = slots.map(s => ({
@@ -495,9 +527,7 @@ function AvailabilityCalendarModal({
             // Subtract existing meetings
             const dateMeetings = availabilityData.meetings.filter(m => {
                 const mDate = new Date(m.date_time);
-                const sameDay = mDate.getFullYear() === selectedDate.getFullYear() &&
-                                mDate.getMonth() === selectedDate.getMonth() &&
-                                mDate.getDate() === selectedDate.getDate();
+                const sameDay = formatDateToESTString(mDate) === dStr;
                 const hasAttendee = m.internal_attendees?.some((uid: any) => 
                     (typeof uid === 'string' ? uid : uid._id) === attendee._id
                 );
@@ -506,7 +536,8 @@ function AvailabilityCalendarModal({
 
             for (const m of dateMeetings) {
                 const mDate = new Date(m.date_time);
-                const startMin = mDate.getHours() * 60 + mDate.getMinutes();
+                const mParts = getESTDateParts(mDate);
+                const startMin = mParts.hour * 60 + mParts.minute;
                 const endMin = startMin + m.duration_minutes;
                 freeIntervals = subtractInterval(freeIntervals, startMin, endMin);
             }
@@ -567,7 +598,7 @@ function AvailabilityCalendarModal({
             if (!daySched?.enabled) return { name: attendee.name, status: 'Not working today', color: 'text-zinc-400' };
 
             const isBlocked = sched.blocked_dates?.some((bd: string) => {
-                const b = new Date(bd);
+                const b = toESTDate(bd);
                 return b.getFullYear() === selectedDate.getFullYear() &&
                        b.getMonth() === selectedDate.getMonth() &&
                        b.getDate() === selectedDate.getDate();
@@ -576,7 +607,7 @@ function AvailabilityCalendarModal({
 
             // Find meetings
             const dateMeetings = availabilityData.meetings.filter(m => {
-                const mDate = new Date(m.date_time);
+                const mDate = toESTDate(m.date_time);
                 const sameDay = mDate.getFullYear() === selectedDate.getFullYear() &&
                                 mDate.getMonth() === selectedDate.getMonth() &&
                                 mDate.getDate() === selectedDate.getDate();
@@ -587,17 +618,17 @@ function AvailabilityCalendarModal({
             });
 
             let hoursText = daySched.slots && daySched.slots.length > 0 
-                ? daySched.slots.map((s: any) => `${s.start}-${s.end}`).join(', ')
-                : (daySched.start && daySched.end ? `${daySched.start}-${daySched.end}` : '09:00-17:00');
+                ? daySched.slots.map((s: any) => `${format24hTimeTo12h(s.start)} - ${format24hTimeTo12h(s.end)}`).join(', ')
+                : (daySched.start && daySched.end ? `${format24hTimeTo12h(daySched.start)} - ${format24hTimeTo12h(daySched.end)}` : '9:00 AM - 5:00 PM');
 
             if (dateMeetings.length > 0) {
                 const meetingsList = dateMeetings.map((m: any) => {
                     const mDate = new Date(m.date_time);
-                    const sh = mDate.getHours().toString().padStart(2, '0');
-                    const sm = mDate.getMinutes().toString().padStart(2, '0');
-                    const eh = new Date(mDate.getTime() + m.duration_minutes * 60000).getHours().toString().padStart(2, '0');
-                    const em = new Date(mDate.getTime() + m.duration_minutes * 60000).getMinutes().toString().padStart(2, '0');
-                    return `"${m.title}" (${sh}:${sm}-${eh}:${em})`;
+                    const startParts = getESTDateParts(mDate);
+                    const endParts = getESTDateParts(new Date(mDate.getTime() + m.duration_minutes * 60000));
+                    const start12h = minutesToTime(startParts.hour * 60 + startParts.minute);
+                    const end12h = minutesToTime(endParts.hour * 60 + endParts.minute);
+                    return `"${m.title}" (${start12h} - ${end12h})`;
                 }).join(', ');
                 return { name: attendee.name, status: `Available ${hoursText} · Busy: ${meetingsList}`, color: 'text-amber-400' };
             }
@@ -673,14 +704,10 @@ function AvailabilityCalendarModal({
                                     <label htmlFor="school-manual-datetime" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                                         <Calendar size={11} /> Date & Time <span className="text-destructive">*</span>
                                     </label>
-                                    <input
+                                    <DateTimePicker
                                         id="school-manual-datetime"
-                                        name="school-manual-datetime"
-                                        type="datetime-local"
                                         value={manualDateTime}
-                                        onChange={e => setManualDateTime(e.target.value)}
-                                        min={new Date().toISOString().slice(0, 16)}
-                                        className="w-full h-10 px-3 text-sm rounded-lg border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 transition-all"
+                                        onChange={setManualDateTime}
                                     />
                                 </div>
 
@@ -775,6 +802,7 @@ function AvailabilityCalendarModal({
                                         const today = new Date();
                                         today.setHours(0, 0, 0, 0);
                                         const isPast = day < today;
+                                        const outsideRange = isOutsideActiveRange(day);
                                         const avail = getDateAvailability(day);
                                         const countText = internalAttendees.length > 0 ? `(${avail.availableCount}/${internalAttendees.length})` : '';
 
@@ -803,7 +831,7 @@ function AvailabilityCalendarModal({
                                             cellBg = 'bg-transparent cursor-not-allowed';
                                             borderCol = 'border-transparent';
                                             textCol = 'text-muted-foreground/15';
-                                        } else if (isPast) {
+                                        } else if (isPast || outsideRange) {
                                             cellBg = 'bg-zinc-500/5 cursor-not-allowed';
                                             borderCol = 'border-border/40';
                                             textCol = 'text-muted-foreground/40';
@@ -813,7 +841,7 @@ function AvailabilityCalendarModal({
                                             <button
                                                 key={idx}
                                                 type="button"
-                                                disabled={!isCurrentMonth || isPast}
+                                                disabled={!isCurrentMonth || isPast || outsideRange}
                                                 onClick={() => {
                                                     setSelectedDate(day);
                                                     setSelectedTimeSlot(null);
@@ -893,7 +921,7 @@ function AvailabilityCalendarModal({
                                     {selectedDate ? (
                                         timeSlots.length === 0 ? (
                                             <div className="flex-1 flex items-center justify-center text-center p-5 text-xs text-muted-foreground border border-dashed border-border rounded-xl">
-                                                No overlapping working slots found for this day. Try another date or check attendee schedules.
+                                                No Available slots found for this day. Try another date or check attendee schedules.
                                             </div>
                                         ) : (
                                             <div className="grid grid-cols-2 gap-1.5 max-h-[220px] overflow-y-auto pr-1">
@@ -1542,21 +1570,22 @@ function MeetingForm({ teamMembers, leads, editingMeeting, onSuccess, onCancelEd
             {/* Stepper controls */}
             <div className="flex gap-2 border-t border-border pt-3 mt-2">
                 {step > 1 ? (
-                    <Button type="button" variant="outline" onClick={handleBack} className="flex-1 gap-1 h-9 text-xs">
+                    <Button key="back-button" type="button" variant="outline" onClick={handleBack} className="flex-1 gap-1 h-9 text-xs">
                         Back
                     </Button>
                 ) : isEditing ? (
-                    <Button type="button" variant="outline" onClick={onCancelEdit} className="flex-1 gap-1 h-9 text-xs">
+                    <Button key="cancel-edit-button" type="button" variant="outline" onClick={onCancelEdit} className="flex-1 gap-1 h-9 text-xs">
                         <X size={12} /> Cancel Edit
                     </Button>
                 ) : null}
 
                 {step < 5 ? (
-                    <Button type="button" onClick={handleNext} className="flex-1 h-9 text-xs font-semibold">
+                    <Button key="next-button" type="button" onClick={handleNext} className="flex-1 h-9 text-xs font-semibold">
                         Next
                     </Button>
                 ) : (
                     <Button 
+                        key="submit-button"
                         type="submit" 
                         disabled={isSubmitting || !dateTime}
                         className="flex-1 h-9 text-xs font-semibold"

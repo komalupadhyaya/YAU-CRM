@@ -21,6 +21,67 @@ if (process.env.GOOGLE_REFRESH_TOKEN && process.env.GOOGLE_REFRESH_TOKEN !== 'yo
 const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
 /**
+ * Formats a 24-hour time string like "09:00" to "9:00 AM".
+ */
+function format24hTimeTo12h(timeStr) {
+    if (!timeStr) return '';
+    const [hStr, mStr] = timeStr.split(':');
+    const h = parseInt(hStr, 10);
+    const m = parseInt(mStr, 10);
+    if (isNaN(h) || isNaN(m)) return timeStr;
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    const displayHour = h % 12 === 0 ? 12 : h % 12;
+    const displayMin = m.toString().padStart(2, '0');
+    return `${displayHour}:${displayMin} ${ampm}`;
+}
+
+/**
+ * Parses a date-time string as being strictly in the America/New_York (EST/EDT) timezone,
+ * returning a standard JS Date object.
+ */
+function parseESTStringToDate(dateTimeStr) {
+    if (!dateTimeStr) return null;
+    if (dateTimeStr instanceof Date) return dateTimeStr;
+    if (typeof dateTimeStr !== 'string') return new Date(dateTimeStr);
+    
+    if (dateTimeStr.endsWith('Z') || /([+-]\d{2}:\d{2})$/.test(dateTimeStr)) {
+        return new Date(dateTimeStr);
+    }
+    
+    const [datePart, timePart] = dateTimeStr.split('T');
+    if (!datePart || !timePart) return new Date(dateTimeStr);
+    const [year, month, day] = datePart.split('-').map(Number);
+    const [hour, minute] = timePart.split(':').map(Number);
+
+    const testDate = new Date(Date.UTC(year, month - 1, day, hour, minute));
+
+    const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York',
+        hour12: false,
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: 'numeric',
+        second: 'numeric'
+    });
+    const parts = formatter.formatToParts(testDate);
+    const partMap = {};
+    parts.forEach(p => { partMap[p.type] = p.value; });
+
+    const nyYear = parseInt(partMap.year, 10);
+    const nyMonth = parseInt(partMap.month, 10);
+    const nyDay = parseInt(partMap.day, 10);
+    const nyHour = parseInt(partMap.hour, 10);
+    const nyMin = parseInt(partMap.minute, 10);
+
+    const nyUtc = Date.UTC(nyYear, nyMonth - 1, nyDay, nyHour, nyMin);
+    const testUtc = Date.UTC(year, month - 1, day, hour, minute);
+
+    return new Date(testUtc - (nyUtc - testUtc));
+}
+
+/**
  * Converts a '09:00' time string to minutes since midnight.
  */
 function timeToMinutes(timeStr) {
@@ -35,58 +96,133 @@ function timeToMinutes(timeStr) {
  *
  * Returns: { available: boolean, reason: string | null }
  */
+function getESTDateParts(dateInput) {
+    const date = new Date(dateInput);
+    if (isNaN(date.getTime())) {
+        return { weekday: 'monday', year: 2026, month: 1, day: 1, hour: 9, minute: 0 };
+    }
+    const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York',
+        weekday: 'long',
+        hour: 'numeric',
+        minute: 'numeric',
+        hour12: false,
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric'
+    });
+    const parts = formatter.formatToParts(date);
+    const partMap = {};
+    parts.forEach(p => { partMap[p.type] = p.value; });
+    return {
+        weekday: partMap.weekday.toLowerCase(),
+        year: parseInt(partMap.year, 10),
+        month: parseInt(partMap.month, 10),
+        day: parseInt(partMap.day, 10),
+        hour: parseInt(partMap.hour, 10),
+        minute: parseInt(partMap.minute, 10),
+    };
+}
+
+function formatDateToESTString(dateInput) {
+    const parts = getESTDateParts(dateInput);
+    const mStr = parts.month.toString().padStart(2, '0');
+    const dStr = parts.day.toString().padStart(2, '0');
+    return `${parts.year}-${mStr}-${dStr}`;
+}
+
+/**
+ * Checks if a given Date falls inside a user's weekly availability
+ * AND doesn't conflict with any existing meeting for that user.
+ *
+ * Returns: { available: boolean, reason: string | null }
+ */
 async function checkSingleAttendee(userId, dateTime, durationMinutes, excludeMeetingId = null) {
-    const dayName = DAY_NAMES[dateTime.getDay()];
-    const meetingStartMin = dateTime.getHours() * 60 + dateTime.getMinutes();
+    const estParts = getESTDateParts(dateTime);
+    const meetingStartMin = estParts.hour * 60 + estParts.minute;
     const meetingEndMin = meetingStartMin + durationMinutes;
 
-    // 1. Check weekly schedule (if configured)
     const avail = await UserAvailability.findOne({ user_id: userId });
 
     if (avail) {
-        const daySchedule = avail.weekly_schedule?.[dayName];
-
-        if (!daySchedule?.enabled) {
-            return { available: false, reason: `Not available on ${dayName.charAt(0).toUpperCase() + dayName.slice(1)}s.` };
-        }
-
-        // Determine available slots (supporting backward compatibility)
-        let slots = [];
-        if (daySchedule.slots && daySchedule.slots.length > 0) {
-            slots = daySchedule.slots;
-        } else if (daySchedule.start && daySchedule.end) {
-            slots = [{ start: daySchedule.start, end: daySchedule.end }];
-        }
-
-        if (slots.length === 0) {
-            return { available: false, reason: `No hours set for ${dayName}.` };
-        }
-
-        const fitsInSlot = slots.some(slot => {
-            const startMin = timeToMinutes(slot.start);
-            const endMin = timeToMinutes(slot.end);
-            return startMin !== null && endMin !== null && meetingStartMin >= startMin && meetingEndMin <= endMin;
-        });
-
-        if (!fitsInSlot) {
-            const formattedSlots = slots.map(s => `${s.start} – ${s.end}`).join(', ');
-            return {
-                available: false,
-                reason: `Outside available hours (${formattedSlots} on ${dayName.charAt(0).toUpperCase() + dayName.slice(1)}s).`
-            };
-        }
-
-        // 2. Check blocked dates
-        const dateOnly = new Date(dateTime);
-        dateOnly.setHours(0, 0, 0, 0);
+        // 1. Check blocked dates
+        const meetingESTDateStr = formatDateToESTString(dateTime);
         const isBlocked = (avail.blocked_dates || []).some(bd => {
-            const b = new Date(bd);
-            b.setHours(0, 0, 0, 0);
-            return b.getTime() === dateOnly.getTime();
+            const bdStr = (bd instanceof Date ? bd.toISOString() : new Date(bd).toISOString()).slice(0, 10);
+            return bdStr === meetingESTDateStr;
         });
 
         if (isBlocked) {
             return { available: false, reason: 'This date is marked as unavailable (blocked day).' };
+        }
+
+        // 2. Check if new active date range flow is used
+        if (avail.date_range_start && avail.date_range_end) {
+            const meetingESTDateStr = formatDateToESTString(dateTime);
+            if (meetingESTDateStr < avail.date_range_start || meetingESTDateStr > avail.date_range_end) {
+                return {
+                    available: false,
+                    reason: `Outside active date range (${avail.date_range_start} to ${avail.date_range_end}).`
+                };
+            }
+
+            const override = (avail.custom_schedule || []).find(cd => cd.date === meetingESTDateStr);
+            if (!override || !override.enabled) {
+                return { available: false, reason: `Unavailable / Closed on date ${meetingESTDateStr}.` };
+            }
+
+            const slots = override.slots || [];
+            if (slots.length === 0) {
+                return { available: false, reason: `No hours set for ${meetingESTDateStr}.` };
+            }
+
+            const fitsInSlot = slots.some(slot => {
+                const startMin = timeToMinutes(slot.start);
+                const endMin = timeToMinutes(slot.end);
+                return startMin !== null && endMin !== null && meetingStartMin >= startMin && meetingEndMin <= endMin;
+            });
+
+            if (!fitsInSlot) {
+                const formattedSlots = slots.map(s => `${format24hTimeTo12h(s.start)} – ${format24hTimeTo12h(s.end)}`).join(', ');
+                return {
+                    available: false,
+                    reason: `Outside available hours (${formattedSlots} on customized date ${meetingESTDateStr}).`
+                };
+            }
+        } else {
+            // 3. Legacy Weekly schedule fallback
+            const dayName = estParts.weekday;
+            const daySchedule = avail.weekly_schedule?.[dayName];
+
+            if (!daySchedule?.enabled) {
+                return { available: false, reason: `Not available on ${dayName.charAt(0).toUpperCase() + dayName.slice(1)}s.` };
+            }
+
+            // Determine available slots (supporting backward compatibility)
+            let slots = [];
+            if (daySchedule.slots && daySchedule.slots.length > 0) {
+                slots = daySchedule.slots;
+            } else if (daySchedule.start && daySchedule.end) {
+                slots = [{ start: daySchedule.start, end: daySchedule.end }];
+            }
+
+            if (slots.length === 0) {
+                return { available: false, reason: `No hours set for ${dayName}.` };
+            }
+
+            const fitsInSlot = slots.some(slot => {
+                const startMin = timeToMinutes(slot.start);
+                const endMin = timeToMinutes(slot.end);
+                return startMin !== null && endMin !== null && meetingStartMin >= startMin && meetingEndMin <= endMin;
+            });
+
+            if (!fitsInSlot) {
+                const formattedSlots = slots.map(s => `${format24hTimeTo12h(s.start)} – ${format24hTimeTo12h(s.end)}`).join(', ');
+                return {
+                    available: false,
+                    reason: `Outside available hours (${formattedSlots} on ${dayName.charAt(0).toUpperCase() + dayName.slice(1)}s).`
+                };
+            }
         }
     }
 
@@ -232,6 +368,13 @@ async function syncMeetingToGoogleCalendar(meetingId, action) {
         const descriptionParts = [];
         if (meeting.notes) descriptionParts.push(`Notes: ${meeting.notes}`);
         descriptionParts.push(`Category: ${meeting.category === 'hr' ? 'HR Meeting' : 'School Meeting'}`);
+        if (meeting.meeting_type === 'online' && meeting.meeting_link) {
+            descriptionParts.push(`Zoom / Online Link: ${meeting.meeting_link}`);
+        } else if (meeting.meeting_type === 'in_person' && meeting.location) {
+            descriptionParts.push(`Location / Address: ${meeting.location}`);
+        } else if (meeting.meeting_type === 'phone') {
+            descriptionParts.push(`Type: Phone Call`);
+        }
 
         let linkedNames = '';
         if (meeting.category === 'school') {
@@ -246,6 +389,7 @@ async function syncMeetingToGoogleCalendar(meetingId, action) {
 
         const event = {
             summary,
+            location: meeting.meeting_type === 'online' ? meeting.meeting_link : (meeting.meeting_type === 'in_person' ? meeting.location : 'Phone Call'),
             description: descriptionParts.join('\n'),
             start: {
                 dateTime: eventStartTime.toISOString(),
@@ -308,7 +452,7 @@ export const checkAvailability = async (req, res, next) => {
             throw new Error('attendee_ids and date_time are required.');
         }
 
-        const dateTime = new Date(date_time);
+        const dateTime = parseESTStringToDate(date_time);
         const results = {};
 
         await Promise.all(
@@ -354,6 +498,9 @@ export const getAttendeesAvailability = async (req, res, next) => {
             const avail = availabilities.find(a => a.user_id.toString() === userId.toString());
             schedules[userId] = avail ? {
                 weekly_schedule: avail.weekly_schedule,
+                date_range_start: avail.date_range_start,
+                date_range_end: avail.date_range_end,
+                custom_schedule: avail.custom_schedule,
                 blocked_dates: avail.blocked_dates
             } : {
                 weekly_schedule: {
@@ -365,6 +512,9 @@ export const getAttendeesAvailability = async (req, res, next) => {
                     saturday: { enabled: false },
                     sunday: { enabled: false }
                 },
+                date_range_start: null,
+                date_range_end: null,
+                custom_schedule: [],
                 blocked_dates: []
             };
         }
@@ -497,8 +647,11 @@ export const createMeeting = async (req, res, next) => {
             candidate_id, candidate_ids: rawCandidateIds,
             date_time, duration_minutes = 30,
             internal_attendees = [], cc_attendees = [], external_emails = [],
-            notes, force = false
+            notes, force = false,
+            meeting_type: rawMeetingType, location = null
         } = req.body;
+
+        const meeting_type = rawMeetingType || (category === 'hr' ? 'online' : 'in_person');
 
         // Normalize: if lead_ids array provided use it, otherwise fall back to single lead_id
         const lead_ids = Array.isArray(rawLeadIds) && rawLeadIds.length > 0
@@ -543,7 +696,7 @@ export const createMeeting = async (req, res, next) => {
             }
         }
 
-        const dateTime = new Date(date_time);
+        const dateTime = parseESTStringToDate(date_time);
 
         // Run availability check for all internal attendees (unless force=true)
         if (internal_attendees.length > 0 && !force) {
@@ -567,6 +720,24 @@ export const createMeeting = async (req, res, next) => {
             }
         }
 
+        let meeting_link = null;
+        let zoom_meeting_id = null;
+
+        if (meeting_type === 'online') {
+            try {
+                const { createZoomMeeting } = await import('../services/zoom.service.js');
+                const zoomRes = await createZoomMeeting({
+                    title,
+                    date_time: dateTime,
+                    duration_minutes
+                });
+                meeting_link = zoomRes.join_url;
+                zoom_meeting_id = zoomRes.id;
+            } catch (zoomErr) {
+                console.error('Failed to create Zoom meeting, continuing without it:', zoomErr.message);
+            }
+        }
+
         // All clear — create the meeting
         const meeting = await Meeting.create({
             title: title.trim(),
@@ -581,6 +752,10 @@ export const createMeeting = async (req, res, next) => {
             cc_attendees,
             external_emails,
             notes: notes || '',
+            meeting_type,
+            meeting_link,
+            zoom_meeting_id,
+            location: meeting_type === 'in_person' ? location : null,
             created_by: req.user.id,
             change_log: [{
                 action: 'created',
@@ -647,7 +822,8 @@ export const updateMeeting = async (req, res, next) => {
             internal_attendees, cc_attendees, external_emails,
             notes, status, lead_ids: rawUpdateLeadIds,
             candidate_ids: rawUpdateCandidateIds, candidate_id: rawUpdateCandidateId,
-            force = false
+            force = false,
+            meeting_type, location
         } = req.body;
 
         // Normalize lead_ids update
@@ -660,11 +836,11 @@ export const updateMeeting = async (req, res, next) => {
             : (rawUpdateCandidateId ? [rawUpdateCandidateId] : undefined);
 
         const oldStatus = meeting.status;
-        const dateTimeChanged = date_time && new Date(date_time).getTime() !== meeting.date_time.getTime();
+        const dateTimeChanged = date_time && parseESTStringToDate(date_time).getTime() !== meeting.date_time.getTime();
         const attendeesChanged = internal_attendees &&
             JSON.stringify([...internal_attendees].sort()) !== JSON.stringify([...meeting.internal_attendees.map(a => a.toString())].sort());
 
-        const newDateTime = date_time ? new Date(date_time) : meeting.date_time;
+        const newDateTime = date_time ? parseESTStringToDate(date_time) : meeting.date_time;
         const newDuration = duration_minutes ?? meeting.duration_minutes;
         const newAttendees = internal_attendees ?? meeting.internal_attendees.map(a => a.toString());
 
@@ -692,7 +868,7 @@ export const updateMeeting = async (req, res, next) => {
 
         // Apply updates
         if (title !== undefined) meeting.title = title.trim();
-        if (date_time !== undefined) meeting.date_time = new Date(date_time);
+        if (date_time !== undefined) meeting.date_time = parseESTStringToDate(date_time);
         if (duration_minutes !== undefined) meeting.duration_minutes = duration_minutes;
         if (internal_attendees !== undefined) meeting.internal_attendees = internal_attendees;
         if (cc_attendees !== undefined) meeting.cc_attendees = cc_attendees;
@@ -725,7 +901,7 @@ export const updateMeeting = async (req, res, next) => {
                 action: 'rescheduled',
                 by: req.user.id,
                 at: new Date(),
-                note: `Rescheduled to ${new Date(date_time).toLocaleString()}.`
+                note: `Rescheduled to ${parseESTStringToDate(date_time).toLocaleString('en-US', { timeZone: 'America/New_York' })}.`
             });
         }
 
@@ -745,6 +921,57 @@ export const updateMeeting = async (req, res, next) => {
                 at: new Date(),
                 note: 'Notes updated.'
             });
+        }
+
+        // Apply Zoom Updates
+        const oldMeetingType = meeting.meeting_type;
+        const oldZoomMeetingId = meeting.zoom_meeting_id;
+
+        if (meeting_type !== undefined) meeting.meeting_type = meeting_type;
+        if (location !== undefined) meeting.location = meeting_type === 'in_person' ? location : null;
+
+        const { updateZoomMeeting, createZoomMeeting, deleteZoomMeeting } = await import('../services/zoom.service.js');
+
+        if (meeting.meeting_type === 'online') {
+            if (oldMeetingType === 'online' && oldZoomMeetingId) {
+                const start_time = date_time ? parseESTStringToDate(date_time) : meeting.date_time;
+                const duration = duration_minutes ?? meeting.duration_minutes;
+                const zoomTitle = title ? title.trim() : meeting.title;
+                updateZoomMeeting(oldZoomMeetingId, { title: zoomTitle, date_time: start_time, duration_minutes: duration }).catch(err => {
+                    console.error('Failed to update meeting in Zoom:', err);
+                });
+            } else if (oldMeetingType !== 'online' || !oldZoomMeetingId) {
+                try {
+                    const start_time = date_time ? parseESTStringToDate(date_time) : meeting.date_time;
+                    const duration = duration_minutes ?? meeting.duration_minutes;
+                    const zoomTitle = title ? title.trim() : meeting.title;
+                    const zoomRes = await createZoomMeeting({
+                        title: zoomTitle,
+                        date_time: start_time,
+                        duration_minutes: duration
+                    });
+                    meeting.meeting_link = zoomRes.join_url;
+                    meeting.zoom_meeting_id = zoomRes.id;
+                } catch (zoomErr) {
+                    console.error('Failed to create Zoom meeting for updated meeting:', zoomErr.message);
+                }
+            }
+        } else {
+            if (oldZoomMeetingId) {
+                deleteZoomMeeting(oldZoomMeetingId).catch(err => {
+                    console.error('Failed to delete Zoom meeting:', err);
+                });
+                meeting.meeting_link = null;
+                meeting.zoom_meeting_id = null;
+            }
+        }
+
+        if (status === 'canceled' && oldZoomMeetingId) {
+            deleteZoomMeeting(oldZoomMeetingId).catch(err => {
+                console.error('Failed to delete Zoom meeting on cancel:', err);
+            });
+            meeting.meeting_link = null;
+            meeting.zoom_meeting_id = null;
         }
 
         await meeting.save();
@@ -804,6 +1031,35 @@ export const deleteMeeting = async (req, res, next) => {
             res.status(404);
             throw new Error('Meeting not found.');
         }
+
+        const populated = await Meeting.findById(req.params.id)
+            .populate('lead_id', 'name telephone')
+            .populate('lead_ids', 'name telephone')
+            .populate('candidate_id', 'name email applying_for')
+            .populate('candidate_ids', 'name email applying_for')
+            .populate('internal_attendees', 'name email role')
+            .populate('cc_attendees', 'name email')
+            .populate('created_by', 'name email');
+
+        if (populated) {
+            if (populated.category === 'hr') {
+                sendHRMeetingEmails({ meeting: populated, actionType: 'canceled' }).catch(err => {
+                    console.error('Failed to trigger HR meeting deletion emails:', err);
+                });
+            } else if (populated.category === 'school') {
+                sendSchoolMeetingEmails({ meeting: populated, actionType: 'canceled' }).catch(err => {
+                    console.error('Failed to trigger School meeting deletion emails:', err);
+                });
+            }
+        }
+
+        if (meeting.zoom_meeting_id) {
+            const { deleteZoomMeeting } = await import('../services/zoom.service.js');
+            deleteZoomMeeting(meeting.zoom_meeting_id).catch(err => {
+                console.error('Failed to delete Zoom meeting on deletion:', err);
+            });
+        }
+
         await syncMeetingToGoogleCalendar(meeting._id, 'delete');
         await Meeting.findByIdAndDelete(req.params.id);
         res.json({ success: true, message: 'Meeting deleted successfully.' });
@@ -819,7 +1075,7 @@ export const deleteMeeting = async (req, res, next) => {
 export const getCandidates = async (req, res, next) => {
     try {
         const candidates = await Candidate.find()
-            .select('name email phone applying_for status createdAt')
+            .select('name email phone applying_for status notes createdAt')
             .sort({ createdAt: -1 });
         res.json(candidates);
     } catch (err) {

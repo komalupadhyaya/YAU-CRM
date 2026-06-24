@@ -1,23 +1,28 @@
 import { useEffect, useRef, useState } from "react";
 import {
     CalendarDays, ChevronLeft, ChevronRight, X,
-    Clock, CheckSquare, AlertCircle, CheckCircle2
+    Clock, CheckSquare, AlertCircle, CheckCircle2,
+    Users, Video, Phone, MapPin
 } from "lucide-react";
 import api from "../api/api";
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { toESTDate } from "../utils/timezoneHelper";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface CalEvent {
     id: string;
-    type: "followup" | "task";
+    type: "followup" | "task" | "hr_meeting" | "school_meeting";
     title: string;
     date: Date;
     status: string;
     priority?: string;
     leadId?: string;
     leadName?: string;
+    meetingType?: "online" | "in_person" | "phone";
+    meetingLink?: string | null;
+    location?: string | null;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -56,14 +61,15 @@ export default function CalendarPopover() {
         return () => document.removeEventListener("mousedown", handler);
     }, []);
  
-    // Fetch follow-ups + tasks when opened
+    // Fetch follow-ups + tasks + meetings when opened
     useEffect(() => {
         if (!open) return;
         setLoading(true);
         Promise.all([
             api.get("/followups/grouped").catch(() => ({ data: null })),
             api.get("/tasks").catch(() => ({ data: [] })),
-        ]).then(([fuRes, taskRes]) => {
+            api.get("/meetings").catch(() => ({ data: [] })),
+        ]).then(([fuRes, taskRes, meetingRes]) => {
             const calEvents: CalEvent[] = [];
  
             // Follow-ups
@@ -96,7 +102,7 @@ export default function CalendarPopover() {
                         id: fu._id,
                         type: "followup",
                         title: fu.title || fu.lead?.name || "Follow-up",
-                        date: new Date(fu.date_time),
+                        date: toESTDate(fu.date_time),
                         status: fu.status || "pending",
                         priority: fu.priority,
                         leadId: fu.lead?._id,
@@ -120,9 +126,26 @@ export default function CalendarPopover() {
                     id: t._id,
                     type: "task",
                     title: t.title,
-                    date: new Date(t.dueDate),
+                    date: toESTDate(t.dueDate),
                     status: t.status,
                     priority: t.priority,
+                });
+            });
+
+            // Meetings
+            const rawMeetings: any[] = meetingRes.data || [];
+            rawMeetings.forEach((m: any) => {
+                calEvents.push({
+                    id: m._id,
+                    type: m.category === "hr" ? "hr_meeting" : "school_meeting",
+                    title: m.title,
+                    date: toESTDate(m.date_time),
+                    status: m.status,
+                    leadId: m.lead_id?._id || m.lead_ids?.[0]?._id,
+                    leadName: m.lead_id?.name || m.lead_ids?.[0]?.name,
+                    meetingType: m.meeting_type,
+                    meetingLink: m.meeting_link,
+                    location: m.location
                 });
             });
  
@@ -148,18 +171,27 @@ export default function CalendarPopover() {
     const selectedEvents = eventsOnDay(selectedDate);
 
     // Dot colours per event type
-    const dotStyle = (ev: CalEvent) =>
-        ev.type === "followup"
-            ? ev.status === "done"
-                ? "bg-green-500"
-                : isPast(ev.date)
-                ? "bg-red-500"
-                : "bg-orange-400"
-            : ev.status === "completed"
-            ? "bg-green-500"
-            : isPast(ev.date)
-            ? "bg-red-500"
-            : "bg-primary";
+    const dotStyle = (ev: CalEvent) => {
+        if (ev.status === "completed" || ev.status === "done") {
+            return "bg-green-500";
+        }
+        if (ev.status === "canceled") {
+            return "bg-zinc-400";
+        }
+        if (isPast(ev.date) && ev.status !== "completed" && ev.status !== "done" && ev.status !== "canceled") {
+            return "bg-red-500";
+        }
+        if (ev.type === "followup") {
+            return "bg-orange-400";
+        }
+        if (ev.type === "hr_meeting") {
+            return "bg-emerald-500";
+        }
+        if (ev.type === "school_meeting") {
+            return "bg-blue-500";
+        }
+        return "bg-primary";
+    };
 
     return (
         <div ref={ref} className="relative">
@@ -167,7 +199,7 @@ export default function CalendarPopover() {
             <button
                 id="topbar-calendar-btn"
                 onClick={() => setOpen(v => !v)}
-                title="Calendar — Follow-ups & Tasks"
+                title="Calendar — Follow-ups, Tasks & Meetings"
                 className={`p-2 rounded-xl transition-all duration-200
                     ${open
                         ? "bg-primary/15 text-primary"
@@ -225,7 +257,7 @@ export default function CalendarPopover() {
                             const today     = isToday(date);
                             const past      = isPast(date);
                             const hasOverdue = dayEvents.some(ev =>
-                                (ev.status !== "done" && ev.status !== "completed") && isPast(ev.date)
+                                (ev.status !== "done" && ev.status !== "completed" && ev.status !== "canceled" && ev.status !== "no_show") && isPast(ev.date)
                             );
                             const hasEvents  = dayEvents.length > 0;
 
@@ -298,7 +330,7 @@ export default function CalendarPopover() {
                                 <div className="divide-y divide-border/50">
                                     {selectedEvents.map(ev => {
                                         const isFollowUp = ev.type === "followup";
-                                        const isDone = ev.status === "done" || ev.status === "completed";
+                                        const isDone = ev.status === "done" || ev.status === "completed" || ev.status === "canceled" || ev.status === "no_show";
                                         const isOverdue = isPast(ev.date) && !isDone;
 
                                         return (
@@ -310,20 +342,36 @@ export default function CalendarPopover() {
                                                 {/* Icon */}
                                                 <div className={`mt-0.5 w-6 h-6 flex items-center justify-center rounded-md shrink-0
                                                     ${isDone
-                                                        ? "bg-green-500/10 text-green-500"
+                                                        ? ev.status === "canceled"
+                                                            ? "bg-zinc-500/10 text-zinc-400"
+                                                            : "bg-green-500/10 text-green-500"
                                                         : isOverdue
                                                         ? "bg-red-500/10 text-red-500"
-                                                        : isFollowUp
+                                                        : ev.type === "followup"
                                                         ? "bg-orange-400/10 text-orange-400"
+                                                        : ev.type === "hr_meeting"
+                                                        ? "bg-emerald-500/10 text-emerald-500"
+                                                        : ev.type === "school_meeting"
+                                                        ? "bg-blue-500/10 text-blue-500"
                                                         : "bg-primary/10 text-primary"
                                                     }`}
                                                 >
                                                     {isDone
-                                                        ? <CheckCircle2 size={13} />
+                                                        ? ev.status === "canceled"
+                                                            ? <X size={13} />
+                                                            : <CheckCircle2 size={13} />
                                                         : isOverdue
                                                         ? <AlertCircle size={13} />
-                                                        : isFollowUp
+                                                        : ev.type === "followup"
                                                         ? <Clock size={13} />
+                                                        : (ev.type === "hr_meeting" || ev.type === "school_meeting")
+                                                        ? ev.meetingType === "online"
+                                                            ? <Video size={13} />
+                                                            : ev.meetingType === "phone"
+                                                            ? <Phone size={13} />
+                                                            : ev.meetingType === "in_person"
+                                                            ? <MapPin size={13} />
+                                                            : <Users size={13} />
                                                         : <CheckSquare size={13} />
                                                     }
                                                 </div>
@@ -332,12 +380,18 @@ export default function CalendarPopover() {
                                                 <div className="flex-1 min-w-0">
                                                     <div className="flex items-center gap-1.5 mb-0.5">
                                                         <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded
-                                                            ${isFollowUp
+                                                            ${ev.type === "followup"
                                                                 ? "bg-orange-400/15 text-orange-400"
+                                                                : ev.type === "hr_meeting"
+                                                                ? "bg-emerald-500/15 text-emerald-500"
+                                                                : ev.type === "school_meeting"
+                                                                ? "bg-blue-500/15 text-blue-500"
                                                                 : "bg-primary/15 text-primary"
                                                             }`}
                                                         >
-                                                            {isFollowUp ? "Follow-up" : "Task"}
+                                                            {ev.type === "followup" ? "Follow-up" :
+                                                             ev.type === "hr_meeting" ? "HR Meeting" :
+                                                             ev.type === "school_meeting" ? "School Meeting" : "Task"}
                                                         </span>
                                                         {isOverdue && (
                                                             <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-red-500/15 text-red-500">
@@ -346,7 +400,25 @@ export default function CalendarPopover() {
                                                         )}
                                                     </div>
 
-                                                    {isFollowUp && ev.leadId ? (
+                                                    {ev.type === "hr_meeting" ? (
+                                                        <Link
+                                                            to="/meetings/hr"
+                                                            onClick={() => setOpen(false)}
+                                                            className={`text-xs font-semibold truncate block hover:text-emerald-500 transition-colors
+                                                                ${isDone ? "line-through text-muted-foreground" : "text-foreground"}`}
+                                                        >
+                                                            {ev.title}
+                                                        </Link>
+                                                    ) : ev.type === "school_meeting" ? (
+                                                        <Link
+                                                            to="/meetings/school"
+                                                            onClick={() => setOpen(false)}
+                                                            className={`text-xs font-semibold truncate block hover:text-primary transition-colors
+                                                                ${isDone ? "line-through text-muted-foreground" : "text-foreground"}`}
+                                                        >
+                                                            {ev.title}
+                                                        </Link>
+                                                    ) : isFollowUp && ev.leadId ? (
                                                         <Link
                                                             to={`/lead/${ev.leadId}`}
                                                             onClick={() => setOpen(false)}
@@ -363,10 +435,27 @@ export default function CalendarPopover() {
                                                         </p>
                                                     )}
 
-                                                    <p className="text-[10px] text-muted-foreground mt-0.5">
-                                                        {ev.date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })}
-                                                        {ev.priority && <span className="ml-1.5 capitalize">· {ev.priority}</span>}
-                                                    </p>
+                                                    <div className="text-[10px] text-muted-foreground mt-0.5 flex flex-wrap gap-x-1.5 items-center">
+                                                        <span>{ev.date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })}</span>
+                                                        {ev.priority && <span className="capitalize">· {ev.priority}</span>}
+                                                        {ev.leadName && <span className="truncate max-w-[120px]">· {ev.leadName}</span>}
+                                                        {ev.meetingType === "online" && (
+                                                            ev.meetingLink ? (
+                                                                <a 
+                                                                    href={ev.meetingLink} 
+                                                                    target="_blank" 
+                                                                    rel="noopener noreferrer" 
+                                                                    className="text-primary hover:underline font-semibold"
+                                                                >
+                                                                    · Join Zoom
+                                                                </a>
+                                                            ) : (
+                                                                <span>· Zoom</span>
+                                                            )
+                                                        )}
+                                                        {ev.meetingType === "phone" && <span>· Phone Call</span>}
+                                                        {ev.meetingType === "in_person" && <span className="truncate max-w-[120px]" title={ev.location || undefined}>· {ev.location || "In-Person"}</span>}
+                                                    </div>
                                                 </div>
                                             </div>
                                         );

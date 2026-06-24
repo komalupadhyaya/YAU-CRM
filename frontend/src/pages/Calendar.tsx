@@ -2,11 +2,20 @@ import { useCallback, useEffect, useState } from "react";
 import AppLayout from "../layout/AppLayout";
 import api from "../api/api";
 import { Link } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
+import { toESTDate } from "../utils/timezoneHelper";
 import {
     CalendarDays, ChevronLeft, ChevronRight,
     Clock, AlertCircle, CheckCircle2,
-    Loader2,
+    Loader2, Filter, ChevronDown
 } from "lucide-react";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "../components/ui/select";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -18,6 +27,7 @@ interface CalEvent {
     status: string;
     priority?: string;
     leadId?: string;
+    candidateId?: string;
     // follow-up specific
     notes?: string;
     followUpType?: string;
@@ -26,8 +36,12 @@ interface CalEvent {
     // task specific
     taskDescription?: string;
     assignedToName?: string;
+    // user filtering specific
+    createdById?: string;
+    assignedUser?: string;
+    assignedToId?: string;
+    assignedToIds?: string[];
 }
-
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
 const MONTHS = [
@@ -58,17 +72,109 @@ const dotBg = (ev: CalEvent) => {
     const done = ev.status === "done" || ev.status === "completed";
     if (done) return "bg-green-500";
     if (isPast(ev.date)) return "bg-red-500";
-    return ev.type === "followup" ? "bg-orange-400" : "bg-primary";
+    if (ev.type === "task") return "bg-blue-500";
+    if (ev.followUpType === "HR Meeting") return "bg-emerald-500";
+    if (ev.followUpType === "School Meeting") return "bg-purple-500";
+    return "bg-orange-400";
+};
+
+const cellEventBg = (ev: CalEvent) => {
+    const done = ev.status === "done" || ev.status === "completed";
+    const overdue = isPast(ev.date) && !done;
+    if (overdue) return "bg-red-500/15 text-red-500";
+    if (done) return "bg-green-500/10 text-green-500";
+    
+    if (ev.type === "task") return "bg-blue-500/15 text-blue-500";
+    if (ev.followUpType === "HR Meeting") return "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400";
+    if (ev.followUpType === "School Meeting") return "bg-purple-500/15 text-purple-600 dark:text-purple-400";
+    return "bg-orange-400/15 text-orange-500";
 };
 
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function CalendarPage() {
+    const { currentUser } = useAuth();
     const today = new Date();
     const [viewMonth,    setViewMonth]    = useState(new Date(today.getFullYear(), today.getMonth(), 1));
     const [selectedDate, setSelectedDate] = useState<Date>(today);
     const [events,       setEvents]       = useState<CalEvent[]>([]);
     const [loading,      setLoading]      = useState(true);
+
+    const [showFollowups, setShowFollowups] = useState(true);
+    const [showTasks, setShowTasks] = useState(true);
+    const [showHCMeetings, setShowHCMeetings] = useState(true);
+    const [showSchoolMeetings, setShowSchoolMeetings] = useState(true);
+    const [filterOpen, setFilterOpen] = useState(false);
+    const [filterType, setFilterType] = useState<'all' | 'school_meetings' | 'candidates' | 'hr_meetings' | 'followups' | 'tasks'>('all');
+
+    const [teamMembers, setTeamMembers] = useState<any[]>([]);
+    const [selectedMemberId, setSelectedMemberId] = useState<string>("all");
+
+    useEffect(() => {
+        if (currentUser?.role === "admin" || currentUser?.role === "manager") {
+            api.get("/team")
+                .then((res) => {
+                    setTeamMembers(res.data || []);
+                })
+                .catch((err) => {
+                    console.error("Error fetching team members:", err);
+                });
+        }
+    }, [currentUser]);
+
+    const isEventVisible = (ev: CalEvent) => {
+        // Team member filter check
+        if (selectedMemberId !== "all") {
+            const selectedMember = teamMembers.find((m) => m._id === selectedMemberId);
+            if (!selectedMember) return false;
+
+            const isMeeting = ev.followUpType === "School Meeting" || ev.followUpType === "HR Meeting";
+            if (isMeeting) {
+                const matchesAttendee = ev.assignedToIds?.includes(selectedMemberId);
+                const hasNoAttendees = !ev.assignedToIds || ev.assignedToIds.length === 0;
+                const matchesCreator = hasNoAttendees && ev.createdById === selectedMemberId;
+                if (!matchesAttendee && !matchesCreator) return false;
+            } else if (ev.type === "task") {
+                const matchesAssigned = ev.assignedToId === selectedMemberId;
+                const hasNoAssignee = !ev.assignedToId;
+                const matchesCreator = hasNoAssignee && ev.createdById === selectedMemberId;
+                if (!matchesAssigned && !matchesCreator) return false;
+            } else {
+                // general follow-up
+                const matchesAssigned =
+                    ev.assignedUser === selectedMemberId ||
+                    ev.assignedUser === selectedMember.name ||
+                    ev.assignedUser === selectedMember.username ||
+                    ev.assignedUser === selectedMember.email ||
+                    ((!ev.assignedUser || ev.assignedUser === "self") && ev.createdById === selectedMemberId);
+                if (!matchesAssigned) return false;
+            }
+        }
+
+        // High-level filter type check
+        if (filterType === 'school_meetings') {
+            if (ev.followUpType !== "School Meeting") return false;
+        } else if (filterType === 'candidates') {
+            const isCandidateFollowUp = ev.type === "followup" && ev.candidateId && ev.followUpType !== "HR Meeting";
+            if (!isCandidateFollowUp) return false;
+        } else if (filterType === 'hr_meetings') {
+            if (ev.followUpType !== "HR Meeting") return false;
+        } else if (filterType === 'followups') {
+            const isMeeting = ev.followUpType === "School Meeting" || ev.followUpType === "HR Meeting";
+            if (ev.type !== "followup" || isMeeting) return false;
+        } else if (filterType === 'tasks') {
+            if (ev.type !== "task") return false;
+        }
+
+        // Detailed toggles check
+        if (ev.type === "task") return showTasks;
+        if (ev.type === "followup") {
+            if (ev.followUpType === "School Meeting") return showSchoolMeetings;
+            if (ev.followUpType === "HR Meeting") return showHCMeetings;
+            return showFollowups;
+        }
+        return true;
+    };
  
     const fetchEvents = useCallback(async () => {
         setLoading(true);
@@ -90,15 +196,18 @@ export default function CalendarPage() {
                     all.push({
                         id:           fu._id,
                         type:         "followup",
-                        title:        fu.title || fu.lead?.name || "Follow-up",
-                        date:         new Date(fu.date_time),
+                        title:        fu.title || fu.lead_name || fu.lead?.name || "Follow-up",
+                        date:         toESTDate(fu.date_time),
                         status:       fu.status || "pending",
                         priority:     fu.priority,
-                        leadId:       fu.lead?._id,
+                        leadId:       fu.lead?._id || fu.lead_id_val,
+                        candidateId:  fu.candidate?._id || fu.candidate_id_val,
                         notes:        fu.notes,
                         followUpType: fu.type,
-                        campaignName: fu.campaign?.name,
-                        leadName:     fu.lead?.name,
+                        campaignName: fu.campaign?.name || fu.campaign_name,
+                        leadName:     fu.lead_name || fu.lead?.name,
+                        createdById:  fu.created_by,
+                        assignedUser: fu.assigned_user,
                     });
                 });
             }
@@ -111,11 +220,14 @@ export default function CalendarPage() {
                     id:              t._id,
                     type:            "task",
                     title:           t.title,
-                    date:            new Date(t.dueDate),
+                    date:            toESTDate(t.dueDate),
                     status:          t.status,
                     priority:        t.priority,
                     taskDescription: t.description,
                     assignedToName:  t.assignedTo?.name || t.assignedTo?.username,
+                    leadId:          t.lead_id,
+                    createdById:     t.createdBy?._id || t.createdBy,
+                    assignedToId:    t.assignedTo?._id || t.assignedTo,
                 });
             });
 
@@ -143,13 +255,16 @@ export default function CalendarPage() {
                     id:           m._id,
                     type:         "followup",
                     title:        `${m.title}${subTitle}`,
-                    date:         new Date(m.date_time),
+                    date:         toESTDate(m.date_time),
                     status:       m.status,
                     priority:     "High",
                     leadId:       leads[0]?._id,
+                    candidateId:  candidates[0]?._id,
                     notes:        m.notes,
                     followUpType: m.category === 'school' ? 'School Meeting' : 'HR Meeting',
                     leadName:     leadNames || candidateNames || undefined,
+                    createdById:  m.created_by?._id || m.created_by,
+                    assignedToIds: m.internal_attendees?.map((a: any) => a._id || a) || [],
                 });
             });
  
@@ -181,10 +296,10 @@ export default function CalendarPage() {
         cells.push({ date: new Date(year, month + 1, cells.length - daysInMonth - firstDay + 1), isCurrentMonth: false });
     }
 
-    const eventsOn       = (d: Date) => events.filter(e => sameDay(e.date, d));
+    const eventsOn       = (d: Date) => events.filter(e => sameDay(e.date, d) && isEventVisible(e));
     const selectedEvents = eventsOn(selectedDate);
-
-    const monthEvents    = events.filter(e => e.date.getMonth() === month && e.date.getFullYear() === year);
+ 
+    const monthEvents    = events.filter(e => e.date.getMonth() === month && e.date.getFullYear() === year && isEventVisible(e));
     const pendingCount   = monthEvents.filter(e => e.status !== "done" && e.status !== "completed").length;
     const overdueCount   = monthEvents.filter(e => (e.status !== "done" && e.status !== "completed") && isPast(e.date)).length;
     const completedCount = monthEvents.filter(e => e.status === "done" || e.status === "completed").length;
@@ -219,6 +334,97 @@ export default function CalendarPage() {
                         </div>
                     )}
                 </div>
+
+                {/* Filter Bar: Segmented Toggles & Team Member Dropdown */}
+                {!loading && (
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 w-full max-w-7xl">
+                        {/* Segmented Filter Toggles */}
+                        <div className="flex bg-muted/40 p-1 rounded-xl border w-full md:max-w-4xl gap-1 overflow-x-auto select-none scrollbar-none">
+                            <button
+                                onClick={() => setFilterType('all')}
+                                className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
+                                    filterType === 'all'
+                                        ? "bg-card text-foreground shadow-sm"
+                                        : "text-muted-foreground hover:text-foreground hover:bg-accent/40"
+                                }`}
+                            >
+                                All Activity
+                            </button>
+                            <button
+                                onClick={() => setFilterType('hr_meetings')}
+                                className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
+                                    filterType === 'hr_meetings'
+                                        ? "bg-card text-emerald-600 dark:text-emerald-400 shadow-sm"
+                                        : "text-muted-foreground hover:text-foreground hover:bg-accent/40"
+                                }`}
+                            >
+                                HR Meetings
+                            </button>
+                            <button
+                                onClick={() => setFilterType('school_meetings')}
+                                className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
+                                    filterType === 'school_meetings'
+                                        ? "bg-card text-purple-600 dark:text-purple-400 shadow-sm"
+                                        : "text-muted-foreground hover:text-foreground hover:bg-accent/40"
+                                }`}
+                            >
+                                School Meetings
+                            </button>
+                            <button
+                                onClick={() => setFilterType('followups')}
+                                className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
+                                    filterType === 'followups'
+                                        ? "bg-card text-orange-500 shadow-sm"
+                                        : "text-muted-foreground hover:text-foreground hover:bg-accent/40"
+                                }`}
+                            >
+                                Follow-ups
+                            </button>
+                            <button
+                                onClick={() => setFilterType('tasks')}
+                                className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
+                                    filterType === 'tasks'
+                                        ? "bg-card text-blue-500 shadow-sm"
+                                        : "text-muted-foreground hover:text-foreground hover:bg-accent/40"
+                                }`}
+                            >
+                                Tasks
+                            </button>
+                            {currentUser?.role !== 'sales_rep' && (
+                                <button
+                                    onClick={() => setFilterType('candidates')}
+                                    className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
+                                        filterType === 'candidates'
+                                            ? "bg-card text-emerald-600 dark:text-emerald-400 shadow-sm"
+                                            : "text-muted-foreground hover:text-foreground hover:bg-accent/40"
+                                    }`}
+                                >
+                                    HC Candidates
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Team Member Selector (Manager / Admin only) */}
+                        {(currentUser?.role === 'admin' || currentUser?.role === 'manager') && (
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap">Filter by User:</span>
+                                <Select value={selectedMemberId} onValueChange={setSelectedMemberId}>
+                                    <SelectTrigger className="w-[180px] h-9 text-xs bg-card border-border text-foreground font-semibold shadow-sm focus:ring-1 focus:ring-primary">
+                                        <SelectValue placeholder="All Team Members" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="all">All Team Members</SelectItem>
+                                        {teamMembers.map((member) => (
+                                            <SelectItem key={member._id} value={member._id}>
+                                                {member.name || member.username} {member._id === currentUser?._id ? "(Me)" : ""}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        )}
+                    </div>
+                )}
 
                 {loading ? (
                     <div className="flex items-center justify-center h-64 text-muted-foreground gap-2">
@@ -303,15 +509,7 @@ export default function CalendarPage() {
                                                         return (
                                                             <div
                                                                 key={ev.id}
-                                                                className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium truncate
-                                                                    ${ev.type === "followup"
-                                                                        ? overdue ? "bg-red-500/15 text-red-500"
-                                                                          : done  ? "bg-green-500/10 text-green-500"
-                                                                          : "bg-orange-400/15 text-orange-500"
-                                                                        : overdue ? "bg-red-500/15 text-red-500"
-                                                                          : done  ? "bg-green-500/10 text-green-500"
-                                                                          : "bg-primary/15 text-primary"
-                                                                    }`}
+                                                                className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium truncate ${cellEventBg(ev)}`}
                                                             >
                                                                 <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotBg(ev)}`} />
                                                                 <span className="truncate">{ev.title}</span>
@@ -348,11 +546,119 @@ export default function CalendarPage() {
                                             {selectedDate.getDate()} {MONTHS[selectedDate.getMonth()]} {selectedDate.getFullYear()}
                                         </h3>
                                     </div>
-                                    {isToday(selectedDate) && (
-                                        <span className="text-[10px] font-bold uppercase tracking-wider text-primary bg-primary/10 px-2.5 py-1 rounded-full border border-primary/20">
-                                            Today
-                                        </span>
-                                    )}
+                                    <div className="flex items-center gap-2 relative">
+                                        {isToday(selectedDate) && (
+                                            <span className="text-[10px] font-bold uppercase tracking-wider text-primary bg-primary/10 px-2.5 py-1 rounded-full border border-primary/20">
+                                                Today
+                                            </span>
+                                        )}
+                                        
+                                        {/* Dropdown filter button with slide toggle switches */}
+                                        <div className="relative inline-block text-left">
+                                            <button
+                                                type="button"
+                                                onClick={() => setFilterOpen(prev => !prev)}
+                                                className="h-7 px-2 rounded-lg border border-border bg-background hover:bg-accent text-muted-foreground hover:text-foreground text-[11px] font-bold flex items-center gap-1 transition-all shadow-sm"
+                                            >
+                                                <Filter size={11} />
+                                                <span>Filter</span>
+                                                <ChevronDown size={9} className={`transition-transform duration-200 ${filterOpen ? 'rotate-180' : ''}`} />
+                                            </button>
+
+                                            {filterOpen && (
+                                                <>
+                                                    <div className="fixed inset-0 z-40" onClick={() => setFilterOpen(false)} />
+                                                    <div className="absolute right-0 mt-1.5 w-48 rounded-xl border border-border bg-card p-3 shadow-xl z-50 space-y-2.5 animate-in fade-in slide-in-from-top-1 duration-150">
+                                                        <p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground border-b border-border/40 pb-1.5 mb-1.5">Event Filters</p>
+                                                        
+                                                        {/* Filter 1: Follow-ups */}
+                                                        <div className="flex items-center justify-between">
+                                                            <span className="text-[11px] font-semibold text-foreground flex items-center gap-1.5">
+                                                                <span className="w-1.5 h-1.5 rounded-full bg-orange-400" />
+                                                                Follow-ups
+                                                            </span>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setShowFollowups(prev => !prev)}
+                                                                className={`relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full border border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                                                                    showFollowups ? 'bg-primary' : 'bg-zinc-700'
+                                                                }`}
+                                                            >
+                                                                <span
+                                                                    className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow transition duration-200 ease-in-out ${
+                                                                        showFollowups ? 'translate-x-3' : 'translate-x-0'
+                                                                    }`}
+                                                                />
+                                                            </button>
+                                                        </div>
+
+                                                        {/* Filter 2: Tasks */}
+                                                        <div className="flex items-center justify-between">
+                                                            <span className="text-[11px] font-semibold text-foreground flex items-center gap-1.5">
+                                                                <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                                                                Tasks
+                                                            </span>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setShowTasks(prev => !prev)}
+                                                                className={`relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full border border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                                                                    showTasks ? 'bg-primary' : 'bg-zinc-700'
+                                                                }`}
+                                                            >
+                                                                <span
+                                                                    className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow transition duration-200 ease-in-out ${
+                                                                        showTasks ? 'translate-x-3' : 'translate-x-0'
+                                                                    }`}
+                                                                />
+                                                            </button>
+                                                        </div>
+
+                                                        {/* Filter 3: HC Meetings */}
+                                                        <div className="flex items-center justify-between">
+                                                            <span className="text-[11px] font-semibold text-foreground flex items-center gap-1.5">
+                                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                                                                HC Meetings
+                                                            </span>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setShowHCMeetings(prev => !prev)}
+                                                                className={`relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full border border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                                                                    showHCMeetings ? 'bg-primary' : 'bg-zinc-700'
+                                                                }`}
+                                                            >
+                                                                <span
+                                                                    className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow transition duration-200 ease-in-out ${
+                                                                        showHCMeetings ? 'translate-x-3' : 'translate-x-0'
+                                                                    }`}
+                                                                />
+                                                            </button>
+                                                        </div>
+
+                                                        {/* Filter 4: School Meetings */}
+                                                        <div className="flex items-center justify-between">
+                                                            <span className="text-[11px] font-semibold text-foreground flex items-center gap-1.5">
+                                                                <span className="w-1.5 h-1.5 rounded-full bg-purple-500" />
+                                                                School Meetings
+                                                            </span>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setShowSchoolMeetings(prev => !prev)}
+                                                                className={`relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full border border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                                                                    showSchoolMeetings ? 'bg-primary' : 'bg-zinc-700'
+                                                                }`}
+                                                            >
+                                                                <span
+                                                                    className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow transition duration-200 ease-in-out ${
+                                                                        showSchoolMeetings ? 'translate-x-3' : 'translate-x-0'
+                                                                    }`}
+                                                                />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </>
+                                            )}
+                                        </div>
+                                    </div>
                                 </div>
                                 <p className="text-[10px] font-semibold text-muted-foreground mt-2">
                                     {selectedEvents.length} event{selectedEvents.length !== 1 ? "s" : ""}
@@ -379,14 +685,26 @@ export default function CalendarPage() {
                                                 ? "border-l-green-500 bg-green-500/5"
                                                 : overdue
                                                 ? "border-l-red-500 bg-red-500/5"
-                                                : "border-l-primary bg-primary/5";
+                                                : ev.followUpType === "HR Meeting"
+                                                ? "border-l-emerald-500 bg-emerald-500/5"
+                                                : ev.followUpType === "School Meeting"
+                                                ? "border-l-purple-500 bg-purple-500/5"
+                                                : isFollowup
+                                                ? "border-l-orange-400 bg-orange-400/5"
+                                                : "border-l-blue-500 bg-blue-500/5";
 
                                             // Type badge colour
                                             const typeLabelColor = done
                                                 ? "bg-green-500/20 text-green-600"
                                                 : overdue
                                                 ? "bg-red-500/15 text-red-500"
-                                                : "bg-primary/20 text-primary";
+                                                : ev.followUpType === "HR Meeting"
+                                                ? "bg-emerald-500/20 text-emerald-600 dark:text-emerald-400"
+                                                : ev.followUpType === "School Meeting"
+                                                ? "bg-purple-500/20 text-purple-600 dark:text-purple-400"
+                                                : isFollowup
+                                                ? "bg-orange-400/20 text-orange-500"
+                                                : "bg-blue-500/20 text-blue-500";
 
                                             const statusText  = done ? "Completed" : overdue ? "Overdue" : "Pending";
                                             const statusColor = done
@@ -418,9 +736,9 @@ export default function CalendarPage() {
 
                                                     {/* ── Lead / Task name ── */}
                                                     <div className="px-3.5 pb-1">
-                                                        {isFollowup && ev.leadId ? (
+                                                        {isFollowup && (ev.leadId || ev.candidateId) ? (
                                                             <Link
-                                                                to={`/lead/${ev.leadId}`}
+                                                                to={ev.candidateId ? "/candidates" : `/lead/${ev.leadId}`}
                                                                 className={`text-sm font-bold hover:text-primary transition-colors leading-snug block ${done ? "line-through text-muted-foreground" : "text-foreground"}`}
                                                             >
                                                                 {ev.leadName || ev.title}
@@ -500,8 +818,9 @@ export default function CalendarPage() {
                 <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground pt-2">
                     <span className="font-semibold text-foreground">Legend:</span>
                     <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-orange-400" /> Follow-up (Pending)</span>
-                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-primary" /> Task (Pending)</span>
-                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-red-500" /> Overdue</span>
+                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-blue-500" /> Task (Pending)</span>
+                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> HC Meeting (Pending)</span>
+                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-purple-500" /> School Meeting (Pending)</span>
                     <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-green-500" /> Completed / Done</span>
                 </div>
             </div>

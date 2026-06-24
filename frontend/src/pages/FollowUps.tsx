@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import api from "../api/api";
 import AppLayout from "../layout/AppLayout";
-import { Clock, AlertCircle, Calendar, CheckCircle, Phone, ArrowUpRight, Eye, Search, X, CheckCircle2, Edit, Trash2 } from "lucide-react";
+import { Clock, AlertCircle, Calendar, CheckCircle, Phone, ArrowUpRight, Eye, Search, X, CheckCircle2, Edit, Trash2, UserCheck } from "lucide-react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,8 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { DateTimePicker } from "@/components/ui/datetime-picker";
+import { toESTDate } from "../utils/timezoneHelper";
 
 interface FollowUp {
     _id: string;
@@ -32,28 +34,39 @@ interface FollowUp {
     type: string;
     priority: string;
     status: string;
-    lead: {
+    lead?: {
         _id: string;
         name: string;
         telephone?: string;
     };
-    campaign: {
+    candidate?: {
+        _id: string;
+        name: string;
+        phone?: string;
+        email?: string;
+    };
+    campaign?: {
         _id: string;
         name: string;
     };
+    lead_name?: string;
+    telephone?: string;
+    campaign_name?: string;
+    candidate_id_val?: string;
     assigned_user?: string;
 }
+
 
 interface GroupedFollowUps {
     overdue: FollowUp[];
     dueToday: FollowUp[];
     upcoming: FollowUp[];
 }
-
 export default function FollowUps() {
     const [data, setData] = useState<GroupedFollowUps | null>(null);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState("");
+    const [filterType, setFilterType] = useState<'all' | 'leads' | 'candidates'>('all');
 
     const { currentUser } = useAuth();
     const isReadOnly = currentUser?.role === 'view_only';
@@ -211,10 +224,22 @@ export default function FollowUps() {
     };
 
     const filterBySearch = (list: FollowUp[]) => {
-        if (!searchQuery.trim()) return list;
+        let filtered = list;
+
+        if (filterType === 'leads') {
+            filtered = filtered.filter(item => !item.candidate && !item.candidate_id_val);
+        } else if (filterType === 'candidates') {
+            filtered = filtered.filter(item => !!(item.candidate || item.candidate_id_val));
+        }
+
+        if (!searchQuery.trim()) return filtered;
         const query = searchQuery.toLowerCase();
-        return list.filter((item) => {
-            const leadNameMatch = item.lead?.name?.toLowerCase().includes(query) || false;
+        return filtered.filter((item) => {
+            const leadNameMatch = 
+                item.lead?.name?.toLowerCase().includes(query) || 
+                item.candidate?.name?.toLowerCase().includes(query) ||
+                item.lead_name?.toLowerCase().includes(query) || 
+                false;
             const titleMatch = item.title?.toLowerCase().includes(query) || false;
             const notesMatch = item.notes?.toLowerCase().includes(query) || false;
             const typeMatch = item.type?.toLowerCase().includes(query) || false;
@@ -227,40 +252,52 @@ export default function FollowUps() {
     const upcomingFiltered = filterBySearch(data?.upcoming || []);
 
     const TaskCard = ({ item, variant }: { item: FollowUp, variant: 'overdue' | 'today' | 'upcoming' }) => {
+        const isCandidate = !!(item.candidate || item.candidate_id_val);
+        
         const statusStyles = {
             overdue: "border-l-destructive bg-destructive/5",
             today: "border-l-warning bg-warning/5",
             upcoming: "border-l-success bg-success/5"
         }[variant] || "border-l-border bg-card";
 
+        const detailUrl = isCandidate ? "/candidates" : (item.lead?._id ? `/lead/${item.lead._id}` : "#");
+        const nameToDisplay = isCandidate 
+            ? (item.candidate?.name || item.lead_name || 'Unknown Candidate') 
+            : (item.lead?.name || 'Unknown Lead');
+
         return (
             <div className={`flex items-center justify-between p-4 border rounded-lg border-l-4 hover:shadow-md transition-shadow ${statusStyles}`}>
                 <div className="flex items-start gap-4">
                     <div className={`p-2 rounded-full ${item.status === 'done' ? 'bg-green-500/10 text-green-500' : 'bg-primary/10 text-primary'
                         }`}>
-                        <Clock size={18} />
+                        {isCandidate ? <UserCheck size={18} /> : <Clock size={18} />}
                     </div>
                     <div>
-                        <h3 className="font-semibold text-sm flex items-center gap-2">
+                        <h3 className="font-semibold text-sm flex items-center gap-2 flex-wrap">
                             <span className="text-[9px] font-bold uppercase tracking-wider bg-primary/10 text-primary px-1.5 py-0.5 rounded">{item.type || 'Task'}</span>
-                            <Link to={`/lead/${item.lead._id}`} className="hover:text-primary transition-colors">
-                                {item.lead?.name || 'Unknown Lead'}
+                            {isCandidate ? (
+                                <span className="text-[9px] font-bold uppercase tracking-wider bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 px-1.5 py-0.5 rounded border border-indigo-500/20">HC Candidate</span>
+                            ) : (
+                                <span className="text-[9px] font-bold uppercase tracking-wider bg-blue-500/10 text-blue-600 dark:text-blue-400 px-1.5 py-0.5 rounded border border-blue-500/20">School Lead</span>
+                            )}
+                            <Link to={detailUrl} className="hover:text-primary transition-colors ml-1 font-bold">
+                                {nameToDisplay}
                             </Link>
                         </h3>
                         {item.title && <h4 className="text-xs font-bold text-foreground mt-1.5">{item.title}</h4>}
                         <p className={`text-xs text-muted-foreground ${item.title ? 'mt-0.5' : 'mt-1'}`}>{item.notes}</p>
                         <div className="flex items-center gap-3 mt-2">
                             <span className="flex items-center gap-1 text-[10px] bg-secondary px-2 py-0.5 rounded-full text-secondary-foreground border">
-                                {item.campaign?.name || 'No Campaign'}
+                                {item.campaign?.name || item.campaign_name || 'No Campaign'}
                             </span>
                             <span className="flex items-center gap-1 text-[10px] font-medium text-muted-foreground">
                                 <Calendar size={10} />
-                                {new Date(item.date_time).toLocaleString()}
+                                {toESTDate(item.date_time).toLocaleString()}
                             </span>
-                            {item.lead?.telephone && (
+                            {(item.lead?.telephone || item.telephone) && (
                                 <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
                                     <Phone size={10} />
-                                    {item.lead.telephone}
+                                    {item.lead?.telephone || item.telephone}
                                 </span>
                             )}
                             {item.priority && (
@@ -272,7 +309,7 @@ export default function FollowUps() {
                     </div>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
-                    <Link to={`/lead/${item.lead._id}`}>
+                    <Link to={detailUrl}>
                         <Button variant="ghost" size="sm" className="p-1.5 h-8 w-8 hover:bg-accent rounded-lg" title="View details">
                             <Eye size={14} />
                         </Button>
@@ -372,6 +409,40 @@ export default function FollowUps() {
                     </div>
                 </div>
 
+                {/* Segmented Filter Toggles */}
+                <div className="flex bg-muted/40 p-1 rounded-xl border max-w-md gap-1">
+                    <button
+                        onClick={() => setFilterType('all')}
+                        className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all ${
+                            filterType === 'all'
+                                ? "bg-card text-foreground shadow-sm"
+                                : "text-muted-foreground hover:text-foreground hover:bg-accent/40"
+                        }`}
+                    >
+                        All Activity
+                    </button>
+                    <button
+                        onClick={() => setFilterType('leads')}
+                        className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all ${
+                            filterType === 'leads'
+                                ? "bg-card text-primary shadow-sm"
+                                : "text-muted-foreground hover:text-foreground hover:bg-accent/40"
+                        }`}
+                    >
+                        School Leads
+                    </button>
+                    <button
+                        onClick={() => setFilterType('candidates')}
+                        className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all ${
+                            filterType === 'candidates'
+                                ? "bg-card text-indigo-600 dark:text-indigo-400 shadow-sm"
+                                : "text-muted-foreground hover:text-foreground hover:bg-accent/40"
+                        }`}
+                    >
+                        HC Candidates
+                    </button>
+                </div>
+
                 <div className="grid grid-cols-1 gap-8">
                     <TaskSection
                         title="Overdue"
@@ -427,17 +498,13 @@ export default function FollowUps() {
                         </div>
                         <div className="grid gap-2">
                             <label htmlFor="date" className="text-sm font-medium">Follow-up Time <span className="text-destructive">*</span></label>
-                            <input
+                            <DateTimePicker
                                 id="date"
-                                type="datetime-local"
-                                name="date"
-                                className={`input-field dark:bg-card dark:color-scheme-dark ${fuErrors.date ? "border-destructive focus:ring-destructive/20" : ""}`}
                                 value={followUpDate || ""}
-                                onChange={(e) => {
-                                    setFollowUpDate(e.target.value);
+                                onChange={(val) => {
+                                    setFollowUpDate(val);
                                     if (fuErrors.date) setFuErrors(prev => ({ ...prev, date: "" }));
                                 }}
-                                required
                             />
                             {fuErrors.date && <p className="text-xs text-destructive mt-1 font-medium">{fuErrors.date}</p>}
                         </div>

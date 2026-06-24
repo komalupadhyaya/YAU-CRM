@@ -507,6 +507,8 @@ export async function sendHRMeetingEmails({ meeting, actionType }) {
     // 1. Send to internal attendees
     const attendeesList = meeting.internal_attendees?.map(a => `${a.name} (${a.email})`).join('\n') || '';
 
+    const locationHtml = getLocationSectionHtml(meeting, '#6366f1');
+
     const internalHtml = renderTemplate('hr-meeting-internal.html', {
         STATUS: statusLabel,
         TITLE: meeting.title,
@@ -519,7 +521,7 @@ export async function sendHRMeetingEmails({ meeting, actionType }) {
         NOTES: meeting.notes || 'None',
         CRM_URL: crmUrl,
         YEAR: year
-    });
+    }).replace('{LOCATION_SECTION}', locationHtml);
 
     const subjectInternal = `[HR Meeting] ${meeting.title} — ${statusLabel}`;
 
@@ -577,7 +579,7 @@ export async function sendHRMeetingEmails({ meeting, actionType }) {
                     DURATION: meeting.duration_minutes.toString(),
                     TEAM_MEMBERS: attendeesList || 'None',
                     YEAR: year
-                }).replace('{NOTES_SECTION}', notesHtml);
+                }).replace('{LOCATION_SECTION}', locationHtml).replace('{NOTES_SECTION}', notesHtml);
 
                 const subjectCandidate = `Meeting Invitation: ${meeting.title} — ${statusLabel}`;
 
@@ -624,6 +626,8 @@ export async function sendSchoolMeetingEmails({ meeting, actionType }) {
     const attendeesList = meeting.internal_attendees?.map(a => `${a.name} (${a.email})`).join('\n') || 'None';
 
     // 1. Send to internal attendees
+    const locationHtml = getLocationSectionHtml(meeting, '#10b981');
+
     const internalHtml = renderTemplate('school-meeting-internal.html', {
         STATUS: statusLabel,
         TITLE: meeting.title,
@@ -634,7 +638,7 @@ export async function sendSchoolMeetingEmails({ meeting, actionType }) {
         NOTES: meeting.notes || 'None',
         CRM_URL: crmUrl,
         YEAR: year
-    });
+    }).replace('{LOCATION_SECTION}', locationHtml);
 
     const subjectInternal = `[School Meeting] ${meeting.title} — ${statusLabel}`;
 
@@ -699,7 +703,7 @@ export async function sendSchoolMeetingEmails({ meeting, actionType }) {
                     DURATION: meeting.duration_minutes.toString(),
                     TEAM_MEMBERS: attendeesList,
                     YEAR: year
-                }).replace('{NOTES_SECTION}', notesHtml);
+                }).replace('{LOCATION_SECTION}', locationHtml).replace('{NOTES_SECTION}', notesHtml);
 
                 const subjectLead = `Meeting Invitation: ${meeting.title} — ${statusLabel}`;
 
@@ -720,6 +724,78 @@ export async function sendSchoolMeetingEmails({ meeting, actionType }) {
             console.error('❌ Failed to retrieve school contacts or send lead emails:', err.message);
         }
     }
+}
+
+/**
+ * Generates the HTML location section row based on the meeting type.
+ */
+function getLocationSectionHtml(meeting, color) {
+    const type = meeting.meeting_type || 'online';
+    let label = 'Location';
+    let value = '';
+    
+    if (type === 'online') {
+        label = 'Meeting Link';
+        value = meeting.meeting_link 
+            ? `<a href="${meeting.meeting_link}" style="color:${color};text-decoration:underline;font-weight:600;">Zoom / Online Meeting Link</a>`
+            : 'Zoom / Online';
+        return `<tr>
+                  <td style="padding:10px 0;border-bottom:1px solid #1f1f23;">
+                    <span style="font-size:12px;color:#71717a;display:block;margin-bottom:4px;">${label}</span>
+                    <span style="font-size:14px;font-weight:600;color:#ffffff;line-height:1.5;display:block;">${value}</span>
+                  </td>
+                </tr>`;
+    } else if (type === 'in_person') {
+        label = 'Location';
+        const address = meeting.location || 'In-Person';
+        if (address !== 'In-Person') {
+            const mapsLink = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
+            return `<tr>
+                      <td style="padding:12px 0;border-bottom:1px solid #1f1f23;">
+                        <span style="font-size:12px;color:#71717a;display:block;margin-bottom:8px;">${label}</span>
+                        <div style="background-color: #111113; border: 1px solid #27272a; border-radius: 12px; overflow: hidden; margin-top: 4px;">
+                          <!-- Card Header -->
+                          <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #18181b; border-bottom: 1px solid #27272a;">
+                            <tr>
+                              <td style="padding: 10px 16px; font-size: 11px; font-weight: 700; color: #a1a1aa; text-transform: uppercase; letter-spacing: 0.5px;">
+                                📍 In-Person Meeting Venue
+                              </td>
+                            </tr>
+                          </table>
+                          <!-- Card Body -->
+                          <table width="100%" cellpadding="0" cellspacing="0">
+                            <tr>
+                              <td style="padding: 16px;">
+                                <div style="font-size: 14px; font-weight: 700; color: #ffffff; margin-bottom: 14px; line-height: 1.4;">${address}</div>
+                                <a href="${mapsLink}" target="_blank" style="display: inline-block; background-color: ${color}; color: #ffffff; text-decoration: none; font-size: 12px; font-weight: 700; padding: 10px 18px; border-radius: 8px; text-align: center;">
+                                  🗺️ Open Google Maps / Get Directions
+                                </a>
+                              </td>
+                            </tr>
+                          </table>
+                        </div>
+                      </td>
+                    </tr>`;
+        } else {
+            return `<tr>
+                      <td style="padding:10px 0;border-bottom:1px solid #1f1f23;">
+                        <span style="font-size:12px;color:#71717a;display:block;margin-bottom:4px;">${label}</span>
+                        <span style="font-size:14px;font-weight:600;color:#ffffff;line-height:1.5;display:block;">${address}</span>
+                      </td>
+                    </tr>`;
+        }
+    } else if (type === 'phone') {
+        label = 'Location';
+        value = 'Phone Call';
+    } else {
+        value = meeting.location || 'N/A';
+    }
+    return `<tr>
+              <td style="padding:10px 0;border-bottom:1px solid #1f1f23;">
+                <span style="font-size:12px;color:#71717a;display:block;margin-bottom:4px;">${label}</span>
+                <span style="font-size:14px;font-weight:600;color:#ffffff;line-height:1.5;display:block;">${value}</span>
+              </td>
+            </tr>`;
 }
 
 

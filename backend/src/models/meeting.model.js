@@ -47,6 +47,15 @@ const MeetingSchema = new mongoose.Schema({
 
     notes: { type: String, default: '' },
 
+    meeting_type: {
+        type: String,
+        enum: ['online', 'in_person', 'phone'],
+        default: 'online'
+    },
+    meeting_link: { type: String, default: null },
+    zoom_meeting_id: { type: String, default: null },
+    location: { type: String, default: null },
+
     created_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
 
     google_event_id: { type: String, default: null },

@@ -1,7 +1,8 @@
 import mongoose from 'mongoose';
 
 const FollowupSchema = new mongoose.Schema({
-    lead_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Lead', required: true, index: true },
+    lead_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Lead', required: false, index: true },
+    candidate_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Candidate', default: null, index: true },
     title: { type: String, trim: true },
     date_time: { type: Date, required: true },
     type: { 

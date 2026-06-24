@@ -30,6 +30,18 @@ const UserAvailabilitySchema = new mongoose.Schema({
         sunday:    { type: dayScheduleSchema, default: () => ({ enabled: false }) }
     },
 
+    date_range_start: { type: String, default: null }, // 'YYYY-MM-DD'
+    date_range_end:   { type: String, default: null }, // 'YYYY-MM-DD'
+
+    custom_schedule: {
+        type: [{
+            date:    { type: String, required: true }, // 'YYYY-MM-DD'
+            enabled: { type: Boolean, default: false },
+            slots:   { type: [timeSlotSchema], default: [] }
+        }],
+        default: []
+    },
+
     // Specific dates the user is fully blocked (e.g. vacation, sick day)
     blocked_dates: [{ type: Date }]
 

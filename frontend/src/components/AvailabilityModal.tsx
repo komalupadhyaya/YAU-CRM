@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import api from "../api/api";
 import {
     CalendarDays,
@@ -8,7 +8,11 @@ import {
     Clock,
     Edit2,
     RotateCcw,
+    ChevronDown,
+    ChevronLeft,
+    ChevronRight,
 } from "lucide-react";
+import { getESTDateParts, formatDateToESTString } from "../utils/timezoneHelper";
 import { toast } from "sonner";
 import {
     Dialog,
@@ -85,12 +89,117 @@ const formatTimeTo12h = (timeStr: string) => {
     return `${hours12}:${minStr} ${ampm}`;
 };
 
+const split12hTime = (timeStr12h: string): { hour: string; minute: string; period: 'AM' | 'PM' } => {
+    const defaultVal = { hour: '09', minute: '00', period: 'AM' as const };
+    if (!timeStr12h) return defaultVal;
+    
+    const parts = timeStr12h.trim().split(/\s+/);
+    if (parts.length < 2) {
+        const clean = timeStr12h.toUpperCase();
+        const period = clean.endsWith('PM') || clean.includes('PM') ? 'PM' : 'AM';
+        const timePart = clean.replace(/[A-Z\s]/g, '');
+        const subParts = timePart.split(':');
+        if (subParts.length < 2) return defaultVal;
+        let hr = parseInt(subParts[0], 10);
+        let min = parseInt(subParts[1], 10);
+        if (isNaN(hr) || hr < 1 || hr > 12) hr = 9;
+        if (isNaN(min) || min < 0 || min > 59) min = 0;
+        
+        min = Math.round(min / 5) * 5;
+        if (min >= 60) min = 55;
+        
+        const hourStr = hr.toString().padStart(2, '0');
+        const minStr = min.toString().padStart(2, '0');
+        return { hour: hourStr, minute: minStr, period };
+    }
+    
+    const timePart = parts[0];
+    const period = parts[1].toUpperCase() === 'PM' ? 'PM' : 'AM';
+    const subParts = timePart.split(':');
+    if (subParts.length < 2) return defaultVal;
+    
+    let hr = parseInt(subParts[0], 10);
+    let min = parseInt(subParts[1], 10);
+    if (isNaN(hr) || hr < 1 || hr > 12) hr = 9;
+    if (isNaN(min) || min < 0 || min > 59) min = 0;
+    
+    min = Math.round(min / 5) * 5;
+    if (min >= 60) min = 55;
+    
+    const hourStr = hr.toString().padStart(2, '0');
+    const minStr = min.toString().padStart(2, '0');
+    
+    return { hour: hourStr, minute: minStr, period };
+};
+
+const parseTimeTo24h = (val: string): string => {
+    if (!val.trim()) return '';
+    
+    let clean = val.trim().toUpperCase();
+    
+    // Check AM / PM
+    const isPM = clean.endsWith('PM') || clean.includes('PM');
+    const isAM = clean.endsWith('AM') || clean.includes('AM');
+    
+    clean = clean.replace(/[A-Z\s]/g, '');
+    
+    if (!clean) return '';
+    
+    let hours = 9;
+    let minutes = 0;
+    
+    if (clean.includes(':')) {
+        const [hrPart, minPart] = clean.split(':');
+        hours = parseInt(hrPart, 10) || 0;
+        minutes = parseInt(minPart, 10) || 0;
+    } else {
+        if (clean.length <= 2) {
+            hours = parseInt(clean, 10) || 0;
+            minutes = 0;
+        } else {
+            const minStr = clean.slice(-2);
+            const hrStr = clean.slice(0, -2);
+            hours = parseInt(hrStr, 10) || 0;
+            minutes = parseInt(minStr, 10) || 0;
+        }
+    }
+    
+    if (isPM && hours < 12) {
+        hours += 12;
+    } else if (isAM && hours === 12) {
+        hours = 0;
+    }
+    
+    if (hours > 23) hours = 23;
+    if (minutes > 59) minutes = 59;
+    
+    const hStr = hours.toString().padStart(2, '0');
+    const mStr = minutes.toString().padStart(2, '0');
+    return `${hStr}:${mStr}`;
+};
+
+const TIME_OPTIONS = [
+    "12:00 AM", "12:30 AM", "1:00 AM", "1:30 AM", "2:00 AM", "2:30 AM", "3:00 AM", "3:30 AM", "4:00 AM", "4:30 AM", "5:00 AM", "5:30 AM", "6:00 AM", "6:30 AM", "7:00 AM", "7:30 AM", "8:00 AM", "8:30 AM", "9:00 AM", "9:30 AM", "10:00 AM", "10:30 AM", "11:00 AM", "11:30 AM",
+    "12:00 PM", "12:30 PM", "1:00 PM", "1:30 PM", "2:00 PM", "2:30 PM", "3:00 PM", "3:30 PM", "4:00 PM", "4:30 PM", "5:00 PM", "5:30 PM", "6:00 PM", "6:30 PM", "7:00 PM", "7:30 PM", "8:00 PM", "8:30 PM", "9:00 PM", "9:30 PM", "10:00 PM", "10:30 PM", "11:00 PM", "11:30 PM"
+];
+
+const getValidTimeValue = (val: string): string => {
+    const regex = /^(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]$/;
+    return regex.test(val) ? val : "";
+};
+
 const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
 type Day = typeof DAYS[number];
 
 interface TimeSlot {
     start: string;
     end: string;
+}
+
+interface CustomDayOverride {
+    date: string;
+    enabled: boolean;
+    slots: TimeSlot[];
 }
 
 interface DaySchedule {
@@ -117,16 +226,214 @@ export interface AvailabilityUser {
 const defaultDaySchedule = (): DaySchedule => ({ enabled: false, slots: [] });
 const defaultSchedule = (): WeeklySchedule => DAYS.reduce((acc, d) => ({ ...acc, [d]: defaultDaySchedule() }), {} as WeeklySchedule);
 
+interface TimePickerPopoverProps {
+    tempText: string;
+    setTempText: (val: string) => void;
+    onConfirm: () => void;
+    onCancel: () => void;
+}
+
+function TimePickerPopover({ tempText, setTempText, onConfirm, onCancel }: TimePickerPopoverProps) {
+    const [openHour, setOpenHour] = useState(false);
+    const [openMin, setOpenMin] = useState(false);
+    const [openPeriod, setOpenPeriod] = useState(false);
+    
+    const parsed = split12hTime(tempText);
+    
+    const hours = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"];
+    const minutes = ["00", "05", "10", "15", "20", "25", "30", "35", "40", "45", "50", "55"];
+    const periods = ["AM", "PM"];
+
+    return (
+        <div
+            className="absolute top-full left-1/2 -translate-x-1/2 mt-1 bg-popover border border-border/80 rounded-xl shadow-xl z-50 p-3 min-w-[220px] flex flex-col gap-2"
+            onMouseDown={e => e.preventDefault()}
+        >
+            <div className="text-center text-xs font-bold py-1 border-b border-border text-foreground flex flex-col gap-0.5">
+                <span className="text-[9px] font-normal text-muted-foreground uppercase tracking-wider">Selected Time</span>
+                <span className="text-sm font-black text-primary">{tempText}</span>
+            </div>
+            
+            <div className="flex gap-2 justify-center">
+                {/* Hour Selector */}
+                <div className="relative flex flex-col gap-1 text-center flex-1">
+                    <span className="text-[9px] font-semibold text-muted-foreground uppercase">Hour</span>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setOpenHour(!openHour);
+                            setOpenMin(false);
+                            setOpenPeriod(false);
+                        }}
+                        className="w-full flex items-center justify-between bg-background text-foreground border border-border text-xs rounded-lg px-2 py-1 font-bold focus:outline-none h-8 transition-colors hover:border-primary/50"
+                    >
+                        <span>{parsed.hour}</span>
+                        <ChevronDown size={11} className="text-muted-foreground shrink-0 ml-0.5" />
+                    </button>
+                    {openHour && (
+                        <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border/80 rounded-lg shadow-xl max-h-36 overflow-y-auto z-50 py-1 custom-scrollbar">
+                            {hours.map(h => (
+                                <button
+                                    key={h}
+                                    type="button"
+                                    onClick={() => {
+                                        setTempText(`${h}:${parsed.minute} ${parsed.period}`);
+                                        setOpenHour(false);
+                                    }}
+                                    className={`w-full text-center px-1.5 py-1 text-xs hover:bg-muted text-foreground transition-colors ${parsed.hour === h ? 'bg-primary/10 text-primary font-bold' : ''}`}
+                                >
+                                    {h}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                {/* Minute Selector */}
+                <div className="relative flex flex-col gap-1 text-center flex-1">
+                    <span className="text-[9px] font-semibold text-muted-foreground uppercase">Min</span>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setOpenMin(!openMin);
+                            setOpenHour(false);
+                            setOpenPeriod(false);
+                        }}
+                        className="w-full flex items-center justify-between bg-background text-foreground border border-border text-xs rounded-lg px-2 py-1 font-bold focus:outline-none h-8 transition-colors hover:border-primary/50"
+                    >
+                        <span>{parsed.minute}</span>
+                        <ChevronDown size={11} className="text-muted-foreground shrink-0 ml-0.5" />
+                    </button>
+                    {openMin && (
+                        <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border/80 rounded-lg shadow-xl max-h-36 overflow-y-auto z-50 py-1 custom-scrollbar">
+                            {minutes.map(m => (
+                                <button
+                                    key={m}
+                                    type="button"
+                                    onClick={() => {
+                                        setTempText(`${parsed.hour}:${m} ${parsed.period}`);
+                                        setOpenMin(false);
+                                    }}
+                                    className={`w-full text-center px-1.5 py-1 text-xs hover:bg-muted text-foreground transition-colors ${parsed.minute === m ? 'bg-primary/10 text-primary font-bold' : ''}`}
+                                >
+                                    {m}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                {/* AM/PM Selector */}
+                <div className="relative flex flex-col gap-1 text-center flex-1">
+                    <span className="text-[9px] font-semibold text-muted-foreground uppercase">AM/PM</span>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setOpenPeriod(!openPeriod);
+                            setOpenHour(false);
+                            setOpenMin(false);
+                        }}
+                        className="w-full flex items-center justify-between bg-background text-foreground border border-border text-xs rounded-lg px-2 py-1 font-bold focus:outline-none h-8 transition-colors hover:border-primary/50"
+                    >
+                        <span>{parsed.period}</span>
+                        <ChevronDown size={11} className="text-muted-foreground shrink-0 ml-0.5" />
+                    </button>
+                    {openPeriod && (
+                        <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border/80 rounded-lg shadow-xl z-50 py-1">
+                            {periods.map(p => (
+                                <button
+                                    key={p}
+                                    type="button"
+                                    onClick={() => {
+                                        setTempText(`${parsed.hour}:${parsed.minute} ${p}`);
+                                        setOpenPeriod(false);
+                                    }}
+                                    className={`w-full text-center px-1.5 py-1 text-xs hover:bg-muted text-foreground transition-colors ${parsed.period === p ? 'bg-primary/10 text-primary font-bold' : ''}`}
+                                >
+                                    {p}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </div>
+            
+            <div className="flex gap-1.5 pt-1.5 border-t border-border mt-1">
+                <button
+                    type="button"
+                    onClick={onCancel}
+                    className="flex-1 text-[10px] font-bold py-1 px-2 border border-border hover:bg-muted text-muted-foreground rounded transition-colors"
+                >
+                    Cancel
+                </button>
+                <button
+                    type="button"
+                    onClick={onConfirm}
+                    className="flex-1 text-[10px] font-bold py-1 px-2 bg-primary hover:bg-primary/95 text-primary-foreground rounded transition-colors"
+                >
+                    Confirm
+                </button>
+            </div>
+        </div>
+    );
+}
+
 export default function AvailabilityModal({ user, open, onClose }: { user: AvailabilityUser | null; open: boolean; onClose: () => void }) {
     const [schedule, setSchedule] = useState<WeeklySchedule>(defaultSchedule());
-    const [globalSlots, setGlobalSlots] = useState<TimeSlot[]>([{ start: '09:00', end: '17:00' }]);
     const [blockedDates, setBlockedDates] = useState<string[]>([]); // ISO date strings
     const [newBlockedDate, setNewBlockedDate] = useState('');
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
 
-    const [editingDay, setEditingDay] = useState<Day | null>(null);
-    const [customizedDays, setCustomizedDays] = useState<Day[]>([]);
+    const [activeInput, setActiveInput] = useState<{ type: 'calendar_override'; index: number; field: 'start' | 'end' } | null>(null);
+    const [tempText, setTempText] = useState<string>('');
+
+    // Date range & custom day overrides (stored locally, processed in EST)
+    const [dateRangeStart, setDateRangeStart] = useState<string>('');
+    const [dateRangeEnd, setDateRangeEnd] = useState<string>('');
+    const [customDays, setCustomDays] = useState<CustomDayOverride[]>([]);
+    const [calendarMonth, setCalendarMonth] = useState<Date>(() => new Date());
+    const [selectedCalendarDate, setSelectedCalendarDate] = useState<string>(() => {
+        return formatDateToESTString(new Date());
+    }); 
+
+    const DEFAULT_SLOTS = [{ start: '09:00', end: '17:00' }];
+
+    const optionsToRender = useMemo(() => {
+        if (!tempText.trim()) return TIME_OPTIONS;
+        const cleanText = tempText.replace(/[\s:]/g, '').toLowerCase();
+        
+        const matches = TIME_OPTIONS.filter(opt => {
+            const cleanOpt = opt.replace(/[\s:]/g, '').toLowerCase();
+            return cleanOpt.includes(cleanText);
+        });
+        return matches.length > 0 ? matches : TIME_OPTIONS;
+    }, [tempText]);
+
+    useEffect(() => {
+        if (!activeInput) return;
+        const handleOutsideClick = (e: MouseEvent) => {
+            const targetId = `caloverride-${activeInput.field}-${activeInput.index}`;
+            const inputEl = document.getElementById(targetId);
+            const container = inputEl?.parentElement;
+            if (container && !container.contains(e.target as Node)) {
+                const targetTagName = (e.target as HTMLElement).tagName;
+                if (targetTagName === "OPTION" || targetTagName === "SELECT") {
+                    return;
+                }
+                
+                const normalized = parseTimeTo24h(tempText);
+                if (getValidTimeValue(normalized)) {
+                    updateCalendarOverrideSlot(activeInput.index, activeInput.field, normalized);
+                }
+                setActiveInput(null);
+            }
+        };
+        document.addEventListener("mousedown", handleOutsideClick);
+        return () => {
+            document.removeEventListener("mousedown", handleOutsideClick);
+        };
+    }, [activeInput, tempText, customDays, selectedCalendarDate]);
 
     useEffect(() => {
         if (!user || !open) return;
@@ -135,7 +442,6 @@ export default function AvailabilityModal({ user, open, onClose }: { user: Avail
             .then(res => {
                 const avail = res.data;
                 const sched: WeeklySchedule = defaultSchedule();
-                let firstFoundSlots: TimeSlot[] = [];
 
                 DAYS.forEach(d => {
                     if (avail.weekly_schedule?.[d]) {
@@ -155,179 +461,153 @@ export default function AvailabilityModal({ user, open, onClose }: { user: Avail
                             enabled: dayData.enabled ?? false,
                             slots
                         };
-
-                        if (dayData.enabled && firstFoundSlots.length === 0 && slots.length > 0) {
-                            firstFoundSlots = [...slots];
-                        }
                     }
                 });
                 
                 setSchedule(sched);
                 setBlockedDates((avail.blocked_dates || []).map((d: string) => new Date(d).toISOString().slice(0, 10)));
                 
-                if (firstFoundSlots.length > 0) {
-                    setGlobalSlots(firstFoundSlots);
-                } else {
-                    setGlobalSlots([{ start: '09:00', end: '17:00' }]);
-                }
+                // Load range & overrides from database (or local storage fallback)
+                let startVal = avail.date_range_start || '';
+                let endVal = avail.date_range_end || '';
+                let loadedCustomDays: CustomDayOverride[] = [];
 
-                // Detect custom days loaded from database
-                const customized: Day[] = [];
-                DAYS.forEach(d => {
-                    const daySched = sched[d];
-                    if (daySched.enabled && firstFoundSlots.length > 0) {
-                        const matchesTemplate = daySched.slots && daySched.slots.length === firstFoundSlots.length &&
-                            daySched.slots.every((s, idx) => s.start === firstFoundSlots[idx].start && s.end === firstFoundSlots[idx].end);
-                        if (!matchesTemplate) {
-                            customized.push(d);
+                if (avail.custom_schedule && avail.custom_schedule.length > 0) {
+                    loadedCustomDays = avail.custom_schedule.map((cs: any) => ({
+                        date: cs.date,
+                        enabled: cs.enabled ?? false,
+                        slots: (cs.slots || []).map((s: any) => ({ start: s.start, end: s.end }))
+                    }));
+                } else {
+                    const rangeStr = localStorage.getItem(`availability_range_${user._id}`);
+                    if (rangeStr) {
+                        try {
+                            const parsedRange = JSON.parse(rangeStr);
+                            if (!startVal) startVal = parsedRange.start || '';
+                            if (!endVal) endVal = parsedRange.end || '';
+                        } catch {
+                            // ignore
                         }
                     }
-                });
-                setCustomizedDays(customized);
+                    
+                    const customStr = localStorage.getItem(`availability_custom_${user._id}`);
+                    if (customStr) {
+                        try {
+                            loadedCustomDays = JSON.parse(customStr) || [];
+                        } catch {
+                            // ignore
+                        }
+                    }
+                }
+
+                setDateRangeStart(startVal);
+                setDateRangeEnd(endVal);
+                
+                // If loadedCustomDays is empty but we have a range and weekly schedule in DB, pre-populate it
+                if (loadedCustomDays.length === 0 && startVal && endVal) {
+                    const start = new Date(startVal + 'T12:00:00');
+                    const end = new Date(endVal + 'T12:00:00');
+                    const current = new Date(start);
+                    while (current <= end) {
+                        const dStr = formatDateToESTString(current);
+                        const est = getESTDateParts(current);
+                        const wDay = est.weekday as Day;
+                        const weeklySched = sched[wDay];
+                        if (weeklySched && weeklySched.enabled && weeklySched.slots && weeklySched.slots.length > 0) {
+                            loadedCustomDays.push({
+                                date: dStr,
+                                enabled: true,
+                                slots: weeklySched.slots.map(s => ({ ...s }))
+                            });
+                        }
+                        current.setDate(current.getDate() + 1);
+                    }
+                }
+                setCustomDays(loadedCustomDays);
             })
             .catch(() => { 
                 setSchedule(defaultSchedule()); 
                 setBlockedDates([]); 
-                setGlobalSlots([{ start: '09:00', end: '17:00' }]);
-                setCustomizedDays([]);
+                setDateRangeStart('');
+                setDateRangeEnd('');
+                setCustomDays([]);
             })
             .finally(() => setLoading(false));
     }, [user, open]);
 
-    const addGlobalSlot = () => {
-        const newSlots = [...globalSlots, { start: '09:00', end: '17:00' }];
-        setGlobalSlots(newSlots);
-        
-        setSchedule(prev => {
-            const updated = { ...prev };
-            DAYS.forEach(d => {
-                if (updated[d].enabled && !customizedDays.includes(d)) {
-                    updated[d].slots = newSlots.map(s => ({ ...s }));
+    const updateCalendarOverrideSlot = (index: number, field: 'start' | 'end', value: string) => {
+        setCustomDays(prev => {
+            return prev.map(cd => {
+                if (cd.date === selectedCalendarDate) {
+                    const slots = cd.slots.map((s, i) => i === index ? { ...s, [field]: value } : s);
+                    return { ...cd, slots };
                 }
+                return cd;
             });
-            return updated;
         });
     };
 
-    const removeGlobalSlot = (index: number) => {
-        const newSlots = globalSlots.filter((_, i) => i !== index);
-        setGlobalSlots(newSlots);
-        
-        setSchedule(prev => {
-            const updated = { ...prev };
-            DAYS.forEach(d => {
-                if (updated[d].enabled && !customizedDays.includes(d)) {
-                    updated[d].slots = newSlots.map(s => ({ ...s }));
-                    if (newSlots.length === 0) {
-                        updated[d].enabled = false;
-                    }
+    const addCalendarOverrideSlot = () => {
+        setCustomDays(prev => {
+            return prev.map(cd => {
+                if (cd.date === selectedCalendarDate) {
+                    return { ...cd, slots: [...cd.slots, { start: '09:00', end: '17:00' }] };
                 }
+                return cd;
             });
-            return updated;
         });
     };
 
-    const updateGlobalSlot = (index: number, field: 'start' | 'end', value: string) => {
-        const newSlots = globalSlots.map((s, i) => i === index ? { ...s, [field]: value } : s);
-        setGlobalSlots(newSlots);
-        
-        setSchedule(prev => {
-            const updated = { ...prev };
-            DAYS.forEach(d => {
-                if (updated[d].enabled && !customizedDays.includes(d)) {
-                    updated[d].slots = newSlots.map(s => ({ ...s }));
+    const removeCalendarOverrideSlot = (index: number) => {
+        setCustomDays(prev => {
+            return prev.map(cd => {
+                if (cd.date === selectedCalendarDate) {
+                    const slots = cd.slots.filter((_, i) => i !== index);
+                    return { ...cd, slots };
                 }
+                return cd;
             });
-            return updated;
         });
     };
 
-    const toggleDay = (day: Day) => {
-        setSchedule(prev => {
-            const currentlyEnabled = prev[day].enabled;
-            if (currentlyEnabled) {
-                setCustomizedDays(c => c.filter(d => d !== day));
-                if (editingDay === day) setEditingDay(null);
-            } else {
-                setCustomizedDays(c => c.filter(d => d !== day));
-            }
-            return {
-                ...prev,
-                [day]: {
-                    enabled: !currentlyEnabled,
-                    slots: !currentlyEnabled ? globalSlots.map(s => ({ ...s })) : []
-                }
-            };
-        });
-    };
-
-    const addDaySlot = (day: Day) => {
-        setSchedule(prev => {
-            const slots = prev[day].slots || [];
-            return {
-                ...prev,
-                [day]: {
-                    ...prev[day],
-                    slots: [...slots, { start: '09:00', end: '17:00' }]
-                }
-            };
-        });
-        if (!customizedDays.includes(day)) {
-            setCustomizedDays(prev => [...prev, day]);
+    const toggleCalendarOverride = (checked: boolean) => {
+        if (checked) {
+            setCustomDays(prev => {
+                if (prev.some(cd => cd.date === selectedCalendarDate)) return prev;
+                return [...prev, { date: selectedCalendarDate, enabled: true, slots: DEFAULT_SLOTS.map(s => ({ ...s })) }];
+            });
+        } else {
+            setCustomDays(prev => prev.filter(cd => cd.date !== selectedCalendarDate));
         }
     };
 
-    const removeDaySlot = (day: Day, index: number) => {
-        setSchedule(prev => {
-            const slots = (prev[day].slots || []).filter((_, i) => i !== index);
-            return {
-                ...prev,
-                [day]: {
-                    ...prev[day],
-                    slots: slots,
-                    enabled: slots.length > 0 ? prev[day].enabled : false
+    const toggleCalendarOverrideEnabled = (enabled: boolean) => {
+        setCustomDays(prev => {
+            return prev.map(cd => {
+                if (cd.date === selectedCalendarDate) {
+                    return {
+                        ...cd,
+                        enabled,
+                        slots: enabled ? (cd.slots.length > 0 ? cd.slots : DEFAULT_SLOTS.map(s => ({ ...s }))) : []
+                    };
                 }
-            };
+                return cd;
+            });
         });
-        if (!customizedDays.includes(day)) {
-            setCustomizedDays(prev => [...prev, day]);
-        }
     };
 
-    const updateDaySlot = (day: Day, index: number, field: 'start' | 'end', value: string) => {
-        setSchedule(prev => {
-            const slots = (prev[day].slots || []).map((s, i) => i === index ? { ...s, [field]: value } : s);
-            return {
-                ...prev,
-                [day]: {
-                    ...prev[day],
-                    slots
-                }
-            };
-        });
-        if (!customizedDays.includes(day)) {
-            setCustomizedDays(prev => [...prev, day]);
-        }
-    };
-
-    const resetDayToGlobal = (day: Day) => {
-        setSchedule(prev => ({
-            ...prev,
-            [day]: {
-                ...prev[day],
-                slots: globalSlots.map(s => ({ ...s }))
-            }
-        }));
-        setCustomizedDays(prev => prev.filter(d => d !== day));
-        if (editingDay === day) {
-            setEditingDay(null);
-        }
-        toast.info(`${day.charAt(0).toUpperCase() + day.slice(1)} reset to default template hours`);
+    const isWithinRange = (dateStr: string, start: string, end: string) => {
+        if (start && dateStr < start) return false;
+        if (end && dateStr > end) return false;
+        return true;
     };
 
     const addBlockedDate = () => {
         if (!newBlockedDate || blockedDates.includes(newBlockedDate)) return;
         setBlockedDates(prev => [...prev, newBlockedDate].sort());
+        if (newBlockedDate === selectedCalendarDate) {
+            setSelectedCalendarDate(dateRangeStart || '');
+        }
         setNewBlockedDate('');
     };
 
@@ -337,13 +617,31 @@ export default function AvailabilityModal({ user, open, onClose }: { user: Avail
         if (!user) return;
 
         // Validation:
+        if (dateRangeStart && dateRangeEnd && dateRangeStart > dateRangeEnd) {
+            toast.error('Start Date cannot be after End Date.');
+            return;
+        }
+
+        // Build final schedule based on custom overrides
+        const finalSchedule = defaultSchedule();
+        customDays.forEach(cd => {
+            if (cd.enabled && cd.slots && cd.slots.length > 0) {
+                const parts = cd.date.split('-');
+                const dateObj = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10), 12, 0, 0);
+                const est = getESTDateParts(dateObj);
+                const weeklyDay = est.weekday as Day;
+                
+                finalSchedule[weeklyDay] = {
+                    enabled: true,
+                    slots: cd.slots.map(s => ({ ...s }))
+                };
+            }
+        });
+
+        // Validate final schedule slots
         for (const day of DAYS) {
-            const daySched = schedule[day];
+            const daySched = finalSchedule[day];
             if (daySched.enabled) {
-                if (!daySched.slots || daySched.slots.length === 0) {
-                    toast.error(`Please add at least one time slot for ${day.charAt(0).toUpperCase() + day.slice(1)}.`);
-                    return;
-                }
                 for (let i = 0; i < daySched.slots.length; i++) {
                     const slot = daySched.slots[i];
                     if (!slot.start || !slot.end) {
@@ -358,12 +656,43 @@ export default function AvailabilityModal({ user, open, onClose }: { user: Avail
             }
         }
 
+        // Validate custom overrides directly
+        for (const cd of customDays) {
+            if (cd.enabled) {
+                if (!cd.slots || cd.slots.length === 0) {
+                    toast.error(`Please add at least one time slot for customized date ${cd.date}.`);
+                    return;
+                }
+                for (let i = 0; i < cd.slots.length; i++) {
+                    const slot = cd.slots[i];
+                    if (!slot.start || !slot.end) {
+                        toast.error(`Please fill both start and end times for all slots on customized date ${cd.date}.`);
+                        return;
+                    }
+                    if (slot.start >= slot.end) {
+                        toast.error(`Start time must be before end time for slot ${i + 1} on customized date ${cd.date}.`);
+                        return;
+                    }
+                }
+            }
+        }
+
         setSaving(true);
         try {
             await api.put(`/availability/${user._id}`, {
-                weekly_schedule: schedule,
-                blocked_dates: blockedDates
+                weekly_schedule: finalSchedule,
+                blocked_dates: blockedDates,
+                date_range_start: dateRangeStart || null,
+                date_range_end: dateRangeEnd || null,
+                custom_schedule: customDays.map(cd => ({
+                    date: cd.date,
+                    enabled: cd.enabled,
+                    slots: cd.slots.map(s => ({ start: s.start, end: s.end }))
+                }))
             });
+            // Save date range and custom overrides to local storage
+            localStorage.setItem(`availability_range_${user._id}`, JSON.stringify({ start: dateRangeStart, end: dateRangeEnd }));
+            localStorage.setItem(`availability_custom_${user._id}`, JSON.stringify(customDays));
             toast.success('Availability saved');
             onClose();
         } catch {
@@ -375,15 +704,21 @@ export default function AvailabilityModal({ user, open, onClose }: { user: Avail
 
     if (!open || !user) return null;
 
+    const dParts = selectedCalendarDate.split('-');
+    const dateObj = new Date(parseInt(dParts[0], 10), parseInt(dParts[1], 10) - 1, parseInt(dParts[2], 10));
+    const formattedLabel = dateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
+    const selectedOverride = customDays.find(cd => cd.date === selectedCalendarDate);
+    const hasOverride = !!selectedOverride;
+
     return (
         <Dialog open={open} onOpenChange={onClose}>
-            <DialogContent className="sm:max-w-4xl p-0 overflow-hidden flex flex-col max-h-[92vh]">
+            <DialogContent aria-describedby={undefined} className="sm:max-w-4xl p-0 overflow-hidden flex flex-col max-h-[92vh]">
                 <DialogHeader className="p-6 pb-4 border-b border-border">
                     <DialogTitle className="flex items-center gap-2 text-foreground">
                         <CalendarDays size={16} className="text-primary" />
                         Availability — {user.name || user.username}
                     </DialogTitle>
-                    <DialogDescription>Set weekly working hours and blocked dates for meeting scheduling.</DialogDescription>
+                    <DialogDescription>Configure availability date range and customize specific dates.</DialogDescription>
                 </DialogHeader>
 
                 <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
@@ -393,364 +728,343 @@ export default function AvailabilityModal({ user, open, onClose }: { user: Avail
                         </div>
                     ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
-                            {/* Left Column: Configurator */}
+                            {/* Left Column: Range & Calendar */}
                             <div className="space-y-6">
-                                {/* Time Slots Configurator */}
+                                {/* Step 1: Set Active Date Range */}
                                 <div className="space-y-3">
                                     <div>
-                                        <h4 className="text-sm font-bold text-foreground">1. Set Active Time Slots</h4>
-                                        <p className="text-xs text-muted-foreground">Define the working hours that apply to your selected days.</p>
+                                        <h4 className="text-sm font-bold text-foreground">1. Set Active Date Range</h4>
+                                        <p className="text-xs text-muted-foreground">Restrict your availability strictly within this date range.</p>
                                     </div>
-                                    
-                                    <div className="space-y-3 border border-border/60 bg-muted/10 rounded-xl p-4">
-                                        {globalSlots.map((slot, index) => (
-                                            <div key={index} className="flex items-center gap-2">
-                                                <div className="relative flex-1 flex items-center">
-                                                    <input
-                                                        id={`avail-start-${index}`}
-                                                        name={`avail-start-${index}`}
-                                                        type="text"
-                                                        placeholder="09:00"
-                                                        value={slot.start}
-                                                        onChange={e => {
-                                                            const formatted = formatTimeInput(e.target.value);
-                                                            updateGlobalSlot(index, 'start', formatted);
-                                                        }}
-                                                        onBlur={e => {
-                                                            const normalized = normalizeTimeOnBlur(e.target.value);
-                                                            updateGlobalSlot(index, 'start', normalized);
-                                                        }}
-                                                        className="w-full text-center text-xs pl-2 pr-7 py-1.5 h-9 rounded-lg border border-border bg-background text-foreground focus:ring-1 focus:ring-primary focus:border-primary focus:outline-none"
-                                                    />
-                                                    <button
-                                                        type="button"
-                                                        onClick={e => {
-                                                            const hiddenInput = e.currentTarget.parentElement?.querySelector('input[type="time"]') as HTMLInputElement;
-                                                            if (hiddenInput) {
-                                                                try {
-                                                                    hiddenInput.showPicker();
-                                                                } catch (err) {
-                                                                    hiddenInput.focus();
-                                                                    hiddenInput.click();
-                                                                }
-                                                            }
-                                                        }}
-                                                        className="absolute right-2 text-muted-foreground hover:text-foreground p-0.5 rounded transition-colors"
-                                                    >
-                                                        <Clock size={13} />
-                                                    </button>
-                                                    <input
-                                                        id={`avail-start-time-picker-${index}`}
-                                                        name={`avail-start-time-picker-${index}`}
-                                                        type="time"
-                                                        value={slot.start}
-                                                        onChange={e => {
-                                                            updateGlobalSlot(index, 'start', e.target.value);
-                                                        }}
-                                                        className="opacity-0 absolute right-0 top-0 w-0 h-0 pointer-events-none"
-                                                    />
-                                                </div>
-                                                <span className="text-xs text-muted-foreground shrink-0 font-medium">to</span>
-                                                <div className="relative flex-1 flex items-center">
-                                                    <input
-                                                        id={`avail-end-${index}`}
-                                                        name={`avail-end-${index}`}
-                                                        type="text"
-                                                        placeholder="17:00"
-                                                        value={slot.end}
-                                                        onChange={e => {
-                                                            const formatted = formatTimeInput(e.target.value);
-                                                            updateGlobalSlot(index, 'end', formatted);
-                                                        }}
-                                                        onBlur={e => {
-                                                            const normalized = normalizeTimeOnBlur(e.target.value);
-                                                            updateGlobalSlot(index, 'end', normalized);
-                                                        }}
-                                                        className="w-full text-center text-xs pl-2 pr-7 py-1.5 h-9 rounded-lg border border-border bg-background text-foreground focus:ring-1 focus:ring-primary focus:border-primary focus:outline-none"
-                                                    />
-                                                    <button
-                                                        type="button"
-                                                        onClick={e => {
-                                                            const hiddenInput = e.currentTarget.parentElement?.querySelector('input[type="time"]') as HTMLInputElement;
-                                                            if (hiddenInput) {
-                                                                try {
-                                                                    hiddenInput.showPicker();
-                                                                } catch (err) {
-                                                                    hiddenInput.focus();
-                                                                    hiddenInput.click();
-                                                                }
-                                                            }
-                                                        }}
-                                                        className="absolute right-2 text-muted-foreground hover:text-foreground p-0.5 rounded transition-colors"
-                                                    >
-                                                        <Clock size={13} />
-                                                    </button>
-                                                    <input
-                                                        id={`avail-end-time-picker-${index}`}
-                                                        name={`avail-end-time-picker-${index}`}
-                                                        type="time"
-                                                        value={slot.end}
-                                                        onChange={e => {
-                                                            updateGlobalSlot(index, 'end', e.target.value);
-                                                        }}
-                                                        className="opacity-0 absolute right-0 top-0 w-0 h-0 pointer-events-none"
-                                                    />
-                                                </div>
-                                                {globalSlots.length > 1 && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => removeGlobalSlot(index)}
-                                                        className="text-muted-foreground hover:text-destructive shrink-0 p-1.5 rounded hover:bg-muted transition-colors"
-                                                    >
-                                                        <X size={14} />
-                                                    </button>
-                                                )}
+                                    <div className="border border-border/60 bg-muted/10 rounded-xl p-4 space-y-4">
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">Start Date</label>
+                                                <input
+                                                    type="date"
+                                                    value={dateRangeStart}
+                                                    max={dateRangeEnd || undefined}
+                                                    onChange={e => {
+                                                        const val = e.target.value;
+                                                        setDateRangeStart(val);
+                                                        if (val) {
+                                                            setSelectedCalendarDate(val);
+                                                            setCalendarMonth(new Date(val + 'T12:00:00'));
+                                                        }
+                                                    }}
+                                                    className="w-full text-xs px-2.5 py-1.5 h-9 rounded-lg border border-border bg-background text-foreground focus:ring-1 focus:ring-primary focus:border-primary focus:outline-none"
+                                                />
                                             </div>
-                                        ))}
-                                        <button
-                                            type="button"
-                                            onClick={addGlobalSlot}
-                                            className="text-xs text-primary hover:underline flex items-center gap-1 font-semibold pt-1"
-                                        >
-                                            <Plus size={13} /> Add another time slot
-                                        </button>
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">End Date</label>
+                                                <input
+                                                    type="date"
+                                                    value={dateRangeEnd}
+                                                    min={dateRangeStart || undefined}
+                                                    onChange={e => setDateRangeEnd(e.target.value)}
+                                                    className="w-full text-xs px-2.5 py-1.5 h-9 rounded-lg border border-border bg-background text-foreground focus:ring-1 focus:ring-primary focus:border-primary focus:outline-none"
+                                                />
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
 
-                                {/* Days Selector */}
+                                {/* Step 2: Calendar View */}
                                 <div className="space-y-3">
                                     <div>
-                                        <h4 className="text-sm font-bold text-foreground">2. Select Active Days</h4>
-                                        <p className="text-xs text-muted-foreground">Select the days to apply your configured time slots.</p>
+                                        <h4 className="text-sm font-bold text-foreground">2. Calendar View</h4>
+                                        <p className="text-xs text-muted-foreground">Select a date inside your range to customize specific slots.</p>
                                     </div>
-                                    <div className="grid grid-cols-7 gap-1.5">
-                                        {DAYS.map(day => {
-                                            const enabled = schedule[day].enabled;
-                                            const shortName = day.slice(0, 3).charAt(0).toUpperCase() + day.slice(1, 3);
-                                            return (
-                                                <button
-                                                    key={day}
-                                                    type="button"
-                                                    onClick={() => toggleDay(day)}
-                                                    className={`h-11 rounded-lg border text-xs font-bold transition-all flex flex-col items-center justify-center relative
-                                                        ${enabled 
-                                                            ? 'border-primary bg-primary/10 text-primary shadow-sm' 
-                                                            : 'border-border bg-background text-muted-foreground hover:border-primary/50 hover:bg-accent/40'}`}
-                                                >
-                                                    {shortName}
-                                                    {enabled && (
-                                                        <span className="w-1.5 h-1.5 rounded-full bg-primary absolute bottom-1"></span>
+
+                                    {!dateRangeStart || !dateRangeEnd ? (
+                                        <div className="border border-dashed border-border/80 bg-muted/5 rounded-xl p-6 text-center text-xs text-muted-foreground">
+                                            ⚠️ Please select a Start and End date range in Step 1 to open the calendar.
+                                        </div>
+                                    ) : (
+                                        <div className="border border-border/80 bg-muted/10 rounded-xl p-4">
+                                            <div className="flex items-center justify-between px-1 mb-3">
+                                                <div className="flex flex-col">
+                                                    <span className="text-xs font-bold text-foreground">
+                                                        {calendarMonth.toLocaleString('default', { month: 'long', year: 'numeric' })} (EST)
+                                                    </span>
+                                                    {dateRangeStart && dateRangeEnd && (
+                                                        <span className="text-[10px] text-primary font-bold">
+                                                            Active Range: {new Date(dateRangeStart + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} to {new Date(dateRangeEnd + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                                        </span>
                                                     )}
-                                                </button>
-                                            );
-                                        })}
-                                    </div>
+                                                </div>
+                                                <div className="flex gap-1.5">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1))}
+                                                        className="p-1 border border-border bg-background rounded hover:bg-muted text-muted-foreground transition-colors"
+                                                    >
+                                                        <ChevronLeft size={13} />
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1))}
+                                                        className="p-1 border border-border bg-background rounded hover:bg-muted text-muted-foreground transition-colors"
+                                                    >
+                                                        <ChevronRight size={13} />
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-2 border-b border-border/40 pb-1">
+                                                {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(w => <span key={w}>{w}</span>)}
+                                            </div>
+
+                                            <div className="grid grid-cols-7 gap-1 text-center">
+                                                {(() => {
+                                                    const calendarYear = calendarMonth.getFullYear();
+                                                    const calendarMonthIndex = calendarMonth.getMonth();
+                                                    
+                                                    const firstDay = new Date(calendarYear, calendarMonthIndex, 1);
+                                                    const startDay = firstDay.getDay();
+                                                    const gridStart = new Date(firstDay);
+                                                    gridStart.setDate(gridStart.getDate() - startDay);
+
+                                                    const lastDay = new Date(calendarYear, calendarMonthIndex + 1, 0);
+                                                    const endDay = lastDay.getDay();
+                                                    const gridEnd = new Date(lastDay);
+                                                    gridEnd.setDate(gridEnd.getDate() + (6 - endDay));
+
+                                                    const monthGridDays: Date[] = [];
+                                                    let curDate = new Date(gridStart);
+                                                    while (curDate <= gridEnd) {
+                                                        monthGridDays.push(new Date(curDate));
+                                                        curDate.setDate(curDate.getDate() + 1);
+                                                    }
+
+                                                    return monthGridDays.map((d, idx) => {
+                                                        const dStr = `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`;
+                                                        const isCurrentMonth = d.getMonth() === calendarMonthIndex;
+                                                        const inRange = isWithinRange(dStr, dateRangeStart, dateRangeEnd);
+                                                        const isSelected = dStr === selectedCalendarDate;
+                                                        
+                                                        const override = customDays.find(cd => cd.date === dStr);
+                                                        const isBlocked = blockedDates.includes(dStr);
+
+                                                        let dayClass = "h-8 w-8 text-xs font-bold transition-all flex items-center justify-center relative rounded-lg ";
+                                                        if (isSelected) {
+                                                            dayClass += "bg-primary text-primary-foreground border border-primary shadow-sm";
+                                                        } else if (!inRange) {
+                                                            dayClass += "text-muted-foreground/30 cursor-not-allowed bg-transparent";
+                                                        } else if (isBlocked) {
+                                                            dayClass += "bg-destructive/20 text-destructive/60 border border-destructive/30 cursor-not-allowed opacity-50";
+                                                        } else if (override) {
+                                                            if (override.enabled) {
+                                                                    dayClass += "border border-primary bg-primary/10 text-foreground hover:bg-primary/15";
+                                                            } else {
+                                                                    dayClass += "border border-destructive bg-destructive/10 text-destructive hover:bg-destructive/15";
+                                                            }
+                                                        } else {
+                                                            dayClass += "text-muted-foreground hover:bg-accent/40";
+                                                        }
+
+                                                        if (!isCurrentMonth && inRange && !isSelected) {
+                                                            dayClass += " opacity-40";
+                                                        }
+
+                                                        return (
+                                                            <button
+                                                                key={idx}
+                                                                type="button"
+                                                                disabled={!inRange || isBlocked}
+                                                                onClick={() => setSelectedCalendarDate(dStr)}
+                                                                className={dayClass}
+                                                            >
+                                                                <span>{d.getDate()}</span>
+                                                                {!isSelected && (
+                                                                    <span className="absolute bottom-1 flex gap-0.5">
+                                                                        {override && (
+                                                                            <span className={`w-1 h-1 rounded-full ${override.enabled ? 'bg-primary' : 'bg-destructive'}`}></span>
+                                                                        )}
+                                                                        {isBlocked && (
+                                                                            <span className="w-1 h-1 rounded-full bg-destructive"></span>
+                                                                        )}
+                                                                    </span>
+                                                                )}
+                                                            </button>
+                                                        );
+                                                    });
+                                                })()}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 
-                            {/* Right Column: Visual Summary & Blocked Dates */}
+                            {/* Right Column: Date Customization & Blocked Dates */}
                             <div className="space-y-6">
-                                {/* Summary Card */}
+                                {/* Step 3: Date Settings */}
                                 <div className="space-y-3">
                                     <div>
-                                        <h4 className="text-sm font-bold text-foreground">Weekly Availability Summary</h4>
-                                        <p className="text-xs text-muted-foreground">This is your configured work schedule.</p>
+                                        <h4 className="text-sm font-bold text-foreground">3. Date Settings</h4>
+                                        <p className="text-xs text-muted-foreground">Customize working hours specifically for the selected date.</p>
                                     </div>
-                                    
-                                    <div className="border border-border/80 bg-muted/20 rounded-xl p-4 space-y-3">
-                                        {DAYS.map(day => {
-                                            const daySched = schedule[day];
-                                            const enabled = daySched.enabled;
-                                            const isCustom = customizedDays.includes(day);
-                                            const isEditing = editingDay === day;
 
-                                            return (
-                                                <div key={day} className="py-1.5 border-b border-border/40 last:border-b-0">
-                                                    <div className="flex items-start justify-between">
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="text-xs font-bold text-foreground capitalize w-20">{day}</span>
-                                                            {enabled ? (
-                                                                <span className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider">
-                                                                    Active
-                                                                </span>
-                                                            ) : (
-                                                                <span className="bg-zinc-500/5 text-muted-foreground/60 border border-border/40 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider">
-                                                                    Closed
-                                                                </span>
-                                                            )}
-                                                        </div>
-                                                        
-                                                        <div className="flex items-center gap-3">
-                                                            {enabled && (
-                                                                <div className="flex items-center gap-1.5 mr-1 shrink-0">
-                                                                    {isCustom && (
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => resetDayToGlobal(day)}
-                                                                            className="text-muted-foreground hover:text-primary transition-colors p-0.5 rounded"
-                                                                            title="Reset to default template hours"
-                                                                        >
-                                                                            <RotateCcw size={11} />
-                                                                        </button>
-                                                                    )}
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => setEditingDay(isEditing ? null : day)}
-                                                                        className={`transition-colors p-0.5 rounded ${isEditing ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
-                                                                        title="Customize hours for this day"
-                                                                    >
-                                                                        <Edit2 size={11} />
-                                                                    </button>
-                                                                </div>
-                                                            )}
-                                                            
-                                                            {!isEditing && (
-                                                                <div className="flex-1 text-right">
-                                                                    {enabled && daySched.slots && daySched.slots.length > 0 ? (
-                                                                        <div className="space-y-1">
-                                                                            {daySched.slots.map((s, idx) => (
-                                                                                <div key={idx} className="text-xs text-foreground font-semibold flex items-center justify-end gap-1">
-                                                                                    <Clock size={10} className="text-muted-foreground/75" />
-                                                                                    <span>{formatTimeTo12h(s.start)}</span>
-                                                                                    <span className="text-muted-foreground/60 mx-0.5">-</span>
-                                                                                    <span>{formatTimeTo12h(s.end)}</span>
-                                                                                </div>
-                                                                            ))}
-                                                                        </div>
-                                                                    ) : (
-                                                                        <span className="text-xs text-muted-foreground/50 italic">Unavailable</span>
-                                                                    )}
-                                                                </div>
-                                                            )}
+                                    {selectedCalendarDate && (
+                                        <div className="border border-border/80 bg-muted/5 rounded-xl p-4 space-y-4">
+                                            <div>
+                                                <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">Selected Date</p>
+                                                <h5 className="text-xs font-bold text-foreground">{formattedLabel}</h5>
+                                            </div>
+
+                                            {isWithinRange(selectedCalendarDate, dateRangeStart, dateRangeEnd) ? (
+                                                <div className="space-y-4">
+                                                    <div className="flex flex-col gap-2">
+                                                        <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">Date Settings Options</span>
+                                                        <div className="grid grid-cols-2 gap-3">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    toggleCalendarOverride(false);
+                                                                }}
+                                                                className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all hover:bg-muted/10 h-16 ${!hasOverride || (hasOverride && !selectedOverride.enabled) ? 'border-destructive bg-destructive/10 text-destructive font-black shadow-sm' : 'border-border bg-background text-muted-foreground'}`}
+                                                            >
+                                                                <span className="text-xs font-bold">Closed / Unavailable</span>
+                                                                <span className="text-[9px] font-normal opacity-70 mt-0.5">No slots / Holiday</span>
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    if (!hasOverride) {
+                                                                        toggleCalendarOverride(true);
+                                                                    } else {
+                                                                        toggleCalendarOverrideEnabled(true);
+                                                                    }
+                                                                }}
+                                                                className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all hover:bg-primary/5 h-16 ${hasOverride && selectedOverride.enabled ? 'border-primary bg-primary/10 text-primary font-black shadow-sm' : 'border-border bg-background text-muted-foreground'}`}
+                                                            >
+                                                                <span className="text-xs font-bold">Customize / Custom Hours</span>
+                                                                <span className="text-[9px] font-normal opacity-70 mt-0.5">Enter active slots</span>
+                                                            </button>
                                                         </div>
                                                     </div>
 
-                                                    {enabled && isEditing && (
-                                                        <div className="mt-2 pl-3 py-2 border-l-2 border-primary/45 space-y-2 bg-background/50 rounded-r-lg">
-                                                            <p className="text-[10px] font-bold text-primary uppercase tracking-wider text-left">Customize Hours</p>
-                                                            {daySched.slots.map((slot, idx) => (
-                                                                <div key={idx} className="flex items-center gap-1.5">
-                                                                    <div className="relative flex-1 flex items-center">
-                                                                        <input
-                                                                            id={`custom-start-${day}-${idx}`}
-                                                                            name={`custom-start-${day}-${idx}`}
-                                                                            type="text"
-                                                                            placeholder="09:00"
-                                                                            value={slot.start}
-                                                                            onChange={e => {
-                                                                                const formatted = formatTimeInput(e.target.value);
-                                                                                updateDaySlot(day, idx, 'start', formatted);
-                                                                            }}
-                                                                            onBlur={e => {
-                                                                                const normalized = normalizeTimeOnBlur(e.target.value);
-                                                                                updateDaySlot(day, idx, 'start', normalized);
-                                                                            }}
-                                                                            className="w-full text-center text-[10px] pl-1 pr-5 py-0.5 h-7 border border-border rounded bg-background text-foreground focus:outline-none"
-                                                                        />
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={e => {
-                                                                                const hiddenInput = e.currentTarget.parentElement?.querySelector('input[type="time"]') as HTMLInputElement;
-                                                                                if (hiddenInput) {
-                                                                                    try {
-                                                                                        hiddenInput.showPicker();
-                                                                                    } catch (err) {
-                                                                                        hiddenInput.focus();
-                                                                                        hiddenInput.click();
-                                                                                    }
-                                                                                }
-                                                                            }}
-                                                                            className="absolute right-1 text-muted-foreground p-0.5 rounded"
-                                                                        >
-                                                                            <Clock size={10} />
-                                                                        </button>
-                                                                        <input
-                                                                            type="time"
-                                                                            value={slot.start}
-                                                                            onChange={e => updateDaySlot(day, idx, 'start', e.target.value)}
-                                                                            className="opacity-0 absolute right-0 top-0 w-0 h-0 pointer-events-none"
-                                                                        />
-                                                                    </div>
-                                                                    <span className="text-[10px] text-muted-foreground">to</span>
-                                                                    <div className="relative flex-1 flex items-center">
-                                                                        <input
-                                                                            id={`custom-end-${day}-${idx}`}
-                                                                            name={`custom-end-${day}-${idx}`}
-                                                                            type="text"
-                                                                            placeholder="17:00"
-                                                                            value={slot.end}
-                                                                            onChange={e => {
-                                                                                const formatted = formatTimeInput(e.target.value);
-                                                                                updateDaySlot(day, idx, 'end', formatted);
-                                                                            }}
-                                                                            onBlur={e => {
-                                                                                const normalized = normalizeTimeOnBlur(e.target.value);
-                                                                                updateDaySlot(day, idx, 'end', normalized);
-                                                                            }}
-                                                                            className="w-full text-center text-[10px] pl-1 pr-5 py-0.5 h-7 border border-border rounded bg-background text-foreground focus:outline-none"
-                                                                        />
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={e => {
-                                                                                const hiddenInput = e.currentTarget.parentElement?.querySelector('input[type="time"]') as HTMLInputElement;
-                                                                                if (hiddenInput) {
-                                                                                    try {
-                                                                                        hiddenInput.showPicker();
-                                                                                    } catch (err) {
-                                                                                        hiddenInput.focus();
-                                                                                        hiddenInput.click();
-                                                                                    }
-                                                                                }
-                                                                            }}
-                                                                            className="absolute right-1 text-muted-foreground p-0.5 rounded"
-                                                                        >
-                                                                            <Clock size={10} />
-                                                                        </button>
-                                                                        <input
-                                                                            type="time"
-                                                                            value={slot.end}
-                                                                            onChange={e => updateDaySlot(day, idx, 'end', e.target.value)}
-                                                                            className="opacity-0 absolute right-0 top-0 w-0 h-0 pointer-events-none"
-                                                                        />
-                                                                    </div>
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => removeDaySlot(day, idx)}
-                                                                        className="text-muted-foreground hover:text-destructive p-0.5 rounded hover:bg-muted"
-                                                                    >
-                                                                        <X size={12} />
-                                                                    </button>
-                                                                </div>
-                                                            ))}
-                                                            <div className="flex items-center justify-between pt-1">
+                                                    {hasOverride && selectedOverride.enabled ? (
+                                                        <div className="space-y-2.5 pt-3 border-t border-border/60">
+                                                            <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">Enter configured slots:</span>
+                                                            <div className="space-y-2.5">
+                                                                {selectedOverride.slots.map((slot, idx) => {
+                                                                    const isOverStartActive = activeInput && activeInput.type === "calendar_override" && activeInput.index === idx && activeInput.field === "start";
+                                                                    const isOverEndActive = activeInput && activeInput.type === "calendar_override" && activeInput.index === idx && activeInput.field === "end";
+                                                                    return (
+                                                                        <div key={idx} className="flex items-center gap-1.5">
+                                                                            <div className="relative flex-1 flex items-center">
+                                                                                <input
+                                                                                    id={`caloverride-start-${idx}`}
+                                                                                    name={`caloverride-start-${idx}`}
+                                                                                    type="text"
+                                                                                    placeholder="09:00 AM"
+                                                                                    value={isOverStartActive ? tempText : formatTimeTo12h(slot.start)}
+                                                                                    onFocus={() => {
+                                                                                        setActiveInput({ type: "calendar_override", index: idx, field: "start" });
+                                                                                        setTempText(formatTimeTo12h(slot.start) || "09:00 AM");
+                                                                                    }}
+                                                                                    onChange={e => setTempText(e.target.value)}
+                                                                                    className="w-full text-center text-xs pl-2 pr-7 py-1.5 h-8 rounded-lg border border-border bg-background text-foreground focus:outline-none"
+                                                                                />
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => document.getElementById(`caloverride-start-${idx}`)?.focus()}
+                                                                                    className="absolute right-2 text-muted-foreground hover:text-foreground p-0.5 rounded transition-colors"
+                                                                                >
+                                                                                    <Clock size={11} />
+                                                                                </button>
+                                                                                {isOverStartActive && (
+                                                                                    <TimePickerPopover
+                                                                                        tempText={tempText}
+                                                                                        setTempText={setTempText}
+                                                                                        onCancel={() => setActiveInput(null)}
+                                                                                        onConfirm={() => {
+                                                                                            const normalized = parseTimeTo24h(tempText);
+                                                                                            if (getValidTimeValue(normalized)) {
+                                                                                                updateCalendarOverrideSlot(idx, "start", normalized);
+                                                                                            }
+                                                                                            setActiveInput(null);
+                                                                                        }}
+                                                                                    />
+                                                                                )}
+                                                                            </div>
+                                                                            <span className="text-xs text-muted-foreground shrink-0">to</span>
+                                                                            <div className="relative flex-1 flex items-center">
+                                                                                <input
+                                                                                    id={`caloverride-end-${idx}`}
+                                                                                    name={`caloverride-end-${idx}`}
+                                                                                    type="text"
+                                                                                    placeholder="05:00 PM"
+                                                                                    value={isOverEndActive ? tempText : formatTimeTo12h(slot.end)}
+                                                                                    onFocus={() => {
+                                                                                        setActiveInput({ type: "calendar_override", index: idx, field: "end" });
+                                                                                        setTempText(formatTimeTo12h(slot.end) || "05:00 PM");
+                                                                                    }}
+                                                                                    onChange={e => setTempText(e.target.value)}
+                                                                                    className="w-full text-center text-xs pl-2 pr-7 py-1.5 h-8 rounded-lg border border-border bg-background text-foreground focus:outline-none"
+                                                                                />
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => document.getElementById(`caloverride-end-${idx}`)?.focus()}
+                                                                                    className="absolute right-2 text-muted-foreground hover:text-foreground p-0.5 rounded transition-colors"
+                                                                                    >
+                                                                                    <Clock size={11} />
+                                                                                </button>
+                                                                                {isOverEndActive && (
+                                                                                    <TimePickerPopover
+                                                                                        tempText={tempText}
+                                                                                        setTempText={setTempText}
+                                                                                        onCancel={() => setActiveInput(null)}
+                                                                                        onConfirm={() => {
+                                                                                            const normalized = parseTimeTo24h(tempText);
+                                                                                            if (getValidTimeValue(normalized)) {
+                                                                                                updateCalendarOverrideSlot(idx, "end", normalized);
+                                                                                            }
+                                                                                            setActiveInput(null);
+                                                                                        }}
+                                                                                    />
+                                                                                )}
+                                                                            </div>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => removeCalendarOverrideSlot(idx)}
+                                                                                className="text-muted-foreground hover:text-destructive shrink-0 p-1.5 rounded hover:bg-muted transition-colors"
+                                                                            >
+                                                                                <X size={13} />
+                                                                            </button>
+                                                                        </div>
+                                                                    );
+                                                                })}
                                                                 <button
                                                                     type="button"
-                                                                    onClick={() => addDaySlot(day)}
-                                                                    className="text-[10px] text-primary hover:underline flex items-center gap-0.5 font-bold"
+                                                                    onClick={addCalendarOverrideSlot}
+                                                                    className="text-xs text-primary hover:underline flex items-center gap-1 font-semibold pt-1"
                                                                 >
-                                                                    <Plus size={10} /> Add slot
-                                                                </button>
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => setEditingDay(null)}
-                                                                    className="text-[10px] bg-primary/10 hover:bg-primary/20 text-primary px-2 py-0.5 rounded font-bold"
-                                                                >
-                                                                    Done
+                                                                    <Plus size={13} /> Add slot
                                                                 </button>
                                                             </div>
                                                         </div>
+                                                    ) : (
+                                                        <div className="text-center text-xs text-muted-foreground py-4 border-t border-border/40">
+                                                            Unavailable / Closed by default. Select Customize option above to configure working hours for this date.
+                                                        </div>
                                                     )}
                                                 </div>
-                                            );
-                                        })}
-                                    </div>
+                                            ) : (
+                                                <div className="text-center text-xs text-muted-foreground py-4 border-t border-border/40">
+                                                    ⚠️ This date is outside the active range. Please select a date inside the range.
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
 
-                                {/* Blocked Dates */}
+                                {/* Step 4: Blocked Dates */}
                                 <div className="space-y-3">
                                     <div>
-                                        <h4 className="text-sm font-bold text-foreground">Blocked Dates</h4>
-                                        <p className="text-xs text-muted-foreground">Mark specific dates as fully unavailable (e.g. holidays).</p>
+                                        <h4 className="text-sm font-bold text-foreground">4. Blocked Dates</h4>
+                                        <p className="text-xs text-muted-foreground">Mark specific holidays or vacation dates as fully unavailable.</p>
                                     </div>
                                     <div className="flex gap-2">
                                         <input
@@ -759,21 +1073,33 @@ export default function AvailabilityModal({ user, open, onClose }: { user: Avail
                                             type="date"
                                             value={newBlockedDate}
                                             onChange={e => setNewBlockedDate(e.target.value)}
-                                            className="flex-1 text-xs px-3 py-1.5 h-9 rounded-lg border border-border bg-background text-foreground [color-scheme:light] dark:[color-scheme:dark]"
+                                            className="flex-1 text-xs px-3 py-1.5 h-8 rounded-lg border border-border bg-background text-foreground [color-scheme:light] dark:[color-scheme:dark] focus:outline-none"
                                         />
-                                        <Button type="button" size="sm" variant="outline" className="h-9 w-9 p-0 rounded-lg" onClick={addBlockedDate} disabled={!newBlockedDate}>
-                                            <Plus size={14} />
-                                        </Button>
+                                        <button
+                                            type="button"
+                                            onClick={addBlockedDate}
+                                            disabled={!newBlockedDate}
+                                            className="h-8 px-3 text-xs bg-primary text-primary-foreground font-bold rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors flex items-center gap-1 shrink-0"
+                                        >
+                                            <Plus size={13} /> Add
+                                        </button>
                                     </div>
                                     {blockedDates.length > 0 && (
-                                        <div className="flex flex-wrap gap-1.5 mt-2.5">
+                                        <div className="space-y-2 max-h-36 overflow-y-auto custom-scrollbar pr-1 pt-1">
                                             {blockedDates.map(d => (
-                                                <span key={d} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-destructive/10 text-destructive text-[11px] font-semibold border border-destructive/20">
-                                                    {new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                                                    <button type="button" onClick={() => removeBlockedDate(d)} className="hover:opacity-75 ml-0.5">
-                                                        <X size={10} />
+                                                <div key={d} className="flex items-center gap-1.5">
+                                                    <div className="flex-1 flex items-center justify-between text-xs px-3 py-1.5 h-8 rounded-lg border border-border bg-muted/20 text-foreground font-semibold">
+                                                        <span>{new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                                                        <span className="text-[9px] font-extrabold uppercase bg-destructive/10 text-destructive border border-destructive/20 rounded px-1.5 py-0.5">Blocked</span>
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => removeBlockedDate(d)}
+                                                        className="text-muted-foreground hover:text-destructive shrink-0 p-1.5 rounded hover:bg-muted transition-colors h-8 w-8 flex items-center justify-center border border-border bg-background"
+                                                    >
+                                                        <X size={13} />
                                                     </button>
-                                                </span>
+                                                </div>
                                             ))}
                                         </div>
                                     )}
