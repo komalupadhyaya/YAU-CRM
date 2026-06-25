@@ -34,25 +34,22 @@ export const submitEALead = async (req, res) => {
             exactDuplicate.dateSubmitted = new Date();
             await exactDuplicate.save();
 
-            const redirectUrl = 'https://youthathleteuniversity.org/love/';
             const welcomeMessage = "Welcome back! It looks like you've already completed this form. Click below to continue to the next step .";
 
             const acceptsJson = req.headers.accept && req.headers.accept.includes('application/json');
             const isJsonRequest = req.headers['content-type'] && req.headers['content-type'].includes('application/json');
 
             if (acceptsJson || isJsonRequest) {
-                return res.status(200).json({
-                    success: true,
+                return res.status(409).json({
+                    success: false,
                     message: welcomeMessage,
-                    redirectUrl,
                     lead_id: exactDuplicate._id,
                     alreadySubmitted: true
                 });
             } else {
-                return res.status(200).send(`
+                return res.status(409).send(`
                     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); text-align: center;">
-                        <p style="font-size: 16px; color: #1a202c; line-height: 1.5; margin-bottom: 20px;">Welcome back! It looks like you've already completed this form. Click below to continue to the next step .</p>
-                        <a href="${redirectUrl}" style="display: inline-block; background-color: #3b82f6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: 600;">Continue to Next Step</a>
+                        <p style="font-size: 16px; color: #1a202c; line-height: 1.5; margin: 0;">Welcome back! It looks like you've already completed this form. Click below to continue to the next step .</p>
                     </div>
                 `);
             }

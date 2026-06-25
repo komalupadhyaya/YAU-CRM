@@ -7,7 +7,7 @@ const EALeadSchema = new mongoose.Schema({
     source: { type: String, default: 'YAU Website' },
     dateSubmitted: { type: Date, default: Date.now },
     submissionCount: { type: Number, default: 1 },
-    isConsent: { type: Boolean, default: false }
+    isConsent: { type: Boolean, default: true }
 }, { timestamps: true });
 
 
