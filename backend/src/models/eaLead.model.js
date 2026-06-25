@@ -6,8 +6,10 @@ const EALeadSchema = new mongoose.Schema({
     phone: { type: String, required: true, index: true },
     source: { type: String, default: 'YAU Website' },
     dateSubmitted: { type: Date, default: Date.now },
-    submissionCount: { type: Number, default: 1 }
+    submissionCount: { type: Number, default: 1 },
+    isConsent: { type: Boolean, default: false }
 }, { timestamps: true });
+
 
 export const EALead = mongoose.model('EALead', EALeadSchema);
 export default EALead;

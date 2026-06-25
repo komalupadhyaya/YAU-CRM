@@ -45,6 +45,7 @@ interface EALead {
   source: string;
   dateSubmitted: string;
   submissionCount: number;
+  isConsent: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -70,6 +71,7 @@ export default function EALeads() {
   const [editPhone, setEditPhone] = useState("");
   const [editSource, setEditSource] = useState("");
   const [editDateSubmitted, setEditDateSubmitted] = useState("");
+  const [editIsConsent, setEditIsConsent] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -127,6 +129,7 @@ export default function EALeads() {
     setEditPhone(lead.phone);
     setEditSource(lead.source);
     setEditDateSubmitted(formatDateForInput(lead.dateSubmitted));
+    setEditIsConsent(lead.isConsent || false);
     setEditDialogOpen(true);
   };
 
@@ -154,12 +157,27 @@ export default function EALeads() {
 
     setSaving(true);
     try {
+      // Parse the datetime-local string as a plain wall-clock date (no TZ conversion).
+      // new Date("YYYY-MM-DDTHH:mm") is treated as UTC by JS spec, which causes
+      // a timezone shift. Instead, we interpret the string literally by splitting
+      // the parts and constructing the date in local time (no offset applied).
+      let dateSubmittedISO: string | undefined = undefined;
+      if (editDateSubmitted) {
+        const [datePart, timePart = "00:00"] = editDateSubmitted.split("T");
+        const [year, month, day] = datePart.split("-").map(Number);
+        const [hour, minute] = timePart.split(":").map(Number);
+        // new Date(year, month-1, day, hour, minute) uses local time — no UTC shift
+        const localDate = new Date(year, month - 1, day, hour, minute);
+        dateSubmittedISO = localDate.toISOString();
+      }
+
       const updatedData = {
         name: editName,
         email: editEmail,
         phone: editPhone,
         source: editSource,
-        dateSubmitted: editDateSubmitted ? new Date(editDateSubmitted).toISOString() : undefined,
+        dateSubmitted: dateSubmittedISO,
+        isConsent: editIsConsent,
       };
 
       const res = await api.put(`/ea-leads/${selectedLead._id}`, updatedData);
@@ -263,6 +281,7 @@ export default function EALeads() {
                     <TableHead>Email Address</TableHead>
                     <TableHead>Phone Number</TableHead>
                     <TableHead>Source</TableHead>
+                    <TableHead>Consent</TableHead>
                     <TableHead>Date Submitted</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
@@ -283,6 +302,11 @@ export default function EALeads() {
                       <TableCell>
                         <span className="inline-flex items-center gap-1 rounded-full bg-secondary border border-border px-2.5 py-0.5 text-xs font-semibold text-muted-foreground">
                           {lead.source}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold border ${lead.isConsent ? "bg-green-500/10 border-green-500/30 text-green-500" : "bg-red-500/10 border-red-500/30 text-red-500"}`}>
+                          {lead.isConsent ? "Yes" : "No"}
                         </span>
                       </TableCell>
                       <TableCell className="text-muted-foreground text-xs font-medium">
@@ -387,6 +411,17 @@ export default function EALeads() {
                 </span>
               </div>
 
+              <div className="grid grid-cols-3 items-start gap-4 border-b border-border/50 pb-2.5">
+                <span className="font-semibold text-muted-foreground flex items-center gap-1.5">
+                  <Hash size={14} /> Consent Given:
+                </span>
+                <span className="col-span-2 font-semibold">
+                  <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold border ${selectedLead.isConsent ? "bg-green-500/10 border-green-500/30 text-green-500" : "bg-red-500/10 border-red-500/30 text-red-500"}`}>
+                    {selectedLead.isConsent ? "Yes" : "No"}
+                  </span>
+                </span>
+              </div>
+
               <div className="grid grid-cols-3 items-start gap-4 pb-1">
                 <span className="font-semibold text-muted-foreground flex items-center gap-1.5">
                   <Hash size={14} /> Submissions:
@@ -473,6 +508,19 @@ export default function EALeads() {
                 onChange={(e) => setEditDateSubmitted(e.target.value)}
                 className="bg-background border-border text-foreground [color-scheme:light] dark:[color-scheme:dark]"
               />
+            </div>
+
+            <div className="flex items-center gap-2 pt-1">
+              <input
+                id="lead-is-consent"
+                type="checkbox"
+                checked={editIsConsent}
+                onChange={(e) => setEditIsConsent(e.target.checked)}
+                className="h-4 w-4 rounded border-border text-primary focus:ring-primary bg-background cursor-pointer"
+              />
+              <Label htmlFor="lead-is-consent" className="text-sm font-medium text-foreground cursor-pointer select-none">
+                Consent Given (Permit SMS/Email campaigns)
+              </Label>
             </div>
 
             <DialogFooter className="pt-4">

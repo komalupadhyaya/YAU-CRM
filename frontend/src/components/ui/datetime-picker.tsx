@@ -7,7 +7,6 @@ import {
   SelectValue,
 } from "./select";
 import { cn } from "@/lib/utils";
-import { localESTToUTCIso, getESTDateParts } from "@/utils/timezoneHelper";
 
 export interface DateTimePickerProps {
   id?: string;
@@ -20,24 +19,26 @@ export interface DateTimePickerProps {
 }
 
 /**
- * Parses a UTC ISO string into display parts expressed in Eastern (NY) time.
+ * Parses a UTC ISO string into display parts in the BROWSER'S LOCAL timezone.
  * If the value has no timezone info (legacy "YYYY-MM-DDTHH:mm"), treat it as
- * Eastern directly to stay backward-compatible with any in-flight form state.
+ * local time directly to stay backward-compatible with any in-flight form state.
  */
-const parseUTCToEST = (utcStr: string) => {
+const parseToLocal = (utcStr: string) => {
   if (!utcStr) return { date: "", hour: "10", minute: "00", ampm: "AM" };
 
   let year: number, month: number, day: number, h24: number, minute: number;
 
-  // If it already looks like a UTC ISO string (has Z or +), parse through Intl
+  // If it already looks like a UTC ISO string (has Z or +), parse and extract local parts
   if (utcStr.includes("Z") || utcStr.includes("+")) {
     const d = new Date(utcStr);
     if (isNaN(d.getTime())) return { date: "", hour: "10", minute: "00", ampm: "AM" };
-    const parts = getESTDateParts(d);
-    year = parts.year; month = parts.month; day = parts.day;
-    h24 = parts.hour; minute = parts.minute;
+    year = d.getFullYear();
+    month = d.getMonth() + 1;
+    day = d.getDate();
+    h24 = d.getHours();
+    minute = d.getMinutes();
   } else {
-    // Naive string (legacy YYYY-MM-DDTHH:mm) — treat as Eastern already
+    // Naive string (legacy YYYY-MM-DDTHH:mm) — treat as local time already
     const [datePart, timePart = "00:00"] = utcStr.split("T");
     [year, month, day] = datePart.split("-").map(Number);
     [h24, minute] = timePart.split(":").map(Number);
@@ -59,22 +60,26 @@ const parseUTCToEST = (utcStr: string) => {
 };
 
 /**
- * Combines date + 12-h time parts into a naive Eastern string then converts
- * to a proper UTC ISO string for storage/API.
+ * Combines date + 12-h time parts into a Date in the browser's LOCAL timezone,
+ * then emits the UTC ISO string for storage/API.
+ * Using new Date(year, month-1, day, h24, minute) constructs in local time.
  */
 const buildUTCIso = (date: string, hour: string, minute: string, ampm: string): string => {
   if (!date) return "";
   let h24 = parseInt(hour, 10);
   if (ampm === "PM" && h24 < 12) h24 += 12;
   else if (ampm === "AM" && h24 === 12) h24 = 0;
-  const naiveEST = `${date}T${String(h24).padStart(2, "0")}:${minute}`;
-  return localESTToUTCIso(naiveEST);
+  const [year, month, day] = date.split("-").map(Number);
+  // new Date(year, month-1, day, h24, minute) uses local timezone — no hardcoded EST offset
+  const localDate = new Date(year, month - 1, day, h24, parseInt(minute, 10));
+  return localDate.toISOString();
 };
+
 
 export const DateTimePicker = React.forwardRef<HTMLInputElement, DateTimePickerProps>(
   ({ id, value, onChange, className, size = "default", required, layout = "default" }, ref) => {
     const { date, hour: parsedHour, minute: parsedMinute, ampm: parsedAmPm } = React.useMemo(
-      () => parseUTCToEST(value),
+      () => parseToLocal(value),
       [value]
     );
 

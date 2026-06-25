@@ -351,7 +351,7 @@ function TaskForm({ teamMembers, currentUser, editingTask, onSuccess, onCancelEd
     const [title, setTitle] = useState(editingTask?.title ?? "");
     const [description, setDescription] = useState(editingTask?.description ?? "");
     const [dueDate, setDueDate] = useState(
-        editingTask?.dueDate ? new Date(editingTask.dueDate).toISOString().slice(0, 16) : ""
+        editingTask?.dueDate ?? ""
     );
     const [assignedTo, setAssignedTo] = useState<TeamMember | null>(
         editingTask?.assignedTo
@@ -369,7 +369,7 @@ function TaskForm({ teamMembers, currentUser, editingTask, onSuccess, onCancelEd
     useEffect(() => {
         setTitle(editingTask?.title ?? "");
         setDescription(editingTask?.description ?? "");
-        setDueDate(editingTask?.dueDate ? new Date(editingTask.dueDate).toISOString().slice(0, 16) : "");
+        setDueDate(editingTask?.dueDate ?? "");
         setAssignedTo(
             editingTask?.assignedTo
                 ? teamMembers.find((m) => m._id === (editingTask.assignedTo as AssignedUser)?._id) ?? null

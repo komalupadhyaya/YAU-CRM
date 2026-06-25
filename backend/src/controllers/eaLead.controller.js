@@ -8,7 +8,7 @@ import { syncToConstantContact } from '../services/constantContact.service.js';
 export const submitEALead = async (req, res) => {
     try {
         console.log('--- EA LEAD FORM SUBMISSION RECEIVED ---', req.body);
-        const { name, email, phone, source } = req.body;
+        const { name, email, phone, source, isConsent } = req.body;
 
         // Basic validation
         if (!name || !email || !phone) {
@@ -20,8 +20,45 @@ export const submitEALead = async (req, res) => {
 
         const cleanEmail = email.trim().toLowerCase();
         const cleanPhone = phone.trim();
+        const hasConsent = isConsent === true || isConsent === 'true' || isConsent === 'on' || isConsent === 1 || isConsent === '1';
 
-        // Duplicate Handling Strategy: Search by email or phone
+        // 1. Exact Duplicate Handling Strategy: Search by both email AND phone
+        let exactDuplicate = await EALead.findOne({
+            email: cleanEmail,
+            phone: cleanPhone
+        });
+
+        if (exactDuplicate) {
+            console.log(`Exact duplicate EA Lead found for email "${cleanEmail}" and phone "${cleanPhone}". Returning welcome back message.`);
+            exactDuplicate.submissionCount += 1;
+            exactDuplicate.dateSubmitted = new Date();
+            await exactDuplicate.save();
+
+            const redirectUrl = 'https://youthathleteuniversity.org/love/';
+            const welcomeMessage = "Welcome back! It looks like you've already completed this form. Click below to continue to the next step .";
+
+            const acceptsJson = req.headers.accept && req.headers.accept.includes('application/json');
+            const isJsonRequest = req.headers['content-type'] && req.headers['content-type'].includes('application/json');
+
+            if (acceptsJson || isJsonRequest) {
+                return res.status(200).json({
+                    success: true,
+                    message: welcomeMessage,
+                    redirectUrl,
+                    lead_id: exactDuplicate._id,
+                    alreadySubmitted: true
+                });
+            } else {
+                return res.status(200).send(`
+                    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); text-align: center;">
+                        <p style="font-size: 16px; color: #1a202c; line-height: 1.5; margin-bottom: 20px;">Welcome back! It looks like you've already completed this form. Click below to continue to the next step .</p>
+                        <a href="${redirectUrl}" style="display: inline-block; background-color: #3b82f6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: 600;">Continue to Next Step</a>
+                    </div>
+                `);
+            }
+        }
+
+        // 2. Partial Duplicate Handling Strategy: Search by email or phone (but not both, as that is handled above)
         let lead = await EALead.findOne({
             $or: [
                 { email: cleanEmail },
@@ -35,6 +72,7 @@ export const submitEALead = async (req, res) => {
             lead.email = cleanEmail;
             lead.phone = cleanPhone;
             if (source) lead.source = source.trim();
+            lead.isConsent = hasConsent;
             lead.dateSubmitted = new Date();
             lead.submissionCount += 1;
             await lead.save();
@@ -45,6 +83,7 @@ export const submitEALead = async (req, res) => {
                 email: cleanEmail,
                 phone: cleanPhone,
                 source: source ? source.trim() : 'YAU Website',
+                isConsent: hasConsent,
                 dateSubmitted: new Date(),
                 submissionCount: 1
             });
@@ -118,7 +157,7 @@ export const getEALeadById = async (req, res) => {
  */
 export const updateEALead = async (req, res) => {
     try {
-        const { name, email, phone, source, dateSubmitted } = req.body;
+        const { name, email, phone, source, dateSubmitted, isConsent } = req.body;
         
         const lead = await EALead.findById(req.params.id);
         if (!lead) {
@@ -130,6 +169,7 @@ export const updateEALead = async (req, res) => {
         if (phone) lead.phone = phone.trim();
         if (source) lead.source = source.trim();
         if (dateSubmitted) lead.dateSubmitted = new Date(dateSubmitted);
+        if (isConsent !== undefined) lead.isConsent = !!isConsent;
 
         await lead.save();
         console.log(`EA Lead "${lead.name}" (ID: ${lead._id}) updated successfully.`);
