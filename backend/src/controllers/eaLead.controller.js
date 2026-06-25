@@ -20,19 +20,25 @@ export const submitEALead = async (req, res) => {
 
         const cleanEmail = email.trim().toLowerCase();
         const cleanPhone = phone.trim();
-        const hasConsent = isConsent === true || isConsent === 'true' || isConsent === 'on' || isConsent === 1 || isConsent === '1';
+        const hasConsent = isConsent === undefined ? true : (isConsent === true || isConsent === 'true' || isConsent === 'on' || isConsent === 1 || isConsent === '1');
 
-        // 1. Exact Duplicate Handling Strategy: Search by both email AND phone
-        let exactDuplicate = await EALead.findOne({
-            email: cleanEmail,
-            phone: cleanPhone
+        // Duplicate check: Look for a lead with matching email OR phone (using exact string or last 10 digits regex)
+        const digitsPhone = cleanPhone.replace(/\D/g, '');
+        const last10Phone = digitsPhone.slice(-10);
+
+        let duplicateLead = await EALead.findOne({
+            $or: [
+                { email: cleanEmail },
+                { phone: cleanPhone },
+                ...(last10Phone.length >= 7 ? [{ phone: { $regex: last10Phone + '$' } }] : [])
+            ]
         });
 
-        if (exactDuplicate) {
-            console.log(`Exact duplicate EA Lead found for email "${cleanEmail}" and phone "${cleanPhone}". Returning welcome back message.`);
-            exactDuplicate.submissionCount += 1;
-            exactDuplicate.dateSubmitted = new Date();
-            await exactDuplicate.save();
+        if (duplicateLead) {
+            console.log(`Duplicate EA Lead found for email "${cleanEmail}" or phone "${cleanPhone}". Returning conflict.`);
+            duplicateLead.submissionCount += 1;
+            duplicateLead.dateSubmitted = new Date();
+            await duplicateLead.save();
 
             const welcomeMessage = "Welcome back! It looks like you've already completed this form. Click below to continue to the next step .";
 
@@ -43,48 +49,25 @@ export const submitEALead = async (req, res) => {
                 return res.status(409).json({
                     success: false,
                     message: welcomeMessage,
-                    lead_id: exactDuplicate._id,
+                    lead_id: duplicateLead._id,
                     alreadySubmitted: true
                 });
             } else {
-                return res.status(409).send(`
-                    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); text-align: center;">
-                        <p style="font-size: 16px; color: #1a202c; line-height: 1.5; margin: 0;">Welcome back! It looks like you've already completed this form. Click below to continue to the next step .</p>
-                    </div>
-                `);
+                return res.status(409).send(welcomeMessage);
             }
         }
 
-        // 2. Partial Duplicate Handling Strategy: Search by email or phone (but not both, as that is handled above)
-        let lead = await EALead.findOne({
-            $or: [
-                { email: cleanEmail },
-                { phone: cleanPhone }
-            ]
+        // If no duplicate is found, create a new lead
+        console.log(`Creating new EA Lead for email "${cleanEmail}"...`);
+        let lead = await EALead.create({
+            name: name.trim(),
+            email: cleanEmail,
+            phone: cleanPhone,
+            source: source ? source.trim() : 'YAU Website',
+            isConsent: hasConsent,
+            dateSubmitted: new Date(),
+            submissionCount: 1
         });
-
-        if (lead) {
-            console.log(`Duplicate EA Lead found for email "${cleanEmail}" or phone "${cleanPhone}". Updating existing record...`);
-            lead.name = name.trim();
-            lead.email = cleanEmail;
-            lead.phone = cleanPhone;
-            if (source) lead.source = source.trim();
-            lead.isConsent = hasConsent;
-            lead.dateSubmitted = new Date();
-            lead.submissionCount += 1;
-            await lead.save();
-        } else {
-            console.log(`Creating new EA Lead for email "${cleanEmail}"...`);
-            lead = await EALead.create({
-                name: name.trim(),
-                email: cleanEmail,
-                phone: cleanPhone,
-                source: source ? source.trim() : 'YAU Website',
-                isConsent: hasConsent,
-                dateSubmitted: new Date(),
-                submissionCount: 1
-            });
-        }
 
         // Fire-and-forget background sync to Constant Contact (handles its own errors)
         syncToConstantContact(lead);
