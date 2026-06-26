@@ -47,15 +47,21 @@ function renderTemplate(templateName, vars) {
  * Send an HTML email via the Gmail API.
  * @param {{ to: string, subject: string, html: string }} options
  */
-async function sendMail({ to, subject, html }) {
+async function sendMail({ to, subject, html, from }) {
     const gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
 
     const utf8Subject = `=?utf-8?B?${Buffer.from(subject).toString('base64')}?=`;
+    const headers = [];
+    if (from) {
+        headers.push(`From: ${from}`);
+    }
+    headers.push(`To: ${to}`);
+    headers.push('Content-Type: text/html; charset=utf-8');
+    headers.push('MIME-Version: 1.0');
+    headers.push(`Subject: ${utf8Subject}`);
+
     const rawParts = [
-        `To: ${to}`,
-        'Content-Type: text/html; charset=utf-8',
-        'MIME-Version: 1.0',
-        `Subject: ${utf8Subject}`,
+        ...headers,
         '',
         html,
     ].join('\r\n');
@@ -796,6 +802,38 @@ function getLocationSectionHtml(meeting, color) {
                 <span style="font-size:14px;font-weight:600;color:#ffffff;line-height:1.5;display:block;">${value}</span>
               </td>
             </tr>`;
+}
+
+/**
+ * Send welcome email to EA Lead (Phase 3)
+ * Non-blocking, fire-and-forget helper
+ */
+export async function sendEAWelcomeEmail({ name, email }) {
+    try {
+        const html = `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333333; line-height: 1.6;">
+                <p>Hey ${name},</p>
+                <p>Thank you for reaching out! We're so excited about your interest in Youth Athlete University.</p>
+                <p>We'd love to tell you more about our programs and how we can help your athlete grow. Click below to learn more:<br/>
+                <a href="https://youthathleteuniversity.org/love/" style="display: inline-block; background-color: #3b82f6; color: #ffffff; padding: 10px 20px; text-decoration: none; border-radius: 5px; margin-top: 10px; font-weight: bold;">Learn More About Our Programs</a></p>
+                <p>Alternatively, click here: <a href="https://youthathleteuniversity.org/love/">https://youthathleteuniversity.org/love/</a></p>
+                <p>If you have any questions, please call us on 800-293-0354.</p>
+                <p>Talk soon,<br/>
+                The YAU Team</p>
+            </div>
+        `;
+
+        await sendMail({
+            from: 'Team@YAUSport.com',
+            to: email,
+            subject: "We're Here For You and Your Child's Sport!",
+            html,
+        });
+
+        console.log(`✅ Welcome email sent to ${email}`);
+    } catch (err) {
+        console.error('❌ Failed to send welcome email:', err.message);
+    }
 }
 
 

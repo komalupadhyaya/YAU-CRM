@@ -4,6 +4,7 @@ import { Campaign } from '../models/campaign.model.js';
 import { Followup } from '../models/followup.model.js';
 import { Note } from '../models/note.model.js';
 import { User } from '../models/user.model.js';
+import EALead from '../models/eaLead.model.js';
 
 /**
  * Handle JotForm Webhook submissions
@@ -240,5 +241,58 @@ export const handleJustCallWebhook = async (req, res) => {
     } catch (error) {
         console.error('JustCall Webhook Error:', error);
         return res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * Handle Twilio Inbound Webhook (Receiving Replies)
+ * POST /api/webhooks/twilio-reply
+ */
+export const handleTwilioReply = async (req, res) => {
+    try {
+        console.log('--- TWILIO WEBHOOK RECEIVED ---', req.body);
+        const { From, Body } = req.body;
+
+        if (!From || !Body) {
+            console.warn('[Twilio Webhook] Missing From or Body parameter.');
+            return res.status(200).send('Missing payload');
+        }
+
+        // Normalize phone number (match last 10 digits)
+        const cleanFrom = From.replace(/\D/g, '');
+        const last10From = cleanFrom.slice(-10);
+
+        if (last10From.length < 7) {
+            console.warn('[Twilio Webhook] Sender phone number is too short.');
+            return res.status(200).send('Invalid sender phone');
+        }
+
+        // Search for EA Lead matching sender phone
+        const lead = await EALead.findOne({
+            $or: [
+                { phone: From },
+                { phone: { $regex: last10From + '$' } }
+            ]
+        });
+
+        if (!lead) {
+            console.log(`[Twilio Webhook] No matching EA Lead found for phone: ${From}`);
+            return res.status(200).send('Lead not found');
+        }
+
+        // Add inbound message to history
+        lead.smsHistory.push({
+            direction: 'inbound',
+            message: Body.trim(),
+            timestamp: new Date()
+        });
+
+        await lead.save();
+        console.log(`[Twilio Webhook] Saved inbound SMS reply from "${lead.name}" (${lead.phone})`);
+
+        return res.status(200).send('<Response></Response>'); // Twilio expects TwiML XML
+    } catch (error) {
+        console.error('Twilio Webhook Error:', error);
+        return res.status(200).send('Error processing reply');
     }
 };

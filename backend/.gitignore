@@ -29,3 +29,6 @@ seed.js
 migrate_lead_model.js
 migrate_fields.js
 verify_phase_1b.js
+test-email.js
+test-sms.js
+

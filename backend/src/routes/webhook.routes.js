@@ -13,5 +13,8 @@ router.post('/justcall/call-completed', webhookController.handleJustCallWebhook)
 // Public endpoint for EA Leads Webhook
 router.post('/ea-leads', submitEALead);
 
+// Public endpoint for Twilio Inbound Webhook
+router.post('/twilio-reply', webhookController.handleTwilioReply);
+
 export default router;
 

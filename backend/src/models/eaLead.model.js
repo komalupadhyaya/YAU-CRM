@@ -7,7 +7,14 @@ const EALeadSchema = new mongoose.Schema({
     source: { type: String, default: 'YAU Website' },
     dateSubmitted: { type: Date, default: Date.now },
     submissionCount: { type: Number, default: 1 },
-    isConsent: { type: Boolean, default: true }
+    isConsent: { type: Boolean, default: true },
+    smsHistory: [
+        {
+            direction: { type: String, enum: ['inbound', 'outbound'] },
+            message: String,
+            timestamp: { type: Date, default: Date.now }
+        }
+    ]
 }, { timestamps: true });
 
 

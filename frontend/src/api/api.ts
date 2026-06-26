@@ -20,6 +20,7 @@ api.interceptors.response.use(
   (error) => {
     const status = error.response?.status;
     const message =
+      error.response?.data?.message ||
       error.response?.data?.error ||
       error.message ||
       "An unexpected error occurred";

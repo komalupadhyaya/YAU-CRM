@@ -331,4 +331,36 @@
     filter: invert(1) hue-rotate(90deg) brightness(1.5) !important;
 }
 
+/* Premium Custom Scrollbar for Sidebar */
+aside,
+aside * {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+}
+
+aside::-webkit-scrollbar,
+aside *::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+aside::-webkit-scrollbar-track,
+aside *::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+aside::-webkit-scrollbar-thumb,
+aside *::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+}
+
+aside::-webkit-scrollbar-thumb:hover,
+aside *::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+  background-clip: padding-box;
+}
+
 

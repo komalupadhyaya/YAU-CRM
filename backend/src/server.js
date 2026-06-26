@@ -1,9 +1,7 @@
-import dotenv from 'dotenv';
+import 'dotenv/config';
 import connectDB from './config/db.config.js';
 import app from './app.js';
 import { initCronJobs } from './utils/cron.js';
-
-dotenv.config();
 
 // Connect to Database
 connectDB();

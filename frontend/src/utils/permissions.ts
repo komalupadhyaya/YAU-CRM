@@ -38,6 +38,8 @@ export interface Permissions {
   completeItems: boolean;
   /** Can assign leads or tasks to other users */
   assignToOthers: boolean;
+  /** Can view and manage Evening Activity (EA) Leads */
+  viewEALeads: boolean;
   /** Is this a read-only user */
   isReadOnly: boolean;
 }
@@ -56,6 +58,7 @@ export const can = (role: string | undefined): Permissions => {
     manageCampaigns: r === 'admin' || r === 'manager',
     completeItems:   r === 'admin' || r === 'manager' || r === 'sales_rep',
     assignToOthers:  r === 'admin' || r === 'manager',
+    viewEALeads:     r === 'admin' || r === 'manager',
     isReadOnly:      r === 'view_only',
   };
 };

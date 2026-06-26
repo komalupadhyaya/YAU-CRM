@@ -62,6 +62,7 @@ export default function Sidebar() {
     if (item.to === '/team') return permissions.viewTeam;
     if (item.to === '/lead-scheduler') return permissions.assignToOthers;
     if (item.to === '/candidates') return permissions.assignToOthers; // admin + manager only
+    if (item.to === '/ea-leads') return permissions.viewEALeads; // admin + manager only
     if (item.to === '/history') return permissions.assignToOthers;
     if (item.to === '/meetings/hr') return true;
     return true;

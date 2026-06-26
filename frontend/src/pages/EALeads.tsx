@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Table,
   TableBody,
@@ -21,6 +23,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import {
   Search,
@@ -34,7 +37,11 @@ import {
   Phone,
   Calendar,
   Layers,
-  Hash
+  Hash,
+  Send,
+  MessageSquare,
+  ChevronLeft,
+  ChevronRight
 } from "lucide-react";
 
 interface EALead {
@@ -48,11 +55,31 @@ interface EALead {
   isConsent: boolean;
   createdAt: string;
   updatedAt: string;
+  smsHistory?: Array<{
+    direction: "inbound" | "outbound";
+    message: string;
+    timestamp: string;
+    _id?: string;
+  }>;
 }
 
 export default function EALeads() {
   const { currentUser } = useAuth();
   const permissions = can(currentUser?.role);
+
+  if (!permissions.viewEALeads) {
+    return (
+      <AppLayout>
+        <div className="flex flex-col items-center justify-center min-h-[50vh] space-y-3 text-center">
+          <AlertCircle size={40} className="text-destructive" />
+          <h1 className="text-xl font-semibold text-foreground">Access Denied</h1>
+          <p className="text-sm text-muted-foreground max-w-sm">
+            You do not have permission to view the EA Leads section. Please contact your administrator.
+          </p>
+        </div>
+      </AppLayout>
+    );
+  }
 
   // Leads state
   const [leads, setLeads] = useState<EALead[]>([]);
@@ -64,6 +91,30 @@ export default function EALeads() {
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState("details");
+
+  // Checkbox selection state
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // Bulk SMS Modal state
+  const [bulkSmsOpen, setBulkSmsOpen] = useState(false);
+  const [bulkSmsMessage, setBulkSmsMessage] = useState("");
+  const [sendingBulkSms, setSendingBulkSms] = useState(false);
+
+  // 1-on-1 SMS state
+  const [singleSmsMessage, setSingleSmsMessage] = useState("");
+  const [sendingSingleSms, setSendingSingleSms] = useState(false);
+
+  // Manual Add Form state
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [addName, setAddName] = useState("");
+  const [addEmail, setAddEmail] = useState("");
+  const [addPhone, setAddPhone] = useState("");
+  const [addSource, setAddSource] = useState("Manual Add");
+  const [addIsConsent, setAddIsConsent] = useState(true);
+  const [adding, setAdding] = useState(false);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   // Edit Form state
   const [editName, setEditName] = useState("");
@@ -90,7 +141,12 @@ export default function EALeads() {
 
   useEffect(() => {
     fetchLeads();
-  }, []);
+  }, [refreshTrigger]);
+
+  // Reset page to 1 when search query or leads list changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, leads.length]);
 
   // Format date for display
   const formatDateDisplay = (dateString: string) => {
@@ -133,11 +189,81 @@ export default function EALeads() {
     setEditDialogOpen(true);
   };
 
+  // Open Add Lead Dialog
+  const handleOpenAdd = () => {
+    setAddName("");
+    setAddEmail("");
+    setAddPhone("");
+    setAddSource("Manual Add");
+    setAddIsConsent(true);
+    setAddDialogOpen(true);
+  };
+
+  // Save Manual Add Lead
+  const handleSaveAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!addName.trim() || !addEmail.trim() || !addPhone.trim()) {
+      toast.error("Name, Email, and Phone number are required.");
+      return;
+    }
+
+    setAdding(true);
+    try {
+      const updatedData = {
+        name: addName,
+        email: addEmail,
+        phone: addPhone,
+        source: addSource,
+        isConsent: addIsConsent,
+      };
+
+      await api.post("/ea-leads", updatedData);
+      
+      setRefreshTrigger(prev => prev + 1);
+      toast.success("Lead created successfully.");
+      setAddDialogOpen(false);
+    } catch {
+      // API error interceptor already toasts specific duplicate/validation error
+      setRefreshTrigger(prev => prev + 1);
+    } finally {
+      setAdding(false);
+    }
+  };
+
   // Open View Dialog
-  const handleOpenView = (lead: EALead) => {
+  const handleOpenView = async (lead: EALead) => {
     setSelectedLead(lead);
     setViewDialogOpen(true);
+    setActiveTab("details");
+    try {
+      const res = await api.get(`/ea-leads/${lead._id}`);
+      setSelectedLead(res.data);
+      setLeads(prev => prev.map(l => l._id === lead._id ? res.data : l));
+    } catch (err) {
+      console.error("Failed to fetch fresh lead details:", err);
+    }
   };
+
+  // Poll for messages when view dialog is open and active tab is "messages"
+  useEffect(() => {
+    if (!viewDialogOpen || !selectedLead || activeTab !== "messages") return;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await api.get(`/ea-leads/${selectedLead._id}`);
+        // Only update if there are new messages to avoid state jump
+        if (JSON.stringify(res.data.smsHistory) !== JSON.stringify(selectedLead.smsHistory)) {
+          setSelectedLead(res.data);
+          setLeads(prev => prev.map(l => l._id === selectedLead._id ? res.data : l));
+        }
+      } catch (err) {
+        console.error("Error polling messages:", err);
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [viewDialogOpen, selectedLead?._id, activeTab, selectedLead?.smsHistory]);
 
   // Open Delete Dialog
   const handleOpenDelete = (lead: EALead) => {
@@ -224,6 +350,77 @@ export default function EALeads() {
     );
   });
 
+  // Client-side pagination logic
+  const itemsPerPage = 8;
+  const totalPages = Math.ceil(filteredLeads.length / itemsPerPage);
+  const paginatedLeads = filteredLeads.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
+
+  // Selection handlers
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      const allVisibleIds = filteredLeads.map(l => l._id);
+      setSelectedIds(allVisibleIds);
+    } else {
+      setSelectedIds([]);
+    }
+  };
+
+  const handleSelectLead = (leadId: string, checked: boolean) => {
+    if (checked) {
+      setSelectedIds(prev => [...prev, leadId]);
+    } else {
+      setSelectedIds(prev => prev.filter(id => id !== leadId));
+    }
+  };
+
+  // Submit SMS requests
+  const handleSendBulkSMS = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!bulkSmsMessage.trim()) {
+      toast.error("Please enter a message.");
+      return;
+    }
+    setSendingBulkSms(true);
+    try {
+      const res = await api.post("/ea-leads/bulk-sms", {
+        message: bulkSmsMessage,
+        leadIds: selectedIds
+      });
+      toast.success(res.data?.message || "Bulk SMS sent successfully.");
+      setBulkSmsMessage("");
+      setSelectedIds([]);
+      setBulkSmsOpen(false);
+      fetchLeads();
+    } catch {
+      toast.error("Failed to send bulk SMS.");
+    } finally {
+      setSendingBulkSms(false);
+    }
+  };
+
+  const handleSendSingleSMS = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedLead || !singleSmsMessage.trim()) return;
+
+    setSendingSingleSms(true);
+    try {
+      const res = await api.post(`/ea-leads/${selectedLead._id}/send-sms`, {
+        message: singleSmsMessage
+      });
+      setSelectedLead(res.data);
+      setLeads(prev => prev.map(l => l._id === selectedLead._id ? res.data : l));
+      setSingleSmsMessage("");
+      toast.success("SMS sent successfully.");
+    } catch {
+      toast.error("Failed to send SMS.");
+    } finally {
+      setSendingSingleSms(false);
+    }
+  };
+
   return (
     <AppLayout>
       <div className="space-y-6 max-w-6xl mx-auto pb-12">
@@ -239,6 +436,27 @@ export default function EALeads() {
             <p className="text-muted-foreground mt-1 text-sm">
               All Evening Activity leads captured from the website form.
             </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {selectedIds.length > 0 && (
+              <Button
+                variant="outline"
+                className="border-border text-foreground hover:bg-accent flex items-center gap-1.5"
+                onClick={() => setBulkSmsOpen(true)}
+              >
+                <MessageSquare size={16} />
+                Send Bulk SMS ({selectedIds.length})
+              </Button>
+            )}
+            {permissions.createEdit && (
+              <Button
+                onClick={handleOpenAdd}
+                className="bg-primary hover:bg-primary/95 text-primary-foreground font-semibold flex items-center gap-1.5"
+              >
+                <Sparkles size={16} />
+                Add EA Lead
+              </Button>
+            )}
           </div>
         </div>
 
@@ -273,10 +491,18 @@ export default function EALeads() {
               </p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <>
+              <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/30 border-b border-border">
+                    <TableHead className="w-[50px] pl-4">
+                      <Checkbox
+                        checked={filteredLeads.length > 0 && selectedIds.length === filteredLeads.length}
+                        onCheckedChange={(checked) => handleSelectAll(!!checked)}
+                        aria-label="Select all leads"
+                      />
+                    </TableHead>
                     <TableHead className="w-[200px]">Name</TableHead>
                     <TableHead>Email Address</TableHead>
                     <TableHead>Phone Number</TableHead>
@@ -287,8 +513,15 @@ export default function EALeads() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredLeads.map((lead) => (
+                  {paginatedLeads.map((lead) => (
                     <TableRow key={lead._id} className="hover:bg-accent/40 border-b border-border">
+                      <TableCell className="w-[50px] pl-4">
+                        <Checkbox
+                          checked={selectedIds.includes(lead._id)}
+                          onCheckedChange={(checked) => handleSelectLead(lead._id, !!checked)}
+                          aria-label={`Select ${lead.name}`}
+                        />
+                      </TableCell>
                       <TableCell className="font-semibold text-foreground truncate max-w-[200px]">
                         {lead.name}
                         {lead.submissionCount > 1 && (
@@ -352,92 +585,288 @@ export default function EALeads() {
                 </TableBody>
               </Table>
             </div>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between border-t border-border px-4 py-4 sm:px-6 flex-shrink-0">
+                <div className="flex flex-1 justify-between sm:hidden">
+                  <Button
+                    variant="outline"
+                    onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                    disabled={currentPage === 1}
+                    className="border-border text-foreground hover:bg-muted/50"
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                    disabled={currentPage === totalPages}
+                    className="border-border text-foreground hover:bg-muted/50"
+                  >
+                    Next
+                  </Button>
+                </div>
+                <div className="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-xs text-muted-foreground">
+                      Showing <span className="font-semibold text-foreground">{((currentPage - 1) * itemsPerPage) + 1}</span> to{" "}
+                      <span className="font-semibold text-foreground">
+                        {Math.min(currentPage * itemsPerPage, filteredLeads.length)}
+                      </span>{" "}
+                      of <span className="font-semibold text-foreground">{filteredLeads.length}</span> results
+                    </p>
+                  </div>
+                  <div>
+                    <div className="inline-flex gap-1.5 font-sans" aria-label="Pagination">
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="h-8 w-8 border-border text-foreground hover:bg-muted/50"
+                        onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                        disabled={currentPage === 1}
+                      >
+                        <ChevronLeft size={16} />
+                      </Button>
+                      
+                      {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                        <Button
+                          key={page}
+                          variant={currentPage === page ? "default" : "outline"}
+                          size="sm"
+                          className={`h-8 w-8 text-xs ${currentPage === page ? "" : "border-border text-foreground hover:bg-muted/50"}`}
+                          onClick={() => setCurrentPage(page)}
+                        >
+                          {page}
+                        </Button>
+                      ))}
+
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="h-8 w-8 border-border text-foreground hover:bg-muted/50"
+                        onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                        disabled={currentPage === totalPages}
+                      >
+                        <ChevronRight size={16} />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            </>
           )}
         </div>
-      </div>
-
-      {/* View Lead Dialog */}
+      </div>      {/* View Lead Dialog */}
       <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
-        <DialogContent className="sm:max-w-[500px] bg-card border-border text-foreground">
+        <DialogContent className="sm:max-w-[550px] bg-card border-border text-foreground">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-xl font-bold">
               <span className="w-6 h-6 rounded-lg bg-primary/15 flex items-center justify-center shrink-0">
                 <Sparkles size={12} className="text-primary" />
               </span>
-              EA Lead Details
+              EA Lead Details & Messages
             </DialogTitle>
+            <DialogDescription className="sr-only">
+              View details and message history for this EA Lead.
+            </DialogDescription>
           </DialogHeader>
           
           {selectedLead && (
-            <div className="grid gap-4 py-4 text-sm">
-              <div className="grid grid-cols-3 items-start gap-4 border-b border-border/50 pb-2.5">
-                <span className="font-semibold text-muted-foreground flex items-center gap-1.5">
-                  <Hash size={14} /> Name:
-                </span>
-                <span className="col-span-2 font-bold text-foreground">{selectedLead.name}</span>
-              </div>
-              
-              <div className="grid grid-cols-3 items-start gap-4 border-b border-border/50 pb-2.5">
-                <span className="font-semibold text-muted-foreground flex items-center gap-1.5">
-                  <Mail size={14} /> Email:
-                </span>
-                <span className="col-span-2 font-medium text-foreground select-all">{selectedLead.email}</span>
-              </div>
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+              <TabsList className="grid w-full grid-cols-2 bg-muted/50 border border-border/60 mb-4 p-1 rounded-xl">
+                <TabsTrigger value="details">Details</TabsTrigger>
+                <TabsTrigger value="messages" className="flex items-center gap-1.5">
+                  <MessageSquare size={14} /> Messages
+                </TabsTrigger>
+              </TabsList>
 
-              <div className="grid grid-cols-3 items-start gap-4 border-b border-border/50 pb-2.5">
-                <span className="font-semibold text-muted-foreground flex items-center gap-1.5">
-                  <Phone size={14} /> Phone:
-                </span>
-                <span className="col-span-2 font-medium text-foreground select-all">{selectedLead.phone}</span>
-              </div>
+              <TabsContent value="details">
+                <div className="grid gap-3 py-2 text-sm max-h-[400px] overflow-y-auto pr-1">
+                  <div className="grid grid-cols-3 items-start gap-4 border-b border-border/50 pb-2">
+                    <span className="font-semibold text-muted-foreground flex items-center gap-1.5">
+                      <Hash size={14} /> Name:
+                    </span>
+                    <span className="col-span-2 font-bold text-foreground">{selectedLead.name}</span>
+                  </div>
+                  
+                  <div className="grid grid-cols-3 items-start gap-4 border-b border-border/50 pb-2">
+                    <span className="font-semibold text-muted-foreground flex items-center gap-1.5">
+                      <Mail size={14} /> Email:
+                    </span>
+                    <span className="col-span-2 font-medium text-foreground select-all">{selectedLead.email}</span>
+                  </div>
 
-              <div className="grid grid-cols-3 items-start gap-4 border-b border-border/50 pb-2.5">
-                <span className="font-semibold text-muted-foreground flex items-center gap-1.5">
-                  <Layers size={14} /> Source:
-                </span>
-                <span className="col-span-2 font-semibold">
-                  <span className="rounded-full bg-secondary border border-border px-2.5 py-0.5 text-xs font-semibold text-muted-foreground">
-                    {selectedLead.source}
-                  </span>
-                </span>
-              </div>
+                  <div className="grid grid-cols-3 items-start gap-4 border-b border-border/50 pb-2">
+                    <span className="font-semibold text-muted-foreground flex items-center gap-1.5">
+                      <Phone size={14} /> Phone:
+                    </span>
+                    <span className="col-span-2 font-medium text-foreground select-all">{selectedLead.phone}</span>
+                  </div>
 
-              <div className="grid grid-cols-3 items-start gap-4 border-b border-border/50 pb-2.5">
-                <span className="font-semibold text-muted-foreground flex items-center gap-1.5">
-                  <Calendar size={14} /> Submitted:
-                </span>
-                <span className="col-span-2 font-semibold text-foreground">
-                  {formatDateDisplay(selectedLead.dateSubmitted)}
-                </span>
-              </div>
+                  <div className="grid grid-cols-3 items-start gap-4 border-b border-border/50 pb-2">
+                    <span className="font-semibold text-muted-foreground flex items-center gap-1.5">
+                      <Layers size={14} /> Source:
+                    </span>
+                    <span className="col-span-2 font-semibold">
+                      <span className="rounded-full bg-secondary border border-border px-2.5 py-0.5 text-xs font-semibold text-muted-foreground">
+                        {selectedLead.source}
+                      </span>
+                    </span>
+                  </div>
 
-              <div className="grid grid-cols-3 items-start gap-4 border-b border-border/50 pb-2.5">
-                <span className="font-semibold text-muted-foreground flex items-center gap-1.5">
-                  <Hash size={14} /> Consent Given:
-                </span>
-                <span className="col-span-2 font-semibold">
-                  <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold border ${selectedLead.isConsent ? "bg-green-500/10 border-green-500/30 text-green-500" : "bg-red-500/10 border-red-500/30 text-red-500"}`}>
-                    {selectedLead.isConsent ? "Yes" : "No"}
-                  </span>
-                </span>
-              </div>
+                  <div className="grid grid-cols-3 items-start gap-4 border-b border-border/50 pb-2">
+                    <span className="font-semibold text-muted-foreground flex items-center gap-1.5">
+                      <Calendar size={14} /> Submitted:
+                    </span>
+                    <span className="col-span-2 font-semibold text-foreground">
+                      {formatDateDisplay(selectedLead.dateSubmitted)}
+                    </span>
+                  </div>
 
-              <div className="grid grid-cols-3 items-start gap-4 pb-1">
-                <span className="font-semibold text-muted-foreground flex items-center gap-1.5">
-                  <Hash size={14} /> Submissions:
-                </span>
-                <span className="col-span-2 font-semibold text-foreground">
-                  {selectedLead.submissionCount} {selectedLead.submissionCount === 1 ? "time" : "times"}
-                </span>
-              </div>
-            </div>
+                  <div className="grid grid-cols-3 items-start gap-4 border-b border-border/50 pb-2">
+                    <span className="font-semibold text-muted-foreground flex items-center gap-1.5">
+                      <Hash size={14} /> Consent Given:
+                    </span>
+                    <span className="col-span-2 font-semibold">
+                      <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold border ${selectedLead.isConsent ? "bg-green-500/10 border-green-500/30 text-green-500" : "bg-red-500/10 border-red-500/30 text-red-500"}`}>
+                        {selectedLead.isConsent ? "Yes" : "No"}
+                      </span>
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-3 items-start gap-4 pb-1">
+                    <span className="font-semibold text-muted-foreground flex items-center gap-1.5">
+                      <Hash size={14} /> Submissions:
+                    </span>
+                    <span className="col-span-2 font-semibold text-foreground">
+                      {selectedLead.submissionCount} {selectedLead.submissionCount === 1 ? "time" : "times"}
+                    </span>
+                  </div>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="messages">
+                <div className="flex flex-col h-[400px] border rounded-xl overflow-hidden bg-background">
+                  {/* Chat message area */}
+                  <div className="flex-1 overflow-y-auto p-4 space-y-3 max-h-[330px]">
+                    {!selectedLead.smsHistory || selectedLead.smsHistory.length === 0 ? (
+                      <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-1.5 py-12">
+                        <MessageSquare className="opacity-40" size={24} />
+                        <p className="text-xs">No message history with this lead yet.</p>
+                      </div>
+                    ) : (
+                      selectedLead.smsHistory.map((msg, i) => {
+                        const isInbound = msg.direction === 'inbound';
+                        return (
+                          <div
+                            key={msg._id || i}
+                            className={`flex flex-col max-w-[80%] ${isInbound ? 'self-start mr-auto' : 'self-end ml-auto items-end'}`}
+                          >
+                            <div
+                              className={`rounded-2xl px-3 py-2 text-xs leading-relaxed ${
+                                isInbound
+                                  ? 'bg-muted text-foreground rounded-tl-none'
+                                  : 'bg-primary text-primary-foreground rounded-tr-none'
+                              }`}
+                            >
+                              {msg.message}
+                            </div>
+                            <span className="text-[10px] text-muted-foreground mt-1 px-1">
+                              {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  {/* Send chat message input */}
+                  <form onSubmit={handleSendSingleSMS} className="p-2 border-t flex gap-1.5 bg-card shrink-0">
+                    <Input
+                      placeholder={selectedLead.isConsent ? "Type SMS message..." : "Lead has not given SMS consent"}
+                      value={singleSmsMessage}
+                      onChange={(e) => setSingleSmsMessage(e.target.value)}
+                      disabled={sendingSingleSms || !selectedLead.isConsent}
+                      className="flex-1 bg-background text-xs h-8 border-border"
+                    />
+                    <Button
+                      type="submit"
+                      size="sm"
+                      className="h-8 w-8 p-0 shrink-0"
+                      disabled={sendingSingleSms || !singleSmsMessage.trim() || !selectedLead.isConsent}
+                    >
+                      {sendingSingleSms ? (
+                        <Loader2 size={12} className="animate-spin" />
+                      ) : (
+                        <Send size={12} />
+                      )}
+                    </Button>
+                  </form>
+                </div>
+              </TabsContent>
+            </Tabs>
           )}
 
-          <DialogFooter>
+          <DialogFooter className="mt-4 border-t border-border/30 pt-3">
             <Button variant="outline" className="border-border text-foreground" onClick={() => setViewDialogOpen(false)}>
               Close
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk SMS Modal */}
+      <Dialog open={bulkSmsOpen} onOpenChange={setBulkSmsOpen}>
+        <DialogContent className="sm:max-w-[500px] bg-card border-border text-foreground">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-xl font-bold">
+              <MessageSquare className="text-primary" size={20} />
+              Send Bulk SMS
+            </DialogTitle>
+            <DialogDescription className="sr-only">
+              Send personalized bulk SMS messages to the selected contacts.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleSendBulkSMS} className="space-y-4 py-2">
+            <div className="text-xs text-muted-foreground bg-muted/30 border p-3 rounded-lg">
+              Sending to <strong className="text-foreground">{selectedIds.length}</strong> selected lead(s) who have given SMS consent.
+              <br />
+              <span className="text-[10px] text-muted-foreground/80 mt-1 block">
+                Pro-tip: Use <code className="bg-muted px-1 py-0.5 rounded text-foreground font-semibold font-mono">{"{{name}}"}</code> to personalize the text message with the lead's name.
+              </span>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="bulk-message">Message Body</Label>
+              <textarea
+                id="bulk-message"
+                rows={4}
+                placeholder="Hi {{name}}! Just checking in to see if you have any questions..."
+                value={bulkSmsMessage}
+                onChange={(e) => setBulkSmsMessage(e.target.value)}
+                className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 border-border text-foreground resize-none"
+                required
+              />
+            </div>
+
+            <DialogFooter className="pt-2">
+              <Button type="button" variant="outline" className="border-border text-foreground" onClick={() => setBulkSmsOpen(false)} disabled={sendingBulkSms}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={sendingBulkSms || !bulkSmsMessage.trim()}>
+                {sendingBulkSms ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin mr-1.5" /> Sending...
+                  </>
+                ) : (
+                  "Send Message"
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 
@@ -451,6 +880,9 @@ export default function EALeads() {
               </span>
               Edit EA Lead Record
             </DialogTitle>
+            <DialogDescription className="sr-only">
+              Update the details of this EA Lead record.
+            </DialogDescription>
           </DialogHeader>
           
           <form onSubmit={handleSaveEdit} className="space-y-4 py-2">
@@ -541,6 +973,98 @@ export default function EALeads() {
         </DialogContent>
       </Dialog>
 
+      {/* Add Lead Dialog */}
+      <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
+        <DialogContent className="sm:max-w-[500px] bg-card border-border text-foreground">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-xl font-bold">
+              <Sparkles size={16} className="text-primary" />
+              Add EA Lead Record
+            </DialogTitle>
+            <DialogDescription className="sr-only">
+              Manually add a new EA Lead record.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleSaveAdd} className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="add-lead-name">Name</Label>
+              <Input
+                id="add-lead-name"
+                placeholder="Jane Doe"
+                value={addName}
+                onChange={(e) => setAddName(e.target.value)}
+                className="bg-background border-border text-foreground"
+                required
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="add-lead-email">Email Address</Label>
+              <Input
+                id="add-lead-email"
+                type="email"
+                placeholder="jane.doe@example.com"
+                value={addEmail}
+                onChange={(e) => setAddEmail(e.target.value)}
+                className="bg-background border-border text-foreground"
+                required
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="add-lead-phone">Phone Number</Label>
+              <Input
+                id="add-lead-phone"
+                placeholder="+15555555555"
+                value={addPhone}
+                onChange={(e) => setAddPhone(e.target.value)}
+                className="bg-background border-border text-foreground"
+                required
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="add-lead-source">Source</Label>
+              <Input
+                id="add-lead-source"
+                value={addSource}
+                onChange={(e) => setAddSource(e.target.value)}
+                className="bg-background border-border text-foreground"
+              />
+            </div>
+
+            <div className="flex items-center gap-2 pt-1">
+              <input
+                id="add-lead-is-consent"
+                type="checkbox"
+                checked={addIsConsent}
+                onChange={(e) => setAddIsConsent(e.target.checked)}
+                className="h-4 w-4 rounded border-border text-primary focus:ring-primary bg-background cursor-pointer"
+              />
+              <Label htmlFor="add-lead-is-consent" className="text-sm font-medium text-foreground cursor-pointer select-none">
+                Consent Given (Permit SMS/Email campaigns)
+              </Label>
+            </div>
+
+            <DialogFooter className="pt-4">
+              <Button type="button" variant="outline" className="border-border text-foreground" onClick={() => setAddDialogOpen(false)} disabled={adding}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={adding}>
+                {adding ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin mr-1.5" /> Creating...
+                  </>
+                ) : (
+                  "Add Lead"
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
       {/* Delete Lead Dialog */}
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <DialogContent className="sm:max-w-[450px] bg-card border-border text-foreground">
@@ -549,6 +1073,9 @@ export default function EALeads() {
               <AlertCircle size={20} />
               Confirm Delete
             </DialogTitle>
+            <DialogDescription className="sr-only">
+              Confirm whether you want to delete this EA Lead record.
+            </DialogDescription>
           </DialogHeader>
 
           <div className="py-2 text-sm text-muted-foreground">
