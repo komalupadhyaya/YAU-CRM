@@ -120,11 +120,16 @@ export const submitEALead = async (req, res) => {
         const digitsPhone = formattedPhone.replace(/\D/g, '');
         const last10Phone = digitsPhone.slice(-10);
 
+        // Build flexible regex to match phone regardless of formatting characters
+        const flexibleRegex = last10Phone.length >= 7 
+            ? last10Phone.split('').map(d => `${d}\\D*`).join('') + '$'
+            : null;
+
         let duplicateLead = await EALead.findOne({
             $or: [
                 { email: cleanEmail },
                 { phone: formattedPhone },
-                ...(last10Phone.length >= 7 ? [{ phone: { $regex: last10Phone + '$' } }] : [])
+                ...(flexibleRegex ? [{ phone: { $regex: flexibleRegex } }] : [])
             ]
         });
 
@@ -422,11 +427,16 @@ export const createEALead = async (req, res) => {
         const digitsPhone = cleanPhone.replace(/\D/g, '');
         const last10Phone = digitsPhone.slice(-10);
 
+        // Build flexible regex to match phone regardless of formatting characters
+        const flexibleRegex = last10Phone.length >= 7 
+            ? last10Phone.split('').map(d => `${d}\\D*`).join('') + '$'
+            : null;
+
         let duplicateLead = await EALead.findOne({
             $or: [
                 { email: cleanEmail },
                 { phone: cleanPhone },
-                ...(last10Phone.length >= 7 ? [{ phone: { $regex: last10Phone + '$' } }] : [])
+                ...(flexibleRegex ? [{ phone: { $regex: flexibleRegex } }] : [])
             ]
         });
 

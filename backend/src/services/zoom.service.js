@@ -9,11 +9,11 @@ let tokenExpiresAt = null;
  */
 async function getAccessToken() {
     const clientId = process.env.Zoom_Client_Id || process.env.ZOOM_CLIENT_ID;
-    const clientSecret = process.env.Zoom_Client_Secreat || process.env.ZOOM_CLIENT_SECRET;
+    const clientSecret = process.env.Zoom_Client_Secret || process.env.ZOOM_CLIENT_SECRET;
     const accountId = process.env.ZOOM_ACCOUNT_ID || process.env.Zoom_Account_Id;
 
     if (!clientId || !clientSecret || !accountId) {
-        console.warn("⚠️ Zoom API credentials (Zoom_Client_Id, Zoom_Client_Secreat, ZOOM_ACCOUNT_ID) are incomplete. Zoom meetings will operate in Mock Mode.");
+        console.warn("⚠️ Zoom API credentials (Zoom_Client_Id, Zoom_Client_Secret, ZOOM_ACCOUNT_ID) are incomplete. Zoom meetings will operate in Mock Mode.");
         return null;
     }
 

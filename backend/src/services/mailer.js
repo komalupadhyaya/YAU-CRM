@@ -816,7 +816,6 @@ export async function sendEAWelcomeEmail({ name, email }) {
                 <p>Thank you for reaching out! We're so excited about your interest in Youth Athlete University.</p>
                 <p>We'd love to tell you more about our programs and how we can help your athlete grow. Click below to learn more:<br/>
                 <a href="https://youthathleteuniversity.org/love/" style="display: inline-block; background-color: #3b82f6; color: #ffffff; padding: 10px 20px; text-decoration: none; border-radius: 5px; margin-top: 10px; font-weight: bold;">Learn More About Our Programs</a></p>
-                <p>Alternatively, click here: <a href="https://youthathleteuniversity.org/love/">https://youthathleteuniversity.org/love/</a></p>
                 <p>If you have any questions, please call us on 800-293-0354.</p>
                 <p>Talk soon,<br/>
                 The YAU Team</p>

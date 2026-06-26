@@ -267,11 +267,16 @@ export const handleTwilioReply = async (req, res) => {
             return res.status(200).send('Invalid sender phone');
         }
 
+        // Build a flexible regex pattern from last10From to match numbers with formatting
+        // (allowing optional non-digit characters like spaces, hyphens, parentheses between digits)
+        const digits = last10From.split('');
+        const regexPattern = digits.map(d => `${d}\\D*`).join('') + '$';
+
         // Search for EA Lead matching sender phone
         const lead = await EALead.findOne({
             $or: [
                 { phone: From },
-                { phone: { $regex: last10From + '$' } }
+                { phone: { $regex: regexPattern } }
             ]
         });
 
