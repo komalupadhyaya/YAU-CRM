@@ -96,6 +96,7 @@ export default function EALeads() {
   // Checkbox selection state
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(20);
 
   // Bulk SMS Modal state
   const [bulkSmsOpen, setBulkSmsOpen] = useState(false);
@@ -245,6 +246,20 @@ export default function EALeads() {
     }
   };
 
+  // Open Messages Dialog directly
+  const handleOpenMessages = async (lead: EALead) => {
+    setSelectedLead(lead);
+    setViewDialogOpen(true);
+    setActiveTab("messages");
+    try {
+      const res = await api.get(`/ea-leads/${lead._id}`);
+      setSelectedLead(res.data);
+      setLeads(prev => prev.map(l => l._id === lead._id ? res.data : l));
+    } catch (err) {
+      console.error("Failed to fetch fresh lead details:", err);
+    }
+  };
+
   // Poll for messages when view dialog is open and active tab is "messages"
   useEffect(() => {
     if (!viewDialogOpen || !selectedLead || activeTab !== "messages") return;
@@ -351,12 +366,152 @@ export default function EALeads() {
   });
 
   // Client-side pagination logic
-  const itemsPerPage = 8;
   const totalPages = Math.ceil(filteredLeads.length / itemsPerPage);
   const paginatedLeads = filteredLeads.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage
   );
+
+  // Helper to generate pagination items with ellipses
+  const getPageNumbers = () => {
+    const pages: (number | string)[] = [];
+    if (totalPages <= 7) {
+      for (let i = 1; i <= totalPages; i++) {
+        pages.push(i);
+      }
+    } else {
+      pages.push(1);
+      
+      let start = Math.max(2, currentPage - 1);
+      let end = Math.min(totalPages - 1, currentPage + 1);
+      
+      if (currentPage <= 3) {
+        end = 4;
+      } else if (currentPage >= totalPages - 2) {
+        start = totalPages - 3;
+      }
+      
+      if (start > 2) {
+        pages.push("...");
+      }
+      
+      for (let i = start; i <= end; i++) {
+        pages.push(i);
+      }
+      
+      if (end < totalPages - 1) {
+        pages.push("...");
+      }
+      
+      pages.push(totalPages);
+    }
+    return pages;
+  };
+
+  const renderPagination = (position: "top" | "bottom") => {
+    if (totalPages <= 1) return null;
+
+    const pageNumbers = getPageNumbers();
+    const borderClass = position === "top" ? "border-b border-border" : "border-t border-border";
+    const paddingClass = position === "top" ? "px-4 py-3 sm:px-6 bg-muted/5" : "px-4 py-4 sm:px-6";
+
+    return (
+      <div className={`flex items-center justify-between ${borderClass} ${paddingClass} flex-shrink-0`}>
+        {/* Mobile layout */}
+        <div className="flex flex-1 justify-between sm:hidden">
+          <Button
+            variant="outline"
+            onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+            disabled={currentPage === 1}
+            className="border-border text-foreground hover:bg-muted/50"
+          >
+            Previous
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+            disabled={currentPage === totalPages}
+            className="border-border text-foreground hover:bg-muted/50"
+          >
+            Next
+          </Button>
+        </div>
+        
+        {/* Desktop layout */}
+        <div className="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
+          <div>
+            <p className="text-xs font-medium text-foreground/80 flex items-center gap-1 select-none">
+              Showing
+              <span className="font-semibold text-foreground bg-muted px-1.5 py-0.5 rounded text-[11px] border border-border/40">
+                {((currentPage - 1) * itemsPerPage) + 1}
+              </span>
+              to
+              <span className="font-semibold text-foreground bg-muted px-1.5 py-0.5 rounded text-[11px] border border-border/40">
+                {Math.min(currentPage * itemsPerPage, filteredLeads.length)}
+              </span>
+              of
+              <span className="font-semibold text-foreground px-0.5">
+                {filteredLeads.length}
+              </span>
+              results
+            </p>
+          </div>
+          <div>
+            <div className="inline-flex gap-1.5 font-sans" aria-label="Pagination">
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-8 w-8 border-border text-foreground hover:bg-muted/50 transition-colors"
+                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                disabled={currentPage === 1}
+              >
+                <ChevronLeft size={16} />
+              </Button>
+              
+              {pageNumbers.map((page, idx) => {
+                if (page === "...") {
+                  return (
+                    <span
+                      key={`ellipsis-${position}-${idx}`}
+                      className="h-8 w-8 flex items-center justify-center text-xs text-muted-foreground select-none"
+                    >
+                      ...
+                    </span>
+                  );
+                }
+                const pageNum = page as number;
+                return (
+                  <Button
+                    key={`page-${position}-${pageNum}`}
+                    variant={currentPage === pageNum ? "default" : "outline"}
+                    size="sm"
+                    className={`h-8 w-8 text-xs transition-all ${
+                      currentPage === pageNum
+                        ? "shadow-sm font-semibold"
+                        : "border-border text-foreground hover:bg-muted/50"
+                    }`}
+                    onClick={() => setCurrentPage(pageNum)}
+                  >
+                    {pageNum}
+                  </Button>
+                );
+              })}
+
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-8 w-8 border-border text-foreground hover:bg-muted/50 transition-colors"
+                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                disabled={currentPage === totalPages}
+              >
+                <ChevronRight size={16} />
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   // Selection handlers
   const handleSelectAll = (checked: boolean) => {
@@ -461,8 +616,8 @@ export default function EALeads() {
         </div>
 
         {/* Search Bar */}
-        <div className="bg-card border rounded-2xl p-4 shadow-sm flex items-center gap-3">
-          <div className="relative flex-1">
+        <div className="bg-card border rounded-2xl p-4 shadow-sm flex flex-col sm:flex-row items-center gap-3">
+          <div className="relative flex-1 w-full">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
             <Input
               id="search-ea-leads"
@@ -470,8 +625,30 @@ export default function EALeads() {
               placeholder="Search by name, email, phone, or source..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 bg-background border-border text-foreground"
+              className="pl-9 bg-background border-border text-foreground w-full"
             />
+          </div>
+          {/* Items Per Page Selector */}
+          <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+            <Label htmlFor="items-per-page" className="text-xs text-muted-foreground whitespace-nowrap">
+              Show:
+            </Label>
+            <select
+              id="items-per-page"
+              value={itemsPerPage}
+              onChange={(e) => {
+                setItemsPerPage(Number(e.target.value));
+                setCurrentPage(1);
+              }}
+              className="bg-background border border-border text-foreground text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer"
+            >
+              <option value={10}>10 per page</option>
+              <option value={20}>20 per page</option>
+              <option value={30}>30 per page</option>
+              <option value={40}>40 per page</option>
+              <option value={50}>50 per page</option>
+              <option value={100}>100 per page</option>
+            </select>
           </div>
         </div>
 
@@ -492,6 +669,7 @@ export default function EALeads() {
             </div>
           ) : (
             <>
+              {renderPagination("top")}
               <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
@@ -509,7 +687,7 @@ export default function EALeads() {
                     <TableHead>Source</TableHead>
                     <TableHead>Consent</TableHead>
                     <TableHead>Date Submitted</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
+                    <TableHead className="text-center">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -517,9 +695,9 @@ export default function EALeads() {
                     <TableRow key={lead._id} className="hover:bg-accent/40 border-b border-border">
                       <TableCell className="w-[50px] pl-4">
                         <Checkbox
-                          checked={selectedIds.includes(lead._id)}
-                          onCheckedChange={(checked) => handleSelectLead(lead._id, !!checked)}
-                          aria-label={`Select ${lead.name}`}
+                           checked={selectedIds.includes(lead._id)}
+                           onCheckedChange={(checked) => handleSelectLead(lead._id, !!checked)}
+                           aria-label={`Select ${lead.name}`}
                         />
                       </TableCell>
                       <TableCell className="font-semibold text-foreground truncate max-w-[200px]">
@@ -539,14 +717,14 @@ export default function EALeads() {
                       </TableCell>
                       <TableCell>
                         <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold border ${lead.isConsent ? "bg-green-500/10 border-green-500/30 text-green-500" : "bg-red-500/10 border-red-500/30 text-red-500"}`}>
-                          {lead.isConsent ? "Yes" : "No"}
+                           {lead.isConsent ? "Yes" : "No"}
                         </span>
                       </TableCell>
                       <TableCell className="text-muted-foreground text-xs font-medium">
                         {formatDateDisplay(lead.dateSubmitted)}
                       </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-1.5">
+                      <TableCell className="text-center">
+                        <div className="flex items-center justify-center gap-1.5">
                           <Button
                             variant="ghost"
                             size="icon"
@@ -555,6 +733,15 @@ export default function EALeads() {
                             title="View Lead Record"
                           >
                             <Eye size={14} />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 hover:bg-accent hover:text-foreground text-primary"
+                            onClick={() => handleOpenMessages(lead)}
+                            title="Send/View Messages"
+                          >
+                            <MessageSquare size={14} />
                           </Button>
                           {permissions.createEdit && (
                             <Button
@@ -586,75 +773,7 @@ export default function EALeads() {
               </Table>
             </div>
 
-            {/* Pagination Controls */}
-            {totalPages > 1 && (
-              <div className="flex items-center justify-between border-t border-border px-4 py-4 sm:px-6 flex-shrink-0">
-                <div className="flex flex-1 justify-between sm:hidden">
-                  <Button
-                    variant="outline"
-                    onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                    disabled={currentPage === 1}
-                    className="border-border text-foreground hover:bg-muted/50"
-                  >
-                    Previous
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                    disabled={currentPage === totalPages}
-                    className="border-border text-foreground hover:bg-muted/50"
-                  >
-                    Next
-                  </Button>
-                </div>
-                <div className="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
-                  <div>
-                    <p className="text-xs text-muted-foreground">
-                      Showing <span className="font-semibold text-foreground">{((currentPage - 1) * itemsPerPage) + 1}</span> to{" "}
-                      <span className="font-semibold text-foreground">
-                        {Math.min(currentPage * itemsPerPage, filteredLeads.length)}
-                      </span>{" "}
-                      of <span className="font-semibold text-foreground">{filteredLeads.length}</span> results
-                    </p>
-                  </div>
-                  <div>
-                    <div className="inline-flex gap-1.5 font-sans" aria-label="Pagination">
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        className="h-8 w-8 border-border text-foreground hover:bg-muted/50"
-                        onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                        disabled={currentPage === 1}
-                      >
-                        <ChevronLeft size={16} />
-                      </Button>
-                      
-                      {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                        <Button
-                          key={page}
-                          variant={currentPage === page ? "default" : "outline"}
-                          size="sm"
-                          className={`h-8 w-8 text-xs ${currentPage === page ? "" : "border-border text-foreground hover:bg-muted/50"}`}
-                          onClick={() => setCurrentPage(page)}
-                        >
-                          {page}
-                        </Button>
-                      ))}
-
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        className="h-8 w-8 border-border text-foreground hover:bg-muted/50"
-                        onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                        disabled={currentPage === totalPages}
-                      >
-                        <ChevronRight size={16} />
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
+            {renderPagination("bottom")}
             </>
           )}
         </div>
