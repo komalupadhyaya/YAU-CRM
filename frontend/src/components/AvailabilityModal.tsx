@@ -385,7 +385,7 @@ export default function AvailabilityModal({ user, open, onClose }: { user: Avail
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
 
-    const [activeInput, setActiveInput] = useState<{ type: 'calendar_override'; index: number; field: 'start' | 'end' } | null>(null);
+    const [activeInput, setActiveInput] = useState<{ type: 'calendar_override' | 'weekly'; day?: Day; index: number; field: 'start' | 'end' } | null>(null);
     const [tempText, setTempText] = useState<string>('');
 
     // Date range & custom day overrides (stored locally, processed in EST)
@@ -410,10 +410,49 @@ export default function AvailabilityModal({ user, open, onClose }: { user: Avail
         return matches.length > 0 ? matches : TIME_OPTIONS;
     }, [tempText]);
 
+    const updateCustomDaysForWeekday = useCallback((day: Day, enabled: boolean, slots: TimeSlot[]) => {
+        if (!dateRangeStart || !dateRangeEnd) return;
+        
+        if (enabled) {
+            setCustomDays(prev => {
+                const updated = [...prev];
+                const start = new Date(dateRangeStart + 'T12:00:00');
+                const end = new Date(dateRangeEnd + 'T12:00:00');
+                const current = new Date(start);
+                while (current <= end) {
+                    const dStr = formatDateToESTString(current);
+                    const est = getESTDateParts(current);
+                    if (est.weekday === day) {
+                        if (!updated.some(cd => cd.date === dStr)) {
+                            updated.push({
+                                date: dStr,
+                                enabled: true,
+                                slots: slots.map(s => ({ ...s }))
+                            });
+                        }
+                    }
+                    current.setDate(current.getDate() + 1);
+                }
+                return updated.sort((a, b) => a.date.localeCompare(b.date));
+            });
+        } else {
+            setCustomDays(prev => {
+                return prev.filter(cd => {
+                    const parts = cd.date.split('-');
+                    const dateObj = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+                    const est = getESTDateParts(dateObj);
+                    return est.weekday !== day;
+                });
+            });
+        }
+    }, [dateRangeStart, dateRangeEnd]);
+
     useEffect(() => {
         if (!activeInput) return;
         const handleOutsideClick = (e: MouseEvent) => {
-            const targetId = `caloverride-${activeInput.field}-${activeInput.index}`;
+            const targetId = activeInput.type === 'weekly' 
+                ? `weekly-${activeInput.day}-${activeInput.field}-${activeInput.index}`
+                : `caloverride-${activeInput.field}-${activeInput.index}`;
             const inputEl = document.getElementById(targetId);
             const container = inputEl?.parentElement;
             if (container && !container.contains(e.target as Node)) {
@@ -424,7 +463,31 @@ export default function AvailabilityModal({ user, open, onClose }: { user: Avail
                 
                 const normalized = parseTimeTo24h(tempText);
                 if (getValidTimeValue(normalized)) {
-                    updateCalendarOverrideSlot(activeInput.index, activeInput.field, normalized);
+                    if (activeInput.type === 'weekly' && activeInput.day) {
+                        const day = activeInput.day;
+                        const idx = activeInput.index;
+                        const field = activeInput.field;
+                        setSchedule(prev => {
+                            const slots = prev[day].slots.map((s, i) => i === idx ? { ...s, [field]: normalized } : s);
+                            return { ...prev, [day]: { ...prev[day], slots } };
+                        });
+                        
+                        // Also update customDays of this weekday to match the new slot time
+                        setCustomDays(prev => {
+                            return prev.map(cd => {
+                                const parts = cd.date.split('-');
+                                const dateObj = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+                                const est = getESTDateParts(dateObj);
+                                if (est.weekday === day) {
+                                    const slots = cd.slots.map((s, i) => i === idx ? { ...s, [field]: normalized } : s);
+                                    return { ...cd, slots };
+                                }
+                                return cd;
+                            });
+                        });
+                    } else if (activeInput.type === 'calendar_override') {
+                        updateCalendarOverrideSlot(activeInput.index, activeInput.field, normalized);
+                    }
                 }
                 setActiveInput(null);
             }
@@ -434,6 +497,45 @@ export default function AvailabilityModal({ user, open, onClose }: { user: Avail
             document.removeEventListener("mousedown", handleOutsideClick);
         };
     }, [activeInput, tempText, customDays, selectedCalendarDate]);
+
+    // Sync date range and weekly schedule changes with customDays
+    useEffect(() => {
+        if (!dateRangeStart || !dateRangeEnd) return;
+        setCustomDays(prev => {
+            // 1. Filter out days outside of the range or belonging to disabled weekdays
+            let updated = prev.filter(cd => {
+                if (!isWithinRange(cd.date, dateRangeStart, dateRangeEnd)) return false;
+                const parts = cd.date.split('-');
+                const dateObj = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+                const est = getESTDateParts(dateObj);
+                const wDay = est.weekday as Day;
+                return schedule[wDay]?.enabled;
+            });
+            
+            // 2. Add missing dates matching enabled weekdays in the new range
+            const start = new Date(dateRangeStart + 'T12:00:00');
+            const end = new Date(dateRangeEnd + 'T12:00:00');
+            const current = new Date(start);
+            while (current <= end) {
+                const dStr = formatDateToESTString(current);
+                const est = getESTDateParts(current);
+                const wDay = est.weekday as Day;
+                const weeklySched = schedule[wDay];
+                
+                if (weeklySched && weeklySched.enabled && weeklySched.slots && weeklySched.slots.length > 0) {
+                    if (!updated.some(cd => cd.date === dStr)) {
+                        updated.push({
+                            date: dStr,
+                            enabled: true,
+                            slots: weeklySched.slots.map(s => ({ ...s }))
+                        });
+                    }
+                }
+                current.setDate(current.getDate() + 1);
+            }
+            return updated.sort((a, b) => a.date.localeCompare(b.date));
+        });
+    }, [dateRangeStart, dateRangeEnd, schedule]);
 
     useEffect(() => {
         if (!user || !open) return;
@@ -622,26 +724,14 @@ export default function AvailabilityModal({ user, open, onClose }: { user: Avail
             return;
         }
 
-        // Build final schedule based on custom overrides
-        const finalSchedule = defaultSchedule();
-        customDays.forEach(cd => {
-            if (cd.enabled && cd.slots && cd.slots.length > 0) {
-                const parts = cd.date.split('-');
-                const dateObj = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10), 12, 0, 0);
-                const est = getESTDateParts(dateObj);
-                const weeklyDay = est.weekday as Day;
-                
-                finalSchedule[weeklyDay] = {
-                    enabled: true,
-                    slots: cd.slots.map(s => ({ ...s }))
-                };
-            }
-        });
-
-        // Validate final schedule slots
+        // Validate weekly schedule slots
         for (const day of DAYS) {
-            const daySched = finalSchedule[day];
+            const daySched = schedule[day];
             if (daySched.enabled) {
+                if (!daySched.slots || daySched.slots.length === 0) {
+                    toast.error(`Please add at least one time slot for ${day.charAt(0).toUpperCase() + day.slice(1)}.`);
+                    return;
+                }
                 for (let i = 0; i < daySched.slots.length; i++) {
                     const slot = daySched.slots[i];
                     if (!slot.start || !slot.end) {
@@ -680,7 +770,7 @@ export default function AvailabilityModal({ user, open, onClose }: { user: Avail
         setSaving(true);
         try {
             await api.put(`/availability/${user._id}`, {
-                weekly_schedule: finalSchedule,
+                weekly_schedule: schedule,
                 blocked_dates: blockedDates,
                 date_range_start: dateRangeStart || null,
                 date_range_end: dateRangeEnd || null,
@@ -712,7 +802,7 @@ export default function AvailabilityModal({ user, open, onClose }: { user: Avail
 
     return (
         <Dialog open={open} onOpenChange={onClose}>
-            <DialogContent aria-describedby={undefined} className="sm:max-w-4xl p-0 overflow-hidden flex flex-col max-h-[92vh]">
+            <DialogContent aria-describedby={undefined} className="sm:max-w-5xl p-0 overflow-hidden flex flex-col max-h-[92vh]">
                 <DialogHeader className="p-6 pb-4 border-b border-border">
                     <DialogTitle className="flex items-center gap-2 text-foreground">
                         <CalendarDays size={16} className="text-primary" />
@@ -728,7 +818,7 @@ export default function AvailabilityModal({ user, open, onClose }: { user: Avail
                         </div>
                     ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
-                            {/* Left Column: Range & Calendar */}
+                            {/* Left Column: Date Range & Weekly Availability */}
                             <div className="space-y-6">
                                 {/* Step 1: Set Active Date Range */}
                                 <div className="space-y-3">
@@ -769,10 +859,199 @@ export default function AvailabilityModal({ user, open, onClose }: { user: Avail
                                     </div>
                                 </div>
 
-                                {/* Step 2: Calendar View */}
+                                {/* Step 2: Weekly Availability */}
                                 <div className="space-y-3">
                                     <div>
-                                        <h4 className="text-sm font-bold text-foreground">2. Calendar View</h4>
+                                        <h4 className="text-sm font-bold text-foreground">2. Weekly Availability</h4>
+                                        <p className="text-xs text-muted-foreground">Select days you are standardly available each week and set default timeslots.</p>
+                                    </div>
+                                    <div className="border border-border/60 bg-muted/10 rounded-xl p-4 space-y-3">
+                                        {DAYS.map(day => {
+                                            const daySched = schedule[day] || { enabled: false, slots: [] };
+                                            const enabled = daySched.enabled;
+                                            return (
+                                                <div key={day} className="flex flex-col gap-2 pb-2 border-b border-border/40 last:border-b-0 last:pb-0">
+                                                    <div className="flex items-center justify-between">
+                                                        <label className="flex items-center gap-2 cursor-pointer">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={enabled}
+                                                                onChange={(e) => {
+                                                                    const checked = e.target.checked;
+                                                                    setSchedule(prev => ({
+                                                                        ...prev,
+                                                                        [day]: {
+                                                                            ...prev[day],
+                                                                            enabled: checked,
+                                                                            slots: checked && prev[day].slots.length === 0 ? [{ start: '09:00', end: '17:00' }] : prev[day].slots
+                                                                        }
+                                                                    }));
+
+                                                                    if (!checked) {
+                                                                        const parts = selectedCalendarDate.split('-');
+                                                                        if (parts.length === 3) {
+                                                                            const selDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+                                                                            const est = getESTDateParts(selDate);
+                                                                            if (est.weekday === day) {
+                                                                                setSelectedCalendarDate(dateRangeStart || '');
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }}
+                                                                className="rounded border-border bg-background text-primary focus:ring-primary focus:ring-offset-background h-4 w-4"
+                                                            />
+                                                            <span className="text-xs font-bold text-foreground capitalize w-20">{day}</span>
+                                                        </label>
+                                                        
+                                                        {enabled ? (
+                                                            <span className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider">
+                                                                Active
+                                                            </span>
+                                                        ) : (
+                                                            <span className="bg-zinc-500/5 text-muted-foreground/60 border border-border/40 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider">
+                                                                Closed
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    
+                                                    {enabled && (
+                                                        <div className="pl-6 space-y-2">
+                                                            {(daySched.slots || []).map((slot, idx) => {
+                                                                const isStartActive = activeInput && activeInput.type === "weekly" && activeInput.day === day && activeInput.index === idx && activeInput.field === "start";
+                                                                const isEndActive = activeInput && activeInput.type === "weekly" && activeInput.day === day && activeInput.index === idx && activeInput.field === "end";
+                                                                return (
+                                                                    <div key={idx} className="flex items-center gap-1.5">
+                                                                        <div className="relative flex-1 flex items-center">
+                                                                            <input
+                                                                                id={`weekly-${day}-start-${idx}`}
+                                                                                name={`weekly-${day}-start-${idx}`}
+                                                                                type="text"
+                                                                                placeholder="09:00 AM"
+                                                                                value={isStartActive ? tempText : formatTimeTo12h(slot.start)}
+                                                                                onFocus={() => {
+                                                                                    setActiveInput({ type: "weekly", day, index: idx, field: "start" });
+                                                                                    setTempText(formatTimeTo12h(slot.start) || "09:00 AM");
+                                                                                }}
+                                                                                onChange={e => setTempText(e.target.value)}
+                                                                                className="w-full text-center text-xs pl-2 pr-7 py-1 h-7 rounded-lg border border-border bg-background text-foreground focus:outline-none"
+                                                                            />
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => document.getElementById('weekly-' + day + '-start-' + idx)?.focus()}
+                                                                                className="absolute right-2 text-muted-foreground hover:text-foreground p-0.5 rounded transition-colors"
+                                                                            >
+                                                                                <Clock size={11} />
+                                                                            </button>
+                                                                            {isStartActive && (
+                                                                                <TimePickerPopover
+                                                                                    tempText={tempText}
+                                                                                    setTempText={setTempText}
+                                                                                    onCancel={() => setActiveInput(null)}
+                                                                                    onConfirm={() => {
+                                                                                        const normalized = parseTimeTo24h(tempText);
+                                                                                        if (getValidTimeValue(normalized)) {
+                                                                                            setSchedule(prev => {
+                                                                                                const slots = prev[day].slots.map((s, i) => i === idx ? { ...s, start: normalized } : s);
+                                                                                                return { ...prev, [day]: { ...prev[day], slots } };
+                                                                                            });
+                                                                                        }
+                                                                                        setActiveInput(null);
+                                                                                    }}
+                                                                                />
+                                                                            )}
+                                                                        </div>
+                                                                        <span className="text-xs text-muted-foreground shrink-0">to</span>
+                                                                        <div className="relative flex-1 flex items-center">
+                                                                            <input
+                                                                                id={`weekly-${day}-end-${idx}`}
+                                                                                name={`weekly-${day}-end-${idx}`}
+                                                                                type="text"
+                                                                                placeholder="05:00 PM"
+                                                                                value={isEndActive ? tempText : formatTimeTo12h(slot.end)}
+                                                                                onFocus={() => {
+                                                                                    setActiveInput({ type: "weekly", day, index: idx, field: "end" });
+                                                                                    setTempText(formatTimeTo12h(slot.end) || "05:00 PM");
+                                                                                }}
+                                                                                onChange={e => setTempText(e.target.value)}
+                                                                                className="w-full text-center text-xs pl-2 pr-7 py-1 h-7 rounded-lg border border-border bg-background text-foreground focus:outline-none"
+                                                                            />
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => document.getElementById('weekly-' + day + '-end-' + idx)?.focus()}
+                                                                                className="absolute right-2 text-muted-foreground hover:text-foreground p-0.5 rounded transition-colors"
+                                                                            >
+                                                                                <Clock size={11} />
+                                                                            </button>
+                                                                            {isEndActive && (
+                                                                                <TimePickerPopover
+                                                                                    tempText={tempText}
+                                                                                    setTempText={setTempText}
+                                                                                    onCancel={() => setActiveInput(null)}
+                                                                                    onConfirm={() => {
+                                                                                        const normalized = parseTimeTo24h(tempText);
+                                                                                        if (getValidTimeValue(normalized)) {
+                                                                                            setSchedule(prev => {
+                                                                                                const slots = prev[day].slots.map((s, i) => i === idx ? { ...s, end: normalized } : s);
+                                                                                                return { ...prev, [day]: { ...prev[day], slots } };
+                                                                                            });
+                                                                                        }
+                                                                                        setActiveInput(null);
+                                                                                    }}
+                                                                                />
+                                                                            )}
+                                                                        </div>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => {
+                                                                                setSchedule(prev => {
+                                                                                    const slots = prev[day].slots.filter((_, i) => i !== idx);
+                                                                                    return {
+                                                                                        ...prev,
+                                                                                        [day]: {
+                                                                                            ...prev[day],
+                                                                                            slots,
+                                                                                            enabled: slots.length > 0 ? prev[day].enabled : false
+                                                                                        }
+                                                                                    };
+                                                                                });
+                                                                            }}
+                                                                            className="text-muted-foreground hover:text-destructive shrink-0 p-1 rounded hover:bg-muted transition-colors"
+                                                                        >
+                                                                            <X size={12} />
+                                                                        </button>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setSchedule(prev => ({
+                                                                        ...prev,
+                                                                        [day]: {
+                                                                            ...prev[day],
+                                                                            slots: [...prev[day].slots, { start: '09:00', end: '17:00' }]
+                                                                        }
+                                                                    }));
+                                                                }}
+                                                                className="text-xs text-primary hover:underline flex items-center gap-1 font-semibold pt-0.5"
+                                                            >
+                                                                <Plus size={11} /> Add slot
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Right Column: Customize Hours, Blocked Dates & Calendar View */}
+                            <div className="space-y-6">
+                                {/* Step 3: Calendar View */}
+                                <div className="space-y-3">
+                                    <div>
+                                        <h4 className="text-sm font-bold text-foreground">3. Calendar View</h4>
                                         <p className="text-xs text-muted-foreground">Select a date inside your range to customize specific slots.</p>
                                     </div>
 
@@ -811,11 +1090,13 @@ export default function AvailabilityModal({ user, open, onClose }: { user: Avail
                                                 </div>
                                             </div>
 
-                                            <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-2 border-b border-border/40 pb-1">
-                                                {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(w => <span key={w}>{w}</span>)}
+                                            <div className="grid grid-cols-7 text-center text-[10px] font-bold text-muted-foreground uppercase tracking-wider border-t border-l border-border/80 bg-muted/10">
+                                                {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(w => (
+                                                    <span key={w} className="py-1.5 border-r border-b border-border/80">{w}</span>
+                                                ))}
                                             </div>
 
-                                            <div className="grid grid-cols-7 gap-1 text-center">
+                                            <div className="grid grid-cols-7 border-l border-border/80 bg-background">
                                                 {(() => {
                                                     const calendarYear = calendarMonth.getFullYear();
                                                     const calendarMonthIndex = calendarMonth.getMonth();
@@ -845,41 +1126,44 @@ export default function AvailabilityModal({ user, open, onClose }: { user: Avail
                                                         
                                                         const override = customDays.find(cd => cd.date === dStr);
                                                         const isBlocked = blockedDates.includes(dStr);
+                                                        const est = getESTDateParts(d);
+                                                        const wDay = est.weekday as Day;
+                                                        const isWeekdayEnabled = schedule[wDay]?.enabled;
 
-                                                        let dayClass = "h-8 w-8 text-xs font-bold transition-all flex items-center justify-center relative rounded-lg ";
+                                                        let dayClass = "h-11 w-full text-xs font-bold transition-all flex flex-col items-center justify-center relative border-r border-b border-border/80 rounded-none ";
                                                         if (isSelected) {
-                                                            dayClass += "bg-primary text-primary-foreground border border-primary shadow-sm";
-                                                        } else if (!inRange) {
+                                                            dayClass += "bg-transparent text-white font-bold ring-2 ring-primary ring-inset z-10";
+                                                        } else if (!inRange || !isWeekdayEnabled) {
                                                             dayClass += "text-muted-foreground/30 cursor-not-allowed bg-transparent";
                                                         } else if (isBlocked) {
-                                                            dayClass += "bg-destructive/20 text-destructive/60 border border-destructive/30 cursor-not-allowed opacity-50";
+                                                            dayClass += "bg-destructive/20 text-destructive/60 cursor-not-allowed opacity-50";
                                                         } else if (override) {
                                                             if (override.enabled) {
-                                                                    dayClass += "border border-primary bg-primary/10 text-foreground hover:bg-primary/15";
+                                                                dayClass += "bg-transparent text-white font-bold hover:bg-accent/40";
                                                             } else {
-                                                                    dayClass += "border border-destructive bg-destructive/10 text-destructive hover:bg-destructive/15";
+                                                                dayClass += "bg-destructive/10 text-destructive hover:bg-destructive/15";
                                                             }
                                                         } else {
-                                                            dayClass += "text-muted-foreground hover:bg-accent/40";
+                                                            dayClass += "text-white font-bold bg-transparent hover:bg-accent/40";
                                                         }
 
                                                         if (!isCurrentMonth && inRange && !isSelected) {
-                                                            dayClass += " opacity-40";
+                                                            dayClass += " opacity-80";
                                                         }
 
                                                         return (
                                                             <button
                                                                 key={idx}
                                                                 type="button"
-                                                                disabled={!inRange || isBlocked}
+                                                                disabled={!inRange || isBlocked || !isWeekdayEnabled}
                                                                 onClick={() => setSelectedCalendarDate(dStr)}
                                                                 className={dayClass}
                                                             >
                                                                 <span>{d.getDate()}</span>
                                                                 {!isSelected && (
                                                                     <span className="absolute bottom-1 flex gap-0.5">
-                                                                        {override && (
-                                                                            <span className={`w-1 h-1 rounded-full ${override.enabled ? 'bg-primary' : 'bg-destructive'}`}></span>
+                                                                        {override && !override.enabled && (
+                                                                            <span className="w-1 h-1 rounded-full bg-destructive"></span>
                                                                         )}
                                                                         {isBlocked && (
                                                                             <span className="w-1 h-1 rounded-full bg-destructive"></span>
@@ -894,15 +1178,12 @@ export default function AvailabilityModal({ user, open, onClose }: { user: Avail
                                         </div>
                                     )}
                                 </div>
-                            </div>
 
-                            {/* Right Column: Date Customization & Blocked Dates */}
-                            <div className="space-y-6">
-                                {/* Step 3: Date Settings */}
+                                {/* Step 3: Date Settings (Integrated in Calendar View) */}
                                 <div className="space-y-3">
                                     <div>
-                                        <h4 className="text-sm font-bold text-foreground">3. Date Settings</h4>
-                                        <p className="text-xs text-muted-foreground">Customize working hours specifically for the selected date.</p>
+                                        <h4 className="text-sm font-bold text-foreground">Customize working hours specifically for the selected date</h4>
+                                        <p className="text-xs text-muted-foreground">Select a date inside the active range on the calendar to configure custom hours.</p>
                                     </div>
 
                                     {selectedCalendarDate && (
@@ -955,8 +1236,8 @@ export default function AvailabilityModal({ user, open, onClose }: { user: Avail
                                                                         <div key={idx} className="flex items-center gap-1.5">
                                                                             <div className="relative flex-1 flex items-center">
                                                                                 <input
-                                                                                    id={`caloverride-start-${idx}`}
-                                                                                    name={`caloverride-start-${idx}`}
+                                                                                    id={'caloverride-start-' + idx}
+                                                                                    name={'caloverride-start-' + idx}
                                                                                     type="text"
                                                                                     placeholder="09:00 AM"
                                                                                     value={isOverStartActive ? tempText : formatTimeTo12h(slot.start)}
@@ -969,7 +1250,7 @@ export default function AvailabilityModal({ user, open, onClose }: { user: Avail
                                                                                 />
                                                                                 <button
                                                                                     type="button"
-                                                                                    onClick={() => document.getElementById(`caloverride-start-${idx}`)?.focus()}
+                                                                                    onClick={() => document.getElementById('caloverride-start-' + idx)?.focus()}
                                                                                     className="absolute right-2 text-muted-foreground hover:text-foreground p-0.5 rounded transition-colors"
                                                                                 >
                                                                                     <Clock size={11} />
@@ -992,8 +1273,8 @@ export default function AvailabilityModal({ user, open, onClose }: { user: Avail
                                                                             <span className="text-xs text-muted-foreground shrink-0">to</span>
                                                                             <div className="relative flex-1 flex items-center">
                                                                                 <input
-                                                                                    id={`caloverride-end-${idx}`}
-                                                                                    name={`caloverride-end-${idx}`}
+                                                                                    id={'caloverride-end-' + idx}
+                                                                                    name={'caloverride-end-' + idx}
                                                                                     type="text"
                                                                                     placeholder="05:00 PM"
                                                                                     value={isOverEndActive ? tempText : formatTimeTo12h(slot.end)}
@@ -1006,7 +1287,7 @@ export default function AvailabilityModal({ user, open, onClose }: { user: Avail
                                                                                 />
                                                                                 <button
                                                                                     type="button"
-                                                                                    onClick={() => document.getElementById(`caloverride-end-${idx}`)?.focus()}
+                                                                                    onClick={() => document.getElementById('caloverride-end-' + idx)?.focus()}
                                                                                     className="absolute right-2 text-muted-foreground hover:text-foreground p-0.5 rounded transition-colors"
                                                                                     >
                                                                                     <Clock size={11} />
