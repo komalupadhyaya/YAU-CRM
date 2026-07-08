@@ -835,4 +835,40 @@ export async function sendEAWelcomeEmail({ name, email }) {
     }
 }
 
+/**
+ * Send email notification for a new voicemail.
+ * Non-blocking, fire-and-forget helper.
+ */
+export async function sendVoicemailEmailNotification({ to, fromNumber, duration, recordingUrl }) {
+    const crmUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
+    const year = new Date().getFullYear().toString();
+    
+    // Format duration
+    const durationSec = Number(duration) || 0;
+    const minutes = Math.floor(durationSec / 60);
+    const seconds = durationSec % 60;
+    const durationStr = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+
+    try {
+        const html = renderTemplate('voicemail-notification.html', {
+            FROM_NUMBER: fromNumber || 'Unknown Caller',
+            DURATION: durationStr,
+            PLAYBACK_URL: recordingUrl,
+            CRM_URL: crmUrl,
+            YEAR: year,
+        });
+
+        await sendMail({
+            to,
+            subject: `📼 New Voicemail from ${fromNumber || 'Unknown Caller'}`,
+            html,
+        });
+
+        console.log(`✅ Voicemail email notification sent successfully to ${to}`);
+    } catch (err) {
+        console.error('❌ Failed to send voicemail email notification:', err.message);
+    }
+}
+
+
 

@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 
 export interface DateTimePickerProps {
   id?: string;
+  name?: string;
   value: string; // UTC ISO string (from DB / state)
   onChange: (value: string) => void; // emits UTC ISO string
   className?: string;
@@ -77,7 +78,7 @@ const buildUTCIso = (date: string, hour: string, minute: string, ampm: string): 
 
 
 export const DateTimePicker = React.forwardRef<HTMLInputElement, DateTimePickerProps>(
-  ({ id, value, onChange, className, size = "default", required, layout = "default" }, ref) => {
+  ({ id, name, value, onChange, className, size = "default", required, layout = "default" }, ref) => {
     const { date, hour: parsedHour, minute: parsedMinute, ampm: parsedAmPm } = React.useMemo(
       () => parseToLocal(value),
       [value]
@@ -119,6 +120,7 @@ export const DateTimePicker = React.forwardRef<HTMLInputElement, DateTimePickerP
 
     const isSm = size === "sm";
     const isStacked = layout === "stacked";
+    const fieldName = name || id;
 
     return (
       <div className={cn(
@@ -130,6 +132,7 @@ export const DateTimePicker = React.forwardRef<HTMLInputElement, DateTimePickerP
           type="date"
           ref={ref}
           id={id}
+          name={fieldName}
           value={date}
           required={required}
           onChange={(e) => handleDateChange(e.target.value)}
@@ -140,7 +143,7 @@ export const DateTimePicker = React.forwardRef<HTMLInputElement, DateTimePickerP
           )}
         />
         <div className="flex gap-2 items-center">
-          <Select value={localHour} onValueChange={handleHourChange}>
+          <Select name={`${fieldName}-hour`} value={localHour} onValueChange={handleHourChange}>
             <SelectTrigger className={cn("shrink-0", isSm ? "w-[58px] h-8 text-xs px-1.5" : "w-[68px] h-9")}>
               <SelectValue placeholder="Hr" />
             </SelectTrigger>
@@ -151,7 +154,7 @@ export const DateTimePicker = React.forwardRef<HTMLInputElement, DateTimePickerP
             </SelectContent>
           </Select>
           <span className={cn("text-muted-foreground font-bold shrink-0", isSm ? "text-xs" : "text-sm")}>:</span>
-          <Select value={localMinute} onValueChange={handleMinuteChange}>
+          <Select name={`${fieldName}-minute`} value={localMinute} onValueChange={handleMinuteChange}>
             <SelectTrigger className={cn("shrink-0", isSm ? "w-[58px] h-8 text-xs px-1.5" : "w-[68px] h-9")}>
               <SelectValue placeholder="Min" />
             </SelectTrigger>
@@ -161,7 +164,7 @@ export const DateTimePicker = React.forwardRef<HTMLInputElement, DateTimePickerP
               ))}
             </SelectContent>
           </Select>
-          <Select value={localAmPm} onValueChange={handleAmPmChange}>
+          <Select name={`${fieldName}-ampm`} value={localAmPm} onValueChange={handleAmPmChange}>
             <SelectTrigger className={cn("shrink-0", isSm ? "w-[68px] h-8 text-xs px-1.5" : "w-[78px] h-9")}>
               <SelectValue />
             </SelectTrigger>

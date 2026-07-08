@@ -6,6 +6,7 @@ import { Link, useSearchParams, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useCampaignStore } from "../store/campaignStore";
 import { useAuth } from "../context/AuthContext";
+import { useDialerStore } from "../store/dialerStore";
 import { can } from "../utils/permissions";
 import { countryCodes } from "../utils/countryCodes";
 import {
@@ -72,6 +73,7 @@ export default function Dashboard() {
   const permissions = can(currentUser?.role);
   const isReadOnly = permissions.isReadOnly;
   const isSalesrepOrReadOnly = currentUser?.role === 'sales_rep' || currentUser?.role === 'view_only';
+  const openDialer = useDialerStore(state => state.openDialer);
   const statsRef = useRef<HTMLDivElement>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const [rawData, setRawData] = useState<DashboardData | null>(null);
@@ -142,11 +144,10 @@ export default function Dashboard() {
     const phone = leadToCall.telephone;
     if (phone) {
       const cleanPhone = phone.startsWith('+') ? phone : `${phonePrefix}${phone.replace(/\D/g, '')}`;
-      window.open(`https://app.justcall.io/dialer?numbers=${encodeURIComponent(cleanPhone)}&ticket_id=${leadToCall._id}&custom_field=${leadToCall._id}&notes=${encodeURIComponent('CRM Lead ID: ' + leadToCall._id)}`, "JustCallDialer", "fullscreen=yes,location=no,width=385,height=665");
+      openDialer(cleanPhone, leadToCall._id, leadToCall.name || 'Unknown');
     }
     // Form already shows outcome/notes fields
     setFollowUpType("Call");
-    toast.info(`Calling ${leadToCall.name}...`);
   };
 
   const load = async () => {
@@ -363,23 +364,13 @@ export default function Dashboard() {
       // 1. Log the call activity first if an outcome is selected
       if (callOutcome) {
           try {
-              const callLogRes = await api.post(`/justcall/log-call`, {
+              await api.post(`/voice/log-call`, {
                   lead_id: selectedLeadResult?._id,
                   outcome: callOutcome,
                   notes: followUpNotes,
-                  contact_name: selectedLeadResult?.name || 'Unknown'
+                  contact_name: selectedLeadResult?.name || 'Unknown',
+                  callSid: useDialerStore.getState().activeCallSid || null
               });
-              
-              if (callLogRes.data.note_id) {
-                  // Attempt to fetch recording after a short delay
-                  setTimeout(async () => {
-                      try {
-                          await api.get(`/justcall/fetch-recording/${callLogRes.data.note_id}`);
-                      } catch (e) {
-                          console.log('Delayed recording fetch failed:', e);
-                      }
-                  }, 5000);
-              }
           } catch (e) {
               console.error("Failed to log call activity:", e);
           }
@@ -914,7 +905,7 @@ export default function Dashboard() {
 
                 <div className="space-y-4 animate-in fade-in slide-in-from-top-1 duration-200">
                   <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Call Outcome</label>
+                    <div className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Call Outcome</div>
                     <div className="relative p-1 bg-accent/30 rounded-xl border border-border/50 flex flex-wrap gap-1">
                       {[
                         "Interested", 
@@ -973,7 +964,7 @@ export default function Dashboard() {
                 <div className="mt-4 p-3 rounded-xl bg-orange-500/10 border border-orange-500/20 text-orange-600 dark:text-orange-400">
                   <p className="text-[10px] font-medium text-center">
                     <span className="font-bold uppercase mr-1">Important:</span>
-                    Ensure you click <strong>'Save'</strong> in the JustCall dialer and <strong>'Schedule Follow-up'</strong> here to sync activity.
+                    Ensure you click <strong>'Log Call'</strong> in the softphone dialer and <strong>'Schedule Follow-up'</strong> here to sync activity.
                   </p>
                 </div>
               </div>

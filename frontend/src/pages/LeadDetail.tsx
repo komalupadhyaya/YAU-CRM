@@ -6,6 +6,7 @@ import api from "../api/api";
 import AppLayout from "../layout/AppLayout";
 import { useAuth } from "../context/AuthContext";
 import { can } from "../utils/permissions";
+import { useDialerStore } from "../store/dialerStore";
 import { CalendarPlus, Save, ArrowLeft, History, Info, User, Phone, Mail, Clock, MessageSquare, ChevronDown, ChevronUp, Edit, Video, Send, CheckCircle2, Trash2, Play, Pause, ExternalLink, FileText, Smartphone, X, RefreshCw, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { countryCodes } from "../utils/countryCodes";
@@ -106,7 +107,7 @@ const RecordingPlayer = ({ url, duration }: { url: string, duration?: number }) 
   };
 
   const formatTime = (time: number) => {
-    if (!time) return "0:00";
+    if (!time || !isFinite(time)) return "0:00";
     const mins = Math.floor(time / 60);
     const secs = Math.floor(time % 60);
     return `${mins}:${secs.toString().padStart(2, '0')}`;
@@ -138,7 +139,7 @@ const RecordingPlayer = ({ url, duration }: { url: string, duration?: number }) 
       <div className="relative h-1.5 bg-muted rounded-full overflow-hidden">
         <div
           className="absolute left-0 top-0 h-full bg-primary transition-all duration-150"
-          style={{ width: `${totalDuration ? (currentTime / totalDuration) * 100 : 0}%` }}
+          style={{ width: `${totalDuration && isFinite(totalDuration) ? (currentTime / totalDuration) * 100 : 0}%` }}
         />
         <input
             id="input-range-55"
@@ -146,7 +147,7 @@ const RecordingPlayer = ({ url, duration }: { url: string, duration?: number }) 
         
           type="range"
           min="0"
-          max={totalDuration || 0}
+          max={totalDuration && isFinite(totalDuration) ? totalDuration : 0}
           step="0.1"
           value={currentTime}
           onChange={(e) => {
@@ -162,7 +163,12 @@ const RecordingPlayer = ({ url, duration }: { url: string, duration?: number }) 
         ref={audioRef}
         src={url}
         onTimeUpdate={() => setCurrentTime(audioRef.current?.currentTime || 0)}
-        onLoadedMetadata={() => setTotalDuration(audioRef.current?.duration || totalDuration)}
+        onLoadedMetadata={() => {
+          const d = audioRef.current?.duration;
+          if (d && isFinite(d) && d > 0) {
+            setTotalDuration(d);
+          }
+        }}
         onEnded={() => setIsPlaying(false)}
       />
     </div>
@@ -177,11 +183,33 @@ export default function LeadDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { setSelectedLead } = useLeadStore();
+  const openDialer = useDialerStore(state => state.openDialer);
   const [lead, setLead] = useState<Lead | null>(null);
   const primaryContact = lead?.contacts?.find(c => c.is_primary) || lead?.contacts?.[0] || null;
   const [notes, setNotes] = useState<Note[]>([]);
-  const [followUps, setFollowUps] = useState<FollowUp[]>([]);
+  const [activityFilter, setActivityFilter] = useState<'all' | 'recordings' | 'sms' | 'notes' | 'meetings' | 'emails'>('all');
+
+  const filteredNotes = notes.filter(n => {
+    if (activityFilter === 'recordings') {
+      return n.type === 'call' && !!n.metadata?.recording_url;
+    }
+    if (activityFilter === 'sms') {
+      return n.type === 'sms';
+    }
+    if (activityFilter === 'notes') {
+      return n.type === 'note';
+    }
+    if (activityFilter === 'meetings') {
+      return n.type === 'meeting';
+    }
+    if (activityFilter === 'emails') {
+      return n.type === 'email';
+    }
+    return true; // 'all'
+  });
+  const [activeLogTab, setActiveLogTab] = useState<'activity' | 'calls'>('activity');
   const [noteContent, setNoteContent] = useState("");
+  const [followUps, setFollowUps] = useState<FollowUp[]>([]);
   const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const isEditingRef = useRef(false);
@@ -649,7 +677,7 @@ export default function LeadDetail() {
     const phone = contact?.direct_phone || lead?.telephone;
     if (phone) {
       const cleanPhone = phone.startsWith('+') ? phone : `${phonePrefix}${phone.replace(/\D/g, '')}`;
-      window.open(`https://app.justcall.io/dialer?numbers=${encodeURIComponent(cleanPhone)}&ticket_id=${id}&custom_field=${id}&notes=${encodeURIComponent('CRM Lead ID: ' + id)}`, "JustCallDialer", "fullscreen=yes,location=no,width=385,height=665");
+      openDialer(cleanPhone, id, contact?.name || lead?.name || 'Unknown');
     }
     // Open the outcome modal so the agent can log it when they finish
     setCallOutcome("Answered - Interested"); // Default
@@ -690,11 +718,12 @@ export default function LeadDetail() {
 
     setIsSubmitting(true);
     try {
-      const res = await api.post(`/justcall/log-call`, {
+      const res = await api.post(`/voice/log-call`, {
         lead_id: id,
         outcome: callOutcome,
         notes: callNotes,
-        contact_name: selectedContactForCall?.name || lead?.name || 'Unknown'
+        contact_name: selectedContactForCall?.name || lead?.name || 'Unknown',
+        callSid: useDialerStore.getState().activeCallSid || null
       });
       toast.success("Call logged");
       setIsCallModalOpen(false);
@@ -756,7 +785,7 @@ export default function LeadDetail() {
       }
       const cleanTo = phone.startsWith('+') ? phone : `${phonePrefix}${phone.replace(/\D/g, '')}`;
 
-      await api.post("/justcall/send-sms", {
+      await api.post("/sms/send-sms", {
         lead_id: id,
         to: cleanTo,
         message: smsData.message
@@ -1270,7 +1299,7 @@ export default function LeadDetail() {
                           onClick={() => !isReadOnly && initiateCall(contact)}
                           disabled={isReadOnly}
                           className="p-1.5 hover:bg-orange-100 dark:hover:bg-orange-500/20 text-orange-600 rounded-lg transition-colors"
-                          title={isReadOnly ? 'Read-only access' : 'Make Call via JustCall'}
+                          title={isReadOnly ? 'Read-only access' : 'Make Call via Softphone'}
                         >
                           <Phone size={14} />
                         </button>
@@ -1314,7 +1343,7 @@ export default function LeadDetail() {
                       <div
                         className={`flex items-center justify-start gap-2 text-sm transition-colors ${isReadOnly ? 'cursor-default pointer-events-none' : 'cursor-pointer group/phone hover:text-orange-600'}`}
                         onClick={() => !isReadOnly && initiateCall(contact)}
-                        title={isReadOnly ? undefined : "Click to call via JustCall"}
+                        title={isReadOnly ? undefined : "Click to call via Softphone"}
                       >
                         <Phone size={14} className={isReadOnly ? "text-muted-foreground" : "text-muted-foreground group-hover/phone:text-orange-600"} />
                         <span className={isReadOnly ? "text-foreground font-medium" : "text-foreground group-hover/phone:text-orange-600 font-medium"}>
@@ -1346,10 +1375,39 @@ export default function LeadDetail() {
 
           {/* Communication Log / Notes */}
           <div id="notes-section" className="page-card dark:bg-card">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center justify-center gap-2">
-                <History size={18} className="text-primary" />
-                <h2 className="font-semibold text-foreground">Communication Log</h2>
+            <div className="flex items-center justify-between mb-4 border-b border-border/40 pb-2 flex-wrap gap-2">
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={() => setActiveLogTab('activity')}
+                  className={`pb-2 text-sm font-bold border-b-2 transition-colors ${activeLogTab === 'activity' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+                >
+                  Activity Feed
+                </button>
+                <button
+                  onClick={() => setActiveLogTab('calls')}
+                  className={`pb-2 text-sm font-bold border-b-2 transition-colors ${activeLogTab === 'calls' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+                >
+                  Call History ({lead?.callHistory?.length || 0})
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {activeLogTab === 'activity' && (
+                  <Select value={activityFilter} onValueChange={(val: any) => setActivityFilter(val)}>
+                    <SelectTrigger className="h-7 text-[10px] w-[130px] font-bold uppercase tracking-wider dark:bg-card border-none bg-transparent hover:bg-accent/50 focus:ring-0 focus:ring-offset-0 px-2">
+                      <SelectValue placeholder="Activity Feed" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all" className="text-[10px] font-semibold uppercase">Activity Feed</SelectItem>
+                      <SelectItem value="recordings" className="text-[10px] font-semibold uppercase">Recordings</SelectItem>
+                      <SelectItem value="sms" className="text-[10px] font-semibold uppercase">SMS</SelectItem>
+                      <SelectItem value="notes" className="text-[10px] font-semibold uppercase">Notes</SelectItem>
+                      <SelectItem value="meetings" className="text-[10px] font-semibold uppercase">Meetings</SelectItem>
+                      <SelectItem value="emails" className="text-[10px] font-semibold uppercase">Emails</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+
                 <button
                   onClick={() => loadAll()}
                   className="p-1 hover:bg-accent rounded-full transition-colors text-muted-foreground hover:text-primary"
@@ -1358,82 +1416,152 @@ export default function LeadDetail() {
                   <RefreshCw size={14} className={loadingNotes ? "animate-spin" : ""} />
                 </button>
 
-                <div className={isReadOnly ? 'opacity-40 blur-[0.5px] pointer-events-none' : ''}>
-                  <button
-                    onClick={() => {
-                      if (window.confirm("Are you sure you want to delete all notes for this lead? This cannot be undone.")) {
-                        deleteAllNotes();
-                      }
-                    }}
-                    disabled={isReadOnly}
-                    className="text-[9px] text-destructive px-2.5 py-1 bg-destructive/5 hover:bg-destructive hover:text-white border border-destructive/20 rounded-lg font-bold uppercase transition-all flex items-center gap-1.5 shadow-sm ml-1"
-                  >
-                    <Trash2 size={11} /> Delete All
-                  </button>
-                </div>
+                {activeLogTab === 'activity' && (
+                  <div className={isReadOnly ? 'opacity-40 blur-[0.5px] pointer-events-none' : ''}>
+                    <button
+                      onClick={() => {
+                        if (window.confirm("Are you sure you want to delete all notes for this lead? This cannot be undone.")) {
+                          deleteAllNotes();
+                        }
+                      }}
+                      disabled={isReadOnly}
+                      className="text-[9px] text-destructive px-2.5 py-1 bg-destructive/5 hover:bg-destructive hover:text-white border border-destructive/20 rounded-lg font-bold uppercase transition-all flex items-center gap-1.5 shadow-sm ml-1"
+                    >
+                      <Trash2 size={11} /> Delete All
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
-            {/* Inline note form — hidden for view_only */}
-            {!isReadOnly && (
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-foreground mb-1.5">Add a new note</label>
-              <textarea
-                  id="details-of-the-call-or-email"
-                  name="details-of-the-call-or-email"
-              
-                className="input-field min-h-[100px] mb-3"
-                placeholder="Details of the call or email..."
-                value={noteContent}
-                onChange={(e) => setNoteContent(e.target.value)}
-              />
-              <button onClick={() => addNote()} className="btn-primary">Save Note</button>
-            </div>
+            {activeLogTab === 'activity' && (
+              <>
+                {/* Inline note form — hidden for view_only */}
+                {!isReadOnly && (
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-foreground mb-1.5">Add a new note</label>
+                  <textarea
+                      id="details-of-the-call-or-email"
+                      name="details-of-the-call-or-email"
+                  
+                    className="input-field min-h-[100px] mb-3"
+                    placeholder="Details of the call or email..."
+                    value={noteContent}
+                    onChange={(e) => setNoteContent(e.target.value)}
+                  />
+                  <button onClick={() => addNote()} className="btn-primary">Save Note</button>
+                </div>
+                )}
+
+                <div className="space-y-4">
+                  {filteredNotes.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-4 border border-dashed border-border rounded-lg">
+                      {activityFilter === 'recordings' ? 'No recordings found.' :
+                       activityFilter === 'sms' ? 'No SMS records found.' :
+                       activityFilter === 'notes' ? 'No notes found.' :
+                       activityFilter === 'meetings' ? 'No meetings found.' :
+                       activityFilter === 'emails' ? 'No emails found.' :
+                       'No notes recorded yet.'}
+                    </p>
+                  ) : (
+                    filteredNotes.map((n) => (
+                      <div key={n._id} className="p-3 bg-accent/50 dark:bg-accent/10 rounded-lg border border-border dark:border-border/20 flex items-start gap-3 group">
+                        <div className="mt-1">
+                          {n.type === 'email' ? <Mail size={14} className="text-blue-500" /> :
+                            n.type === 'meeting' ? <Video size={14} className="text-purple-500" /> :
+                              n.type === 'status_change' ? <CheckCircle2 size={14} className="text-green-500" /> :
+                                n.type === 'call' ? <Phone size={14} className="text-orange-500" /> :
+                                  n.type === 'sms' ? <MessageSquare size={14} className="text-blue-400" /> :
+                                    <MessageSquare size={14} className="text-muted-foreground" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-foreground mb-1 break-words whitespace-pre-wrap">{formatNoteContent(n.content)}</p>
+                          {n.type === 'email' && n.metadata?.subject && (
+                            <p className="text-xs text-muted-foreground mb-1 italic">Subject: {n.metadata.subject}</p>
+                          )}
+                          {n.type === 'call' && n.metadata?.recording_url && (
+                            <RecordingPlayer
+                              url={n.metadata.recording_url}
+                              duration={n.metadata?.recording_duration || n.metadata?.duration}
+                            />
+                          )}
+                          <p className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                            {new Date(n.createdAt).toLocaleString()}
+                          </p>
+                        </div>
+                        <div className={isReadOnly ? 'opacity-40 blur-[0.5px] pointer-events-none' : ''}>
+                          <button
+                            onClick={() => confirmDeleteNote(n._id)}
+                            disabled={isReadOnly}
+                            className="p-1.5 rounded-lg bg-destructive/5 hover:bg-destructive/20 text-destructive/70 hover:text-destructive transition-all shrink-0 mt-0.5"
+                            title="Delete Note"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </>
             )}
 
-            <div className="space-y-4">
-              {notes.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-4 border border-dashed border-border rounded-lg">No notes recorded yet.</p>
-              ) : (
-                notes.map((n) => (
-                  <div key={n._id} className="p-3 bg-accent/50 dark:bg-accent/10 rounded-lg border border-border dark:border-border/20 flex items-start gap-3 group">
-                    <div className="mt-1">
-                      {n.type === 'email' ? <Mail size={14} className="text-blue-500" /> :
-                        n.type === 'meeting' ? <Video size={14} className="text-purple-500" /> :
-                          n.type === 'status_change' ? <CheckCircle2 size={14} className="text-green-500" /> :
-                            n.type === 'call' ? <Phone size={14} className="text-orange-500" /> :
-                              n.type === 'sms' ? <MessageSquare size={14} className="text-blue-400" /> :
-                                <MessageSquare size={14} className="text-muted-foreground" />}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-foreground mb-1 break-words whitespace-pre-wrap">{formatNoteContent(n.content)}</p>
-                      {n.type === 'email' && n.metadata?.subject && (
-                        <p className="text-xs text-muted-foreground mb-1 italic">Subject: {n.metadata.subject}</p>
-                      )}
-                      {n.type === 'call' && n.metadata?.recording_url && (
-                        <RecordingPlayer
-                          url={n.metadata.recording_url}
-                          duration={n.metadata?.recording_duration || n.metadata?.duration}
-                        />
-                      )}
-                      <p className="text-[10px] text-muted-foreground uppercase tracking-wide">
-                        {new Date(n.createdAt).toLocaleString()}
-                      </p>
-                    </div>
-                    <div className={isReadOnly ? 'opacity-40 blur-[0.5px] pointer-events-none' : ''}>
-                      <button
-                        onClick={() => confirmDeleteNote(n._id)}
-                        disabled={isReadOnly}
-                        className="p-1.5 rounded-lg bg-destructive/5 hover:bg-destructive/20 text-destructive/70 hover:text-destructive transition-all shrink-0 mt-0.5"
-                        title="Delete Note"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
+            {activeLogTab === 'calls' && (
+              <div className="space-y-4">
+                {!lead?.callHistory || lead.callHistory.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-6 border border-dashed border-border rounded-lg">
+                    No calls logged for this lead yet.
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="border-b border-border text-[10px] uppercase tracking-wider text-muted-foreground">
+                          <th className="py-2 px-3">Direction</th>
+                          <th className="py-2 px-3">Date & Time</th>
+                          <th className="py-2 px-3">Duration</th>
+                          <th className="py-2 px-3">Status</th>
+                          <th className="py-2 px-3 text-right">Recording</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/20">
+                        {lead.callHistory.map((call) => (
+                          <tr key={call.callSid} className="text-xs text-foreground hover:bg-accent/10">
+                            <td className="py-3 px-3 font-semibold">
+                              {call.direction === 'inbound' ? '📲 Inbound' : '📞 Outbound'}
+                            </td>
+                            <td className="py-3 px-3 text-muted-foreground">
+                              {new Date(call.timestamp).toLocaleString()}
+                            </td>
+                            <td className="py-3 px-3 text-muted-foreground font-mono">
+                              {Math.floor(call.duration / 60)}m {call.duration % 60}s
+                            </td>
+                            <td className="py-3 px-3">
+                              <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${
+                                call.status === 'completed' 
+                                  ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' 
+                                  : 'bg-rose-500/10 text-rose-500 border border-rose-500/20'
+                              }`}>
+                                {call.status}
+                              </span>
+                            </td>
+                            <td className="py-3 px-3 text-right">
+                              {call.recordingUrl ? (
+                                <div className="inline-block w-48 text-left">
+                                  <RecordingPlayer url={call.recordingUrl} duration={call.duration} />
+                                </div>
+                              ) : (
+                                <span className="text-muted-foreground font-mono">—</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
-                ))
-              )}
-            </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -1691,8 +1819,8 @@ export default function LeadDetail() {
       >
         <DialogContent aria-describedby={undefined} className="w-[90vw] max-w-md dark:bg-card p-0 overflow-hidden !flex !flex-col max-h-[90vh]">
           <DialogHeader className="p-6 pb-2 border-b flex-shrink-0"><DialogTitle className="dark:text-foreground">Schedule Meeting</DialogTitle></DialogHeader>
-          <div className="flex-1 overflow-y-auto p-6 py-4 custom-scrollbar min-h-0">
-            <div className="grid gap-4">
+          <div className="flex-1 overflow-y-auto custom-scrollbar min-h-0">
+            <div className="p-6 py-4 grid gap-4">
               <div className="grid gap-2">
                 <label className="text-sm font-medium">Meeting Title <span className="text-destructive">*</span></label>
                 <input
@@ -2002,8 +2130,17 @@ export default function LeadDetail() {
       <Dialog
         open={isCallModalOpen}
         onOpenChange={setIsCallModalOpen}
+        modal={false}
       >
-        <DialogContent aria-describedby={undefined} className="w-[95vw] max-w-xl dark:bg-card p-0 overflow-hidden !flex !flex-col max-h-[90vh]">
+        <DialogContent 
+          aria-describedby={undefined} 
+          className="w-[95vw] max-w-xl dark:bg-card p-0 overflow-hidden !flex !flex-col max-h-[90vh] shadow-2xl border border-zinc-800"
+          onPointerDownOutside={(e) => e.preventDefault()}
+          onFocusOutside={(e) => e.preventDefault()}
+          onInteractOutside={(e) => e.preventDefault()}
+          onEscapeKeyDown={(e) => e.preventDefault()}
+          hideOverlay={true}
+        >
           <DialogHeader className="p-6 pb-2 border-b flex-shrink-0">
             <DialogTitle className="dark:text-foreground">Log Call Outcome</DialogTitle>
             <p className="text-sm text-muted-foreground mt-1">Calling: {lead?.contacts?.[0]?.name || "Unknown"} • {lead?.contacts?.[0]?.direct_phone || lead?.telephone}</p>
@@ -2011,7 +2148,7 @@ export default function LeadDetail() {
           <div className="flex-1 overflow-y-auto p-6 py-4 custom-scrollbar min-h-0">
             <div className="grid gap-4">
               <div className="grid gap-2">
-                <label className="text-sm font-medium">Outcome</label>
+                <div className="text-sm font-medium">Outcome</div>
                 <div className="relative p-1 bg-accent/50 rounded-xl border border-border/50 flex flex-wrap gap-1">
                   {[
                     "Interested",
@@ -2039,8 +2176,9 @@ export default function LeadDetail() {
                 </div>
               </div>
               <div className="grid gap-2">
-                <label className="text-sm font-medium">Add Notes</label>
+                <label htmlFor="lead-call-notes" className="text-sm font-medium">Add Notes</label>
                 <textarea
+                  id="lead-call-notes"
                   name="notes"
                   className="input-field min-h-[80px]"
                   placeholder="Briefly summarize the conversation..."
@@ -2146,7 +2284,7 @@ export default function LeadDetail() {
               <div className="mt-4 p-3 rounded-xl bg-orange-500/10 border border-orange-500/20 text-orange-600 dark:text-orange-400">
                 <p className="text-[10px] font-medium text-center">
                   <span className="font-bold uppercase mr-1">Important:</span>
-                  Ensure you click <strong>'Save'</strong> in the JustCall dialer and <strong>'Log & Close'</strong> here to sync activity.
+                 Ensure you click <strong>'Log & Close'</strong> here to sync activity and save the recording.
                 </p>
               </div>
             </div>

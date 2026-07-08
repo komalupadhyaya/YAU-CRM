@@ -7,8 +7,8 @@ const router = express.Router();
 // Public endpoint for JotForm Webhook
 router.post('/jotform', webhookController.handleJotForm);
 
-// Public endpoint for JustCall Webhook
-router.post('/justcall/call-completed', webhookController.handleJustCallWebhook);
+// Public endpoint for JustCall Webhook (Deprecated, shifted to Twilio)
+// router.post('/justcall/call-completed', webhookController.handleJustCallWebhook);
 
 // Public endpoint for EA Leads Webhook
 router.post('/ea-leads', submitEALead);

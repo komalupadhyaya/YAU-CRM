@@ -288,6 +288,7 @@ function UserSearchDropdown({ teamMembers, value, onChange, disabled }: UserSear
                                 id="task-assignee-search"
                                 name="task-assignee-search"
                                 type="text"
+                                aria-label="Search team members"
                                 placeholder="Search team members..."
                                 value={query}
                                 onChange={(e) => setQuery(e.target.value)}
@@ -1185,6 +1186,7 @@ export default function Tasks() {
                                 id="tasks-search"
                                 name="tasks-search"
                                 type="text"
+                                aria-label="Search tasks"
                                 placeholder="Search tasks by title or assigned team member..."
                                 className="input-field pl-9 pr-10 py-2 text-sm dark:bg-card w-full shadow-sm rounded-xl"
                                 value={searchQuery}

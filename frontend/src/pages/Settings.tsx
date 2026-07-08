@@ -109,6 +109,7 @@ export default function Settings() {
                                 <div className="flex items-center gap-2">
                                     <Input
                                         id="followup-days"
+                                        name="followup-days"
                                         type="number"
                                         value={settings?.crmPreferences.defaultFollowupDays}
                                         onChange={(e) => setSettings({
@@ -137,6 +138,9 @@ export default function Settings() {
                                 {settings?.statusLabels.map((status, idx) => (
                                     <div key={idx} className="flex items-center gap-2 group">
                                         <Input
+                                            id={`status-label-${idx}`}
+                                            name={`status-label-${idx}`}
+                                            aria-label="Lead Status Label"
                                             value={status}
                                             onChange={(e) => updateStatus(idx, e.target.value)}
                                             className="flex-1 border-sidebar-border"

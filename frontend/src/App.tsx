@@ -21,6 +21,8 @@ import HistoryPage from "./pages/History";
 import EALeads from "@/pages/EALeads";
 import SchoolMeetings from "./pages/SchoolMeetings";
 import HRMeetings from "./pages/HRMeetings";
+import PhoneSystem from "./pages/PhoneSystem";
+import VoicemailInbox from "./pages/VoicemailInbox";
 
 import RequireAuth from "./components/RequireAuth";
 import RequireRole from "./components/RequireRole";
@@ -28,6 +30,7 @@ import NotFound from "./pages/NotFound";
 import { useThemeStore } from "./store/themeStore";
 import { useEffect } from "react";
 import { AuthProvider } from "./context/AuthContext";
+import Dialer from "./components/Dialer";
 
 const queryClient = new QueryClient();
 
@@ -61,6 +64,8 @@ const App = () => {
               <Route path="/ea-leads" element={<RequireAuth><EALeads /></RequireAuth>} />
               <Route path="/history" element={<RequireAuth><RequireRole roles={['admin', 'manager']}><HistoryPage /></RequireRole></RequireAuth>} />
               <Route path="/settings" element={<RequireAuth><RequireRole roles={['admin']}><Settings /></RequireRole></RequireAuth>} />
+              <Route path="/phone-system" element={<RequireAuth><RequireRole roles={['admin']}><PhoneSystem /></RequireRole></RequireAuth>} />
+              <Route path="/voicemail-inbox" element={<RequireAuth><RequireRole roles={['admin']}><VoicemailInbox /></RequireRole></RequireAuth>} />
               <Route path="/tasks" element={<RequireAuth><Tasks /></RequireAuth>} />
               <Route path="/calendar" element={<RequireAuth><Calendar /></RequireAuth>} />
               <Route path="/help" element={<RequireAuth><Help /></RequireAuth>} />
@@ -70,6 +75,7 @@ const App = () => {
 
               <Route path="*" element={<NotFound />} />
             </Routes>
+            <Dialer />
           </BrowserRouter>
         </TooltipProvider>
       </AuthProvider>

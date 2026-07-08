@@ -48,7 +48,16 @@ const LeadSchema = new mongoose.Schema({
         ref: 'User',
         default: null,
         index: true
-    }
+    },
+    callHistory: [{
+        callSid: { type: String, required: true },
+        parentCallSid: { type: String },
+        direction: { type: String, enum: ['inbound', 'outbound'], required: true },
+        duration: { type: Number },
+        recordingUrl: { type: String },
+        status: { type: String },
+        timestamp: { type: Date, default: Date.now }
+    }]
 }, { timestamps: true });
 
 export const Lead = mongoose.model('Lead', LeadSchema);

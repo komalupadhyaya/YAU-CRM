@@ -232,8 +232,8 @@ export default function Team() {
         return (
             (u.name ?? "").toLowerCase().includes(q) ||
             (u.email ?? "").toLowerCase().includes(q) ||
-            u.username.toLowerCase().includes(q) ||
-            u.role.toLowerCase().includes(q)
+            (u.username ?? "").toLowerCase().includes(q) ||
+            (u.role ?? "").toLowerCase().includes(q)
         );
     });
 
@@ -358,15 +358,15 @@ export default function Team() {
                                                                 ? "bg-primary/20 text-primary"
                                                                 : "bg-muted text-muted-foreground"
                                                             }`}
-                                                    >
-                                                        {(user.name || user.username).charAt(0).toUpperCase()}
+                                                                                    >
+                                                        {(user.name || user.username || "").charAt(0).toUpperCase() || "?"}
                                                     </div>
                                                     <div className="min-w-0">
                                                         <p className="font-medium text-sm truncate">
                                                             {user.name || "—"}
                                                         </p>
                                                         <p className="text-[11px] text-muted-foreground truncate">
-                                                            {user.username}
+                                                            {user.username || "—"}
                                                         </p>
                                                     </div>
                                                 </div>
@@ -377,7 +377,7 @@ export default function Team() {
                                                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                                     <Mail size={13} />
                                                     <span className="truncate max-w-[200px]">
-                                                        {user.email || user.username}
+                                                        {user.email || user.username || "—"}
                                                     </span>
                                                 </div>
                                             </TableCell>

@@ -44,7 +44,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   useEffect(() => {
-    fetchUser();
+    if (window.location.pathname === '/login') {
+      setLoading(false);
+    } else {
+      fetchUser();
+    }
   }, []);
 
   const logout = async () => {

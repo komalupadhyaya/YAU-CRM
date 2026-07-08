@@ -71,11 +71,14 @@ const RecordingPlayer = ({ url, duration }: { url?: string, duration?: number })
   };
 
   const formatTime = (time: number) => {
-    if (!time) return "0:00";
+    if (!time || isNaN(time) || time === Infinity) return "0:00";
     const mins = Math.floor(time / 60);
     const secs = Math.floor(time % 60);
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
+
+  const safeDuration = totalDuration === Infinity || isNaN(totalDuration) ? 0 : totalDuration;
+  const progressPercent = safeDuration ? (currentTime / safeDuration) * 100 : 0;
 
   return (
     <div className="mt-3 p-3 bg-accent/30 dark:bg-accent/10 rounded-2xl border border-primary/20 flex flex-col gap-3 group/audio max-w-full shadow-sm">
@@ -91,7 +94,7 @@ const RecordingPlayer = ({ url, duration }: { url?: string, duration?: number })
           <p className="text-[10px] font-bold uppercase tracking-widest text-primary/70 mb-0.5">Call Recording</p>
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold text-foreground">{formatTime(currentTime)}</span>
-            <span className="text-[10px] font-medium text-muted-foreground">{formatTime(totalDuration)}</span>
+            <span className="text-[10px] font-medium text-muted-foreground">{formatTime(safeDuration)}</span>
           </div>
         </div>
 
@@ -103,7 +106,7 @@ const RecordingPlayer = ({ url, duration }: { url?: string, duration?: number })
       <div className="relative h-1.5 bg-muted rounded-full overflow-hidden">
         <div
           className="absolute left-0 top-0 h-full bg-primary transition-all duration-150"
-          style={{ width: `${totalDuration ? (currentTime / totalDuration) * 100 : 0}%` }}
+          style={{ width: `${progressPercent}%` }}
         />
         <input
             id="input-range-3"
@@ -111,7 +114,7 @@ const RecordingPlayer = ({ url, duration }: { url?: string, duration?: number })
         
           type="range"
           min="0"
-          max={totalDuration || 0}
+          max={safeDuration || 0}
           step="0.1"
           value={currentTime}
           onChange={(e) => {
@@ -127,7 +130,18 @@ const RecordingPlayer = ({ url, duration }: { url?: string, duration?: number })
         ref={audioRef}
         src={url}
         onTimeUpdate={() => setCurrentTime(audioRef.current?.currentTime || 0)}
-        onLoadedMetadata={() => setTotalDuration(audioRef.current?.duration || totalDuration)}
+        onLoadedMetadata={() => {
+          const d = audioRef.current?.duration;
+          if (d && d !== Infinity && !isNaN(d)) {
+            setTotalDuration(d);
+          }
+        }}
+        onDurationChange={() => {
+          const d = audioRef.current?.duration;
+          if (d && d !== Infinity && !isNaN(d)) {
+            setTotalDuration(d);
+          }
+        }}
         onEnded={() => setIsPlaying(false)}
       />
     </div>
@@ -136,6 +150,7 @@ const RecordingPlayer = ({ url, duration }: { url?: string, duration?: number })
 
 import { useCampaignStore, Campaign } from "../store/campaignStore";
 import { useLeadStore, Lead, Contact } from "../store/schoolStore";
+import { useDialerStore } from "../store/dialerStore";
 import { toast } from "sonner";
 import { countryCodes } from "../utils/countryCodes";
 import {
@@ -196,7 +211,7 @@ interface CRMError {
 interface Note {
   _id: string;
   content: string;
-  type: 'note' | 'status_change' | 'email' | 'meeting' | 'call';
+  type: 'note' | 'status_change' | 'email' | 'meeting' | 'call' | 'sms';
   metadata?: { subject?: string; recording_url?: string; recording_duration?: number; duration?: number; [key: string]: unknown; };
   createdAt: string;
 }
@@ -227,10 +242,31 @@ const Campaigns = () => {
   const permissions = can(currentUser?.role);
   const { selectedCampaign, setSelectedCampaign, campaigns, setCampaigns, statusLabels, setStatusLabels } = useCampaignStore();
   const { selectedLead, setSelectedLead } = useLeadStore();
+  const openDialer = useDialerStore(state => state.openDialer);
 
   const [leads, setLeads] = useState<Lead[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
   const [followUps, setFollowUps] = useState<FollowUp[]>([]);
+  const [activityFilter, setActivityFilter] = useState<'all' | 'recordings' | 'sms' | 'notes' | 'meetings' | 'emails'>('all');
+
+  const filteredNotes = notes.filter(n => {
+    if (activityFilter === 'recordings') {
+      return n.type === 'call' && !!n.metadata?.recording_url;
+    }
+    if (activityFilter === 'sms') {
+      return n.type === 'sms';
+    }
+    if (activityFilter === 'notes') {
+      return n.type === 'note';
+    }
+    if (activityFilter === 'meetings') {
+      return n.type === 'meeting';
+    }
+    if (activityFilter === 'emails') {
+      return n.type === 'email';
+    }
+    return true; // 'all'
+  });
 
   const [loadingCampaigns, setLoadingCampaigns] = useState(campaigns.length === 0);
   const [loadingLeads, setLoadingLeads] = useState(false);
@@ -884,7 +920,7 @@ const Campaigns = () => {
     const phone = contact?.direct_phone || lead.telephone;
     if (phone) {
       const cleanPhone = phone.startsWith('+') ? phone : `+1${phone.replace(/\D/g, '')}`;
-      window.open(`https://app.justcall.io/dialer?numbers=${encodeURIComponent(cleanPhone)}&ticket_id=${lead._id}&custom_field=${lead._id}&notes=${encodeURIComponent('CRM Lead ID: ' + lead._id)}`, "JustCallDialer", "fullscreen=yes,location=no,width=385,height=665");
+      openDialer(cleanPhone, lead._id, contact?.name || lead.name || 'Unknown');
     }
     setCallOutcome("Answered - Interested");
     setCallNotes("");
@@ -898,7 +934,6 @@ const Campaigns = () => {
     setCustomAssignedTo("");
     setFuErrors({});
     setIsCallModalOpen(true);
-    toast.info(`Calling ${contact?.name || lead.name}...`);
   };
 
   const logCall = async () => {
@@ -928,11 +963,12 @@ const Campaigns = () => {
 
     setIsSubmitting(true);
     try {
-      const res = await api.post(`/justcall/log-call`, {
+      const res = await api.post(`/voice/log-call`, {
         lead_id: selectedLead._id,
         outcome: callOutcome,
         notes: callNotes,
-        contact_name: selectedContactForCall?.name || selectedLead.name || 'Unknown'
+        contact_name: selectedContactForCall?.name || selectedLead.name || 'Unknown',
+        callSid: useDialerStore.getState().activeCallSid || null
       });
       toast.success("Call logged");
       setIsCallModalOpen(false);
@@ -968,22 +1004,6 @@ const Campaigns = () => {
       setFuErrors({});
 
       fetchDetails(selectedLead._id, true);
-
-      // Auto-fetch recording after 15s (JustCall needs time to process)
-      const noteId = res.data.note_id;
-      const leadIdForRecording = selectedLead._id;
-      if (noteId) {
-        toast.info("Recording will appear automatically in ~15 seconds...", { duration: 6000 });
-        setTimeout(async () => {
-          try {
-            const recRes = await api.get(`/justcall/fetch-recording/${noteId}`);
-            if (recRes.data.success && recRes.data.recording_url) {
-              toast.success("Call recording attached!");
-              fetchDetails(leadIdForRecording, true);
-            }
-          } catch { /* non-fatal */ }
-        }, 15000);
-      }
     } catch {
       toast.error("Failed to log call");
     } finally {
@@ -1018,7 +1038,7 @@ const Campaigns = () => {
     try {
       const phone = (selectedLead as Lead)?.contacts?.[0]?.direct_phone || selectedLead?.telephone;
       if (!phone) { toast.error("No phone number found"); return; }
-      await api.post("/justcall/send-sms", { lead_id: selectedLead?._id, to: phone, message: smsMessage });
+      await api.post("/sms/send-sms", { lead_id: selectedLead?._id, to: phone, message: smsMessage });
       toast.success("SMS sent!");
       setIsSmsModalOpen(false);
       setSmsMessage("");
@@ -1164,7 +1184,7 @@ const Campaigns = () => {
               />
             </div>
           </div>
-          <div className="flex-1 overflow-y-auto p-2">
+          <div className="flex-1 overflow-y-auto p-2 custom-scrollbar">
             {loadingCampaigns ? (
               <div className="p-4 text-center text-[10px] text-muted-foreground animate-pulse">Loading...</div>
             ) : filteredCampaigns.map((c, index) => (
@@ -1275,7 +1295,7 @@ const Campaigns = () => {
                   </select>
                 </div>
               </div>
-              <div className="flex-1 overflow-y-auto divide-y divide-border/50 max-h-[400px] xl:max-h-none">
+              <div className="flex-1 overflow-y-auto divide-y divide-border/50 max-h-[400px] xl:max-h-none custom-scrollbar">
 
 
                 {loadingLeads ? (
@@ -1458,7 +1478,20 @@ const Campaigns = () => {
                   <div className="p-3 border-b bg-accent/5 flex items-center justify-between">
                     <div className="flex items-center justify-center gap-2">
                       <History size={16} className="text-primary" />
-                      <h2 className="font-bold text-xs uppercase tracking-wider">Activity Feed</h2>
+                      <Select value={activityFilter} onValueChange={(val: any) => setActivityFilter(val)}>
+                        <SelectTrigger className="h-7 text-[10px] w-[130px] font-bold uppercase tracking-wider dark:bg-card border-none bg-transparent hover:bg-accent/50 focus:ring-0 focus:ring-offset-0 px-2">
+                          <SelectValue placeholder="Activity Feed" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all" className="text-[10px] font-semibold uppercase">Activity Feed</SelectItem>
+                          <SelectItem value="sms" className="text-[10px] font-semibold uppercase">SMS</SelectItem>
+                          <SelectItem value="recordings" className="text-[10px] font-semibold uppercase">Recordings</SelectItem>
+                          <SelectItem value="notes" className="text-[10px] font-semibold uppercase">Notes</SelectItem>
+                          <SelectItem value="meetings" className="text-[10px] font-semibold uppercase">Meetings</SelectItem>
+                          <SelectItem value="emails" className="text-[10px] font-semibold uppercase">Emails</SelectItem>
+                        </SelectContent>
+                      </Select>
+
                       <button
                         onClick={() => selectedLead && fetchDetails(selectedLead._id, false)}
                         className="p-1 hover:bg-accent rounded-full transition-colors text-muted-foreground hover:text-primary"
@@ -1477,7 +1510,7 @@ const Campaigns = () => {
                       )}
                     </div>
                   </div>
-                  <div className="flex-1 overflow-y-auto p-4 space-y-5">
+                  <div className="flex-1 overflow-y-auto p-4 space-y-5 custom-scrollbar">
                     <div className={`bg-accent/10 dark:bg-accent/5 rounded-xl p-3 border border-dashed border-primary/20 ${permissions.isReadOnly ? 'opacity-40 blur-[0.5px] pointer-events-none select-none' : ''}`}>
                       <textarea
                           id="note-content"
@@ -1504,19 +1537,30 @@ const Campaigns = () => {
                     <div className="space-y-4">
                       {loadingDetails ? (
                         <div className="text-center py-4 animate-pulse text-[10px] text-muted-foreground">Loading feed...</div>
-                      ) : notes.length === 0 ? (
-                        <div className="text-center py-8 text-xs text-muted-foreground">
-                          <p className="font-medium">No notes yet</p>
-                          <p className="text-[10px] mt-1">Add your first outreach note</p>
+                      ) : filteredNotes.length === 0 ? (
+                        <div className="text-center py-8 text-xs text-muted-foreground border border-dashed border-border rounded-xl">
+                          <p className="font-semibold text-[11px] text-muted-foreground">
+                            {activityFilter === 'recordings' ? 'NO RECORDINGS FOUND' :
+                             activityFilter === 'sms' ? 'NO SMS RECORDS FOUND' :
+                             activityFilter === 'notes' ? 'NO NOTES FOUND' :
+                             activityFilter === 'meetings' ? 'NO MEETINGS FOUND' :
+                             activityFilter === 'emails' ? 'NO EMAILS FOUND' :
+                             'NO ACTIVITIES YET'}
+                          </p>
+                          <p className="text-[9px] text-muted-foreground/80 mt-0.5">
+                            {activityFilter === 'all' ? 'Add your first outreach note' : 'Try changing the filter or refresh'}
+                          </p>
                         </div>
                       ) : (
-                        notes.map(n => (
+                        filteredNotes.map(n => (
                           <div key={n._id} className="relative pl-5 before:absolute before:left-[6px] before:top-2 before:bottom-[-20px] before:w-[1.5px] before:bg-border last:before:hidden">
-                            <div className="absolute left-0 top-1.5 w-3 h-3 rounded-full bg-primary border-2 border-card flex items-center justify-center">
-                              {n.type === 'email' ? <Mail size={6} className="text-white" /> :
-                                n.type === 'meeting' ? <Video size={6} className="text-white" /> :
-                                  n.type === 'call' ? <Phone size={6} className="text-white" /> :
-                                    null}
+                            <div className="absolute left-0 top-1.5 w-3.5 h-3.5 rounded-full bg-primary border-2 border-card flex items-center justify-center">
+                              {n.type === 'email' ? <Mail size={7} className="text-white" /> :
+                                n.type === 'meeting' ? <Video size={7} className="text-white" /> :
+                                  n.type === 'call' ? <Phone size={7} className="text-white" /> :
+                                    n.type === 'sms' ? <MessageSquare size={7} className="text-white" /> :
+                                      n.type === 'status_change' ? <CheckCircle2 size={7} className="text-white" /> :
+                                        <MessageSquare size={7} className="text-white" />}
                             </div>
                             <div className="bg-white dark:bg-card shadow-sm border rounded-lg p-2.5 group relative">
                               <button
@@ -2603,8 +2647,20 @@ const Campaigns = () => {
       </Dialog>
 
       {/* Call Outcome Modal */}
-      <Dialog open={isCallModalOpen} onOpenChange={setIsCallModalOpen}>
-        <DialogContent aria-describedby={undefined} className="w-[95vw] max-w-xl dark:bg-card p-0 overflow-hidden flex flex-col max-h-[95vh]">
+      <Dialog 
+        open={isCallModalOpen} 
+        onOpenChange={setIsCallModalOpen}
+        modal={false}
+      >
+        <DialogContent 
+          aria-describedby={undefined} 
+          className="w-[95vw] max-w-xl dark:bg-card p-0 overflow-hidden flex flex-col max-h-[95vh] shadow-2xl border border-zinc-800"
+          onPointerDownOutside={(e) => e.preventDefault()}
+          onFocusOutside={(e) => e.preventDefault()}
+          onInteractOutside={(e) => e.preventDefault()}
+          onEscapeKeyDown={(e) => e.preventDefault()}
+          hideOverlay={true}
+        >
           <DialogHeader className="p-6 pb-2 border-b">
             <DialogTitle className="dark:text-foreground">Log Call Outcome</DialogTitle>
             <div className="text-sm text-muted-foreground mt-1 flex items-center flex-wrap gap-2">
@@ -2637,7 +2693,7 @@ const Campaigns = () => {
           <div className="flex-1 overflow-y-auto p-6 py-4 custom-scrollbar">
             <div className="grid gap-4">
               <div className="grid gap-2">
-                <label className="text-sm font-medium">Outcome</label>
+                <label htmlFor="call-outcome" className="text-sm font-medium">Outcome</label>
                 <select
                     id="call-outcome"
                     name="call-outcome" className="input-field dark:bg-card" value={callOutcome} onChange={e => setCallOutcome(e.target.value)}>
@@ -2650,10 +2706,10 @@ const Campaigns = () => {
                 </select>
               </div>
               <div className="grid gap-2">
-                <label className="text-sm font-medium">Add Notes</label>
+                <label htmlFor="call-notes" className="text-sm font-medium">Add Notes</label>
                 <textarea
-                    id="briefly-summarize-the-conversation"
-                    name="briefly-summarize-the-conversation" className="input-field min-h-[80px]" placeholder="Briefly summarize the conversation..." value={callNotes} onChange={e => setCallNotes(e.target.value)} />
+                    id="call-notes"
+                    name="call-notes" className="input-field min-h-[80px]" placeholder="Briefly summarize the conversation..." value={callNotes} onChange={e => setCallNotes(e.target.value)} />
               </div>
 
               {/* Seamless Follow-up Checkbox */}
@@ -2675,7 +2731,7 @@ const Campaigns = () => {
                   <h4 className="text-xs font-bold uppercase tracking-wider text-primary">Follow-up Task Details</h4>
                   
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold uppercase text-muted-foreground">Task Title *</label>
+                    <label htmlFor="e-g-call-to-finalize-contract" className="text-xs font-bold uppercase text-muted-foreground">Task Title *</label>
                     <input
                         id="e-g-call-to-finalize-contract"
                         name="e-g-call-to-finalize-contract"
@@ -2692,7 +2748,7 @@ const Campaigns = () => {
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold uppercase text-muted-foreground">Date & Time *</label>
+                    <label htmlFor="input-datetime-local-22" className="text-xs font-bold uppercase text-muted-foreground">Date & Time *</label>
                     <DateTimePicker
                       id="input-datetime-local-22"
                       value={followUpDate || ""}
@@ -2707,7 +2763,7 @@ const Campaigns = () => {
 
                   <div className="grid grid-cols-2 gap-4 items-start">
                     <div className="space-y-1.5">
-                      <label className="text-xs font-bold uppercase text-muted-foreground">Type</label>
+                      <label htmlFor="follow-up-type" className="text-xs font-bold uppercase text-muted-foreground">Type</label>
                       <select
                           id="follow-up-type"
                           name="follow-up-type" className="input-field dark:bg-card" value={followUpType} onChange={e => setFollowUpType(e.target.value)}>
@@ -2718,7 +2774,7 @@ const Campaigns = () => {
                       </select>
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-xs font-bold uppercase text-muted-foreground">Priority (optional)</label>
+                      <label htmlFor="select-field-24" className="text-xs font-bold uppercase text-muted-foreground">Priority (optional)</label>
                       <select
                           id="select-field-24"
                           name="select-field-24" className="input-field dark:bg-card" value={followUpPriority || ""} onChange={e => setFollowUpPriority(e.target.value)}>
@@ -2736,7 +2792,7 @@ const Campaigns = () => {
 
 
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold uppercase text-muted-foreground">Follow-up Notes</label>
+                    <label htmlFor="reason-for-follow-up" className="text-xs font-bold uppercase text-muted-foreground">Follow-up Notes</label>
                     <textarea
                         id="reason-for-follow-up"
                         name="reason-for-follow-up"
@@ -2753,7 +2809,7 @@ const Campaigns = () => {
               <div className="mt-2 p-3 rounded-xl bg-orange-500/10 border border-orange-500/20 text-orange-600 dark:text-orange-400">
                 <p className="text-[10px] font-medium text-center">
                   <span className="font-bold uppercase mr-1">Important:</span>
-                  Ensure you click <strong>'Save'</strong> in the JustCall dialer and <strong>'Log & Close'</strong> here to sync activity.
+                  Ensure you click <strong>'Log & Close'</strong> here to sync activity and save the recording.
                 </p>
               </div>
             </div>
@@ -2955,8 +3011,8 @@ const Campaigns = () => {
       }}>
         <DialogContent aria-describedby={undefined} className="w-[90vw] max-w-md dark:bg-card p-0 overflow-hidden flex flex-col max-h-[90vh]">
           <DialogHeader className="p-6 pb-2 border-b flex-shrink-0"><DialogTitle className="dark:text-foreground">Schedule Meeting</DialogTitle></DialogHeader>
-          <div className="flex-1 overflow-y-auto p-6 py-4 custom-scrollbar min-h-0">
-            <div className="grid gap-4">
+          <div className="flex-1 overflow-y-auto custom-scrollbar min-h-0">
+            <div className="p-6 py-4 grid gap-4">
               <div className="grid gap-2">
                 <label className="text-sm font-medium">Meeting Title <span className="text-destructive">*</span></label>
                 <input

@@ -33,9 +33,9 @@ export const login = async (req, res, next) => {
             throw new Error('Invalid credentials');
         }
 
-        // Sign JWT — include role and isActive so role middleware doesn't need a DB call
+        // Sign JWT — include email, role and isActive so middleware doesn't need a DB call
         const token = jwt.sign(
-            { id: user._id, role: user.role, isActive: user.isActive },
+            { id: user._id, email: user.email, role: user.role, isActive: user.isActive },
             process.env.JWT_SECRET,
             { expiresIn: '7d' }
         );

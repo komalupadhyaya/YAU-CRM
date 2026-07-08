@@ -16,9 +16,11 @@ import tasksRoutes from './routes/tasks.routes.js';
 import contactRoutes from './routes/contact.routes.js';
 import emailRoutes from './routes/email.routes.js';
 import webhookRoutes from './routes/webhook.routes.js';
-import justcallRoutes from './routes/justcall.routes.js';
+import smsRoutes from './routes/sms.routes.js';
 import eaLeadRoutes from './routes/eaLead.routes.js';
 import errorHandler from './middleware/error.middleware.js';
+import voiceRoutes from './routes/voice.routes.js';
+import path from 'path';
 import notificationRoutes from './routes/notification.routes.js';
 import meetingRoutes from './routes/meeting.routes.js';
 import availabilityRoutes from './routes/availability.routes.js';
@@ -32,6 +34,7 @@ const allowedOrigins = [
     'http://localhost:8080',
     'http://127.0.0.1:8080',
     'https://youthathleteuniversity.org',
+    'https://upload-next-fetal.ngrok-free.dev',
     process.env.FRONTEND_URL
 ].filter(Boolean);
 
@@ -52,6 +55,7 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
+app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
 // ----------------------------
 // ROOT ROUTE
@@ -250,11 +254,12 @@ app.use('/api/tasks', tasksRoutes);
 app.use('/api/contacts', contactRoutes);
 app.use('/api/emails', emailRoutes);
 app.use('/api/webhooks', webhookRoutes);
-app.use('/api/justcall', justcallRoutes);
+app.use('/api/sms', smsRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/meetings', meetingRoutes);
 app.use('/api/availability', availabilityRoutes);
 app.use('/api/ea-leads', eaLeadRoutes);
+app.use('/api/voice', voiceRoutes);
 
 
 // Error Handling Middleware

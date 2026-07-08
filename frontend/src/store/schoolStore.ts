@@ -36,6 +36,14 @@ export interface Lead {
     contacts?: Contact[];
     campaign_id?: { _id: string, name: string };
     assigned_to?: { _id: string, name: string, email?: string, role?: string } | null;
+    callHistory?: Array<{
+        callSid: string;
+        direction: 'inbound' | 'outbound';
+        duration: number;
+        recordingUrl?: string;
+        status: string;
+        timestamp: string;
+    }>;
 }
 
 interface LeadState {
