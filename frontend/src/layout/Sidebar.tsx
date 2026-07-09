@@ -29,6 +29,7 @@ import {
   Sparkles,
   Phone,
   Voicemail,
+  PhoneCall,
   Video
 } from "lucide-react";
 import { useSidebar } from "./SidebarContext";
@@ -64,6 +65,7 @@ const bottomNavItems = [
     icon: Settings,
     children: [
       { to: "/phone-system",    label: "Phone System",    icon: Phone, adminOnly: true },
+      { to: "/call-history",    label: "Call History",    icon: PhoneCall, roles: ['admin'] },
       { to: "/voicemail-inbox", label: "Voicemail Inbox", icon: Voicemail, adminOnly: true },
       { to: "/settings",        label: "General Settings", icon: Settings, viewSettingsOnly: true },
     ]
@@ -109,6 +111,7 @@ export default function Sidebar() {
       const visibleChildren = item.children.filter(child => {
         if (child.adminOnly) return currentUser?.role === 'admin';
         if (child.viewSettingsOnly) return permissions.viewSettings;
+        if (child.roles) return child.roles.includes(currentUser?.role);
         return true;
       });
       return { ...item, children: visibleChildren };

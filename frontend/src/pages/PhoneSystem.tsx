@@ -28,6 +28,7 @@ interface PhoneConfig {
         audioFileUrl?: string;
     };
     holdMusic: {
+        enabled?: boolean;
         audioFileUrl?: string;
     };
     extensions: Extension[];
@@ -39,6 +40,7 @@ interface PhoneConfig {
         ttsMessage?: string;
         audioFileUrl?: string;
         emailNotification: string;
+        emailNotificationEnabled?: boolean;
     };
     callRouting: {
         defaultForwardTo: string;
@@ -304,35 +306,30 @@ export default function PhoneSystem() {
                                 </div>
 
                                 <div className="space-y-4">
-                                    <div className="flex gap-4">
-                                        <label htmlFor="greeting-tts" className="flex items-center gap-2 text-sm font-medium text-muted-foreground cursor-pointer">
-                                            <input
-                                                id="greeting-tts"
-                                                type="radio"
-                                                name="greetingType"
-                                                checked={config.greeting.type === 'text-to-speech'}
-                                                onChange={() => setConfig({
-                                                    ...config,
-                                                    greeting: { ...config.greeting, type: 'text-to-speech' }
-                                                })}
-                                                className="text-primary focus:ring-primary bg-card border-border"
-                                            />
-                                            Text to Speech (AI voice)
-                                        </label>
-                                        <label htmlFor="greeting-audio" className="flex items-center gap-2 text-sm font-medium text-muted-foreground cursor-pointer">
-                                            <input
-                                                id="greeting-audio"
-                                                type="radio"
-                                                name="greetingType"
-                                                checked={config.greeting.type === 'audio-file'}
-                                                onChange={() => setConfig({
-                                                    ...config,
-                                                    greeting: { ...config.greeting, type: 'audio-file' }
-                                                })}
-                                                className="text-primary focus:ring-primary bg-card border-border"
-                                            />
-                                            Upload Audio File (MP3/WAV)
-                                        </label>
+                                    <div>
+                                        <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Greeting Type</div>
+                                        <div className="relative p-1 bg-muted/40 border border-border/60 rounded-xl flex gap-1">
+                                            {[
+                                                { value: 'text-to-speech', label: '🔊 Text to Speech (AI Voice)' },
+                                                { value: 'audio-file', label: '🎵 Upload Audio File (MP3)' }
+                                            ].map(({ value, label }) => (
+                                                <button
+                                                    key={value}
+                                                    type="button"
+                                                    onClick={() => setConfig({
+                                                        ...config,
+                                                        greeting: { ...config.greeting, type: value as 'text-to-speech' | 'audio-file' }
+                                                    })}
+                                                    className={`flex-1 py-2.5 px-4 text-sm font-semibold rounded-lg transition-all duration-200 ${
+                                                        config.greeting.type === value
+                                                            ? 'bg-primary text-primary-foreground shadow-md'
+                                                            : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+                                                    }`}
+                                                >
+                                                    {label}
+                                                </button>
+                                            ))}
+                                        </div>
                                     </div>
 
                                     {config.greeting.type === 'text-to-speech' ? (
@@ -547,55 +544,95 @@ export default function PhoneSystem() {
 
                         {/* TAB 3: HOLD MUSIC */}
                         {activeTab === 'holdMusic' && (
-                            <div className="space-y-6">
+                            <div className="space-y-6 animate-in fade-in duration-200">
                                 <div>
                                     <h2 className="text-xl font-bold text-foreground mb-1">Hold Music</h2>
                                     <p className="text-xs text-muted-foreground">
-                                        Upload the audio file played to callers while they are being connected to an extension.
+                                        Configure what callers hear while waiting to be connected to an extension.
                                     </p>
                                 </div>
 
-                                <div className="space-y-4 p-4 bg-muted/30 border border-border/40 rounded-lg">
-                                    <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">Hold Music File (MP3)</label>
-                                    <div className="flex items-center gap-4">
-                                        <div className="relative">
-                                            <input
-                                                type="file"
-                                                accept="audio/*"
-                                                onChange={(e) => handleFileUpload(e, 'holdMusic.audioFileUrl')}
-                                                className="hidden"
-                                                id="holdmusic-upload"
-                                                disabled={uploadingFile !== null}
-                                            />
-                                            <label
-                                                htmlFor="holdmusic-upload"
-                                                className={`flex items-center gap-2 px-4 py-2 text-sm bg-muted hover:bg-accent text-foreground rounded-lg cursor-pointer font-medium transition-colors ${uploadingFile === 'holdMusic.audioFileUrl' ? 'opacity-50 pointer-events-none' : ''
+                                <div className="space-y-4">
+                                    {/* Enable / Disable Switch */}
+                                    <div className="flex items-center justify-between p-4 bg-muted/20 border border-border/60 rounded-xl">
+                                        <div>
+                                            <div className="text-sm font-semibold text-foreground">Play Custom Hold Music</div>
+                                            <div className="text-xs text-muted-foreground/80">
+                                                Turn ON to play custom uploaded MP3 audio. Turn OFF to play the default ringtone instead.
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => setConfig({
+                                                ...config,
+                                                holdMusic: { ...config.holdMusic, enabled: config.holdMusic?.enabled === false ? true : false }
+                                            })}
+                                            className="text-muted-foreground hover:text-foreground transition-colors"
+                                        >
+                                            {config.holdMusic?.enabled !== false ? (
+                                                <ToggleRight className="w-10 h-10 text-primary" />
+                                            ) : (
+                                                <ToggleLeft className="w-10 h-10 text-muted-foreground/60" />
+                                            )}
+                                        </button>
+                                    </div>
+
+                                    {/* Upload/Playback controls */}
+                                    <div className={`space-y-4 p-4 bg-muted/30 border border-border/40 rounded-lg transition-all duration-200 ${
+                                        config.holdMusic?.enabled === false ? 'opacity-40 pointer-events-none' : ''
+                                    }`}>
+                                        <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">Hold Music File (MP3)</label>
+                                        <div className="flex items-center gap-4">
+                                            <div className="relative">
+                                                <input
+                                                    type="file"
+                                                    accept="audio/*"
+                                                    onChange={(e) => handleFileUpload(e, 'holdMusic.audioFileUrl')}
+                                                    className="hidden"
+                                                    id="holdmusic-upload"
+                                                    disabled={uploadingFile !== null || config.holdMusic?.enabled === false}
+                                                />
+                                                <label
+                                                    htmlFor="holdmusic-upload"
+                                                    className={`flex items-center gap-2 px-4 py-2 text-sm bg-muted hover:bg-accent text-foreground rounded-lg cursor-pointer font-medium transition-colors ${
+                                                        uploadingFile === 'holdMusic.audioFileUrl' || config.holdMusic?.enabled === false ? 'opacity-50 pointer-events-none' : ''
                                                     }`}
-                                            >
-                                                <Upload className="w-4 h-4" />
-                                                {uploadingFile === 'holdMusic.audioFileUrl' ? 'Uploading...' : 'Choose MP3 File'}
-                                            </label>
+                                                >
+                                                    <Upload className="w-4 h-4" />
+                                                    {uploadingFile === 'holdMusic.audioFileUrl' ? 'Uploading...' : 'Choose MP3 File'}
+                                                </label>
+                                            </div>
+                                            {config.holdMusic?.audioFileUrl && (
+                                                <div className="flex items-center gap-2">
+                                                    <audio src={config.holdMusic.audioFileUrl} controls className="h-9 max-w-xs" />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleRemoveAudio('holdMusic.audioFileUrl')}
+                                                        className="p-2 text-muted-foreground hover:text-rose-500 hover:bg-rose-500/10 rounded-lg transition-all"
+                                                        title="Delete permanently"
+                                                        disabled={config.holdMusic?.enabled === false}
+                                                    >
+                                                        <Trash2 className="w-4.5 h-4.5" />
+                                                    </button>
+                                                </div>
+                                            )}
                                         </div>
                                         {config.holdMusic?.audioFileUrl && (
-                                            <div className="flex items-center gap-2">
-                                                <audio src={config.holdMusic.audioFileUrl} controls className="h-9 max-w-xs" />
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleRemoveAudio('holdMusic.audioFileUrl')}
-                                                    className="p-2 text-muted-foreground hover:text-rose-500 hover:bg-rose-500/10 rounded-lg transition-all"
-                                                    title="Delete permanently"
-                                                >
-                                                    <Trash2 className="w-4.5 h-4.5" />
-                                                </button>
-                                            </div>
+                                            <p className="text-[10px] text-muted-foreground/80 truncate max-w-md">
+                                                Current File: <a href={config.holdMusic.audioFileUrl} target="_blank" rel="noreferrer" className="underline hover:text-primary">{config.holdMusic.audioFileUrl}</a>
+                                            </p>
                                         )}
                                     </div>
-                                    {config.holdMusic?.audioFileUrl && (
-                                        <p className="text-[10px] text-muted-foreground/80 truncate max-w-md">
-                                            Current File: <a href={config.holdMusic.audioFileUrl} target="_blank" rel="noreferrer" className="underline hover:text-primary">{config.holdMusic.audioFileUrl}</a>
-                                        </p>
-                                    )}
                                 </div>
+
+                                <button
+                                    onClick={() => handleSaveConfig()}
+                                    disabled={saving}
+                                    className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary/90 text-foreground rounded-lg text-sm font-semibold transition-colors shadow-lg"
+                                >
+                                    <Save className="w-4 h-4" />
+                                    {saving ? 'Saving...' : 'Save Hold Music Settings'}
+                                </button>
                             </div>
                         )}
 
@@ -633,102 +670,144 @@ export default function PhoneSystem() {
 
                                     {config.voicemail.enabled && (
                                         <>
-                                            {/* Voicemail TTS Message */}
-                                            <div className="space-y-2 mt-4">
-                                                <label htmlFor="voicemail-tts" className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">Default Greeting Message (Text-to-Speech)</label>
-                                                <textarea
-                                                    id="voicemail-tts"
-                                                    name="voicemail-tts"
-                                                    value={config.voicemail.ttsMessage || ''}
-                                                    onChange={(e) => setConfig({
-                                                        ...config,
-                                                        voicemail: { ...config.voicemail, ttsMessage: e.target.value }
-                                                    })}
-                                                    className="w-full bg-muted/40 border border-border rounded-lg p-3 text-sm text-foreground focus:outline-none focus:border-primary/60 min-h-[80px]"
-                                                    placeholder="The department is busy. If you would like to leave a voicemail, please press 1."
-                                                />
-                                            </div>
-
-                                            {/* Voicemail Greeting Upload */}
-                                            <div className="p-4 bg-muted/30 border border-border/40 rounded-lg space-y-4">
-                                                <div className="flex items-center justify-between">
-                                                    <div>
-                                                        <div className="block text-xs font-semibold uppercase tracking-wider text-foreground">Custom Voicemail Greeting (Optional)</div>
-                                                        <p className="text-[10px] text-muted-foreground/80 mt-1">Upload an MP3 to play instead of the Text-to-Speech message.</p>
-                                                    </div>
-                                                    <button
-                                                        onClick={() => setConfig({
-                                                            ...config,
-                                                            voicemail: { ...config.voicemail, useAudioFile: !config.voicemail.useAudioFile }
-                                                        })}
-                                                        className="text-muted-foreground hover:text-foreground transition-colors flex items-center gap-2"
-                                                        title="Toggle MP3 Greeting"
-                                                    >
-                                                        <span className="text-xs font-medium uppercase tracking-wider">{config.voicemail.useAudioFile ? 'ON' : 'OFF'}</span>
-                                                        {config.voicemail.useAudioFile ? (
-                                                            <ToggleRight className="w-8 h-8 text-primary" />
-                                                        ) : (
-                                                            <ToggleLeft className="w-8 h-8 text-muted-foreground/60" />
-                                                        )}
-                                                    </button>
-                                                </div>
-
-                                                <div className={`flex items-center gap-4 transition-opacity ${!config.voicemail.useAudioFile ? 'opacity-50 pointer-events-none' : ''}`}>
-                                                    <div className="relative">
-                                                        <input
-                                                            type="file"
-                                                            accept="audio/*"
-                                                            onChange={(e) => handleFileUpload(e, 'voicemail.audioFileUrl')}
-                                                            className="hidden"
-                                                            id="voicemail-upload"
-                                                            disabled={uploadingFile !== null || !config.voicemail.useAudioFile}
-                                                        />
-                                                        <label
-                                                            htmlFor="voicemail-upload"
-                                                            className={`flex items-center gap-2 px-4 py-2 text-sm bg-muted hover:bg-accent text-foreground rounded-lg cursor-pointer font-medium transition-colors ${uploadingFile === 'voicemail.audioFileUrl' ? 'opacity-50 pointer-events-none' : ''
-                                                                }`}
-                                                        >
-                                                            <Upload className="w-4 h-4" />
-                                                            {uploadingFile === 'voicemail.audioFileUrl' ? 'Uploading...' : 'Choose MP3 File'}
-                                                        </label>
-                                                    </div>
-                                                    {config.voicemail.audioFileUrl && (
-                                                        <div className="flex items-center gap-2">
-                                                            <audio src={config.voicemail.audioFileUrl} controls className="h-9 max-w-xs" />
+                                            {/* ── Greeting Type: Pill Choice Bar ── */}
+                                            <div className="space-y-4 mt-2">
+                                                <div>
+                                                    <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Voicemail Greeting Type</div>
+                                                    <div className="relative p-1 bg-muted/40 border border-border/60 rounded-xl flex gap-1">
+                                                        {[
+                                                            { value: false, label: '🔊 Text-to-Speech' },
+                                                            { value: true, label: '🎵 Upload MP3' }
+                                                        ].map(({ value, label }) => (
                                                             <button
+                                                                key={label}
                                                                 type="button"
-                                                                onClick={() => handleRemoveAudio('voicemail.audioFileUrl')}
-                                                                className="p-2 text-muted-foreground hover:text-rose-500 hover:bg-rose-500/10 rounded-lg transition-all"
-                                                                title="Delete permanently"
+                                                                onClick={() => setConfig({
+                                                                    ...config,
+                                                                    voicemail: { ...config.voicemail, useAudioFile: value }
+                                                                })}
+                                                                className={`flex-1 py-2.5 px-4 text-sm font-semibold rounded-lg transition-all duration-200 ${
+                                                                    config.voicemail.useAudioFile === value
+                                                                        ? 'bg-primary text-primary-foreground shadow-md'
+                                                                        : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+                                                                }`}
                                                             >
-                                                                <Trash2 className="w-4.5 h-4.5" />
+                                                                {label}
                                                             </button>
-                                                        </div>
-                                                    )}
+                                                        ))}
+                                                    </div>
                                                 </div>
-                                                {config.voicemail.audioFileUrl && (
-                                                    <p className={`text-[10px] text-muted-foreground/80 truncate max-w-md ${!config.voicemail.useAudioFile ? 'opacity-50' : ''}`}>
-                                                        Current File: <a href={config.voicemail.audioFileUrl} target="_blank" rel="noreferrer" className="underline hover:text-primary">{config.voicemail.audioFileUrl}</a>
-                                                    </p>
+
+                                                {/* Text-to-Speech Panel */}
+                                                {!config.voicemail.useAudioFile && (
+                                                    <div className="space-y-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                                                        <label htmlFor="voicemail-tts" className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">Greeting Message (Text-to-Speech)</label>
+                                                        <textarea
+                                                            id="voicemail-tts"
+                                                            name="voicemail-tts"
+                                                            value={config.voicemail.ttsMessage || ''}
+                                                            onChange={(e) => setConfig({
+                                                                ...config,
+                                                                voicemail: { ...config.voicemail, ttsMessage: e.target.value }
+                                                            })}
+                                                            className="w-full bg-muted/40 border border-border rounded-lg p-3 text-sm text-foreground focus:outline-none focus:border-primary/60 min-h-[80px]"
+                                                            placeholder="The department is busy. If you would like to leave a voicemail, please press 1."
+                                                        />
+                                                        <p className="text-[10px] text-muted-foreground/70 flex items-center gap-1">
+                                                            <AlertCircle className="w-3 h-3" />
+                                                            This message will be read aloud by an automated voice when a caller reaches voicemail.
+                                                        </p>
+                                                    </div>
+                                                )}
+
+                                                {/* Upload MP3 Panel */}
+                                                {config.voicemail.useAudioFile && (
+                                                    <div className="space-y-3 p-4 bg-muted/30 border border-border/40 rounded-lg animate-in fade-in slide-in-from-top-1 duration-200">
+                                                        <div className="text-xs text-muted-foreground/80">Upload an MP3 file to play as the voicemail greeting instead of Text-to-Speech.</div>
+                                                        <div className="flex items-center gap-4">
+                                                            <div className="relative">
+                                                                <input
+                                                                    type="file"
+                                                                    accept="audio/*"
+                                                                    onChange={(e) => handleFileUpload(e, 'voicemail.audioFileUrl')}
+                                                                    className="hidden"
+                                                                    id="voicemail-upload"
+                                                                    disabled={uploadingFile !== null}
+                                                                />
+                                                                <label
+                                                                    htmlFor="voicemail-upload"
+                                                                    className={`flex items-center gap-2 px-4 py-2 text-sm bg-muted hover:bg-accent text-foreground rounded-lg cursor-pointer font-medium transition-colors ${uploadingFile === 'voicemail.audioFileUrl' ? 'opacity-50 pointer-events-none' : ''}`}
+                                                                >
+                                                                    <Upload className="w-4 h-4" />
+                                                                    {uploadingFile === 'voicemail.audioFileUrl' ? 'Uploading...' : 'Choose MP3 File'}
+                                                                </label>
+                                                            </div>
+                                                            {config.voicemail.audioFileUrl && (
+                                                                <div className="flex items-center gap-2">
+                                                                    <audio src={config.voicemail.audioFileUrl} controls className="h-9 max-w-xs" />
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => handleRemoveAudio('voicemail.audioFileUrl')}
+                                                                        className="p-2 text-muted-foreground hover:text-rose-500 hover:bg-rose-500/10 rounded-lg transition-all"
+                                                                        title="Delete permanently"
+                                                                    >
+                                                                        <Trash2 className="w-4.5 h-4.5" />
+                                                                    </button>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                        {config.voicemail.audioFileUrl && (
+                                                            <p className="text-[10px] text-muted-foreground/80 truncate max-w-md">
+                                                                Current File: <a href={config.voicemail.audioFileUrl} target="_blank" rel="noreferrer" className="underline hover:text-primary">{config.voicemail.audioFileUrl}</a>
+                                                            </p>
+                                                        )}
+                                                    </div>
                                                 )}
                                             </div>
 
-                                            {/* Email Notifications */}
-                                            <div className="space-y-2">
-                                                <label htmlFor="voicemail-email" className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">Send Voicemail Notifications To (Email)</label>
-                                                <input
-                                                    id="voicemail-email"
-                                                    name="voicemail-email"
-                                                    type="email"
-                                                    value={config.voicemail.emailNotification}
-                                                    onChange={(e) => setConfig({
+                                            {/* ── Email Notifications Toggle ── */}
+                                            <div className="flex items-center justify-between p-4 bg-muted/20 border border-border/60 rounded-xl">
+                                                <div>
+                                                    <div className="text-sm font-semibold text-foreground">Voicemail Email Notifications</div>
+                                                    <div className="text-xs text-muted-foreground/80">Receive an email with a recording link every time a voicemail is left.</div>
+                                                </div>
+                                                <button
+                                                    onClick={() => setConfig({
                                                         ...config,
-                                                        voicemail: { ...config.voicemail, emailNotification: e.target.value }
+                                                        voicemail: { ...config.voicemail, emailNotificationEnabled: !config.voicemail.emailNotificationEnabled }
                                                     })}
-                                                    className="w-full bg-muted/40 border border-border rounded-lg p-3 text-sm text-foreground focus:outline-none focus:border-primary/60"
-                                                    placeholder="e.g. admin@yausports.com"
-                                                />
+                                                    className="text-muted-foreground hover:text-foreground transition-colors"
+                                                >
+                                                    {config.voicemail.emailNotificationEnabled ? (
+                                                        <ToggleRight className="w-10 h-10 text-primary" />
+                                                    ) : (
+                                                        <ToggleLeft className="w-10 h-10 text-muted-foreground/60" />
+                                                    )}
+                                                </button>
                                             </div>
+
+                                            {/* Email Address Input (visible when enabled) */}
+                                            {config.voicemail.emailNotificationEnabled && (
+                                                <div className="space-y-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                                                    <label htmlFor="voicemail-email" className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">Send Voicemail Notifications To (Email)</label>
+                                                    <input
+                                                        id="voicemail-email"
+                                                        name="voicemail-email"
+                                                        type="email"
+                                                        value={config.voicemail.emailNotification}
+                                                        onChange={(e) => setConfig({
+                                                            ...config,
+                                                            voicemail: { ...config.voicemail, emailNotification: e.target.value }
+                                                        })}
+                                                        className="w-full bg-muted/40 border border-border rounded-lg p-3 text-sm text-foreground focus:outline-none focus:border-primary/60"
+                                                        placeholder="e.g. admin@yausports.com"
+                                                    />
+                                                    <p className="text-[10px] text-muted-foreground/70 flex items-center gap-1">
+                                                        <AlertCircle className="w-3 h-3" />
+                                                        Requires SMTP credentials to be configured in the server environment.
+                                                    </p>
+                                                </div>
+                                            )}
                                         </>
                                     )}
                                 </div>

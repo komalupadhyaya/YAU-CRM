@@ -107,6 +107,16 @@
     -webkit-text-fill-color: hsl(var(--foreground)) !important;
     transition: background-color 5000s ease-in-out 0s;
   }
+
+  /* Dialer input specific autofill to remain dark zinc-900 background */
+  #dialerPhoneInput:-webkit-autofill,
+  #dialerPhoneInput:-webkit-autofill:hover,
+  #dialerPhoneInput:-webkit-autofill:focus,
+  #dialerPhoneInput:-webkit-autofill:active {
+    -webkit-box-shadow: 0 0 0 30px #18181b inset !important;
+    -webkit-text-fill-color: #ffffff !important;
+    transition: background-color 5000s ease-in-out 0s;
+  }
 }
 
 @layer components {

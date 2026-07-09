@@ -23,6 +23,7 @@ import SchoolMeetings from "./pages/SchoolMeetings";
 import HRMeetings from "./pages/HRMeetings";
 import PhoneSystem from "./pages/PhoneSystem";
 import VoicemailInbox from "./pages/VoicemailInbox";
+import CallHistoryPage from "@/pages/CallHistory";
 
 import RequireAuth from "./components/RequireAuth";
 import RequireRole from "./components/RequireRole";
@@ -65,6 +66,7 @@ const App = () => {
               <Route path="/history" element={<RequireAuth><RequireRole roles={['admin', 'manager']}><HistoryPage /></RequireRole></RequireAuth>} />
               <Route path="/settings" element={<RequireAuth><RequireRole roles={['admin']}><Settings /></RequireRole></RequireAuth>} />
               <Route path="/phone-system" element={<RequireAuth><RequireRole roles={['admin']}><PhoneSystem /></RequireRole></RequireAuth>} />
+              <Route path="/call-history" element={<RequireAuth><RequireRole roles={['admin']}><CallHistoryPage /></RequireRole></RequireAuth>} />
               <Route path="/voicemail-inbox" element={<RequireAuth><RequireRole roles={['admin']}><VoicemailInbox /></RequireRole></RequireAuth>} />
               <Route path="/tasks" element={<RequireAuth><Tasks /></RequireAuth>} />
               <Route path="/calendar" element={<RequireAuth><Calendar /></RequireAuth>} />

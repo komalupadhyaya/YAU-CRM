@@ -144,7 +144,7 @@ export default function Dashboard() {
     const phone = leadToCall.telephone;
     if (phone) {
       const cleanPhone = phone.startsWith('+') ? phone : `${phonePrefix}${phone.replace(/\D/g, '')}`;
-      openDialer(cleanPhone, leadToCall._id, leadToCall.name || 'Unknown');
+      openDialer(cleanPhone, leadToCall._id, leadToCall.name || 'Unknown', true);
     }
     // Form already shows outcome/notes fields
     setFollowUpType("Call");
@@ -798,7 +798,15 @@ export default function Dashboard() {
             <div className="grid grid-cols-2 gap-3">
               {[
                 { label: "Add Lead", icon: Plus, onClick: () => navigate("/leads/create"), color: "bg-blue-500/10 text-blue-500" },
-                { label: "Log Call", icon: Phone, onClick: () => setIsModalOpen(true), color: "bg-orange-500/10 text-orange-500" },
+                { 
+                  label: "Log Call", 
+                  icon: Phone, 
+                  onClick: () => {
+                    openDialer("", "", "", false);
+                    setIsModalOpen(true);
+                  }, 
+                  color: "bg-orange-500/10 text-orange-500" 
+                },
                 { label: "Send Email", icon: Mail, onClick: () => { setLeadSearch(""); setLeads([]); setIsEmailModalOpen(true); }, color: "bg-indigo-500/10 text-indigo-500" },
                 { label: "Export Report", icon: Search, onClick: () => toast.info("Report generated"), color: "bg-emerald-500/10 text-emerald-500" }
               ].map((action) => (

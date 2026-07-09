@@ -920,7 +920,7 @@ const Campaigns = () => {
     const phone = contact?.direct_phone || lead.telephone;
     if (phone) {
       const cleanPhone = phone.startsWith('+') ? phone : `+1${phone.replace(/\D/g, '')}`;
-      openDialer(cleanPhone, lead._id, contact?.name || lead.name || 'Unknown');
+      openDialer(cleanPhone, lead._id, contact?.name || lead.name || 'Unknown', true);
     }
     setCallOutcome("Answered - Interested");
     setCallNotes("");
@@ -2815,7 +2815,20 @@ const Campaigns = () => {
             </div>
           </div>
           <DialogFooter className="p-6 pt-2 border-t">
-            <button className="btn-secondary" onClick={() => setIsCallModalOpen(false)}>Cancel</button>
+            <button
+              className="btn-secondary"
+              onClick={() => {
+                setIsCallModalOpen(false);
+                if (selectedLead) {
+                  fetchDetails(selectedLead._id, true);
+                  setTimeout(() => {
+                    fetchDetails(selectedLead._id, true);
+                  }, 2500);
+                }
+              }}
+            >
+              Cancel
+            </button>
             <button
               disabled={isSubmitting}
               className={`btn-primary ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`}

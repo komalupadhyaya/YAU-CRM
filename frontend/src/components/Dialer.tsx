@@ -7,7 +7,7 @@ import api from '../api/api';
 
 export default function Dialer() {
     const { currentUser } = useAuth();
-    const { isOpen, phoneNumber, leadId, contactName, closeDialer, setPhoneNumber, openDialer } = useDialerStore();
+    const { isOpen, phoneNumber, leadId, contactName, isReadOnly, closeDialer, setPhoneNumber, openDialer } = useDialerStore();
 
     // UI States
     const [isMinimized, setIsMinimized] = useState(false);
@@ -17,13 +17,20 @@ export default function Dialer() {
     const [position, setPosition] = useState({ x: 0, y: 0 });
     const [isDragging, setIsDragging] = useState(false);
     const dragStart = useRef({ x: 0, y: 0 });
+    const containerRef = useRef<HTMLDivElement>(null);
 
-    const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    // Track if a real drag occurred to prevent click trigger
+    const [dragged, setDragged] = useState(false);
+    const dragStartPos = useRef({ x: 0, y: 0 });
+
+    const handleMouseDown = (e: React.MouseEvent<any>) => {
         const target = e.target as HTMLElement;
-        if (target.closest('button') || target.closest('input') || target.closest('select') || target.closest('textarea')) {
+        if (!isMinimized && (target.closest('button') || target.closest('input') || target.closest('select') || target.closest('textarea'))) {
             return;
         }
         setIsDragging(true);
+        setDragged(false);
+        dragStartPos.current = { x: e.clientX, y: e.clientY };
         dragStart.current = {
             x: e.clientX - position.x,
             y: e.clientY - position.y
@@ -31,13 +38,15 @@ export default function Dialer() {
         e.preventDefault();
     };
 
-    const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    const handleTouchStart = (e: React.TouchEvent<any>) => {
         const target = e.target as HTMLElement;
-        if (target.closest('button') || target.closest('input') || target.closest('select') || target.closest('textarea')) {
+        if (!isMinimized && (target.closest('button') || target.closest('input') || target.closest('select') || target.closest('textarea'))) {
             return;
         }
         setIsDragging(true);
+        setDragged(false);
         const touch = e.touches[0];
+        dragStartPos.current = { x: touch.clientX, y: touch.clientY };
         dragStart.current = {
             x: touch.clientX - position.x,
             y: touch.clientY - position.y
@@ -47,17 +56,53 @@ export default function Dialer() {
     useEffect(() => {
         const handleMouseMove = (e: MouseEvent) => {
             if (!isDragging) return;
-            const newX = e.clientX - dragStart.current.x;
-            const newY = e.clientY - dragStart.current.y;
-            setPosition({ x: newX, y: newY });
+            const rawX = e.clientX - dragStart.current.x;
+            const rawY = e.clientY - dragStart.current.y;
+
+            const rect = containerRef.current?.getBoundingClientRect();
+            const width = rect ? rect.width : (isMinimized ? 56 : 320);
+            const height = rect ? rect.height : (isMinimized ? 56 : 520);
+            const padding = 8;
+
+            const minX = padding + 24 + width - window.innerWidth;
+            const maxX = 24 - padding;
+            const minY = padding + 24 + height - window.innerHeight;
+            const maxY = 24 - padding;
+
+            const boundedX = Math.max(minX, Math.min(maxX, rawX));
+            const boundedY = Math.max(minY, Math.min(maxY, rawY));
+
+            setPosition({ x: boundedX, y: boundedY });
+
+            if (Math.abs(e.clientX - dragStartPos.current.x) > 5 || Math.abs(e.clientY - dragStartPos.current.y) > 5) {
+                setDragged(true);
+            }
         };
 
         const handleTouchMove = (e: TouchEvent) => {
             if (!isDragging) return;
             const touch = e.touches[0];
-            const newX = touch.clientX - dragStart.current.x;
-            const newY = touch.clientY - dragStart.current.y;
-            setPosition({ x: newX, y: newY });
+            const rawX = touch.clientX - dragStart.current.x;
+            const rawY = touch.clientY - dragStart.current.y;
+
+            const rect = containerRef.current?.getBoundingClientRect();
+            const width = rect ? rect.width : (isMinimized ? 56 : 320);
+            const height = rect ? rect.height : (isMinimized ? 56 : 520);
+            const padding = 8;
+
+            const minX = padding + 24 + width - window.innerWidth;
+            const maxX = 24 - padding;
+            const minY = padding + 24 + height - window.innerHeight;
+            const maxY = 24 - padding;
+
+            const boundedX = Math.max(minX, Math.min(maxX, rawX));
+            const boundedY = Math.max(minY, Math.min(maxY, rawY));
+
+            setPosition({ x: boundedX, y: boundedY });
+
+            if (Math.abs(touch.clientX - dragStartPos.current.x) > 5 || Math.abs(touch.clientY - dragStartPos.current.y) > 5) {
+                setDragged(true);
+            }
         };
 
         const handleMouseUp = () => {
@@ -78,6 +123,41 @@ export default function Dialer() {
             document.removeEventListener('touchend', handleMouseUp);
         };
     }, [isDragging]);
+
+    // Ensure the dialer is maximized when opened
+    useEffect(() => {
+        if (isOpen) {
+            setIsMinimized(false);
+        }
+    }, [isOpen]);
+
+    // Ensure the dialer does not go offscreen when toggling minimization states
+    useEffect(() => {
+        if (!containerRef.current) return;
+        
+        const adjustPosition = () => {
+            const rect = containerRef.current?.getBoundingClientRect();
+            if (!rect) return;
+            
+            const padding = 8;
+            const width = rect.width;
+            const height = rect.height;
+            
+            const minX = padding + 24 + width - window.innerWidth;
+            const maxX = 24 - padding;
+            const minY = padding + 24 + height - window.innerHeight;
+            const maxY = 24 - padding;
+            
+            setPosition(prev => ({
+                x: Math.max(minX, Math.min(maxX, prev.x)),
+                y: Math.max(minY, Math.min(maxY, prev.y))
+            }));
+        };
+
+        // Delay slightly to allow element to resize and calculate correct client boundaries
+        const timer = setTimeout(adjustPosition, 100);
+        return () => clearTimeout(timer);
+    }, [isMinimized]);
     const [callStatus, setCallStatus] = useState<'idle' | 'connecting' | 'ringing' | 'active' | 'incoming'>('idle');
     const [isMuted, setIsMuted] = useState(false);
     const [callDuration, setCallDuration] = useState(0);
@@ -287,13 +367,26 @@ export default function Dialer() {
             return;
         }
 
+        let cleanPhone = phoneNumber.replace(/[^\d+]/g, ''); // Keep digits and '+'
+        if (cleanPhone && !cleanPhone.startsWith('+')) {
+            if (cleanPhone.length === 11 && cleanPhone.startsWith('1')) {
+                cleanPhone = '+' + cleanPhone;
+            } else if (cleanPhone.length === 10) {
+                cleanPhone = '+1' + cleanPhone;
+            }
+        }
+
+        if (cleanPhone !== phoneNumber) {
+            setPhoneNumber(cleanPhone);
+        }
+
         try {
             setCallStatus('connecting');
             
             // Connect call via Twilio Device
             const call = await deviceRef.current.connect({
                 params: {
-                    To: phoneNumber,
+                    To: cleanPhone,
                     leadId: leadId // Send leadId to associate call log on backend
                 }
             });
@@ -339,7 +432,9 @@ export default function Dialer() {
     const handleDigitClick = (digit: string) => {
         // Append digit to phone number if idle
         if (callStatus === 'idle') {
-            setPhoneNumber(phoneNumber + digit);
+            if (!isReadOnly) {
+                setPhoneNumber(phoneNumber + digit);
+            }
         } else if (callRef.current && callStatus === 'active') {
             // Send DTMF tone during live call
             callRef.current.sendDigits(digit);
@@ -347,7 +442,7 @@ export default function Dialer() {
     };
 
     const handleBackspace = () => {
-        if (callStatus === 'idle' && phoneNumber.length > 0) {
+        if (callStatus === 'idle' && phoneNumber.length > 0 && !isReadOnly) {
             setPhoneNumber(phoneNumber.slice(0, -1));
         }
     };
@@ -367,14 +462,24 @@ export default function Dialer() {
 
     return (
         <div 
+            ref={containerRef}
             className={`fixed bottom-6 right-6 z-[9999] font-sans ${isDragging ? 'select-none' : ''}`}
             style={{ transform: `translate(${position.x}px, ${position.y}px)` }}
         >
             {isMinimized ? (
                 // Minimized Floating Action Button (FAB)
                 <button
-                    onClick={() => setIsMinimized(false)}
-                    className={`w-14 h-14 rounded-full shadow-2xl transition-all duration-300 transform hover:scale-110 flex items-center justify-center text-white border border-zinc-800/80 ${
+                    onMouseDown={handleMouseDown}
+                    onTouchStart={handleTouchStart}
+                    onClick={(e) => {
+                        if (dragged) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            return;
+                        }
+                        setIsMinimized(false);
+                    }}
+                    className={`w-14 h-14 rounded-full shadow-2xl transition-all duration-300 transform hover:scale-110 flex items-center justify-center text-white border border-zinc-800/80 cursor-grab active:cursor-grabbing ${
                         callStatus === 'incoming' 
                             ? 'bg-rose-500 animate-bounce' 
                             : callStatus === 'active' 
@@ -480,10 +585,14 @@ export default function Dialer() {
                                             value={phoneNumber}
                                             onChange={(e) => setPhoneNumber(e.target.value)}
                                             placeholder="Enter phone number..."
-                                            className="w-full bg-zinc-900/80 border border-zinc-800 text-center text-xl font-bold py-3 px-4 rounded-xl text-white placeholder-zinc-600 focus:outline-none focus:border-primary/50 transition-colors"
+                                            readOnly={isReadOnly}
+                                            disabled={isReadOnly}
+                                            className={`w-full bg-zinc-900/80 border border-zinc-800 text-center text-xl font-bold py-3 px-4 rounded-xl text-white placeholder-zinc-600 focus:outline-none focus:border-primary/50 transition-colors ${
+                                                isReadOnly ? 'opacity-70 cursor-not-allowed select-none' : ''
+                                            }`}
                                             aria-label="Phone Number"
                                         />
-                                        {phoneNumber && (
+                                        {phoneNumber && !isReadOnly && (
                                             <button
                                                 onClick={handleBackspace}
                                                 className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white"
@@ -496,24 +605,32 @@ export default function Dialer() {
 
                                 {/* Dial Pad Grid */}
                                 <div className="grid grid-cols-3 gap-3 mb-6 max-w-[240px] mx-auto">
-                                    {['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#'].map((key) => (
-                                        <button
-                                            key={key}
-                                            onClick={() => handleDigitClick(key)}
-                                            className="w-14 h-14 bg-zinc-900 hover:bg-zinc-800 active:bg-zinc-700 text-white font-semibold text-lg rounded-full flex flex-col items-center justify-center border border-zinc-800/40 transition-colors shadow-sm"
-                                        >
-                                            <span>{key}</span>
-                                            {/* Subtle letters below numbers like actual phones */}
-                                            {key === '2' && <span className="text-[9px] text-zinc-500 -mt-1 font-normal">ABC</span>}
-                                            {key === '3' && <span className="text-[9px] text-zinc-500 -mt-1 font-normal">DEF</span>}
-                                            {key === '4' && <span className="text-[9px] text-zinc-500 -mt-1 font-normal">GHI</span>}
-                                            {key === '5' && <span className="text-[9px] text-zinc-500 -mt-1 font-normal">JKL</span>}
-                                            {key === '6' && <span className="text-[9px] text-zinc-500 -mt-1 font-normal">MNO</span>}
-                                            {key === '7' && <span className="text-[9px] text-zinc-500 -mt-1 font-normal">PQRS</span>}
-                                            {key === '8' && <span className="text-[9px] text-zinc-500 -mt-1 font-normal">TUV</span>}
-                                            {key === '9' && <span className="text-[9px] text-zinc-500 -mt-1 font-normal">WXYZ</span>}
-                                        </button>
-                                    ))}
+                                    {['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#'].map((key) => {
+                                        const isDisabledDigit = callStatus === 'idle' && isReadOnly;
+                                        return (
+                                            <button
+                                                key={key}
+                                                onClick={() => !isDisabledDigit && handleDigitClick(key)}
+                                                disabled={isDisabledDigit}
+                                                className={`w-14 h-14 bg-zinc-900 text-white font-semibold text-lg rounded-full flex flex-col items-center justify-center border border-zinc-800/40 transition-colors shadow-sm ${
+                                                    isDisabledDigit 
+                                                        ? 'opacity-40 cursor-not-allowed' 
+                                                        : 'hover:bg-zinc-800 active:bg-zinc-700'
+                                                }`}
+                                            >
+                                                <span>{key}</span>
+                                                {/* Subtle letters below numbers like actual phones */}
+                                                {key === '2' && <span className="text-[9px] text-zinc-500 -mt-1 font-normal">ABC</span>}
+                                                {key === '3' && <span className="text-[9px] text-zinc-500 -mt-1 font-normal">DEF</span>}
+                                                {key === '4' && <span className="text-[9px] text-zinc-500 -mt-1 font-normal">GHI</span>}
+                                                {key === '5' && <span className="text-[9px] text-zinc-500 -mt-1 font-normal">JKL</span>}
+                                                {key === '6' && <span className="text-[9px] text-zinc-500 -mt-1 font-normal">MNO</span>}
+                                                {key === '7' && <span className="text-[9px] text-zinc-500 -mt-1 font-normal">PQRS</span>}
+                                                {key === '8' && <span className="text-[9px] text-zinc-500 -mt-1 font-normal">TUV</span>}
+                                                {key === '9' && <span className="text-[9px] text-zinc-500 -mt-1 font-normal">WXYZ</span>}
+                                            </button>
+                                        );
+                                    })}
                                 </div>
 
                                 {/* Call Controls */}

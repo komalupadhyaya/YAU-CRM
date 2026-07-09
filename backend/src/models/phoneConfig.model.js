@@ -7,6 +7,7 @@ const PhoneConfigSchema = new mongoose.Schema({
         audioFileUrl: { type: String }
     },
     holdMusic: {
+        enabled: { type: Boolean, default: true },
         audioFileUrl: { type: String }
     },
     extensions: [{
@@ -23,7 +24,8 @@ const PhoneConfigSchema = new mongoose.Schema({
         useAudioFile: { type: Boolean, default: false }, // Toggle for MP3 vs TTS
         ttsMessage: { type: String, default: 'The department is busy. If you would like to leave a voicemail, please press 1.' }, // Custom TTS message
         audioFileUrl: { type: String }, // Custom voicemail greeting
-        emailNotification: { type: String } // Email to send voicemail recordings to
+        emailNotification: { type: String }, // Email to send voicemail recordings to
+        emailNotificationEnabled: { type: Boolean, default: false } // Toggle to enable/disable email sending
     },
     callRouting: {
         defaultForwardTo: { type: String } // Fallback number if no extension pressed

@@ -28,6 +28,11 @@ router.get('/config', auth, requireRole('admin'), voiceController.getConfig);
 router.put('/config', auth, requireRole('admin'), voiceController.updateConfig);
 router.post('/upload-audio', auth, requireRole('admin'), upload.single('file'), voiceController.uploadAudio);
 
+// --- Call History (Admin & Manager) ---
+router.get('/history', auth, requireRole('admin'), voiceController.getCallHistory);
+router.delete('/history', auth, requireRole('admin'), voiceController.deleteAllCallRecords);
+router.delete('/history/:id', auth, requireRole('admin'), voiceController.deleteCallRecord);
+
 // --- Voicemail Inbox (Admin Only) ---
 router.get('/voicemails', auth, requireRole('admin'), voiceController.getVoicemails);
 router.patch('/voicemails/:id/listened', auth, requireRole('admin'), voiceController.markVoicemailListened);

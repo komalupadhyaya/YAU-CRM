@@ -8,6 +8,8 @@ import Voicemail from '../models/voicemail.model.js';
 import fs from 'fs';
 import path from 'path';
 import User from '../models/user.model.js';
+import Call from '../models/call.model.js';
+import nodemailer from 'nodemailer';
 
 const { AccessToken } = twilio.jwt;
 const { VoiceGrant } = AccessToken;
@@ -28,6 +30,12 @@ const PENDING_RECORDING_TTL_MS = 30 * 60 * 1000; // 30 minutes
  */
 const agentCallStatusMap = new Map();
 const AGENT_STATUS_TTL_MS = 15 * 60 * 1000; // 15 minutes TTL
+
+/**
+ * In-memory map tracking parentCallSid -> childCallSid (outbound agent call)
+ * Key: parentCallSid, Value: childCallSid
+ */
+const parentChildCallMap = new Map();
 
 const storePendingRecording = (callSid, url, duration) => {
     pendingRecordings.set(callSid, { url, duration, receivedAt: Date.now() });
@@ -126,7 +134,7 @@ export const getVoiceToken = async (req, res, next) => {
 };
 
 // 2. Handle Outbound Call (TwiML App Webhook)
-export const handleOutboundCall = (req, res, next) => {
+export const handleOutboundCall = async (req, res, next) => {
     try {
         const twiml = new VoiceResponse();
         const to = req.body.To;
@@ -135,6 +143,44 @@ export const handleOutboundCall = (req, res, next) => {
             twiml.say('No phone number was provided to dial.');
             res.type('text/xml');
             return res.send(twiml.toString());
+        }
+
+        // Resolve agent identity
+        let agentEmail = req.body.From || '';
+        if (agentEmail.startsWith('client:')) {
+            agentEmail = agentEmail.replace('client:', '');
+        }
+
+        let user = null;
+        if (agentEmail) {
+            user = await User.findOne({ 
+                $or: [
+                    { email: agentEmail },
+                    { username: agentEmail }
+                ]
+            });
+        }
+
+        // Resolve associated lead (optional)
+        let leadId = req.body.leadId || null;
+        if (!leadId) {
+            const lead = await findLeadByPhone(to);
+            if (lead) leadId = lead._id;
+        }
+
+        // Create initial Call record
+        if (req.body.CallSid) {
+            await Call.create({
+                callSid: req.body.CallSid,
+                direction: 'outbound',
+                fromNumber: req.body.From || process.env.TWILIO_PHONE_NUMBER,
+                toNumber: to,
+                user_id: user ? user._id : null,
+                lead_id: leadId,
+                status: 'ringing',
+                timestamp: new Date()
+            });
+            console.log(`✅ Outbound call record initialized in DB: ${req.body.CallSid}`);
         }
 
         // Dial the number, enable recording
@@ -158,6 +204,47 @@ export const handleOutboundCall = (req, res, next) => {
 // 3. Handle Inbound Call (Main Number Webhook - Grasshopper IVR)
 export const handleInboundCall = async (req, res, next) => {
     try {
+        const parentCallSid = req.body.CallSid;
+        const fromNum = req.body.From;
+        const toNum = req.body.To;
+
+        if (parentCallSid) {
+            const companyPhone = process.env.TWILIO_PHONE_NUMBER;
+            const isInternalDial = fromNum && companyPhone && 
+                (fromNum.replace(/\D/g, '').slice(-10) === companyPhone.replace(/\D/g, '').slice(-10));
+
+            let linked = false;
+            if (isInternalDial) {
+                const fifteenSecondsAgo = new Date(Date.now() - 15 * 1000);
+                const matchingOutbound = await Call.findOne({
+                    direction: 'outbound',
+                    toNumber: { $regex: new RegExp(companyPhone.replace(/\D/g, '').slice(-10) + '$') },
+                    createdAt: { $gte: fifteenSecondsAgo }
+                }).sort({ createdAt: -1 });
+
+                if (matchingOutbound) {
+                    matchingOutbound.inboundCallSid = parentCallSid;
+                    await matchingOutbound.save();
+                    console.log(`🔗 Linked inbound call ${parentCallSid} to outbound call ${matchingOutbound.callSid} (Priyanshu outbound flow)`);
+                    linked = true;
+                }
+            }
+
+            if (!linked) {
+                const lead = await findLeadByPhone(fromNum);
+                await Call.create({
+                    callSid: parentCallSid,
+                    direction: 'inbound',
+                    fromNumber: fromNum || 'Unknown Caller',
+                    toNumber: toNum || companyPhone,
+                    lead_id: lead ? lead._id : null,
+                    status: 'ringing',
+                    timestamp: new Date()
+                });
+                console.log(`✅ Inbound call record initialized in DB: ${parentCallSid}`);
+            }
+        }
+
         let config = await PhoneConfig.findOne();
         
         // Seed a default config if none exists
@@ -318,7 +405,10 @@ export const handleExtension = async (req, res, next) => {
                 url: getAbsoluteUrl(req, `/api/voice/agent-join-queue?queueName=${queueName}`),
                 statusCallback: getAbsoluteUrl(req, `/api/voice/agent-call-status?parentCallSid=${parentCallSid}&extId=${ext._id}`),
                 statusCallbackEvent: ['completed'], // Trigger when call ends or fails (busy, no-answer, failed)
-                timeout: 20 // 20 seconds ring timeout
+                timeout: 20, // 20 seconds ring timeout
+                record: true, // Enable recording for this leg of the call
+                recordingStatusCallback: getAbsoluteUrl(req, `/api/voice/call-status?parentCallSid=${parentCallSid}`),
+                recordingStatusCallbackMethod: 'POST'
             };
 
             const targetAddress = isBrowserClient ? `client:${dialTarget}` : dialTarget;
@@ -327,6 +417,11 @@ export const handleExtension = async (req, res, next) => {
             client.calls.create({
                 ...dialOptions,
                 to: targetAddress
+            }).then(call => {
+                console.log(`🚀 Outbound call created with Sid: ${call.sid} for parent: ${parentCallSid}`);
+                parentChildCallMap.set(parentCallSid, call.sid);
+                // Auto-cleanup mapping after 15 minutes just in case
+                setTimeout(() => parentChildCallMap.delete(parentCallSid), 15 * 60 * 1000);
             }).catch(err => {
                 console.error(`❌ Failed to initiate Twilio outbound call to ${targetAddress}:`, err.message);
             });
@@ -407,14 +502,15 @@ export const handleHoldMusic = async (req, res, next) => {
         // --- STILL PENDING or ANSWERED ---
         // Play hold music ONCE, then redirect back to this endpoint to re-poll
         const config = await PhoneConfig.findOne();
-        if (config && config.holdMusic && config.holdMusic.audioFileUrl) {
+        const useHoldMusic = config?.holdMusic?.enabled !== false; // Default to true if not specified
+
+        if (useHoldMusic && config?.holdMusic?.audioFileUrl) {
             logDebug(`▶️ Playing custom hold music once: ${config.holdMusic.audioFileUrl}`);
             twiml.play(config.holdMusic.audioFileUrl); // plays once (default loop=1)
         } else {
-            // No hold music configured — pause for 10 seconds before re-polling
-            logDebug('⏸️ No hold music configured — pausing 10s before re-poll');
-            twiml.say({ voice: 'alice' }, 'Please continue to hold. We are connecting your call.');
-            twiml.pause({ length: 10 });
+            // Play default ringtone (ringback sound)
+            logDebug('🔔 Playing default network ringback tone');
+            twiml.play('https://raw.githubusercontent.com/baresip/baresip/master/share/ringback.wav');
         }
 
         // After music/pause finishes, redirect back to self to check agent status again
@@ -471,6 +567,53 @@ export const handleAgentCallStatus = async (req, res, next) => {
             logDebug(`📝 agentCallStatusMap['${queueName}'] = 'answered'`);
         }
 
+        // --- STEP 1.5: If answered, associate parent call with this agent user ---
+        if (callAnswered && parentCallSid && extId) {
+            try {
+                const config = await PhoneConfig.findOne();
+                const ext = config?.extensions?.find(e => e._id.toString() === extId);
+                if (ext) {
+                    let agentEmail = ext.forwardTo.trim();
+                    if (agentEmail.startsWith('client:')) {
+                        agentEmail = agentEmail.replace('client:', '');
+                    }
+                    
+                    let user = null;
+                    if (agentEmail.includes('@')) {
+                        user = await User.findOne({ 
+                            $or: [
+                                { email: agentEmail },
+                                { username: agentEmail }
+                            ]
+                        });
+                    } else {
+                        user = await User.findOne({ name: { $regex: agentEmail, $options: 'i' } });
+                    }
+
+                    if (user) {
+                        const callLog = await Call.findOne({
+                            $or: [
+                                { callSid: parentCallSid },
+                                { inboundCallSid: parentCallSid }
+                            ]
+                        });
+
+                        if (callLog) {
+                            if (callLog.direction === 'outbound') {
+                                callLog.forwardedToUser = user._id;
+                            } else {
+                                callLog.user_id = user._id;
+                            }
+                            await callLog.save();
+                            console.log(`✅ Linked agent ${user.username} to Call record (SID: ${callLog.callSid}, direction: ${callLog.direction})`);
+                        }
+                    }
+                }
+            } catch (assocErr) {
+                console.error('⚠️ Failed to associate agent with inbound call:', assocErr.message);
+            }
+        }
+
         // --- STEP 2: Also try REST API redirect as a fast-path ---
         // This immediately pulls the caller out of the hold music queue.
         // If this fails, the polling in handleHoldMusic will catch it after the current music loop ends.
@@ -485,6 +628,11 @@ export const handleAgentCallStatus = async (req, res, next) => {
             } catch (err) {
                 logDebug(`⚠️ Fast-path redirect failed (polling fallback will handle it): ${err.message}`);
             }
+        }
+
+        // Clean up parent-child call mapping as agent call has concluded
+        if (parentCallSid) {
+            parentChildCallMap.delete(parentCallSid);
         }
 
         res.sendStatus(200);
@@ -593,6 +741,46 @@ export const handleVoicemailRecording = async (req, res, next) => {
                 duration:     parseInt(RecordingDuration, 10) || 0,
                 callSid:      CallSid || null,
             });
+
+            // Sync recording URL to unified Call record
+            try {
+                const callRecord = await Call.findOne({
+                    $or: [
+                        { callSid: CallSid },
+                        { inboundCallSid: CallSid }
+                    ]
+                });
+                if (callRecord) {
+                    callRecord.recordingUrl = playableUrl;
+                    callRecord.duration = parseInt(RecordingDuration, 10) || callRecord.duration;
+                    callRecord.status = 'voicemail';
+                    await callRecord.save();
+                    console.log(`✅ Linked voicemail recording to Call record: ${callRecord.callSid}`);
+                }
+            } catch (errCall) {
+                console.error('❌ Failed to link voicemail recording to Call record:', errCall.message);
+            }
+
+            // --- Send Email Notification (if enabled) ---
+            const config = await PhoneConfig.findOne();
+            if (
+                config &&
+                config.voicemail.emailNotificationEnabled &&
+                config.voicemail.emailNotification
+            ) {
+                try {
+                    // Dynamically import the mailer service helper to avoid circular dependencies
+                    const { sendVoicemailEmailNotification } = await import('../services/mailer.js');
+                    await sendVoicemailEmailNotification({
+                        to: config.voicemail.emailNotification,
+                        fromNumber: From,
+                        duration: parseInt(RecordingDuration, 10) || 0,
+                        recordingUrl: playableUrl
+                    });
+                } catch (emailErr) {
+                    console.error(`❌ Failed to send voicemail email notification:`, emailErr.message);
+                }
+            }
         }
 
         const twiml = new VoiceResponse();
@@ -606,12 +794,13 @@ export const handleVoicemailRecording = async (req, res, next) => {
     }
 };
 
+
+
 // 7. Save Call Logs (Twilio Status Callback)
 export const handleCallStatus = async (req, res, next) => {
     try {
         const { 
             CallSid, 
-            ParentCallSid,
             To, 
             From, 
             CallDuration, 
@@ -622,11 +811,91 @@ export const handleCallStatus = async (req, res, next) => {
             RecordingDuration
         } = req.body;
 
+        const ParentCallSid = req.body.ParentCallSid || req.query.parentCallSid || req.query.ParentCallSid;
+
         console.log('☎️ Twilio Webhook:', JSON.stringify({ CallSid, ParentCallSid, CallStatus, RecordingStatus, RecordingUrl: RecordingUrl ? '[PRESENT]' : null, To, From }));
+
+        // --- STEP A: Update Call collection ---
+        try {
+            let callRecord = await Call.findOne({
+                $or: [
+                    { callSid: CallSid },
+                    { inboundCallSid: CallSid },
+                    { parentCallSid: CallSid },
+                    ...(ParentCallSid ? [
+                        { callSid: ParentCallSid },
+                        { inboundCallSid: ParentCallSid },
+                        { parentCallSid: ParentCallSid }
+                    ] : [])
+                ]
+            });
+
+            const resolvedDuration = RecordingDuration ? Number(RecordingDuration) : (CallDuration ? Number(CallDuration) : 0);
+            const cleanRecUrl = RecordingUrl ? (RecordingUrl.endsWith('.mp3') ? RecordingUrl : `${RecordingUrl}.mp3`) : null;
+
+            if (callRecord) {
+                if (CallStatus === 'completed') {
+                    callRecord.status = 'completed';
+                    if (resolvedDuration > 0) callRecord.duration = resolvedDuration;
+                }
+                if (cleanRecUrl) {
+                    callRecord.recordingUrl = cleanRecUrl;
+                    if (resolvedDuration > 0) callRecord.duration = resolvedDuration;
+                }
+                if (ParentCallSid && !callRecord.parentCallSid) {
+                    callRecord.parentCallSid = ParentCallSid;
+                }
+                await callRecord.save();
+                console.log(`✅ Call record updated for SID ${CallSid}: status=${callRecord.status}, duration=${callRecord.duration}, recording=${callRecord.recordingUrl ? 'YES' : 'NO'}`);
+            } else {
+                // Fallback creation
+                let user = null;
+                let fromEmail = From || '';
+                if (fromEmail.startsWith('client:')) {
+                    fromEmail = fromEmail.replace('client:', '');
+                }
+                if (fromEmail && fromEmail.includes('@')) {
+                    user = await User.findOne({ email: fromEmail });
+                }
+
+                let leadId = null;
+                const targetNumber = Direction === 'inbound' ? From : To;
+                const lead = await findLeadByPhone(targetNumber);
+                if (lead) leadId = lead._id;
+
+                callRecord = await Call.create({
+                    callSid: CallSid,
+                    parentCallSid: ParentCallSid || null,
+                    direction: Direction === 'inbound' ? 'inbound' : 'outbound',
+                    fromNumber: From,
+                    toNumber: To,
+                    duration: resolvedDuration,
+                    recordingUrl: cleanRecUrl,
+                    status: CallStatus || 'completed',
+                    user_id: user ? user._id : null,
+                    lead_id: leadId,
+                    timestamp: new Date()
+                });
+                console.log(`✅ Call record created on fallback for SID ${CallSid}`);
+            }
+        } catch (callLogErr) {
+            console.error('❌ Failed to update Call record in DB:', callLogErr.message);
+        }
 
         // Case 1: Call is completed (standard call completion webhook)
         // The action webhook fires when the <Dial> verb completes
         if (CallStatus === 'completed') {
+            // Cancel outstanding child call to agent if parent inbound call hangs up
+            const childCallSid = parentChildCallMap.get(CallSid);
+            if (childCallSid) {
+                parentChildCallMap.delete(CallSid);
+                console.log(`📞 Inbound parent call ${CallSid} completed. Terminating active child call to agent/department: ${childCallSid}`);
+                const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+                client.calls(childCallSid).update({ status: 'completed' }).catch(err => {
+                    console.error(`⚠️ Failed to cancel child call ${childCallSid}:`, err.message);
+                });
+            }
+
             const targetNumber = Direction === 'inbound' ? From : To;
             const lead = await findLeadByPhone(targetNumber);
 
@@ -909,6 +1178,43 @@ export const logCallOutcome = async (req, res, next) => {
 
         // Update callHistory if it's not already logged (ensures call appears in Call History tab)
         if (callSid) {
+            // Update or create Call Log in our new Call collection
+            try {
+                let callRecord = await Call.findOne({ callSid: callSid });
+                if (!callRecord) {
+                    callRecord = await Call.create({
+                        callSid: callSid,
+                        parentCallSid: parentCallSid || null,
+                        direction: 'outbound',
+                        fromNumber: process.env.TWILIO_PHONE_NUMBER,
+                        toNumber: lead.telephone || 'Unknown',
+                        duration: recordingDuration || 0,
+                        recordingUrl: recordingUrl || null,
+                        status: 'completed',
+                        user_id: req.user?.id || null,
+                        lead_id: lead._id,
+                        timestamp: new Date()
+                    });
+                    console.log(`✅ logCallOutcome: created Call record for SID ${callSid}`);
+                } else {
+                    let updated = false;
+                    if (recordingUrl && !callRecord.recordingUrl) {
+                        callRecord.recordingUrl = recordingUrl;
+                        updated = true;
+                    }
+                    if (recordingDuration && callRecord.duration === 0) {
+                        callRecord.duration = recordingDuration;
+                        updated = true;
+                    }
+                    if (updated) {
+                        await callRecord.save();
+                        console.log(`✅ logCallOutcome: updated Call record for SID ${callSid}`);
+                    }
+                }
+            } catch (errCall) {
+                console.error('❌ Failed to logCallOutcome Call record:', errCall.message);
+            }
+
             const alreadyInHistory = lead.callHistory.some(c => c.callSid === callSid || (c.parentCallSid && c.parentCallSid === callSid));
             if (!alreadyInHistory) {
                 lead.callHistory.push({
@@ -1125,6 +1431,85 @@ export const deleteVoicemail = async (req, res, next) => {
         const vm = await Voicemail.findByIdAndDelete(req.params.id);
         if (!vm) return res.status(404).json({ message: 'Voicemail not found.' });
         res.json({ message: 'Voicemail deleted.' });
+    } catch (err) {
+        next(err);
+    }
+};
+
+// --- Call History (Admin & Manager) ---
+export const getCallHistory = async (req, res, next) => {
+    try {
+        const page = parseInt(req.query.page, 10) || 1;
+        const limit = parseInt(req.query.limit, 10) || 20;
+        const search = req.query.search || '';
+
+        const query = {};
+
+        if (search) {
+            // Find users matching search
+            const users = await User.find({
+                $or: [
+                    { name: { $regex: search, $options: 'i' } },
+                    { username: { $regex: search, $options: 'i' } }
+                ]
+            }).select('_id');
+            const userIds = users.map(u => u._id);
+
+            // Find leads matching search
+            const leads = await Lead.find({
+                name: { $regex: search, $options: 'i' }
+            }).select('_id');
+            const leadIds = leads.map(l => l._id);
+
+            query.$or = [
+                { fromNumber: { $regex: search, $options: 'i' } },
+                { toNumber: { $regex: search, $options: 'i' } },
+                { user_id: { $in: userIds } },
+                { forwardedToUser: { $in: userIds } },
+                { lead_id: { $in: leadIds } }
+            ];
+        }
+
+        const total = await Call.countDocuments(query);
+        const calls = await Call.find(query)
+            .populate('user_id', 'name username email')
+            .populate('forwardedToUser', 'name username email')
+            .populate('lead_id', 'name telephone')
+            .sort({ timestamp: -1 })
+            .skip((page - 1) * limit)
+            .limit(limit);
+
+        res.json({
+            calls,
+            page,
+            limit,
+            total,
+            pages: Math.ceil(total / limit)
+        });
+    } catch (err) {
+        next(err);
+    }
+};
+
+// Delete a call log record
+export const deleteCallRecord = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const result = await Call.findByIdAndDelete(id);
+        if (!result) {
+            return res.status(404).json({ message: 'Call log not found' });
+        }
+        res.json({ message: 'Call log deleted successfully' });
+    } catch (err) {
+        next(err);
+    }
+};
+
+// Delete all call log records
+export const deleteAllCallRecords = async (req, res, next) => {
+    try {
+        await Call.deleteMany({});
+        res.json({ message: 'All call logs deleted successfully' });
     } catch (err) {
         next(err);
     }

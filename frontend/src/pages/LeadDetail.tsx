@@ -345,7 +345,8 @@ export default function LeadDetail() {
 
   const loadAll = async (silent = false) => {
     if (!silent) setInitialLoading(true);
-    if (!silent) setLoadingNotes(true);
+    setLoadingNotes(true);
+    const startTime = Date.now();
     try {
       const [leadRes, notesRes, followUpsRes] = await Promise.all([
         api.get("/leads/" + id),
@@ -366,6 +367,12 @@ export default function LeadDetail() {
     } catch (error) {
       console.error(error);
     } finally {
+      // Enforce at least 600ms of loading time for a visible and smooth spin animation
+      const elapsedTime = Date.now() - startTime;
+      const minDuration = 600;
+      if (elapsedTime < minDuration) {
+        await new Promise(resolve => setTimeout(resolve, minDuration - elapsedTime));
+      }
       setInitialLoading(false);
       setLoadingNotes(false);
     }
@@ -677,7 +684,7 @@ export default function LeadDetail() {
     const phone = contact?.direct_phone || lead?.telephone;
     if (phone) {
       const cleanPhone = phone.startsWith('+') ? phone : `${phonePrefix}${phone.replace(/\D/g, '')}`;
-      openDialer(cleanPhone, id, contact?.name || lead?.name || 'Unknown');
+      openDialer(cleanPhone, id, contact?.name || lead?.name || 'Unknown', true);
     }
     // Open the outcome modal so the agent can log it when they finish
     setCallOutcome("Answered - Interested"); // Default
@@ -1409,11 +1416,14 @@ export default function LeadDetail() {
                 )}
 
                 <button
-                  onClick={() => loadAll()}
-                  className="p-1 hover:bg-accent rounded-full transition-colors text-muted-foreground hover:text-primary"
+                  onClick={() => loadAll(true)}
+                  className="p-1 hover:bg-accent rounded-full transition-all text-muted-foreground hover:text-primary active:scale-95"
                   title="Refresh activity feed"
                 >
-                  <RefreshCw size={14} className={loadingNotes ? "animate-spin" : ""} />
+                  <RefreshCw 
+                    size={14} 
+                    className={loadingNotes ? "animate-spin" : ""} 
+                  />
                 </button>
 
                 {activeLogTab === 'activity' && (
@@ -1525,7 +1535,9 @@ export default function LeadDetail() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border/20">
-                        {lead.callHistory.map((call) => (
+                        {[...lead.callHistory]
+                          .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+                          .map((call) => (
                           <tr key={call.callSid} className="text-xs text-foreground hover:bg-accent/10">
                             <td className="py-3 px-3 font-semibold">
                               {call.direction === 'inbound' ? '📲 Inbound' : '📞 Outbound'}
@@ -2290,7 +2302,19 @@ export default function LeadDetail() {
             </div>
           </div>
           <DialogFooter className="p-6 pt-2 border-t flex-shrink-0">
-            <button type="button" className="btn-secondary" onClick={() => setIsCallModalOpen(false)}>Cancel</button>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => {
+                setIsCallModalOpen(false);
+                loadAll();
+                setTimeout(() => {
+                  loadAll();
+                }, 2500);
+              }}
+            >
+              Cancel
+            </button>
             <button
               disabled={isSubmitting}
               className={`btn-primary ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`}
