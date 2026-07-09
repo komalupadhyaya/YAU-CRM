@@ -34,7 +34,6 @@ const allowedOrigins = [
     'http://localhost:8080',
     'http://127.0.0.1:8080',
     'https://youthathleteuniversity.org',
-    'https://upload-next-fetal.ngrok-free.dev',
     process.env.FRONTEND_URL
 ].filter(Boolean);
 
@@ -49,7 +48,8 @@ app.use(cors({
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Cookie']
+    allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
+    optionsSuccessStatus: 200
 }));
 
 app.use(express.json());

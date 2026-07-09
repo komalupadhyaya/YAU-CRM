@@ -9,7 +9,6 @@ import fs from 'fs';
 import path from 'path';
 import User from '../models/user.model.js';
 import Call from '../models/call.model.js';
-import nodemailer from 'nodemailer';
 
 const { AccessToken } = twilio.jwt;
 const { VoiceGrant } = AccessToken;
