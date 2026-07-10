@@ -12,7 +12,7 @@ import { invalidatedUsers } from '../utils/sessionCache.js';
  */
 export const getUsers = async (req, res, next) => {
     try {
-        const users = await User.find({}, 'username name email role isActive createdAt')
+        const users = await User.find({}, 'username name email role isActive phone createdAt')
             .sort({ createdAt: -1 });
 
         const safeUsers = users.map(u => {
@@ -35,7 +35,7 @@ export const getUsers = async (req, res, next) => {
  */
 export const createUser = async (req, res, next) => {
     try {
-        const { name, email, password, role } = req.body;
+        const { name, email, password, role, phone } = req.body;
 
         if (!email || !password) {
             res.status(400);
@@ -57,6 +57,7 @@ export const createUser = async (req, res, next) => {
             name: name || email,
             password: hashedPassword,
             role: role || 'sales_rep',
+            phone: phone || '',
             isActive: true
         });
 
@@ -75,6 +76,7 @@ export const createUser = async (req, res, next) => {
             name: user.name,
             email: user.email,
             role: user.role,
+            phone: user.phone || '',
             isActive: user.isActive,
             createdAt: user.createdAt
         });
@@ -91,7 +93,7 @@ export const createUser = async (req, res, next) => {
 export const updateUser = async (req, res, next) => {
     try {
         const { id } = req.params;
-        const { name, email, role, password } = req.body;
+        const { name, email, role, password, phone } = req.body;
 
         const user = await User.findById(id);
         if (!user) {
@@ -107,6 +109,7 @@ export const updateUser = async (req, res, next) => {
 
         if (name !== undefined) user.name = name;
         if (role !== undefined) user.role = role;
+        if (phone !== undefined) user.phone = phone;
 
         if (password && password.trim().length > 0) {
             user.password = await bcrypt.hash(password, 10);
@@ -123,6 +126,7 @@ export const updateUser = async (req, res, next) => {
             name: user.name,
             email: user.email,
             role: user.role,
+            phone: user.phone || '',
             isActive: user.isActive,
             createdAt: user.createdAt
         });

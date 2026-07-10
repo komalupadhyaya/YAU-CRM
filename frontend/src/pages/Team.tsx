@@ -5,6 +5,7 @@ import {
     Users,
     Shield,
     Mail,
+    Phone,
     Calendar,
     Plus,
     Pencil,
@@ -68,6 +69,7 @@ interface TeamUser {
     name?: string;
     email?: string;
     role: string;
+    phone?: string;
     isActive: boolean;
     createdAt: string;
 }
@@ -92,6 +94,7 @@ const defaultForm = {
     email: "",
     password: "",
     role: "sales_rep",
+    phone: "",
 };
 
 export default function Team() {
@@ -152,6 +155,7 @@ export default function Team() {
             email: user.email ?? user.username,
             password: "",
             role: user.role,
+            phone: user.phone ?? "",
         });
         setShowPassword(false);
         setModalOpen(true);
@@ -173,6 +177,7 @@ export default function Team() {
                     name: form.name,
                     email: form.email,
                     role: form.role,
+                    phone: form.phone,
                 };
                 if (form.password.trim()) payload.password = form.password;
                 const res = await api.put(`/team/${editingUser._id}`, payload);
@@ -318,6 +323,7 @@ export default function Team() {
                                 <TableRow className="hover:bg-transparent">
                                     <TableHead className="w-[260px]">Member</TableHead>
                                     <TableHead>Email</TableHead>
+                                    <TableHead>Phone Number</TableHead>
                                     <TableHead>Role</TableHead>
                                     <TableHead>Status</TableHead>
                                     <TableHead>Joined</TableHead>
@@ -328,7 +334,7 @@ export default function Team() {
                                 {loading ? (
                                     Array.from({ length: 3 }).map((_, i) => (
                                         <TableRow key={i}>
-                                            {Array.from({ length: 6 }).map((_, j) => (
+                                            {Array.from({ length: 7 }).map((_, j) => (
                                                 <TableCell key={j}>
                                                     <div className="h-4 bg-muted animate-pulse rounded" />
                                                 </TableCell>
@@ -337,7 +343,7 @@ export default function Team() {
                                     ))
                                 ) : filtered.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={6} className="h-40 text-center text-muted-foreground">
+                                        <TableCell colSpan={7} className="h-40 text-center text-muted-foreground">
                                             <div className="flex flex-col items-center gap-2">
                                                 <Users size={32} className="text-muted-foreground/30" />
                                                 <span>
@@ -379,6 +385,14 @@ export default function Team() {
                                                     <span className="truncate max-w-[200px]">
                                                         {user.email || user.username || "—"}
                                                     </span>
+                                                </div>
+                                            </TableCell>
+
+                                            {/* Phone Number */}
+                                            <TableCell>
+                                                <div className="flex items-center gap-2 text-sm text-muted-foreground font-mono">
+                                                    <Phone size={13} />
+                                                    <span>{user.phone || "—"}</span>
                                                 </div>
                                             </TableCell>
 
@@ -522,8 +536,15 @@ export default function Team() {
                                         </span>
                                     </div>
 
-                                    {/* Body: Status & Joined Date */}
-                                    <div className="grid grid-cols-2 gap-4 py-2 border-y border-border/50 text-xs">
+                                    {/* Body: Phone, Status & Joined Date */}
+                                    <div className="grid grid-cols-3 gap-4 py-2 border-y border-border/50 text-xs">
+                                        <div>
+                                            <p className="text-muted-foreground mb-1">Phone</p>
+                                            <div className="flex items-center gap-1.5 text-muted-foreground font-mono font-medium mt-1">
+                                                <Phone size={12} />
+                                                <span className="truncate">{user.phone || "—"}</span>
+                                            </div>
+                                        </div>
                                         <div>
                                             <p className="text-muted-foreground mb-1">Status</p>
                                             <div className={`flex items-center gap-2 transition-all ${!isDefaultAdmin ? "blur-[0.5px] opacity-40 cursor-not-allowed pointer-events-none" : ""}`}>
@@ -664,6 +685,22 @@ export default function Team() {
                             <p className="text-[11px] text-muted-foreground">
                                 This becomes their login username.
                             </p>
+                        </div>
+
+                        {/* Phone Number */}
+                        <div className="space-y-1.5">
+                            <Label htmlFor="form-phone">Phone Number</Label>
+                            <div className="relative">
+                                <Phone size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                                <Input
+                                    id="form-phone"
+                                    type="text"
+                                    placeholder="+1 (555) 000-0000"
+                                    value={form.phone}
+                                    onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                                    className="pl-9"
+                                />
+                            </div>
                         </div>
 
                         {/* Password */}

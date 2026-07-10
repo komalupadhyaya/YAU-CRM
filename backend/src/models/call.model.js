@@ -13,6 +13,8 @@ const CallSchema = new mongoose.Schema({
     timestamp: { type: Date, default: Date.now },
     user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true, default: null },
     forwardedToUser: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true, default: null },
+    forwardedToNumber: { type: String, default: null },
+    forwardedToExtensionLabel: { type: String, default: null },
     lead_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Lead', index: true, default: null }
 }, { timestamps: true });
 

@@ -36,6 +36,7 @@ router.delete('/history/:id', auth, requireRole('admin'), voiceController.delete
 // --- Voicemail Inbox (Admin Only) ---
 router.get('/voicemails', auth, requireRole('admin'), voiceController.getVoicemails);
 router.patch('/voicemails/:id/listened', auth, requireRole('admin'), voiceController.markVoicemailListened);
+router.delete('/voicemails', auth, requireRole('admin'), voiceController.deleteAllVoicemails);
 router.delete('/voicemails/:id', auth, requireRole('admin'), voiceController.deleteVoicemail);
 
 export default router;

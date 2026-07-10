@@ -10,7 +10,8 @@ const UserSchema = new mongoose.Schema({
         enum: ['admin', 'manager', 'sales_rep', 'view_only'],
         default: 'sales_rep'
     },
-    isActive: { type: Boolean, default: true }
+    isActive: { type: Boolean, default: true },
+    phone: { type: String, default: "" }
 }, { timestamps: true });
 
 export const User = mongoose.model('User', UserSchema);

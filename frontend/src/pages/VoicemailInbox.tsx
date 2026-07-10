@@ -10,7 +10,8 @@ import { toast } from "sonner";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel,
   AlertDialogContent, AlertDialogDescription,
-  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogTrigger
 } from "@/components/ui/alert-dialog";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -157,7 +158,7 @@ function VoicemailTableRow({ vm, onDelete, onListened }: VoicemailCardProps) {
           className="p-2 rounded-lg hover:bg-rose-500/15 text-muted-foreground/80 hover:text-rose-400 transition-colors"
           title="Delete voicemail"
         >
-          <Trash2 className="w-4.5 h-4.5" />
+          <Trash2 size={16} />
         </button>
       </td>
     </tr>
@@ -215,6 +216,16 @@ export default function VoicemailInbox() {
     } finally {
       setDeleteTargetId(null);
       setConfirmOpen(false);
+    }
+  };
+
+  const handleDeleteAllConfirm = async () => {
+    try {
+      await api.delete("/voice/voicemails");
+      setVoicemails([]);
+      toast.success("All voicemails deleted successfully.");
+    } catch {
+      toast.error("Failed to delete all voicemails.");
     }
   };
 
@@ -293,14 +304,50 @@ export default function VoicemailInbox() {
             </p>
           </div>
 
-          <button
-            onClick={() => load(true)}
-            disabled={refreshing}
-            className="group flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground border border-border hover:border-border px-3 py-1.5 rounded-lg transition-all active:scale-95 shrink-0"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 transition-all duration-300 group-active:-rotate-180 ${refreshing ? "animate-spin" : ""}`} />
-            Refresh
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <button
+                  disabled={loading || refreshing || voicemails.length === 0}
+                  className="flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-destructive/10 text-destructive hover:bg-destructive hover:text-destructive-foreground border border-destructive/20 shadow-sm transition-all duration-200 active:scale-[0.98] disabled:opacity-50"
+                  title="Delete all voicemails permanently"
+                >
+                  <Trash2 size={12} />
+                  Delete All
+                </button>
+              </AlertDialogTrigger>
+              <AlertDialogContent className="bg-background border border-border shadow-2xl rounded-2xl max-w-md p-6 text-foreground">
+                <AlertDialogHeader>
+                  <AlertDialogTitle className="text-lg font-bold text-foreground">
+                    Permanently delete all voicemails?
+                  </AlertDialogTitle>
+                  <AlertDialogDescription className="text-sm text-muted-foreground mt-2 leading-relaxed">
+                    This action is <strong className="text-destructive font-semibold">permanent and irreversible</strong>. It will completely wipe all voicemail records and their audio recording references from the database.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter className="mt-6 flex gap-2">
+                  <AlertDialogCancel className="bg-secondary text-secondary-foreground hover:bg-secondary/80 border border-border font-semibold px-4 py-2 rounded-lg text-xs">
+                    Cancel
+                  </AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={handleDeleteAllConfirm}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90 font-semibold px-4 py-2 rounded-lg text-xs border border-transparent"
+                  >
+                    Delete Permanently
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+
+            <button
+              onClick={() => load(true)}
+              disabled={refreshing}
+              className="group flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground border border-border px-3 py-1.5 rounded-lg transition-all active:scale-95 shrink-0"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 transition-all duration-300 group-active:-rotate-180 ${refreshing ? "animate-spin" : ""}`} />
+              Refresh
+            </button>
+          </div>
         </div>
 
         {/* ── Stats bar ── */}

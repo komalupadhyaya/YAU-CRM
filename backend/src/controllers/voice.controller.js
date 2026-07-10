@@ -152,7 +152,7 @@ export const handleOutboundCall = async (req, res, next) => {
 
         let user = null;
         if (agentEmail) {
-            user = await User.findOne({ 
+            user = await User.findOne({
                 $or: [
                     { email: agentEmail },
                     { username: agentEmail }
@@ -209,7 +209,7 @@ export const handleInboundCall = async (req, res, next) => {
 
         if (parentCallSid) {
             const companyPhone = process.env.TWILIO_PHONE_NUMBER;
-            const isInternalDial = fromNum && companyPhone && 
+            const isInternalDial = fromNum && companyPhone &&
                 (fromNum.replace(/\D/g, '').slice(-10) === companyPhone.replace(/\D/g, '').slice(-10));
 
             let linked = false;
@@ -245,7 +245,7 @@ export const handleInboundCall = async (req, res, next) => {
         }
 
         let config = await PhoneConfig.findOne();
-        
+
         // Seed a default config if none exists
         if (!config) {
             config = await PhoneConfig.create({
@@ -305,7 +305,7 @@ export const handleInboundCall = async (req, res, next) => {
                     gather.say(`Press ${ext.digit} for ${ext.label}.`);
                 });
             }
-            
+
             // If they press nothing, fall back to default routing
             twiml.redirect(getAbsoluteUrl(req, '/api/voice/handle-extension?timeout=true'));
         } else {
@@ -323,7 +323,7 @@ export const handleInboundCall = async (req, res, next) => {
                     record: 'record-from-answer-dual',
                     recordingStatusCallback: getAbsoluteUrl(req, '/api/voice/call-status')
                 });
-                
+
                 const forward = config.callRouting.defaultForwardTo;
                 if (forward.includes('@')) {
                     dial.client(forward);
@@ -366,6 +366,23 @@ export const handleExtension = async (req, res, next) => {
         console.log(`📞 handleExtension: digit=${digit}, matched ext=`, ext ? JSON.stringify({ digit: ext.digit, label: ext.label, forwardTo: ext.forwardTo }) : 'NONE');
 
         if (ext) {
+            // Find parent call record and update it with extension label & number
+            const parentCallSid = req.body.CallSid;
+            if (parentCallSid) {
+                try {
+                    await Call.findOneAndUpdate(
+                        { callSid: parentCallSid },
+                        {
+                            forwardedToExtensionLabel: ext.label,
+                            forwardedToNumber: ext.forwardTo
+                        }
+                    );
+                    console.log(`✅ Updated Call record ${parentCallSid} with extension label: "${ext.label}"`);
+                } catch (errCall) {
+                    console.error(`⚠️ Failed to update Call record with extension info:`, errCall.message);
+                }
+            }
+
             // Normalize forwardTo to E.164 format if it's a phone number (not a browser client email)
             let dialTarget = ext.forwardTo.trim();
             const isBrowserClient = dialTarget.includes('@');
@@ -386,7 +403,6 @@ export const handleExtension = async (req, res, next) => {
             console.log(`📡 Dialing target after normalization: "${dialTarget}" (browser client: ${isBrowserClient})`);
 
             // Place caller in Queue with Hold Music and Dial the Agent in parallel via REST API
-            const parentCallSid = req.body.CallSid;
             const queueName = `q_${parentCallSid}`;
 
             // Initialize queue status as 'pending' — holdMusic endpoint polls this map
@@ -441,7 +457,7 @@ export const handleExtension = async (req, res, next) => {
                         record: 'record-from-answer-dual',
                         recordingStatusCallback: getAbsoluteUrl(req, '/api/voice/call-status')
                     });
-                    
+
                     if (config.callRouting.defaultForwardTo.includes('@')) {
                         dial.client(config.callRouting.defaultForwardTo);
                     } else {
@@ -576,10 +592,10 @@ export const handleAgentCallStatus = async (req, res, next) => {
                     if (agentEmail.startsWith('client:')) {
                         agentEmail = agentEmail.replace('client:', '');
                     }
-                    
+
                     let user = null;
                     if (agentEmail.includes('@')) {
-                        user = await User.findOne({ 
+                        user = await User.findOne({
                             $or: [
                                 { email: agentEmail },
                                 { username: agentEmail }
@@ -589,23 +605,27 @@ export const handleAgentCallStatus = async (req, res, next) => {
                         user = await User.findOne({ name: { $regex: agentEmail, $options: 'i' } });
                     }
 
-                    if (user) {
-                        const callLog = await Call.findOne({
-                            $or: [
-                                { callSid: parentCallSid },
-                                { inboundCallSid: parentCallSid }
-                            ]
-                        });
+                    const callLog = await Call.findOne({
+                        $or: [
+                            { callSid: parentCallSid },
+                            { inboundCallSid: parentCallSid }
+                        ]
+                    });
 
-                        if (callLog) {
+                    if (callLog) {
+                        callLog.forwardedToNumber = ext.forwardTo;
+                        callLog.forwardedToExtensionLabel = ext.label;
+                        if (user) {
                             if (callLog.direction === 'outbound') {
                                 callLog.forwardedToUser = user._id;
                             } else {
                                 callLog.user_id = user._id;
                             }
-                            await callLog.save();
                             console.log(`✅ Linked agent ${user.username} to Call record (SID: ${callLog.callSid}, direction: ${callLog.direction})`);
+                        } else {
+                            console.log(`ℹ️ Forwarded target is raw destination: ${ext.forwardTo}`);
                         }
+                        await callLog.save();
                     }
                 }
             } catch (assocErr) {
@@ -646,7 +666,7 @@ export const handleDialAction = async (req, res, next) => {
     try {
         const dialStatus = req.body.DialCallStatus || req.query.DialCallStatus; // Read from body or query fallback
         const forceVoicemail = req.query.voicemail === 'true';
-        
+
         logDebug(`📞 handleDialAction: dialStatus=${dialStatus}, forceVoicemail=${forceVoicemail}, body=${JSON.stringify(req.body)}, query=${JSON.stringify(req.query)}`);
 
         const config = await PhoneConfig.findOne();
@@ -702,7 +722,7 @@ export const handleVoicemailChoice = async (req, res, next) => {
             if (config && config.voicemail.enabled) {
                 // The caller has chosen to leave a voicemail.
                 twiml.say('Please leave your message after the beep.');
-                
+
                 // Record voicemail
                 twiml.record({
                     action: getAbsoluteUrl(req, '/api/voice/voicemail-recording'),
@@ -735,10 +755,10 @@ export const handleVoicemailRecording = async (req, res, next) => {
         if (RecordingUrl) {
             const playableUrl = RecordingUrl.endsWith('.mp3') ? RecordingUrl : `${RecordingUrl}.mp3`;
             await Voicemail.create({
-                fromNumber:   From || 'Unknown Caller',
+                fromNumber: From || 'Unknown Caller',
                 recordingUrl: playableUrl,
-                duration:     parseInt(RecordingDuration, 10) || 0,
-                callSid:      CallSid || null,
+                duration: parseInt(RecordingDuration, 10) || 0,
+                callSid: CallSid || null,
             });
 
             // Sync recording URL to unified Call record
@@ -798,13 +818,13 @@ export const handleVoicemailRecording = async (req, res, next) => {
 // 7. Save Call Logs (Twilio Status Callback)
 export const handleCallStatus = async (req, res, next) => {
     try {
-        const { 
-            CallSid, 
-            To, 
-            From, 
-            CallDuration, 
-            RecordingUrl, 
-            CallStatus, 
+        const {
+            CallSid,
+            To,
+            From,
+            CallDuration,
+            RecordingUrl,
+            CallStatus,
             Direction,
             RecordingStatus,
             RecordingDuration
@@ -829,7 +849,7 @@ export const handleCallStatus = async (req, res, next) => {
                 ]
             });
 
-            const resolvedDuration = RecordingDuration ? Number(RecordingDuration) : (CallDuration ? Number(CallDuration) : 0);
+            const resolvedDuration = RecordingDuration ? Number(RecordingDuration) : 0;
             const cleanRecUrl = RecordingUrl ? (RecordingUrl.endsWith('.mp3') ? RecordingUrl : `${RecordingUrl}.mp3`) : null;
 
             if (callRecord) {
@@ -896,24 +916,36 @@ export const handleCallStatus = async (req, res, next) => {
             }
 
             const targetNumber = Direction === 'inbound' ? From : To;
-            const lead = await findLeadByPhone(targetNumber);
+            const lead = targetNumber ? await findLeadByPhone(targetNumber) : null;
 
             if (lead) {
+                // Check if recording callback already fired before us (race condition buffer)
+                const bufferedRecording = consumePendingRecording(CallSid) || (ParentCallSid ? consumePendingRecording(ParentCallSid) : null);
+
                 // Check if this call is already logged in callHistory using either CallSid or ParentCallSid
-                let loggedCall = lead.callHistory.find(c => 
-                    c.callSid === CallSid || 
+                let loggedCall = lead.callHistory.find(c =>
+                    c.callSid === CallSid ||
                     (ParentCallSid && c.callSid === ParentCallSid) ||
                     (c.parentCallSid && c.parentCallSid === CallSid) ||
                     (ParentCallSid && c.parentCallSid === ParentCallSid)
                 );
 
                 if (!loggedCall) {
+                    let resolvedDir = Direction === 'inbound' ? 'inbound' : 'outbound';
+                    if (callRecord) {
+                        resolvedDir = callRecord.direction;
+                    } else if (From && (From.startsWith('client:') || From.includes('@'))) {
+                        resolvedDir = 'outbound';
+                    } else if (To && (To.startsWith('client:') || To.includes('@'))) {
+                        resolvedDir = 'inbound';
+                    }
+
                     lead.callHistory.push({
                         callSid: CallSid,
                         parentCallSid: ParentCallSid || null,
-                        direction: Direction === 'inbound' ? 'inbound' : 'outbound',
-                        duration: CallDuration ? Number(CallDuration) : 0,
-                        recordingUrl: null, // recording URL comes in a separate async callback
+                        direction: resolvedDir,
+                        duration: bufferedRecording?.duration || (RecordingDuration ? Number(RecordingDuration) : 0),
+                        recordingUrl: bufferedRecording?.url || null,
                         status: CallStatus,
                         timestamp: new Date()
                     });
@@ -949,16 +981,13 @@ export const handleCallStatus = async (req, res, next) => {
                         ] : [])
                     ]
                 });
-                
+
                 if (!noteExists) {
-                    const durationSec = CallDuration ? Number(CallDuration) : 0;
+                    const durationSec = bufferedRecording?.duration || (RecordingDuration ? Number(RecordingDuration) : 0);
                     const minutes = Math.floor(durationSec / 60);
                     const seconds = durationSec % 60;
                     const durationText = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
                     const content = `CALL LOG: ${Direction === 'inbound' ? '📲 Inbound' : '📞 Outbound'} Call\nStatus: ${CallStatus}\nDuration: ${durationText}`;
-
-                    // Check if recording callback already fired before us (race condition buffer)
-                    const bufferedRecording = consumePendingRecording(CallSid) || (ParentCallSid ? consumePendingRecording(ParentCallSid) : null);
 
                     const newNote = await Note.create({
                         lead_id: lead._id,
@@ -968,7 +997,7 @@ export const handleCallStatus = async (req, res, next) => {
                             callSid: CallSid,
                             parentCallSid: ParentCallSid || null,
                             outcome: CallStatus,
-                            recording_duration: bufferedRecording?.duration || durationSec,
+                            recording_duration: durationSec,
                             recording_url: bufferedRecording?.url || null
                         }
                     });
@@ -983,7 +1012,7 @@ export const handleCallStatus = async (req, res, next) => {
                     if (bufferedRecording) {
                         lead.callHistory = lead.callHistory.map(call => {
                             if (
-                                call.callSid === CallSid || 
+                                call.callSid === CallSid ||
                                 (ParentCallSid && call.callSid === ParentCallSid) ||
                                 (call.parentCallSid && call.parentCallSid === CallSid) ||
                                 (ParentCallSid && call.parentCallSid === ParentCallSid)
@@ -1039,12 +1068,15 @@ export const handleCallStatus = async (req, res, next) => {
                 // Update the recording URL in callHistory
                 lead.callHistory = lead.callHistory.map(call => {
                     if (
-                        call.callSid === CallSid || 
+                        call.callSid === CallSid ||
                         (ParentCallSid && call.callSid === ParentCallSid) ||
                         (call.parentCallSid && call.parentCallSid === CallSid) ||
                         (ParentCallSid && call.parentCallSid === ParentCallSid)
                     ) {
                         call.recordingUrl = playableRecordingUrl;
+                        if (RecordingDuration) {
+                            call.duration = Number(RecordingDuration);
+                        }
                     }
                     return call;
                 });
@@ -1069,14 +1101,22 @@ export const handleCallStatus = async (req, res, next) => {
             console.log(`📝 Found ${notes.length} note(s) to update with recording URL`);
 
             for (const note of notes) {
+                const durationSec = RecordingDuration ? Number(RecordingDuration) : 0;
+                const minutes = Math.floor(durationSec / 60);
+                const seconds = durationSec % 60;
+                const durationText = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+
+                const directionText = note.content.includes('Inbound') ? '📲 Inbound' : '📞 Outbound';
+                note.content = `CALL LOG: ${directionText} Call\nStatus: completed\nDuration: ${durationText}`;
+
                 note.metadata = {
                     ...note.metadata,
                     recording_url: playableRecordingUrl,
-                    recording_duration: RecordingDuration ? Number(RecordingDuration) : (note.metadata?.recording_duration || 0)
+                    recording_duration: durationSec
                 };
                 note.markModified('metadata');
                 await note.save();
-                console.log(`✅ Note ${note._id} updated with recording_url`);
+                console.log(`✅ Note ${note._id} updated with recording_url and duration`);
             }
 
             if (notes.length === 0) {
@@ -1163,8 +1203,8 @@ export const logCallOutcome = async (req, res, next) => {
             lead_id,
             content,
             type: 'call',
-            metadata: { 
-                outcome, 
+            metadata: {
+                outcome,
                 contact_name,
                 callSid,
                 parentCallSid: parentCallSid || null,
@@ -1279,7 +1319,7 @@ export const getConfig = async (req, res, next) => {
 export const updateConfig = async (req, res, next) => {
     try {
         let config = await PhoneConfig.findOne();
-        
+
         // Cache previous audio file URLs to check for updates
         const oldGreetingUrl = config?.greeting?.audioFileUrl;
         const oldHoldMusicUrl = config?.holdMusic?.audioFileUrl;
@@ -1351,7 +1391,7 @@ export const uploadAudio = async (req, res, next) => {
             try {
                 // Dynamically import AWS SDK to avoid crash if not installed
                 const { S3Client, PutObjectCommand } = await import('@aws-sdk/client-s3');
-                
+
                 const s3Client = new S3Client({
                     region: AWS_REGION || 'us-east-1',
                     credentials: {
@@ -1369,7 +1409,7 @@ export const uploadAudio = async (req, res, next) => {
                 };
 
                 await s3Client.send(new PutObjectCommand(uploadParams));
-                
+
                 const s3Url = `https://${AWS_BUCKET_NAME}.s3.${AWS_REGION || 'us-east-1'}.amazonaws.com/audio/${filename}`;
                 return res.json({ url: s3Url });
             } catch (s3Error) {
@@ -1430,6 +1470,16 @@ export const deleteVoicemail = async (req, res, next) => {
         const vm = await Voicemail.findByIdAndDelete(req.params.id);
         if (!vm) return res.status(404).json({ message: 'Voicemail not found.' });
         res.json({ message: 'Voicemail deleted.' });
+    } catch (err) {
+        next(err);
+    }
+};
+
+// DELETE /api/voice/voicemails – permanently remove all voicemails
+export const deleteAllVoicemails = async (req, res, next) => {
+    try {
+        await Voicemail.deleteMany({});
+        res.json({ message: 'All voicemails deleted successfully' });
     } catch (err) {
         next(err);
     }
