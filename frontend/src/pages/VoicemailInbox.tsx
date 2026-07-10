@@ -2,7 +2,7 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import api from "../api/api";
 import AppLayout from "../layout/AppLayout";
 import {
-  Voicemail, Search, Trash2, Play, Phone, Clock, Calendar,
+  Voicemail, Search, Trash2, Phone, Clock,
   Loader2, Inbox, AlertCircle, CheckCircle2, RefreshCw, ChevronLeft, ChevronRight, MoreHorizontal
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -138,7 +138,6 @@ function VoicemailTableRow({ vm, onDelete, onListened }: VoicemailCardProps) {
       {/* Recording Player */}
       <td className="px-4 py-3 min-w-[280px] align-middle text-center">
         <div className="flex items-center justify-center gap-2 bg-muted/50 rounded-lg px-3 py-1.5 border border-border/80 w-full max-w-sm mx-auto">
-          <Play className={`w-3.5 h-3.5 shrink-0 ${playing ? "text-primary" : "text-muted-foreground/80"}`} />
           <audio
             ref={audioRef}
             src={vm.recordingUrl}

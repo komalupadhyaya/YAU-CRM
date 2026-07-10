@@ -409,7 +409,7 @@ export default function PhoneSystem() {
                                             </div>
                                             <p className="text-xs text-muted-foreground/80 leading-relaxed">
                                                 {config.announceExtensions ? (
-                                                    <span><span className="text-primary font-medium">ON</span> — After the greeting, the system will also read each extension aloud (e.g. <em>"Press 1 for Priyanshu, Press 2 for Chirag"</em>).</span>
+                                                    <span><span className="text-primary font-medium">ON</span> — After the greeting, the system will also read each extension aloud (e.g. <em>"Press 1 for HR Department, Press 2 for Sales Department"</em>).</span>
                                                 ) : (
                                                     <span><span className="text-muted-foreground font-medium">OFF</span> — Only the Greeting Message is heard. The greeting itself should tell the caller what to press.</span>
                                                 )}

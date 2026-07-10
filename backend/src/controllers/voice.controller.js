@@ -317,6 +317,18 @@ export const handleInboundCall = async (req, res, next) => {
             }
 
             if (config.callRouting.defaultForwardTo) {
+                // Tag the Call record so call history shows "Default Route" instead of "Voicemail / System"
+                if (parentCallSid) {
+                    const defaultLabel = config.callRouting.defaultRouteLabel || 'Default Route';
+                    Call.findOneAndUpdate(
+                        { callSid: parentCallSid },
+                        {
+                            forwardedToExtensionLabel: defaultLabel,
+                            forwardedToNumber: config.callRouting.defaultForwardTo
+                        }
+                    ).catch(err => console.error('⚠️ Failed to tag Call record with default route label (no-ext path):', err.message));
+                }
+
                 const dial = twiml.dial({
                     action: getAbsoluteUrl(req, '/api/voice/handle-dial-action'),
                     timeout: 20,
@@ -331,6 +343,13 @@ export const handleInboundCall = async (req, res, next) => {
                     dial.number(forward);
                 }
             } else if (config.voicemail.enabled) {
+                // Tag the Call record so call history shows "Voicemail" instead of "Voicemail / System"
+                if (parentCallSid) {
+                    Call.findOneAndUpdate(
+                        { callSid: parentCallSid },
+                        { forwardedToExtensionLabel: 'Voicemail' }
+                    ).catch(err => console.error('⚠️ Failed to tag Call record with voicemail label (no-ext path):', err.message));
+                }
                 twiml.redirect(getAbsoluteUrl(req, '/api/voice/handle-dial-action?voicemail=true'));
             } else {
                 twiml.say('Thank you for calling. Goodbye.');
@@ -450,6 +469,19 @@ export const handleExtension = async (req, res, next) => {
             if (isTimeout || !digit) {
                 // If timeout, try default forwarding
                 if (config.callRouting.defaultForwardTo) {
+                    // Tag the Call record so call history shows "Default Route" instead of "Voicemail / System"
+                    const parentCallSid = req.body.CallSid;
+                    if (parentCallSid) {
+                        const defaultLabel = config.callRouting.defaultRouteLabel || 'Default Route';
+                        Call.findOneAndUpdate(
+                            { callSid: parentCallSid },
+                            {
+                                forwardedToExtensionLabel: defaultLabel,
+                                forwardedToNumber: config.callRouting.defaultForwardTo
+                            }
+                        ).catch(err => console.error('⚠️ Failed to tag Call record with default route label:', err.message));
+                    }
+
                     const dial = twiml.dial({
                         callerId: process.env.TWILIO_PHONE_NUMBER,
                         action: getAbsoluteUrl(req, '/api/voice/handle-dial-action?default=true'),
@@ -464,6 +496,14 @@ export const handleExtension = async (req, res, next) => {
                         dial.number(config.callRouting.defaultForwardTo);
                     }
                 } else if (config.voicemail.enabled) {
+                    // Tag the Call record so call history shows "Voicemail" instead of "Voicemail / System"
+                    const parentCallSid = req.body.CallSid;
+                    if (parentCallSid) {
+                        Call.findOneAndUpdate(
+                            { callSid: parentCallSid },
+                            { forwardedToExtensionLabel: 'Voicemail' }
+                        ).catch(err => console.error('⚠️ Failed to tag Call record with voicemail label:', err.message));
+                    }
                     twiml.redirect(getAbsoluteUrl(req, '/api/voice/handle-dial-action?voicemail=true'));
                 } else {
                     twiml.say('Thank you for calling. Goodbye.');

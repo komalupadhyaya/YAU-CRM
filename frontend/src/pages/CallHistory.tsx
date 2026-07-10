@@ -386,7 +386,7 @@ export default function CallHistoryPage() {
                               </Tooltip>
                             ) : (
                               <span className="text-muted-foreground/60 italic font-normal">
-                                {call.direction === 'inbound' ? 'Voicemail / System' : 'System Outbound'}
+                                {call.direction === 'inbound' ? 'Unrouted / System' : 'System Outbound'}
                               </span>
                             )}
 
