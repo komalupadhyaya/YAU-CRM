@@ -4,6 +4,10 @@ import Lead from '../models/lead.model.js';
 import Contact from '../models/contact.model.js';
 import Note from '../models/note.model.js';
 import LeadAssignmentHistory from '../models/leadAssignmentHistory.model.js';
+import Call from '../models/call.model.js';
+import Followup from '../models/followup.model.js';
+import Meeting from '../models/meeting.model.js';
+import Task from '../models/tasks.model.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/leads  –  Paginated master list with search / filter / enrichment
@@ -590,6 +594,95 @@ export const getAssignmentHistory = async (req, res, next) => {
             .populate('assigned_to', 'name username')
             .sort({ createdAt: -1 });
         res.json(history);
+    } catch (err) {
+        next(err);
+    }
+};
+
+export const deleteAllLeadCallHistory = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const lead = await Lead.findById(id);
+        if (!lead) {
+            return res.status(404).json({ message: 'Lead not found' });
+        }
+        lead.callHistory = [];
+
+        // Save updated lead and delete associated Call and Note records concurrently
+        await Promise.all([
+            lead.save(),
+            Call.deleteMany({ lead_id: id }),
+            Note.deleteMany({ lead_id: id, type: 'call' })
+        ]);
+
+        res.json({ message: 'All call history for this lead deleted successfully' });
+    } catch (err) {
+        next(err);
+    }
+};
+
+export const deleteSingleLeadCallHistory = async (req, res, next) => {
+    try {
+        const { id, callSid } = req.params;
+        const lead = await Lead.findById(id);
+        if (!lead) {
+            return res.status(404).json({ message: 'Lead not found' });
+        }
+        
+        // Remove from lead.callHistory array
+        lead.callHistory = lead.callHistory.filter(call => call.callSid !== callSid && call.parentCallSid !== callSid);
+
+        // Save updated lead and delete Call and Note records concurrently
+        await Promise.all([
+            lead.save(),
+            Call.deleteMany({ 
+                $or: [
+                    { callSid: callSid },
+                    { parentCallSid: callSid }
+                ],
+                lead_id: id
+            }),
+            Note.deleteMany({ 
+                lead_id: id, 
+                type: 'call',
+                $or: [
+                    { 'metadata.callSid': callSid },
+                    { 'metadata.parentCallSid': callSid }
+                ]
+            })
+        ]);
+
+        res.json({ message: 'Call record deleted successfully' });
+    } catch (err) {
+        next(err);
+    }
+};
+
+export const deleteLead = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const lead = await Lead.findByIdAndDelete(id);
+        if (!lead) {
+            return res.status(404).json({ message: 'Lead not found' });
+        }
+
+        // Concurrently delete all associated documents across other collections
+        await Promise.all([
+            Contact.deleteMany({ lead_id: id }),
+            Followup.deleteMany({ lead_id: id }),
+            LeadAssignmentHistory.deleteMany({ lead_id: id }),
+            Note.deleteMany({ lead_id: id }),
+            Call.deleteMany({ lead_id: id }),
+            Meeting.deleteMany({ 
+                $or: [
+                    { lead_id: id },
+                    { lead_ids: id }
+                ]
+            }),
+            Task.deleteMany({ lead_id: id })
+        ]);
+
+        res.json({ message: 'Lead deleted successfully' });
     } catch (err) {
         next(err);
     }

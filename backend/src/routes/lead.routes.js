@@ -25,5 +25,8 @@ router.patch('/assign-bulk', auth, requireRole('admin', 'manager'), leadControll
 router.put('/:id', auth, requireRole(...canWrite), leadController.updateLead);
 router.patch('/:id', auth, requireRole(...canWrite), leadController.updateLeadStatus);
 router.patch('/:id/assign', auth, requireRole('admin', 'manager'), leadController.assignLead);
+router.delete('/:id/call-history', auth, requireRole('admin'), leadController.deleteAllLeadCallHistory);
+router.delete('/:id/call-history/:callSid', auth, requireRole('admin'), leadController.deleteSingleLeadCallHistory);
+router.delete('/:id', auth, requireRole('admin'), leadController.deleteLead);
 
 export default router;

@@ -375,6 +375,7 @@ const Campaigns = () => {
 
   // Confirmation Modals
   const [isDeleteAllConfirmOpen, setIsDeleteAllConfirmOpen] = useState(false);
+  const [isDeleteLeadConfirmOpen, setIsDeleteLeadConfirmOpen] = useState(false);
   const [isConfirmDoneOpen, setIsConfirmDoneOpen] = useState(false);
   const [taskToComplete, setTaskToComplete] = useState<string | null>(null);
   const [followUpToDelete, setFollowUpToDelete] = useState<string | null>(null);
@@ -795,6 +796,22 @@ const Campaigns = () => {
       toast.error("Failed to delete follow-up");
     } finally {
       setFollowUpToDelete(null);
+    }
+  };
+
+  const handleDeleteLeadConfirm = async () => {
+    if (!selectedLead) return;
+    try {
+      await api.delete("/leads/" + selectedLead._id);
+      toast.success("Lead deleted successfully");
+      setSelectedLead(null);
+      if (selectedCampaign) {
+        fetchLeads(selectedCampaign._id);
+      }
+    } catch (err) {
+      toast.error("Failed to delete lead");
+    } finally {
+      setIsDeleteLeadConfirmOpen(false);
     }
   };
 
@@ -1401,14 +1418,25 @@ const Campaigns = () => {
 
                       </div>
                     </div>
-                    <button
-                      onClick={() => !permissions.isReadOnly && setIsFollowUpModalOpen(true)}
-                      disabled={permissions.isReadOnly}
-                      className={`p-1 hover:bg-accent rounded text-primary transition-colors ${permissions.isReadOnly ? 'opacity-40 blur-[0.5px] pointer-events-none cursor-not-allowed' : ''}`}
-                      title={permissions.isReadOnly ? undefined : "Schedule Follow-up"}
-                    >
-                      <Plus size={14} />
-                    </button>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {currentUser?.role === 'admin' && (
+                        <button
+                          onClick={() => setIsDeleteLeadConfirmOpen(true)}
+                          className="p-1.5 rounded-lg text-muted-foreground hover:text-rose-600 hover:bg-rose-500/10 dark:hover:text-rose-400 dark:hover:bg-rose-500/20 transition-all shrink-0 animate-in fade-in zoom-in duration-200"
+                          title="Delete Lead"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      )}
+                      <button
+                        onClick={() => !permissions.isReadOnly && setIsFollowUpModalOpen(true)}
+                        disabled={permissions.isReadOnly}
+                        className={`p-1 hover:bg-accent rounded text-primary transition-colors ${permissions.isReadOnly ? 'opacity-40 blur-[0.5px] pointer-events-none cursor-not-allowed' : ''}`}
+                        title={permissions.isReadOnly ? undefined : "Schedule Follow-up"}
+                      >
+                        <Plus size={14} />
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -1970,9 +1998,11 @@ const Campaigns = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-xs font-medium">Contact Full Name *</label>
+                  <label htmlFor="main_contact_name" className="text-xs font-medium">Contact Full Name *</label>
                   <input
+                    id="main_contact_name"
                     name="main_contact_name"
+                    autoComplete="name"
                     className={`input-field ${errors.main_contact_name ? "border-destructive focus:ring-destructive/20" : ""}`}
                     placeholder="e.g. Davina Midgette"
                     value={leadFormData.main_contact_name}
@@ -1982,9 +2012,11 @@ const Campaigns = () => {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs font-medium">Title / Role *</label>
+                  <label htmlFor="contact_title" className="text-xs font-medium">Title / Role *</label>
                   <select
+                    id="contact_title"
                     name="contact_title"
+                    autoComplete="organization-title"
                     className={`input-field ${errors.contact_title ? "border-destructive focus:ring-destructive/20" : ""}`}
                     value={leadFormData.contact_title}
                     onChange={handleLeadFormChange}
@@ -2001,9 +2033,9 @@ const Campaigns = () => {
                   {errors.contact_title && <p className="text-[10px] text-destructive">{errors.contact_title}</p>}
                   {leadFormData.contact_title === "Other" && (
                     <input
-                        id="specify-title"
-                        name="specify-title"
-                    
+                      id="specify-title"
+                      name="specify-title"
+                      autoComplete="off"
                       className="input-field mt-2"
                       placeholder="Specify title..."
                       value={customTitle}
@@ -2013,9 +2045,11 @@ const Campaigns = () => {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs font-medium">Department *</label>
+                  <label htmlFor="contact_department" className="text-xs font-medium">Department *</label>
                   <input
+                    id="contact_department"
                     name="contact_department"
+                    autoComplete="organization"
                     className={`input-field ${errors.contact_department ? "border-destructive focus:ring-destructive/20" : ""}`}
                     placeholder="e.g. Administration"
                     value={leadFormData.contact_department}
@@ -2025,16 +2059,16 @@ const Campaigns = () => {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs font-medium">Direct Phone *</label>
+                  <label htmlFor="contact_direct_phone" className="text-xs font-medium">Direct Phone *</label>
                   <div className="flex gap-2">
                     <div className="relative w-28 shrink-0">
                       <div className="absolute inset-0 flex items-center pl-8 text-xs pointer-events-none font-medium">
                         {leadFormData.contact_phone_prefix}
                       </div>
                       <select
-                          id="select-field-15"
-                          name="select-field-15"
-                      
+                        id="contact_phone_prefix"
+                        name="select-field-15"
+                        autoComplete="tel-country-code"
                         className="input-field w-full dark:bg-card px-2 text-transparent appearance-none bg-no-repeat"
                         style={{
                           backgroundImage: `url(https://flagcdn.com/w20/${(countryCodes.find(c => c.dialCode === leadFormData.contact_phone_prefix)?.code || 'US').toLowerCase()}.png)`,
@@ -2054,14 +2088,18 @@ const Campaigns = () => {
                       </div>
                     </div>
                     <input
+                      id="contact_direct_phone"
                       name="contact_direct_phone"
+                      autoComplete="tel-national"
                       className={`input-field flex-1 ${errors.contact_direct_phone ? "border-destructive focus:ring-destructive/20" : ""}`}
                       placeholder="Phone"
                       value={leadFormData.contact_direct_phone}
                       onChange={handleLeadFormChange}
                     />
                     <input
+                      id="contact_extension"
                       name="contact_extension"
+                      autoComplete="off"
                       className="input-field w-20"
                       placeholder="Ext."
                       value={leadFormData.contact_extension}
@@ -2072,10 +2110,12 @@ const Campaigns = () => {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs font-medium">Email Address *</label>
+                  <label htmlFor="contact_email" className="text-xs font-medium">Email Address *</label>
                   <input
+                    id="contact_email"
                     name="contact_email"
                     type="email"
+                    autoComplete="email"
                     className={`input-field ${errors.contact_email ? "border-destructive focus:ring-destructive/20" : ""}`}
                     placeholder="email@example.com"
                     value={leadFormData.contact_email}
@@ -2085,9 +2125,11 @@ const Campaigns = () => {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs font-medium">Best Time to Call *</label>
+                  <label htmlFor="contact_best_time" className="text-xs font-medium">Best Time to Call *</label>
                   <select
+                    id="contact_best_time"
                     name="contact_best_time"
+                    autoComplete="off"
                     className={`input-field ${errors.contact_best_time ? "border-destructive focus:ring-destructive/20" : ""}`}
                     value={leadFormData.contact_best_time}
                     onChange={handleLeadFormChange}
@@ -2103,7 +2145,7 @@ const Campaigns = () => {
                 </div>
 
                 <div className="col-span-2 space-y-2">
-                  <label className="text-xs font-medium">Preferred Contact Method *</label>
+                  <span className="text-xs font-medium block">Preferred Contact Method *</span>
                   <div className="flex gap-4">
                     {["Call", "Email", "Text"].map(method => (
                       <label key={method} className="flex items-center justify-center gap-2 cursor-pointer text-xs">
@@ -2137,9 +2179,11 @@ const Campaigns = () => {
               {showSecondary && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-1 duration-200">
                   <div className="space-y-1">
-                    <label className="text-xs font-medium">Secondary Name</label>
+                    <label htmlFor="secondary_contact_name" className="text-xs font-medium">Secondary Name</label>
                     <input
+                      id="secondary_contact_name"
                       name="secondary_contact_name"
+                      autoComplete="name"
                       className="input-field"
                       placeholder="Name"
                       value={leadFormData.secondary_contact_name}
@@ -2147,9 +2191,11 @@ const Campaigns = () => {
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-xs font-medium">Secondary Title</label>
+                    <label htmlFor="secondary_contact_title" className="text-xs font-medium">Secondary Title</label>
                     <select
+                      id="secondary_contact_title"
                       name="secondary_contact_title"
+                      autoComplete="organization-title"
                       className="input-field"
                       value={leadFormData.secondary_contact_title}
                       onChange={handleLeadFormChange}
@@ -2165,9 +2211,11 @@ const Campaigns = () => {
                     </select>
                   </div>
                   <div className="space-y-1">
-                    <label className="text-xs font-medium">Secondary Department</label>
+                    <label htmlFor="secondary_contact_department" className="text-xs font-medium">Secondary Department</label>
                     <input
+                      id="secondary_contact_department"
                       name="secondary_contact_department"
+                      autoComplete="organization"
                       className="input-field"
                       placeholder="e.g. Administration"
                       value={leadFormData.secondary_contact_department}
@@ -2175,16 +2223,16 @@ const Campaigns = () => {
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-xs font-medium">Secondary Phone</label>
+                    <label htmlFor="secondary_contact_phone" className="text-xs font-medium">Secondary Phone</label>
                     <div className="flex gap-2">
                       <div className="relative w-28 shrink-0">
                         <div className="absolute inset-0 flex items-center pl-8 text-xs pointer-events-none font-medium">
                           {leadFormData.secondary_phone_prefix}
                         </div>
                         <select
-                            id="select-field-16"
-                            name="select-field-16"
-                        
+                          id="secondary_phone_prefix"
+                          name="select-field-16"
+                          autoComplete="tel-country-code"
                           className="input-field w-full dark:bg-card px-2 text-transparent appearance-none bg-no-repeat"
                           style={{
                             backgroundImage: `url(https://flagcdn.com/w20/${(countryCodes.find(c => c.dialCode === leadFormData.secondary_phone_prefix)?.code || 'US').toLowerCase()}.png)`,
@@ -2204,14 +2252,18 @@ const Campaigns = () => {
                         </div>
                       </div>
                       <input
+                        id="secondary_contact_phone"
                         name="secondary_contact_phone"
+                        autoComplete="tel-national"
                         className="input-field flex-1"
                         placeholder="Phone"
                         value={leadFormData.secondary_contact_phone}
                         onChange={handleLeadFormChange}
                       />
                       <input
+                        id="secondary_contact_extension"
                         name="secondary_contact_extension"
+                        autoComplete="off"
                         className="input-field w-20"
                         placeholder="Ext."
                         value={leadFormData.secondary_contact_extension}
@@ -2220,10 +2272,12 @@ const Campaigns = () => {
                     </div>
                   </div>
                   <div className="space-y-1">
-                    <label className="text-xs font-medium">Secondary Email</label>
+                    <label htmlFor="secondary_contact_email" className="text-xs font-medium">Secondary Email</label>
                     <input
+                      id="secondary_contact_email"
                       name="secondary_contact_email"
                       type="email"
+                      autoComplete="email"
                       className="input-field"
                       placeholder="email@example.com"
                       value={leadFormData.secondary_contact_email}
@@ -2241,9 +2295,11 @@ const Campaigns = () => {
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="col-span-2 space-y-1">
-                  <label className="text-xs font-medium">Name / Organization *</label>
+                  <label htmlFor="lead_name" className="text-xs font-medium">Name / Organization *</label>
                   <input
+                    id="lead_name"
                     name="name"
+                    autoComplete="organization"
                     className={`input-field ${errors.name ? "border-destructive focus:ring-destructive/20" : ""}`}
                     placeholder="Lead Name"
                     value={leadFormData.name}
@@ -2252,9 +2308,11 @@ const Campaigns = () => {
                   {errors.name && <p className="text-[10px] text-destructive">{errors.name}</p>}
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium">Lead Type</label>
+                  <label htmlFor="lead_type" className="text-xs font-medium">Lead Type</label>
                   <select
+                    id="lead_type"
                     name="type"
+                    autoComplete="off"
                     className="input-field"
                     value={leadFormData.type}
                     onChange={handleLeadFormChange}
@@ -2267,9 +2325,9 @@ const Campaigns = () => {
                   </select>
                   {leadFormData.type === "Other" && (
                     <input
-                        id="specify-lead-type"
-                        name="specify-lead-type"
-                    
+                      id="specify-lead-type"
+                      name="specify-lead-type"
+                      autoComplete="off"
                       placeholder="Specify lead type..."
                       className="input-field mt-2 animate-in slide-in-from-top-1 duration-200"
                       value={customLeadType}
@@ -2278,9 +2336,11 @@ const Campaigns = () => {
                   )}
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium">Category / Group</label>
+                  <label htmlFor="category_group" className="text-xs font-medium">Category / Group</label>
                   <input
+                    id="category_group"
                     name="category_group"
+                    autoComplete="off"
                     className="input-field"
                     placeholder="Category"
                     value={leadFormData.category_group}
@@ -2288,9 +2348,11 @@ const Campaigns = () => {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium">Department</label>
+                  <label htmlFor="lead_department" className="text-xs font-medium">Department</label>
                   <input
+                    id="lead_department"
                     name="department"
+                    autoComplete="organization"
                     className="input-field"
                     placeholder="e.g. Sales, Marketing"
                     value={leadFormData.department}
@@ -2298,16 +2360,16 @@ const Campaigns = () => {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium">Main Phone</label>
+                  <label htmlFor="telephone" className="text-xs font-medium">Main Phone</label>
                   <div className="flex gap-2">
                     <div className="relative w-28 shrink-0">
                       <div className="absolute inset-0 flex items-center pl-8 text-xs pointer-events-none font-medium">
                         {leadFormData.telephone_prefix}
                       </div>
                       <select
-                          id="select-field-18"
-                          name="select-field-18"
-                      
+                        id="telephone_prefix"
+                        name="select-field-18"
+                        autoComplete="tel-country-code"
                         className="input-field w-full dark:bg-card px-2 text-transparent appearance-none bg-no-repeat"
                         style={{
                           backgroundImage: `url(https://flagcdn.com/w20/${(countryCodes.find(c => c.dialCode === leadFormData.telephone_prefix)?.code || 'US').toLowerCase()}.png)`,
@@ -2327,14 +2389,18 @@ const Campaigns = () => {
                       </div>
                     </div>
                     <input
+                      id="telephone"
                       name="telephone"
+                      autoComplete="tel-national"
                       className="input-field flex-1"
                       placeholder="Phone"
                       value={leadFormData.telephone}
                       onChange={handleLeadFormChange}
                     />
                     <input
+                      id="telephone_extension"
                       name="telephone_extension"
+                      autoComplete="off"
                       className="input-field w-20"
                       placeholder="Ext."
                       value={leadFormData.telephone_extension}
@@ -2343,9 +2409,11 @@ const Campaigns = () => {
                   </div>
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium">Website</label>
+                  <label htmlFor="website" className="text-xs font-medium">Website</label>
                   <input
+                    id="website"
                     name="website"
+                    autoComplete="url"
                     className="input-field"
                     placeholder="https://..."
                     value={leadFormData.website}
@@ -2355,10 +2423,12 @@ const Campaigns = () => {
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
                     <div className="flex-1">
-                      <label className="text-[10px] text-muted-foreground uppercase font-bold mb-1 block">Start Time</label>
+                      <label htmlFor="start_time" className="text-[10px] text-muted-foreground uppercase font-bold mb-1 block">Start Time</label>
                       <input
+                        id="start_time"
                         name="start_time"
                         type="time"
+                        autoComplete="off"
                         className="input-field w-full"
                         value={formatTimeForInput(leadFormData.start_time)}
                         onChange={handleLeadFormChange}
@@ -2366,10 +2436,12 @@ const Campaigns = () => {
                     </div>
                     <span className="text-muted-foreground font-medium px-1 mt-5">to</span>
                     <div className="flex-1">
-                      <label className="text-[10px] text-muted-foreground uppercase font-bold mb-1 block">End Time</label>
+                      <label htmlFor="end_time" className="text-[10px] text-muted-foreground uppercase font-bold mb-1 block">End Time</label>
                       <input
+                        id="end_time"
                         name="end_time"
                         type="time"
+                        autoComplete="off"
                         className="input-field w-full"
                         value={formatTimeForInput(leadFormData.end_time)}
                         onChange={handleLeadFormChange}
@@ -2387,9 +2459,11 @@ const Campaigns = () => {
               </h3>
               <div className="grid grid-cols-4 gap-4">
                 <div className="col-span-1 space-y-1">
-                  <label className="text-xs font-medium">Number</label>
+                  <label htmlFor="address_number" className="text-xs font-medium">Number</label>
                   <input
+                    id="address_number"
                     name="address_number"
+                    autoComplete="address-line2"
                     className="input-field"
                     placeholder="123"
                     value={leadFormData.address_number}
@@ -2397,9 +2471,11 @@ const Campaigns = () => {
                   />
                 </div>
                 <div className="col-span-3 space-y-1">
-                  <label className="text-xs font-medium">Street</label>
+                  <label htmlFor="address_street" className="text-xs font-medium">Street</label>
                   <input
+                    id="address_street"
                     name="address"
+                    autoComplete="address-line1"
                     className="input-field"
                     placeholder="Street Address"
                     value={leadFormData.address}
@@ -2407,9 +2483,11 @@ const Campaigns = () => {
                   />
                 </div>
                 <div className="col-span-2 space-y-1">
-                  <label className="text-xs font-medium">City</label>
+                  <label htmlFor="address_city" className="text-xs font-medium">City</label>
                   <input
+                    id="address_city"
                     name="city"
+                    autoComplete="address-level2"
                     className="input-field"
                     placeholder="City"
                     value={leadFormData.city}
@@ -2417,9 +2495,11 @@ const Campaigns = () => {
                   />
                 </div>
                 <div className="col-span-1 space-y-1">
-                  <label className="text-xs font-medium">State</label>
+                  <label htmlFor="address_state" className="text-xs font-medium">State</label>
                   <input
+                    id="address_state"
                     name="state"
+                    autoComplete="address-level1"
                     className="input-field"
                     placeholder="ST"
                     value={leadFormData.state}
@@ -2427,9 +2507,11 @@ const Campaigns = () => {
                   />
                 </div>
                 <div className="col-span-1 space-y-1">
-                  <label className="text-xs font-medium">Zip</label>
+                  <label htmlFor="address_zip" className="text-xs font-medium">Zip</label>
                   <input
+                    id="address_zip"
                     name="zip"
+                    autoComplete="postal-code"
                     className="input-field"
                     placeholder="Zip"
                     value={leadFormData.zip}
@@ -2622,6 +2704,32 @@ const Campaigns = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Lead Confirmation Dialog */}
+      <AlertDialog open={isDeleteLeadConfirmOpen} onOpenChange={setIsDeleteLeadConfirmOpen}>
+        <AlertDialogContent className="bg-background border border-border shadow-2xl rounded-2xl max-w-sm p-6">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-base font-bold text-foreground flex items-center gap-2 text-destructive">
+              <AlertCircle size={18} />
+              Delete Lead?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
+              Are you sure you want to permanently delete this lead? This will also delete all associated notes, calls, follow-ups, meetings, and contacts. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="mt-5 flex gap-2">
+            <AlertDialogCancel className="bg-secondary text-secondary-foreground hover:bg-secondary/80 border border-border font-semibold px-3 py-1.5 rounded-lg text-xs">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteLeadConfirm}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 font-semibold px-3 py-1.5 rounded-lg text-xs border border-transparent"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       {/* Mark Done Confirmation Modal */}
       <Dialog open={isConfirmDoneOpen} onOpenChange={setIsConfirmDoneOpen}>
         <DialogContent aria-describedby={undefined} className="sm:max-w-sm dark:bg-card max-h-[90vh] overflow-y-auto custom-scrollbar">

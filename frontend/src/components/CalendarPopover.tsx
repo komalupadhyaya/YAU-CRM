@@ -22,6 +22,7 @@ interface CalEvent {
     leadName?: string;
     meetingType?: "online" | "in_person" | "phone";
     meetingLink?: string | null;
+    zoomStartUrl?: string | null;
     location?: string | null;
 }
 
@@ -145,6 +146,7 @@ export default function CalendarPopover() {
                     leadName: m.lead_id?.name || m.lead_ids?.[0]?.name,
                     meetingType: m.meeting_type,
                     meetingLink: m.meeting_link,
+                    zoomStartUrl: m.zoom_start_url,
                     location: m.location
                 });
             });
@@ -440,14 +442,14 @@ export default function CalendarPopover() {
                                                         {ev.priority && <span className="capitalize">· {ev.priority}</span>}
                                                         {ev.leadName && <span className="truncate max-w-[120px]">· {ev.leadName}</span>}
                                                         {ev.meetingType === "online" && (
-                                                            ev.meetingLink ? (
+                                                            ev.zoomStartUrl || ev.meetingLink ? (
                                                                 <a 
-                                                                    href={ev.meetingLink} 
+                                                                    href={ev.zoomStartUrl || ev.meetingLink} 
                                                                     target="_blank" 
                                                                     rel="noopener noreferrer" 
                                                                     className="text-primary hover:underline font-semibold"
                                                                 >
-                                                                    · Join Zoom
+                                                                    · {ev.zoomStartUrl ? "Start Zoom" : "Join Zoom"}
                                                                 </a>
                                                             ) : (
                                                                 <span>· Zoom</span>

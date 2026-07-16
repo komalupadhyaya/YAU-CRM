@@ -721,17 +721,29 @@ export const createMeeting = async (req, res, next) => {
         }
 
         let meeting_link = null;
+        let zoom_start_url = null;
         let zoom_meeting_id = null;
 
         if (meeting_type === 'online') {
             try {
+                // Find emails of all internal attendees to set them as alternative hosts
+                const attendeeUsers = await User.find({ _id: { $in: internal_attendees } }).select('email');
+                let emails = attendeeUsers.map(u => u.email).filter(Boolean);
+
+                // Also include the creator's email if they have a Zoom account under the same organization
+                if (req.user && req.user.email && !emails.includes(req.user.email)) {
+                    emails.push(req.user.email);
+                }
+
                 const { createZoomMeeting } = await import('../services/zoom.service.js');
                 const zoomRes = await createZoomMeeting({
                     title,
                     date_time: dateTime,
-                    duration_minutes
+                    duration_minutes,
+                    alternative_hosts: emails
                 });
                 meeting_link = zoomRes.join_url;
+                zoom_start_url = zoomRes.start_url;
                 zoom_meeting_id = zoomRes.id;
             } catch (zoomErr) {
                 console.error('Failed to create Zoom meeting, continuing without it:', zoomErr.message);
@@ -754,6 +766,7 @@ export const createMeeting = async (req, res, next) => {
             notes: notes || '',
             meeting_type,
             meeting_link,
+            zoom_start_url,
             zoom_meeting_id,
             location: meeting_type === 'in_person' ? location : null,
             created_by: req.user.id,
@@ -925,7 +938,11 @@ export const updateMeeting = async (req, res, next) => {
 
         // Apply Zoom Updates
         const oldMeetingType = meeting.meeting_type;
+        const oldLocation = meeting.location;
         const oldZoomMeetingId = meeting.zoom_meeting_id;
+
+        const typeChanged = meeting_type !== undefined && meeting_type !== oldMeetingType;
+        const locationChanged = location !== undefined && location !== oldLocation;
 
         if (meeting_type !== undefined) meeting.meeting_type = meeting_type;
         if (location !== undefined) meeting.location = meeting_type === 'in_person' ? location : null;
@@ -933,11 +950,22 @@ export const updateMeeting = async (req, res, next) => {
         const { updateZoomMeeting, createZoomMeeting, deleteZoomMeeting } = await import('../services/zoom.service.js');
 
         if (meeting.meeting_type === 'online') {
+            const attendeeUsers = await User.find({ _id: { $in: newAttendees } }).select('email');
+            let emails = attendeeUsers.map(u => u.email).filter(Boolean);
+            if (req.user && req.user.email && !emails.includes(req.user.email)) {
+                emails.push(req.user.email);
+            }
+
             if (oldMeetingType === 'online' && oldZoomMeetingId) {
                 const start_time = date_time ? parseESTStringToDate(date_time) : meeting.date_time;
                 const duration = duration_minutes ?? meeting.duration_minutes;
                 const zoomTitle = title ? title.trim() : meeting.title;
-                updateZoomMeeting(oldZoomMeetingId, { title: zoomTitle, date_time: start_time, duration_minutes: duration }).catch(err => {
+                updateZoomMeeting(oldZoomMeetingId, {
+                    title: zoomTitle,
+                    date_time: start_time,
+                    duration_minutes: duration,
+                    alternative_hosts: emails
+                }).catch(err => {
                     console.error('Failed to update meeting in Zoom:', err);
                 });
             } else if (oldMeetingType !== 'online' || !oldZoomMeetingId) {
@@ -948,9 +976,11 @@ export const updateMeeting = async (req, res, next) => {
                     const zoomRes = await createZoomMeeting({
                         title: zoomTitle,
                         date_time: start_time,
-                        duration_minutes: duration
+                        duration_minutes: duration,
+                        alternative_hosts: emails
                     });
                     meeting.meeting_link = zoomRes.join_url;
+                    meeting.zoom_start_url = zoomRes.start_url;
                     meeting.zoom_meeting_id = zoomRes.id;
                 } catch (zoomErr) {
                     console.error('Failed to create Zoom meeting for updated meeting:', zoomErr.message);
@@ -962,6 +992,7 @@ export const updateMeeting = async (req, res, next) => {
                     console.error('Failed to delete Zoom meeting:', err);
                 });
                 meeting.meeting_link = null;
+                meeting.zoom_start_url = null;
                 meeting.zoom_meeting_id = null;
             }
         }
@@ -987,17 +1018,21 @@ export const updateMeeting = async (req, res, next) => {
             .populate('change_log.by', 'name email');
 
         if (populated.category === 'hr') {
-            const actionType = status === 'canceled' ? 'canceled' : 'rescheduled';
-            sendHRMeetingEmails({ meeting: populated, actionType }).catch(err => {
-                console.error('Failed to trigger HR meeting update emails:', err);
-            });
+            if (status === 'canceled' || dateTimeChanged || typeChanged || locationChanged) {
+                const actionType = status === 'canceled' ? 'canceled' : 'rescheduled';
+                sendHRMeetingEmails({ meeting: populated, actionType }).catch(err => {
+                    console.error('Failed to trigger HR meeting update emails:', err);
+                });
+            }
         }
 
         if (populated.category === 'school') {
-            const actionType = status === 'canceled' ? 'canceled' : 'rescheduled';
-            sendSchoolMeetingEmails({ meeting: populated, actionType }).catch(err => {
-                console.error('Failed to trigger School meeting update emails:', err);
-            });
+            if (status === 'canceled' || dateTimeChanged || typeChanged || locationChanged) {
+                const actionType = status === 'canceled' ? 'canceled' : 'rescheduled';
+                sendSchoolMeetingEmails({ meeting: populated, actionType }).catch(err => {
+                    console.error('Failed to trigger School meeting update emails:', err);
+                });
+            }
         }
 
         // Sync to Google Calendar

@@ -270,6 +270,8 @@ export default function LeadDetail() {
 
   const [isDeleteNoteModalOpen, setIsDeleteNoteModalOpen] = useState(false);
   const [noteToDelete, setNoteToDelete] = useState<string | null>(null);
+  const [isDeleteAllCallsOpen, setIsDeleteAllCallsOpen] = useState(false);
+  const [callToDeleteSid, setCallToDeleteSid] = useState<string | null>(null);
   const [isConfirmDoneOpen, setIsConfirmDoneOpen] = useState(false);
   const [taskToComplete, setTaskToComplete] = useState<string | null>(null);
   const [noteError, setNoteError] = useState(false);
@@ -451,7 +453,7 @@ export default function LeadDetail() {
       setNoteError(false);
       setIsNoteModalOpen(false);
       setSelectedContactForNote(null);
-      await loadAll();
+      await loadAll(true);
     } catch (error) {
       console.error(error);
     } finally {
@@ -469,7 +471,7 @@ export default function LeadDetail() {
     try {
       await api.delete(`/notes/${noteToDelete}`);
       toast.success("Note deleted");
-      await loadAll();
+      await loadAll(true);
       setIsDeleteNoteModalOpen(false);
       setNoteToDelete(null);
     } catch {
@@ -481,7 +483,7 @@ export default function LeadDetail() {
     try {
       await api.delete(`/notes/lead/${id}/all`);
       toast.success("All notes deleted");
-      await loadAll();
+      await loadAll(true);
     } catch {
       toast.error("Failed to delete all notes");
     }
@@ -535,11 +537,49 @@ export default function LeadDetail() {
     try {
       await api.delete(`/followups/${followUpToDelete}`);
       toast.success("Follow-up deleted");
-      loadAll();
+      loadAll(true);
     } catch (err) {
       toast.error("Failed to delete follow-up");
     } finally {
       setFollowUpToDelete(null);
+    }
+  };
+
+  const confirmDeleteAllCalls = async () => {
+    try {
+      // Optimistically clear call history in local state
+      if (lead) {
+        setLead({ ...lead, callHistory: [] });
+      }
+      await api.delete(`/leads/${id}/call-history`);
+      toast.success("All call history deleted successfully");
+      loadAll(true); // background silent refresh to sync other data
+    } catch (err) {
+      toast.error("Failed to delete all call history");
+      loadAll(true);
+    } finally {
+      setIsDeleteAllCallsOpen(false);
+    }
+  };
+
+  const confirmDeleteCall = async () => {
+    if (!callToDeleteSid) return;
+    try {
+      // Optimistically remove call log in local state
+      if (lead && lead.callHistory) {
+        setLead({
+          ...lead,
+          callHistory: lead.callHistory.filter(c => c.callSid !== callToDeleteSid && c.parentCallSid !== callToDeleteSid)
+        });
+      }
+      await api.delete(`/leads/${id}/call-history/${callToDeleteSid}`);
+      toast.success("Call record deleted successfully");
+      loadAll(true); // background silent refresh
+    } catch (err) {
+      toast.error("Failed to delete call record");
+      loadAll(true);
+    } finally {
+      setCallToDeleteSid(null);
     }
   };
 
@@ -591,7 +631,7 @@ export default function LeadDetail() {
       setCustomAssignedTo("");
       setEditingFollowUp(null);
       setFollowUpTitle("");
-      loadAll();
+      loadAll(true);
     } catch (err: unknown) {
       if ((err as CRMError).response?.status === 409) {
         const conflicts = (err as CRMError).response.data.conflicts || [];
@@ -606,7 +646,7 @@ export default function LeadDetail() {
             await api.post("/notes/" + id, {
               content: `The ${followUpType} scheduled for ${new Date(followUpDate).toLocaleString()} was CANCELED due to a calendar conflict.`
             });
-            loadAll();
+            loadAll(true);
           } catch (noteErr) {
             console.error("Failed to log conflict cancellation:", noteErr);
           }
@@ -649,7 +689,7 @@ export default function LeadDetail() {
       setMeetingCc([]);
       setMeetingCcInput("");
       setMeetingErrors({});
-      loadAll();
+      loadAll(true);
     } catch (err: unknown) {
       if ((err as CRMError).response?.status === 409) {
         const conflict = (err as CRMError).response.data.conflicts[0];
@@ -663,7 +703,7 @@ export default function LeadDetail() {
             await api.post("/notes/" + id, {
               content: `The meeting "${meetingData.title}" scheduled for ${toESTDate(meetingData.date_time).toLocaleString()} was CANCELED due to a calendar conflict.`
             });
-            loadAll();
+            loadAll(true);
           } catch (noteErr) {
             console.error("Failed to log conflict cancellation:", noteErr);
           }
@@ -764,7 +804,7 @@ export default function LeadDetail() {
       setCreateFollowUpInCall(false);
       setFuErrors({});
 
-      loadAll();
+      loadAll(true);
     } catch {
       toast.error("Failed to log call");
     } finally {
@@ -801,7 +841,7 @@ export default function LeadDetail() {
       setIsSmsModalOpen(false);
       setSmsData({ message: "" });
       setSmsErrors({});
-      loadAll();
+      loadAll(true);
     } catch (err: unknown) {
       toast.error((err as CRMError).response?.data?.message || "Failed to send SMS");
     } finally {
@@ -839,7 +879,7 @@ export default function LeadDetail() {
       setEmailData({ subject: "", body: "", cc: [], to: "" });
       setCcInput("");
       setEmailErrors({});
-      loadAll();
+      loadAll(true);
     } catch (err: unknown) {
       toast.error((err as CRMError).response?.data?.message || "Failed to send email");
     } finally {
@@ -860,7 +900,7 @@ export default function LeadDetail() {
       toast.success("Follow-up completed");
       setIsConfirmDoneOpen(false);
       setTaskToComplete(null);
-      loadAll();
+      loadAll(true);
     } catch (error) {
       console.error(error);
     } finally {
@@ -977,7 +1017,7 @@ export default function LeadDetail() {
               ].map(({ label, key }) => (
                 <div key={key}>
                   {!(isEditing && key === "hours") && (
-                    <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">{label}</label>
+                    <span className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">{label}</span>
                   )}
                   {isEditing ? (
                     key === "type" ? (
@@ -1009,8 +1049,9 @@ export default function LeadDetail() {
                     ) : key === "hours" ? (
                       <div className="flex items-center gap-2">
                         <div className="flex-1">
-                          <label className="text-[10px] text-muted-foreground uppercase font-bold mb-1 block">Start Time</label>
+                          <label htmlFor="edit_hours_start_time" className="text-[10px] text-muted-foreground uppercase font-bold mb-1 block">Start Time</label>
                           <input
+                            id="edit_hours_start_time"
                             type="time"
                             name="start_time"
                             className="input-field w-full dark:bg-card"
@@ -1020,8 +1061,9 @@ export default function LeadDetail() {
                         </div>
                         <span className="text-muted-foreground font-medium px-1 mt-5">to</span>
                         <div className="flex-1">
-                          <label className="text-[10px] text-muted-foreground uppercase font-bold mb-1 block">End Time</label>
+                          <label htmlFor="edit_hours_end_time" className="text-[10px] text-muted-foreground uppercase font-bold mb-1 block">End Time</label>
                           <input
+                            id="edit_hours_end_time"
                             type="time"
                             name="end_time"
                             className="input-field w-full dark:bg-card"
@@ -1117,28 +1159,27 @@ export default function LeadDetail() {
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
-                        <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Full Name</label>
-                        <input name="main_contact_name" className="input-field" value={editData.main_contact_name || ""} onChange={e => setEditData({ ...editData, main_contact_name: e.target.value })} />
+                        <label htmlFor="edit_main_contact_name" className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Full Name</label>
+                        <input id="edit_main_contact_name" name="main_contact_name" className="input-field" value={editData.main_contact_name || ""} onChange={e => setEditData({ ...editData, main_contact_name: e.target.value })} />
                       </div>
                       <div>
-                        <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Title / Role</label>
-                        <input name="contact_title" className="input-field" value={editData.contact_title || ""} onChange={e => setEditData({ ...editData, contact_title: e.target.value })} />
+                        <label htmlFor="edit_contact_title" className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Title / Role</label>
+                        <input id="edit_contact_title" name="contact_title" className="input-field" value={editData.contact_title || ""} onChange={e => setEditData({ ...editData, contact_title: e.target.value })} />
                       </div>
                       <div>
-                        <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Department</label>
-                        <input name="contact_department" className="input-field" value={editData.contact_department || ""} onChange={e => setEditData({ ...editData, contact_department: e.target.value })} />
+                        <label htmlFor="edit_contact_department" className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Department</label>
+                        <input id="edit_contact_department" name="contact_department" className="input-field" value={editData.contact_department || ""} onChange={e => setEditData({ ...editData, contact_department: e.target.value })} />
                       </div>
                       <div>
-                        <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Direct Phone</label>
+                        <label htmlFor="edit_contact_direct_phone" className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Direct Phone</label>
                         <div className="flex gap-2">
                           <div className="relative w-28 shrink-0">
                             <div className="absolute inset-0 flex items-center pl-8 text-xs pointer-events-none font-medium">
                               {contactPhonePrefix}
                             </div>
                             <select
-                                id="contact-phone-prefix"
-                                name="contact-phone-prefix"
-                            
+                              id="edit_contact_phone_prefix"
+                              name="contact-phone-prefix"
                               className="input-field w-full dark:bg-card px-2 text-transparent appearance-none bg-no-repeat"
                               style={{
                                 backgroundImage: `url(https://flagcdn.com/w20/${(countryCodes.find(c => c.dialCode === contactPhonePrefix)?.code || 'US').toLowerCase()}.png)`,
@@ -1157,13 +1198,13 @@ export default function LeadDetail() {
                               <ChevronDown size={12} />
                             </div>
                           </div>
-                          <input name="contact_direct_phone" className="input-field flex-1" value={editData.contact_direct_phone || ""} onChange={e => setEditData({ ...editData, contact_direct_phone: e.target.value })} />
-                          <input name="contact_extension" className="input-field w-20" placeholder="Ext." value={editData.contact_extension || ""} onChange={e => setEditData({ ...editData, contact_extension: e.target.value })} />
+                          <input id="edit_contact_direct_phone" name="contact_direct_phone" className="input-field flex-1" value={editData.contact_direct_phone || ""} onChange={e => setEditData({ ...editData, contact_direct_phone: e.target.value })} />
+                          <input id="edit_contact_extension" name="contact_extension" className="input-field w-20" placeholder="Ext." value={editData.contact_extension || ""} onChange={e => setEditData({ ...editData, contact_extension: e.target.value })} />
                         </div>
                       </div>
                       <div>
-                        <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Email</label>
-                        <input name="contact_email" className="input-field" value={editData.contact_email || ""} onChange={e => setEditData({ ...editData, contact_email: e.target.value })} />
+                        <label htmlFor="edit_contact_email" className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Email</label>
+                        <input id="edit_contact_email" name="contact_email" className="input-field" value={editData.contact_email || ""} onChange={e => setEditData({ ...editData, contact_email: e.target.value })} />
                       </div>
                     </div>
                   </div>
@@ -1177,28 +1218,27 @@ export default function LeadDetail() {
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
-                        <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Full Name</label>
-                        <input name="secondary_contact_name" className="input-field" value={editData.secondary_contact_name || ""} onChange={e => setEditData({ ...editData, secondary_contact_name: e.target.value })} />
+                        <label htmlFor="edit_secondary_contact_name" className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Full Name</label>
+                        <input id="edit_secondary_contact_name" name="secondary_contact_name" className="input-field" value={editData.secondary_contact_name || ""} onChange={e => setEditData({ ...editData, secondary_contact_name: e.target.value })} />
                       </div>
                       <div>
-                        <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Title / Role</label>
-                        <input name="secondary_contact_title" className="input-field" value={editData.secondary_contact_title || ""} onChange={e => setEditData({ ...editData, secondary_contact_title: e.target.value })} />
+                        <label htmlFor="edit_secondary_contact_title" className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Title / Role</label>
+                        <input id="edit_secondary_contact_title" name="secondary_contact_title" className="input-field" value={editData.secondary_contact_title || ""} onChange={e => setEditData({ ...editData, secondary_contact_title: e.target.value })} />
                       </div>
                       <div>
-                        <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Secondary Department</label>
-                        <input name="secondary_contact_department" className="input-field" value={editData.secondary_contact_department || ""} onChange={e => setEditData({ ...editData, secondary_contact_department: e.target.value })} />
+                        <label htmlFor="edit_secondary_contact_department" className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Secondary Department</label>
+                        <input id="edit_secondary_contact_department" name="secondary_contact_department" className="input-field" value={editData.secondary_contact_department || ""} onChange={e => setEditData({ ...editData, secondary_contact_department: e.target.value })} />
                       </div>
                       <div>
-                        <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Direct Phone</label>
+                        <label htmlFor="edit_secondary_contact_phone" className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Direct Phone</label>
                         <div className="flex gap-2">
                           <div className="relative w-28 shrink-0">
                             <div className="absolute inset-0 flex items-center pl-8 text-xs pointer-events-none font-medium">
                               {secondaryPhonePrefix}
                             </div>
                             <select
-                                id="secondary-phone-prefix"
-                                name="secondary-phone-prefix"
-                            
+                              id="edit_secondary_phone_prefix"
+                              name="secondary-phone-prefix"
                               className="input-field w-full dark:bg-card px-2 text-transparent appearance-none bg-no-repeat"
                               style={{
                                 backgroundImage: `url(https://flagcdn.com/w20/${(countryCodes.find(c => c.dialCode === secondaryPhonePrefix)?.code || 'US').toLowerCase()}.png)`,
@@ -1217,13 +1257,13 @@ export default function LeadDetail() {
                               <ChevronDown size={12} />
                             </div>
                           </div>
-                          <input name="secondary_contact_phone" className="input-field flex-1" value={editData.secondary_contact_phone || ""} onChange={e => setEditData({ ...editData, secondary_contact_phone: e.target.value })} />
-                          <input name="secondary_contact_extension" className="input-field w-20" placeholder="Ext." value={editData.secondary_contact_extension || ""} onChange={e => setEditData({ ...editData, secondary_contact_extension: e.target.value })} />
+                          <input id="edit_secondary_contact_phone" name="secondary_contact_phone" className="input-field flex-1" value={editData.secondary_contact_phone || ""} onChange={e => setEditData({ ...editData, secondary_contact_phone: e.target.value })} />
+                          <input id="edit_secondary_contact_extension" name="secondary_contact_extension" className="input-field w-20" placeholder="Ext." value={editData.secondary_contact_extension || ""} onChange={e => setEditData({ ...editData, secondary_contact_extension: e.target.value })} />
                         </div>
                       </div>
                       <div>
-                        <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Email</label>
-                        <input name="secondary_contact_email" className="input-field" value={editData.secondary_contact_email || ""} onChange={e => setEditData({ ...editData, secondary_contact_email: e.target.value })} />
+                        <label htmlFor="edit_secondary_contact_email" className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Email</label>
+                        <input id="edit_secondary_contact_email" name="secondary_contact_email" className="input-field" value={editData.secondary_contact_email || ""} onChange={e => setEditData({ ...editData, secondary_contact_email: e.target.value })} />
                       </div>
                     </div>
                   </div>
@@ -1231,7 +1271,7 @@ export default function LeadDetail() {
               )}
 
               <div className="md:col-span-2">
-                <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Address</label>
+                <span className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Address</span>
                 {isEditing ? (
                   <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
                     <input name="address_number" className="input-field md:col-span-1 dark:bg-card" placeholder="No." value={editData.address_number || ""} onChange={e => setEditData({ ...editData, address_number: e.target.value })} />
@@ -1246,7 +1286,7 @@ export default function LeadDetail() {
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Status</label>
+                <span className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Status</span>
                 {isEditing ? (
                   <select
                     name="status"
@@ -1449,7 +1489,7 @@ export default function LeadDetail() {
                 {/* Inline note form — hidden for view_only */}
                 {!isReadOnly && (
                 <div className="mb-6">
-                  <label className="block text-sm font-medium text-foreground mb-1.5">Add a new note</label>
+                  <label htmlFor="details-of-the-call-or-email" className="block text-sm font-medium text-foreground mb-1.5">Add a new note</label>
                   <textarea
                       id="details-of-the-call-or-email"
                       name="details-of-the-call-or-email"
@@ -1518,6 +1558,17 @@ export default function LeadDetail() {
 
             {activeLogTab === 'calls' && (
               <div className="space-y-4">
+                {lead?.callHistory && lead.callHistory.length > 0 && currentUser?.role === 'admin' && (
+                  <div className="flex justify-end mb-2">
+                    <button
+                      onClick={() => setIsDeleteAllCallsOpen(true)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-destructive/10 text-destructive hover:bg-destructive hover:text-destructive-foreground border border-destructive/20 shadow-sm transition-all duration-200 active:scale-[0.98]"
+                    >
+                      <Trash2 size={12} />
+                      Delete All Calls
+                    </button>
+                  </div>
+                )}
                 {!lead?.callHistory || lead.callHistory.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-6 border border-dashed border-border rounded-lg">
                     No calls logged for this lead yet.
@@ -1532,6 +1583,9 @@ export default function LeadDetail() {
                           <th className="py-2 px-3">Duration</th>
                           <th className="py-2 px-3">Status</th>
                           <th className="py-2 px-3 text-right">Recording</th>
+                          {currentUser?.role === 'admin' && (
+                            <th className="py-2 px-3 text-center w-[60px]">Delete</th>
+                          )}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border/20">
@@ -1566,6 +1620,17 @@ export default function LeadDetail() {
                                 <span className="text-muted-foreground font-mono">—</span>
                               )}
                             </td>
+                            {currentUser?.role === 'admin' && (
+                              <td className="py-3 px-3 text-center">
+                                <button
+                                  onClick={() => setCallToDeleteSid(call.callSid)}
+                                  className="inline-flex items-center justify-center p-1.5 rounded-lg bg-destructive/10 text-destructive border border-destructive/20 hover:bg-destructive hover:text-destructive-foreground transition-all duration-200 active:scale-95"
+                                  title="Delete call record"
+                                >
+                                  <Trash2 size={12} />
+                                </button>
+                              </td>
+                            )}
                           </tr>
                         ))}
                       </tbody>
@@ -1710,8 +1775,9 @@ export default function LeadDetail() {
             </div>
             <div className="grid grid-cols-2 gap-4 items-start">
               <div className="grid gap-2">
-                <label className="text-sm font-medium">Type <span className="text-destructive">*</span></label>
+                <label htmlFor="fu_type" className="text-sm font-medium">Type <span className="text-destructive">*</span></label>
                 <select
+                  id="fu_type"
                   name="type"
                   className={`input-field dark:bg-card ${fuErrors.type ? "border-destructive focus:ring-destructive/20" : ""}`}
                   value={followUpType || ""}
@@ -1729,8 +1795,9 @@ export default function LeadDetail() {
                 {fuErrors.type && <p className="text-xs text-destructive mt-1 font-medium">{fuErrors.type}</p>}
               </div>
               <div className="grid gap-2">
-                <label className="text-sm font-medium">Priority (optional)</label>
+                <label htmlFor="fu_priority" className="text-sm font-medium">Priority (optional)</label>
                 <select
+                  id="fu_priority"
                   name="priority"
                   className={`input-field dark:bg-card ${fuErrors.priority ? "border-destructive focus:ring-destructive/20" : ""}`}
                   value={followUpPriority || ""}
@@ -1753,8 +1820,9 @@ export default function LeadDetail() {
 
             {editingFollowUp && (
               <div className="grid gap-2">
-                <label className="text-sm font-medium">Status <span className="text-destructive">*</span></label>
+                <label htmlFor="fu_status" className="text-sm font-medium">Status <span className="text-destructive">*</span></label>
                 <select
+                  id="fu_status"
                   name="status"
                   className="input-field dark:bg-card"
                   value={followUpStatus || ""}
@@ -1834,8 +1902,9 @@ export default function LeadDetail() {
           <div className="flex-1 overflow-y-auto custom-scrollbar min-h-0">
             <div className="p-6 py-4 grid gap-4">
               <div className="grid gap-2">
-                <label className="text-sm font-medium">Meeting Title <span className="text-destructive">*</span></label>
+                <label htmlFor="meeting_title" className="text-sm font-medium">Meeting Title <span className="text-destructive">*</span></label>
                 <input
+                  id="meeting_title"
                   name="title"
                   className={`input-field ${meetingErrors.title ? "border-destructive focus:border-destructive focus:ring-destructive/20" : ""}`}
                   placeholder="e.g. Initial Strategy Session"
@@ -1848,7 +1917,7 @@ export default function LeadDetail() {
                 {meetingErrors.title && <p className="text-xs text-destructive font-medium">{meetingErrors.title}</p>}
               </div>
               <div className="grid gap-2">
-                <label className="text-sm font-medium">Date & Time <span className="text-destructive">*</span></label>
+                <label htmlFor="meeting-date-time" className="text-sm font-medium">Date & Time <span className="text-destructive">*</span></label>
                 <DateTimePicker
                   id="meeting-date-time"
                   value={meetingData.date_time || ""}
@@ -1861,8 +1930,9 @@ export default function LeadDetail() {
                 {meetingErrors.date_time && <p className="text-xs text-destructive font-medium">{meetingErrors.date_time}</p>}
               </div>
               <div className="grid gap-2">
-                <label className="text-sm font-medium">Meeting Type</label>
+                <label htmlFor="meeting_type" className="text-sm font-medium">Meeting Type</label>
                 <select
+                  id="meeting_type"
                   name="type"
                   className="input-field dark:bg-card"
                   value={meetingData.type || ""}
@@ -1874,7 +1944,7 @@ export default function LeadDetail() {
                 </select>
               </div>
               <div className="grid gap-2">
-                <label className="text-sm font-medium">Invitees</label>
+                <span className="text-sm font-medium">Invitees</span>
                 <div className="p-2 bg-accent/30 rounded border text-xs text-foreground space-y-1">
                   <div>
                     Automatically inviting client: <strong>{selectedContactForMeeting?.email || 'No email saved'}</strong>
@@ -1887,7 +1957,7 @@ export default function LeadDetail() {
                 </div>
               </div>
               <div className="grid gap-2">
-                <label className="text-sm font-medium">CC <span className="text-muted-foreground text-xs">(optional)</span></label>
+                <label htmlFor="meeting_cc" className="text-sm font-medium">CC <span className="text-muted-foreground text-xs">(optional)</span></label>
                 <div className="flex flex-wrap gap-2 p-2 min-h-[42px] bg-background border rounded-lg focus-within:ring-2 focus-within:ring-primary/20 transition-all">
                   {meetingCc.map((email, index) => {
                     const isValid = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(email);
@@ -1925,6 +1995,7 @@ export default function LeadDetail() {
                     );
                   })}
                   <input
+                    id="meeting_cc"
                     className="flex-1 bg-transparent border-none outline-none text-sm min-w-[120px] placeholder:text-muted-foreground/50"
                     name="cc"
                     placeholder={meetingCc.length === 0 ? "Add email and press Enter..." : ""}
@@ -1958,8 +2029,9 @@ export default function LeadDetail() {
                 </div>
               </div>
               <div className="grid gap-2">
-                <label className="text-sm font-medium">Notes</label>
+                <label htmlFor="meeting_notes" className="text-sm font-medium">Notes</label>
                 <textarea
+                  id="meeting_notes"
                   name="notes"
                   className="input-field min-h-[80px]"
                   placeholder="Agenda or location details..."
@@ -2000,8 +2072,9 @@ export default function LeadDetail() {
           <div className="flex-1 overflow-y-auto p-6 py-4 custom-scrollbar min-h-0">
             <div className="grid gap-4">
               <div className="grid gap-1">
-                <label className="text-xs font-bold text-muted-foreground uppercase">To <span className="text-destructive">*</span></label>
+                <label htmlFor="email_to" className="text-xs font-bold text-muted-foreground uppercase">To <span className="text-destructive">*</span></label>
                 <input
+                  id="email_to"
                   name="to"
                   className={`input-field text-sm ${emailErrors.to ? "border-destructive focus:ring-destructive/20" : ""}`}
                   placeholder={!emailData.to ? "No email on file — type recipient email..." : "Recipient email..."}
@@ -2017,7 +2090,7 @@ export default function LeadDetail() {
                 {emailErrors.to && <p className="text-[10px] text-destructive font-medium mt-1">{emailErrors.to}</p>}
               </div>
               <div className="grid gap-2">
-                <label className="text-sm font-medium">CC <span className="text-muted-foreground text-xs">(optional)</span></label>
+                <label htmlFor="email_cc" className="text-sm font-medium">CC <span className="text-muted-foreground text-xs">(optional)</span></label>
                 <div className="flex flex-wrap gap-2 p-2 min-h-[42px] bg-background border rounded-lg focus-within:ring-2 focus-within:ring-primary/20 transition-all">
                   {emailData.cc.map((email, index) => {
                     const isValid = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(email);
@@ -2055,6 +2128,7 @@ export default function LeadDetail() {
                     );
                   })}
                   <input
+                    id="email_cc"
                     className="flex-1 bg-transparent border-none outline-none text-sm min-w-[120px] placeholder:text-muted-foreground/50"
                     name="cc"
                     placeholder={emailData.cc.length === 0 ? "Add email and press Enter..." : ""}
@@ -2091,8 +2165,9 @@ export default function LeadDetail() {
                 </p>
               </div>
               <div className="grid gap-2">
-                <label className="text-sm font-medium">Subject <span className="text-destructive">*</span></label>
+                <label htmlFor="email_subject" className="text-sm font-medium">Subject <span className="text-destructive">*</span></label>
                 <input
+                  id="email_subject"
                   name="subject"
                   className={`input-field ${emailErrors.subject ? "border-destructive focus:border-destructive focus:ring-destructive/20" : ""}`}
                   placeholder="Meeting follow-up"
@@ -2105,7 +2180,7 @@ export default function LeadDetail() {
                 {emailErrors.subject && <p className="text-xs text-destructive font-medium">{emailErrors.subject}</p>}
               </div>
               <div className="grid gap-2">
-                <label className="text-sm font-medium">Message Body <span className="text-destructive">*</span></label>
+                <span className="text-sm font-medium">Message Body <span className="text-destructive">*</span></span>
                 <div className="[&_.ql-editor]:min-h-[180px]">
                   <ReactQuill
                     theme="snow"
@@ -2218,11 +2293,10 @@ export default function LeadDetail() {
                   <h4 className="text-xs font-bold uppercase tracking-wider text-primary">Follow-up Task Details</h4>
                   
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold uppercase text-muted-foreground">Task Title *</label>
+                    <label htmlFor="call_task_title" className="text-xs font-bold uppercase text-muted-foreground">Task Title *</label>
                     <input
-                        id="e-g-call-to-finalize-contract"
-                        name="e-g-call-to-finalize-contract"
-                    
+                      id="call_task_title"
+                      name="e-g-call-to-finalize-contract"
                       className={`input-field ${fuErrors.followUpTitle ? "border-destructive focus:ring-destructive/20" : ""}`}
                       placeholder="e.g. Call to finalize contract"
                       value={followUpTitle}
@@ -2235,7 +2309,7 @@ export default function LeadDetail() {
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold uppercase text-muted-foreground">Date & Time *</label>
+                    <label htmlFor="input-datetime-local-62" className="text-xs font-bold uppercase text-muted-foreground">Date & Time *</label>
                     <DateTimePicker
                       id="input-datetime-local-62"
                       value={followUpDate || ""}
@@ -2250,10 +2324,10 @@ export default function LeadDetail() {
 
                   <div className="grid grid-cols-2 gap-4 items-start">
                     <div className="space-y-1.5">
-                      <label className="text-xs font-bold uppercase text-muted-foreground">Type</label>
+                      <label htmlFor="follow-up-type" className="text-xs font-bold uppercase text-muted-foreground">Type</label>
                       <select
-                          id="follow-up-type"
-                          name="follow-up-type" className="input-field dark:bg-card" value={followUpType} onChange={e => setFollowUpType(e.target.value)}>
+                        id="follow-up-type"
+                        name="follow-up-type" className="input-field dark:bg-card" value={followUpType} onChange={e => setFollowUpType(e.target.value)}>
                         <option value="Call">Call</option>
                         <option value="Email">Email</option>
                         <option value="Meeting">Meeting</option>
@@ -2261,10 +2335,10 @@ export default function LeadDetail() {
                       </select>
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-xs font-bold uppercase text-muted-foreground">Priority (optional)</label>
+                      <label htmlFor="select-field-64" className="text-xs font-bold uppercase text-muted-foreground">Priority (optional)</label>
                       <select
-                          id="select-field-64"
-                          name="select-field-64" className="input-field dark:bg-card" value={followUpPriority || ""} onChange={e => setFollowUpPriority(e.target.value)}>
+                        id="select-field-64"
+                        name="select-field-64" className="input-field dark:bg-card" value={followUpPriority || ""} onChange={e => setFollowUpPriority(e.target.value)}>
                         <option value="">NO</option>
                         <option value="Low">Low</option>
                         <option value="Medium">Medium</option>
@@ -2279,11 +2353,10 @@ export default function LeadDetail() {
 
 
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold uppercase text-muted-foreground">Follow-up Notes</label>
+                    <label htmlFor="reason-for-follow-up" className="text-xs font-bold uppercase text-muted-foreground">Follow-up Notes</label>
                     <textarea
-                        id="reason-for-follow-up"
-                        name="reason-for-follow-up"
-                    
+                      id="reason-for-follow-up"
+                      name="reason-for-follow-up"
                       placeholder="Reason for follow-up"
                       className="input-field min-h-[60px]"
                       value={followUpNotes}
@@ -2307,9 +2380,9 @@ export default function LeadDetail() {
               className="btn-secondary"
               onClick={() => {
                 setIsCallModalOpen(false);
-                loadAll();
+                loadAll(true);
                 setTimeout(() => {
-                  loadAll();
+                  loadAll(true);
                 }, 2500);
               }}
             >
@@ -2339,7 +2412,7 @@ export default function LeadDetail() {
           <div className="flex-1 overflow-y-auto p-6 py-4 custom-scrollbar min-h-0">
             <div className="grid gap-4">
               <div className="grid gap-1">
-                <label className="text-xs font-bold text-muted-foreground uppercase">To</label>
+                <span className="text-xs font-bold text-muted-foreground uppercase">To</span>
                 <div className="p-2 bg-accent/30 rounded border text-sm">
                   {selectedContactForSms 
                     ? `${selectedContactForSms.name} (${selectedContactForSms.direct_phone || selectedContactForSms.email})` 
@@ -2347,8 +2420,9 @@ export default function LeadDetail() {
                 </div>
               </div>
               <div className="grid gap-2">
-                <label className="text-sm font-medium">Message <span className="text-destructive">*</span></label>
+                <label htmlFor="sms_message" className="text-sm font-medium">Message <span className="text-destructive">*</span></label>
                 <textarea
+                  id="sms_message"
                   name="message"
                   className={`input-field min-h-[120px] ${smsErrors.message ? "border-destructive focus:border-destructive focus:ring-destructive/20" : ""}`}
                   placeholder="Type your SMS message..."
@@ -2395,8 +2469,9 @@ export default function LeadDetail() {
           <div className="flex-1 overflow-y-auto p-6 py-4 custom-scrollbar min-h-0">
             <div className="grid gap-4">
               <div className="grid gap-2">
-                <label className="text-sm font-medium">Note Details</label>
+                <label htmlFor="note_details" className="text-sm font-medium">Note Details</label>
                 <textarea
+                  id="note_details"
                   name="note"
                   className={`input-field min-h-[150px] ${noteError ? "border-destructive focus:border-destructive focus:ring-destructive/20" : ""}`}
                   placeholder="Type your notes here..."
@@ -2479,6 +2554,56 @@ export default function LeadDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Call Confirmation Dialog */}
+      <AlertDialog open={!!callToDeleteSid} onOpenChange={(open) => !open && setCallToDeleteSid(null)}>
+        <AlertDialogContent className="bg-background border border-border shadow-2xl rounded-2xl max-w-sm p-6">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-base font-bold text-foreground">
+              Delete this call log?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
+              Did you want to permanently delete this record or not? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="mt-5 flex gap-2">
+            <AlertDialogCancel className="bg-secondary text-secondary-foreground hover:bg-secondary/80 border border-border font-semibold px-3 py-1.5 rounded-lg text-xs">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDeleteCall}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 font-semibold px-3 py-1.5 rounded-lg text-xs border border-transparent"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete All Calls Confirmation Dialog */}
+      <AlertDialog open={isDeleteAllCallsOpen} onOpenChange={setIsDeleteAllCallsOpen}>
+        <AlertDialogContent className="bg-background border border-border shadow-2xl rounded-2xl max-w-sm p-6">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-base font-bold text-foreground">
+              Delete all call logs?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
+              Did you want to permanently delete all call records for this lead or not? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="mt-5 flex gap-2">
+            <AlertDialogCancel className="bg-secondary text-secondary-foreground hover:bg-secondary/80 border border-border font-semibold px-3 py-1.5 rounded-lg text-xs">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDeleteAllCalls}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 font-semibold px-3 py-1.5 rounded-lg text-xs border border-transparent"
+            >
+              Delete All
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppLayout>
   );
 }

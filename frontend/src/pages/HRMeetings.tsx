@@ -6,7 +6,7 @@ import {
     Edit2, X, Search, User as UserIcon,
     Loader2, Users, Mail, FileText,
     AlertTriangle, ChevronDown, Info,
-    ChevronLeft, ChevronRight, Video, MapPin, Phone
+    ChevronLeft, ChevronRight, Video, MapPin, Phone, Copy
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -68,6 +68,7 @@ interface Meeting {
     notes: string;
     meeting_type?: 'online' | 'in_person' | 'phone';
     meeting_link?: string | null;
+    zoom_start_url?: string | null;
     location?: string | null;
     created_by?: { name: string; email: string };
     change_log?: Array<{ action: string; by?: { name: string }; at: string; note: string }>;
@@ -1866,8 +1867,39 @@ function HRMeetingCard({ meeting, onEdit, onDelete, onViewDetails, canEdit, canD
 
 // ─── Detail Sheet ─────────────────────────────────────────────────────────────
 
-function MeetingDetailSheet({ meeting, open, onClose }: { meeting: Meeting | null; open: boolean; onClose: () => void }) {
+// ─── Detail Sheet ─────────────────────────────────────────────────────────────
+
+function MeetingDetailSheet({ 
+    meeting, 
+    open, 
+    onClose, 
+    onMeetingUpdated 
+}: { 
+    meeting: Meeting | null; 
+    open: boolean; 
+    onClose: () => void;
+    onMeetingUpdated: (updatedMeeting: Meeting) => void;
+}) {
     if (!meeting) return null;
+
+    const [updatingStatus, setUpdatingStatus] = useState(false);
+
+    const handleStatusChange = async (newStatus: string) => {
+        setUpdatingStatus(true);
+        try {
+            const res = await api.put(`/meetings/${meeting._id}`, { status: newStatus });
+            toast.success("Meeting status updated successfully");
+            onMeetingUpdated(res.data);
+        } catch (err: any) {
+            console.error("Failed to update status:", err);
+            toast.error(err.response?.data?.error || "Failed to update meeting status");
+        } finally {
+            setUpdatingStatus(false);
+        }
+    };
+
+    const cfg = STATUS_CONFIG[meeting.status] || STATUS_CONFIG.scheduled;
+
     return (
         <Sheet open={open} onOpenChange={onClose}>
             <SheetContent side="right" className="w-full sm:max-w-lg overflow-y-auto">
@@ -1875,7 +1907,31 @@ function MeetingDetailSheet({ meeting, open, onClose }: { meeting: Meeting | nul
                     <SheetTitle className="flex items-center gap-2 text-base">
                         <Building2 size={16} className="text-emerald-400" />{meeting.title}
                     </SheetTitle>
-                    <StatusBadge status={meeting.status} />
+                    <div className="relative inline-block w-fit">
+                        {updatingStatus ? (
+                            <span className="flex items-center gap-1 text-[10px] font-semibold px-2.5 py-1.5 rounded-full border border-border bg-muted/20 text-muted-foreground">
+                                <Loader2 size={10} className="animate-spin text-emerald-500" /> Updating...
+                            </span>
+                        ) : (
+                            <select
+                                value={meeting.status}
+                                onChange={(e) => handleStatusChange(e.target.value)}
+                                className={`appearance-none text-[10px] font-bold tracking-wider px-3.5 py-1.5 pr-8 rounded-full border bg-card cursor-pointer transition-all duration-200 outline-none hover:shadow-sm focus:ring-2 focus:ring-emerald-500/20 uppercase ${cfg.color} ${cfg.border}`}
+                                style={{
+                                    backgroundImage: `url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%236B7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3E%3C/svg%3E")`,
+                                    backgroundPosition: 'right 0.6rem center',
+                                    backgroundSize: '1rem 1rem',
+                                    backgroundRepeat: 'no-repeat'
+                                }}
+                            >
+                                {Object.entries(STATUS_CONFIG).map(([k, v]) => (
+                                    <option key={k} value={k} className="bg-card text-foreground font-semibold normal-case">
+                                        {v.label}
+                                    </option>
+                                ))}
+                            </select>
+                        )}
+                    </div>
                 </SheetHeader>
                 <div className="py-4 space-y-4">
                     <div className="grid grid-cols-2 gap-3">
@@ -1916,21 +1972,70 @@ function MeetingDetailSheet({ meeting, open, onClose }: { meeting: Meeting | nul
                     </div>
 
                     {/* Location details */}
-                    <div className="border-t border-border/60 pt-3 space-y-1.5">
+                    <div className="border-t border-border/60 pt-3 space-y-2">
                         <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Location</p>
                         {meeting.meeting_type === 'online' ? (
-                            <div className="flex flex-col gap-1">
-                                <span className="text-xs font-semibold text-foreground">Zoom / Online</span>
-                                {meeting.meeting_link ? (
-                                    <a
-                                        href={meeting.meeting_link}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors w-full"
-                                    >
-                                        <Video size={13} />
-                                        Join Zoom Meeting
-                                    </a>
+                            <div className="flex flex-col gap-2 bg-muted/10 p-3 rounded-xl border border-border/40">
+                                <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                                    <Video size={13} className="text-emerald-500" />
+                                    Zoom Meeting
+                                </span>
+                                {meeting.zoom_start_url || meeting.meeting_link ? (
+                                    <div className={`grid gap-3 ${meeting.zoom_start_url && meeting.meeting_link ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                                        {/* Host URL */}
+                                        {meeting.zoom_start_url && (
+                                            <div className="space-y-1">
+                                                <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">Host URL (Staff)</p>
+                                                <div className="flex gap-1.5">
+                                                    <a
+                                                        href={meeting.zoom_start_url}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="h-9 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors flex-1"
+                                                    >
+                                                        <Video size={13} />
+                                                        Start Zoom
+                                                    </a>
+                                                    <button
+                                                        onClick={() => {
+                                                            navigator.clipboard.writeText(meeting.zoom_start_url!);
+                                                            toast.success("Host link copied!");
+                                                        }}
+                                                        className="w-9 h-9 flex items-center justify-center rounded-lg border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                                                        title="Copy Host Link"
+                                                    >
+                                                        <Copy size={13} />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+                                        {/* Candidate Join Link */}
+                                        {meeting.meeting_link && (
+                                            <div className="space-y-1">
+                                                <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">Candidate URL</p>
+                                                <div className="flex gap-1.5">
+                                                    <a
+                                                        href={meeting.meeting_link}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="h-9 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg border border-border hover:bg-accent text-foreground transition-colors flex-1 text-center"
+                                                    >
+                                                        Join Zoom
+                                                    </a>
+                                                    <button
+                                                        onClick={() => {
+                                                            navigator.clipboard.writeText(meeting.meeting_link!);
+                                                            toast.success("Candidate link copied!");
+                                                        }}
+                                                        className="w-9 h-9 flex items-center justify-center rounded-lg border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                                                        title="Copy Candidate Link"
+                                                    >
+                                                        <Copy size={13} />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
                                 ) : (
                                     <span className="text-xs text-muted-foreground italic">Generating link...</span>
                                 )}
@@ -2050,6 +2155,11 @@ export default function HRMeetings() {
         } else {
             setMeetings(prev => [meeting, ...prev]);
         }
+    };
+
+    const handleMeetingUpdated = (updatedMeeting: Meeting) => {
+        setMeetings(prev => prev.map(m => m._id === updatedMeeting._id ? updatedMeeting : m));
+        setDetailMeeting(updatedMeeting);
     };
 
     const handleDelete = async (id: string) => {
@@ -2221,7 +2331,12 @@ export default function HRMeetings() {
                 </div>
             </div>
 
-            <MeetingDetailSheet meeting={detailMeeting} open={!!detailMeeting} onClose={() => setDetailMeeting(null)} />
+            <MeetingDetailSheet 
+                meeting={detailMeeting} 
+                open={!!detailMeeting} 
+                onClose={() => setDetailMeeting(null)} 
+                onMeetingUpdated={handleMeetingUpdated}
+            />
 
             <AlertDialog open={!!deletingId} onOpenChange={() => setDeletingId(null)}>
                 <AlertDialogContent>

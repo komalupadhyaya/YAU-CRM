@@ -501,6 +501,18 @@ export async function sendHRMeetingEmails({ meeting, actionType }) {
         timeStyle: 'short',
     });
 
+    // Subtitles for candidate & internal templates depending on the action
+    let subtitleInternal = 'An HR meeting has been scheduled. Please review the details below.';
+    let subtitleCandidate = 'You have a scheduled meeting. Please find the details below.';
+
+    if (actionType === 'rescheduled') {
+        subtitleInternal = 'An HR meeting has been rescheduled. Please review the updated details below.';
+        subtitleCandidate = 'Your meeting has been rescheduled. Please review the updated details below.';
+    } else if (actionType === 'canceled') {
+        subtitleInternal = 'IMPORTANT: This scheduled HR meeting has been canceled.';
+        subtitleCandidate = `Please note: The meeting that was scheduled for ${formattedDate} has been canceled.`;
+    }
+
     // Determine candidates list
     const candidates = (meeting.candidate_ids && meeting.candidate_ids.length > 0)
         ? meeting.candidate_ids
@@ -517,6 +529,7 @@ export async function sendHRMeetingEmails({ meeting, actionType }) {
 
     const internalHtml = renderTemplate('hr-meeting-internal.html', {
         STATUS: statusLabel,
+        SUBTITLE: subtitleInternal,
         TITLE: meeting.title,
         CANDIDATE_NAME: candidateNames,
         CANDIDATE_EMAIL: candidateEmails,
@@ -580,6 +593,7 @@ export async function sendHRMeetingEmails({ meeting, actionType }) {
 
                 const candidateHtml = renderTemplate('hr-meeting-candidate.html', {
                     STATUS: statusLabel,
+                    SUBTITLE: subtitleCandidate,
                     TITLE: meeting.title,
                     DATE_TIME: formattedDate,
                     DURATION: meeting.duration_minutes.toString(),
@@ -621,6 +635,18 @@ export async function sendSchoolMeetingEmails({ meeting, actionType }) {
         timeStyle: 'short',
     });
 
+    // Subtitles for lead & internal templates depending on the action
+    let subtitleInternal = 'A school meeting has been scheduled. Please review the details below.';
+    let subtitleLead = 'A meeting has been scheduled for your school. Please find the details below.';
+
+    if (actionType === 'rescheduled') {
+        subtitleInternal = 'A school meeting has been rescheduled. Please review the updated details below.';
+        subtitleLead = 'Your school meeting has been rescheduled. Please review the updated details below.';
+    } else if (actionType === 'canceled') {
+        subtitleInternal = 'IMPORTANT: This scheduled school meeting has been canceled.';
+        subtitleLead = `Please note: The school meeting that was scheduled for ${formattedDate} has been canceled.`;
+    }
+
     // Determine schools/leads list
     const leads = (meeting.lead_ids && meeting.lead_ids.length > 0)
         ? meeting.lead_ids
@@ -636,6 +662,7 @@ export async function sendSchoolMeetingEmails({ meeting, actionType }) {
 
     const internalHtml = renderTemplate('school-meeting-internal.html', {
         STATUS: statusLabel,
+        SUBTITLE: subtitleInternal,
         TITLE: meeting.title,
         SCHOOLS_LIST: schoolsList,
         DATE_TIME: formattedDate,
@@ -704,6 +731,7 @@ export async function sendSchoolMeetingEmails({ meeting, actionType }) {
 
                 const leadHtml = renderTemplate('school-meeting-lead.html', {
                     STATUS: statusLabel,
+                    SUBTITLE: subtitleLead,
                     TITLE: meeting.title,
                     DATE_TIME: formattedDate,
                     DURATION: meeting.duration_minutes.toString(),

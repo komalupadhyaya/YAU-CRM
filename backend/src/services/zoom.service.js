@@ -52,7 +52,7 @@ async function getAccessToken() {
  * @param {number} meetingData.duration_minutes
  * @returns {Promise<{ id: string, join_url: string }>}
  */
-export async function createZoomMeeting({ title, date_time, duration_minutes }) {
+export async function createZoomMeeting({ title, date_time, duration_minutes, alternative_hosts = [] }) {
     const token = await getAccessToken();
 
     if (!token) {
@@ -60,12 +60,13 @@ export async function createZoomMeeting({ title, date_time, duration_minutes }) 
         const mockId = Math.floor(1000000000 + Math.random() * 9000000000).toString();
         return {
             id: `mock_${mockId}`,
-            join_url: `https://zoom.us/j/${mockId}`
+            join_url: `https://zoom.us/j/${mockId}`,
+            start_url: `https://zoom.us/s/${mockId}`
         };
     }
 
     try {
-        const response = await axios.post('https://api.zoom.us/v2/users/me/meetings', {
+        const payload = {
             topic: title.trim(),
             type: 2, // Scheduled Meeting
             start_time: new Date(date_time).toISOString(),
@@ -74,22 +75,48 @@ export async function createZoomMeeting({ title, date_time, duration_minutes }) 
             settings: {
                 host_video: true,
                 participant_video: true,
-                join_before_host: true,
+                join_before_host: false, // Prevents candidate from starting meeting early
+                waiting_room: true,      // Sends candidate to waiting room
                 mute_upon_entry: true,
                 approval_type: 2, // No approval required
                 audio: 'both',
                 enforce_login: false
             }
-        }, {
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
+        };
+
+        if (alternative_hosts.length > 0) {
+            payload.settings.alternative_hosts = alternative_hosts.join(',');
+        }
+
+        let response;
+        try {
+            response = await axios.post('https://api.zoom.us/v2/users/me/meetings', payload, {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+        } catch (postErr) {
+            // Zoom Error 1114: invalid alternative host email(s).
+            // Retry creating the meeting without alternative hosts so the link is still generated.
+            if (postErr.response?.data?.code === 1114 && alternative_hosts.length > 0) {
+                console.warn(`⚠️ Warning: Zoom alternative hosts validation failed (code 1114). Retrying meeting creation without alternative hosts...`);
+                delete payload.settings.alternative_hosts;
+                response = await axios.post('https://api.zoom.us/v2/users/me/meetings', payload, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+            } else {
+                throw postErr;
             }
-        });
+        }
 
         return {
             id: String(response.data.id),
-            join_url: response.data.join_url
+            join_url: response.data.join_url,
+            start_url: response.data.start_url
         };
     } catch (err) {
         console.error('❌ Zoom Meeting Creation Error:', err.response?.data || err.message);
@@ -105,7 +132,7 @@ export async function createZoomMeeting({ title, date_time, duration_minutes }) 
  * @param {Date|string} meetingData.date_time
  * @param {number} meetingData.duration_minutes
  */
-export async function updateZoomMeeting(zoomMeetingId, { title, date_time, duration_minutes }) {
+export async function updateZoomMeeting(zoomMeetingId, { title, date_time, duration_minutes, alternative_hosts = [] }) {
     if (!zoomMeetingId || zoomMeetingId.startsWith('mock_')) {
         console.log(`ℹ️ Skipping Zoom update for mock meeting ID: ${zoomMeetingId}`);
         return;
@@ -115,16 +142,43 @@ export async function updateZoomMeeting(zoomMeetingId, { title, date_time, durat
     if (!token) return;
 
     try {
-        await axios.patch(`https://api.zoom.us/v2/meetings/${zoomMeetingId}`, {
+        const patchData = {
             topic: title.trim(),
             start_time: new Date(date_time).toISOString(),
-            duration: duration_minutes
-        }, {
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
+            duration: duration_minutes,
+            settings: {
+                join_before_host: false,
+                waiting_room: true
             }
-        });
+        };
+
+        if (alternative_hosts.length > 0) {
+            patchData.settings.alternative_hosts = alternative_hosts.join(',');
+        }
+
+        try {
+            await axios.patch(`https://api.zoom.us/v2/meetings/${zoomMeetingId}`, patchData, {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+        } catch (patchErr) {
+            // Zoom Error 1114: invalid alternative host email(s).
+            // Retry updating the meeting without alternative hosts.
+            if (patchErr.response?.data?.code === 1114 && alternative_hosts.length > 0) {
+                console.warn(`⚠️ Warning: Zoom alternative hosts validation failed (code 1114). Retrying meeting update without alternative hosts...`);
+                delete patchData.settings.alternative_hosts;
+                await axios.patch(`https://api.zoom.us/v2/meetings/${zoomMeetingId}`, patchData, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+            } else {
+                throw patchErr;
+            }
+        }
         console.log(`✅ Zoom meeting updated successfully: ${zoomMeetingId}`);
     } catch (err) {
         console.error(`❌ Zoom Meeting Update Error (${zoomMeetingId}):`, err.response?.data || err.message);

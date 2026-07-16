@@ -280,12 +280,12 @@ export default function CallHistoryPage() {
               <table className="w-full text-left border-collapse table-auto min-w-[700px] xl:min-w-full">
                 <thead>
                   <tr className="border-b border-border bg-muted/30 text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                    <th className="py-2.5 px-3 w-[90px]">Direction</th>
+                    <th className="py-2.5 px-3 w-[90px] text-center">Direction</th>
                     <th className="py-2.5 px-3">Team Member</th>
                     <th className="py-2.5 px-3 w-[130px]">Phone Number</th>
                     <th className="py-2.5 px-3">Associated Lead</th>
                     <th className="py-2.5 px-3 w-[120px] text-center">Status</th>
-                    <th className="py-2.5 px-3 w-[80px]">Duration</th>
+                    <th className="py-2.5 px-3 w-[80px] text-center">Duration</th>
                     <th className="py-2.5 px-4 w-[160px]">Date & Time</th>
                     <th className="py-2.5 px-4 w-[120px] text-center">Audio</th>
                     <th className="py-2.5 px-4 w-[60px] text-center">Delete</th>
@@ -314,7 +314,7 @@ export default function CallHistoryPage() {
                     calls.map((call) => (
                       <tr key={call._id} className="hover:bg-accent/10 transition-colors">
                         {/* Direction Badge */}
-                        <td className="py-2 px-3 whitespace-nowrap">
+                        <td className="py-2 px-3 whitespace-nowrap text-center">
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full border ${
@@ -472,7 +472,7 @@ export default function CallHistoryPage() {
                         </td>
 
                         {/* Duration */}
-                        <td className="py-2 px-3 whitespace-nowrap text-muted-foreground font-mono font-semibold">
+                        <td className="py-2 px-3 whitespace-nowrap text-muted-foreground font-mono font-semibold text-center">
                           {formatDuration(call.duration)}
                         </td>
 

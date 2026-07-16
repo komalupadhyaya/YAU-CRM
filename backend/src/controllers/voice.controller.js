@@ -1376,9 +1376,36 @@ export const updateConfig = async (req, res, next) => {
         const newHoldMusicUrl = config?.holdMusic?.audioFileUrl;
         const newVoicemailUrl = config?.voicemail?.audioFileUrl;
 
-        // Helper to delete a local upload file by URL
-        const deleteLocalFileByUrl = (url) => {
+        // Helper to delete a remote (Cloudinary) or local file by URL
+        const deleteRemoteFileByUrl = async (url) => {
             if (!url || typeof url !== 'string') return;
+
+            // Delete from Cloudinary if it's a Cloudinary URL
+            if (url.includes('cloudinary.com')) {
+                try {
+                    const { v2: cloudinary } = await import('cloudinary');
+                    const { CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET } = process.env;
+                    if (CLOUDINARY_CLOUD_NAME && CLOUDINARY_API_KEY && CLOUDINARY_API_SECRET) {
+                        cloudinary.config({
+                            cloud_name: CLOUDINARY_CLOUD_NAME,
+                            api_key: CLOUDINARY_API_KEY,
+                            api_secret: CLOUDINARY_API_SECRET
+                        });
+                        
+                        const match = url.match(/yau-crm-audio\/([^.]+)/);
+                        if (match) {
+                            const publicId = `yau-crm-audio/${match[1]}`;
+                            await cloudinary.uploader.destroy(publicId, { resource_type: 'video' });
+                            console.log(`🗑️ Deleted Cloudinary audio file: ${publicId}`);
+                        }
+                    }
+                } catch (err) {
+                    console.error(`❌ Failed to delete Cloudinary file for URL ${url}:`, err.message);
+                }
+                return;
+            }
+
+            // Local fallback
             if (url.includes('/uploads/')) {
                 try {
                     const filename = url.split('/uploads/')[1];
@@ -1395,15 +1422,19 @@ export const updateConfig = async (req, res, next) => {
             }
         };
 
-        // If URLs changed, delete the old file to conserve server storage
+        // If URLs changed, delete the old file to conserve storage
+        const deleteOps = [];
         if (oldGreetingUrl && oldGreetingUrl !== newGreetingUrl) {
-            deleteLocalFileByUrl(oldGreetingUrl);
+            deleteOps.push(deleteRemoteFileByUrl(oldGreetingUrl));
         }
         if (oldHoldMusicUrl && oldHoldMusicUrl !== newHoldMusicUrl) {
-            deleteLocalFileByUrl(oldHoldMusicUrl);
+            deleteOps.push(deleteRemoteFileByUrl(oldHoldMusicUrl));
         }
         if (oldVoicemailUrl && oldVoicemailUrl !== newVoicemailUrl) {
-            deleteLocalFileByUrl(oldVoicemailUrl);
+            deleteOps.push(deleteRemoteFileByUrl(oldVoicemailUrl));
+        }
+        if (deleteOps.length > 0) {
+            await Promise.all(deleteOps);
         }
 
         res.json(config);
@@ -1412,7 +1443,7 @@ export const updateConfig = async (req, res, next) => {
     }
 };
 
-// 9. Upload Audio File (S3 or Local)
+// 9. Upload Audio File (Cloudinary → S3 → Local fallback)
 export const uploadAudio = async (req, res, next) => {
     try {
         if (!req.file) {
@@ -1421,6 +1452,42 @@ export const uploadAudio = async (req, res, next) => {
         }
 
         const file = req.file;
+        const { CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET } = process.env;
+
+        // Priority 1: Cloudinary (permanent CDN URLs)
+        if (CLOUDINARY_CLOUD_NAME && CLOUDINARY_API_KEY && CLOUDINARY_API_SECRET) {
+            try {
+                const { v2: cloudinary } = await import('cloudinary');
+                cloudinary.config({
+                    cloud_name: CLOUDINARY_CLOUD_NAME,
+                    api_key: CLOUDINARY_API_KEY,
+                    api_secret: CLOUDINARY_API_SECRET
+                });
+
+                const cloudinaryUrl = await new Promise((resolve, reject) => {
+                    const uploadStream = cloudinary.uploader.upload_stream(
+                        {
+                            resource_type: 'video', // Cloudinary uses 'video' type for audio files
+                            folder: 'yau-crm-audio',
+                            format: 'mp3',
+                            use_filename: false,
+                            unique_filename: true
+                        },
+                        (error, result) => {
+                            if (error) return reject(error);
+                            resolve(result.secure_url);
+                        }
+                    );
+                    uploadStream.end(file.buffer);
+                });
+
+                return res.json({ url: cloudinaryUrl });
+            } catch (cloudErr) {
+                console.error('Cloudinary upload failed, falling back to S3/local:', cloudErr.message);
+                // Fall through to S3 or local upload
+            }
+        }
+
         const filename = `${Date.now()}-${file.originalname.replace(/\s+/g, '_')}`;
 
         // Check if S3 environment variables are set

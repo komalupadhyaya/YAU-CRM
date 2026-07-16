@@ -53,6 +53,7 @@ const MeetingSchema = new mongoose.Schema({
         default: 'online'
     },
     meeting_link: { type: String, default: null },
+    zoom_start_url: { type: String, default: null },
     zoom_meeting_id: { type: String, default: null },
     location: { type: String, default: null },
 

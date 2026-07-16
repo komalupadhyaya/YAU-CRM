@@ -38,6 +38,7 @@ export interface Lead {
     assigned_to?: { _id: string, name: string, email?: string, role?: string } | null;
     callHistory?: Array<{
         callSid: string;
+        parentCallSid?: string;
         direction: 'inbound' | 'outbound';
         duration: number;
         recordingUrl?: string;

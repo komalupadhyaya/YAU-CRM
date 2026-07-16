@@ -467,6 +467,13 @@ export default function Dashboard() {
     </div>
   );
 
+  const hasDraftData = 
+    selectedLeadResult !== null || 
+    leadSearch.trim().length > 0 || 
+    followUpNotes.trim().length > 0 || 
+    followUpDate.trim().length > 0 ||
+    followUpPriority !== "";
+
   if (loading) return <AppLayout><div className="p-12 text-center animate-pulse">Loading dashboard...</div></AppLayout>;
 
   return (
@@ -828,8 +835,22 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent aria-describedby={undefined} className="w-[90vw] max-w-lg dark:bg-card max-h-[90vh] overflow-y-auto custom-scrollbar">
+      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen} modal={false}>
+        <DialogContent 
+          aria-describedby={undefined} 
+          hideOverlay={true}
+          className="w-[90vw] max-w-lg dark:bg-card max-h-[90vh] overflow-y-auto custom-scrollbar shadow-2xl border-2 border-border/80"
+          onPointerDownOutside={(e) => {
+            if (hasDraftData) {
+              e.preventDefault();
+            }
+          }}
+          onInteractOutside={(e) => {
+            if (hasDraftData) {
+              e.preventDefault();
+            }
+          }}
+        >
           <DialogHeader>
             <DialogTitle className="dark:text-foreground text-lg">Log Call / Outreach</DialogTitle>
           </DialogHeader>

@@ -378,4 +378,12 @@ aside *::-webkit-scrollbar-thumb:hover {
   background-clip: padding-box;
 }
 
-
+#dialerPhoneInput::placeholder {
+  color: rgb(113 113 122) !important; /* zinc-500 */
+  opacity: 0.6 !important;
+}
+
+#dialerPhoneInput:-webkit-autofill::placeholder {
+  color: rgb(113 113 122) !important;
+  opacity: 0.6 !important;
+}

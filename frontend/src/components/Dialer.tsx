@@ -583,7 +583,11 @@ export default function Dialer() {
                                             name="dialerPhoneInput"
                                             type="text"
                                             value={phoneNumber}
-                                            onChange={(e) => setPhoneNumber(e.target.value)}
+                                           
+                                            onChange={(e) => {
+                                                const cleanValue = e.target.value.replace(/[^\d+\-()*#\s]/g, '');
+                                                setPhoneNumber(cleanValue);
+                                            }}
                                             placeholder="Enter phone number..."
                                             readOnly={isReadOnly}
                                             disabled={isReadOnly}
