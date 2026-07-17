@@ -47,24 +47,51 @@ function renderTemplate(templateName, vars) {
  * Send an HTML email via the Gmail API.
  * @param {{ to: string, subject: string, html: string }} options
  */
-async function sendMail({ to, subject, html, from }) {
+async function sendMail({ to, subject, html, from, icsContent, icsFilename = 'invite.ics' }) {
     const gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
 
     const utf8Subject = `=?utf-8?B?${Buffer.from(subject).toString('base64')}?=`;
+    const boundary = '____boundary_yau_crm____';
+
     const headers = [];
     if (from) {
         headers.push(`From: ${from}`);
     }
     headers.push(`To: ${to}`);
-    headers.push('Content-Type: text/html; charset=utf-8');
-    headers.push('MIME-Version: 1.0');
     headers.push(`Subject: ${utf8Subject}`);
+    headers.push('MIME-Version: 1.0');
 
-    const rawParts = [
-        ...headers,
-        '',
-        html,
-    ].join('\r\n');
+    let rawParts = '';
+
+    if (icsContent) {
+        headers.push(`Content-Type: multipart/mixed; boundary="${boundary}"`);
+        
+        rawParts = [
+            ...headers,
+            '',
+            `--${boundary}`,
+            'Content-Type: text/html; charset=utf-8',
+            'Content-Transfer-Encoding: 7bit',
+            '',
+            html,
+            '',
+            `--${boundary}`,
+            `Content-Type: text/calendar; charset=utf-8; method=REQUEST; name="${icsFilename}"`,
+            'Content-Transfer-Encoding: base64',
+            `Content-Disposition: inline; filename="${icsFilename}"`,
+            '',
+            Buffer.from(icsContent).toString('base64'),
+            '',
+            `--${boundary}--`
+        ].join('\r\n');
+    } else {
+        headers.push('Content-Type: text/html; charset=utf-8');
+        rawParts = [
+            ...headers,
+            '',
+            html,
+        ].join('\r\n');
+    }
 
     const encoded = Buffer.from(rawParts)
         .toString('base64')
@@ -482,6 +509,51 @@ export async function sendReminderEmail({ to, userName, title, type, dueAt }) {
     }
 }
 
+function formatICSDate(date) {
+    const d = new Date(date);
+    return d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+}
+
+function generateICS(meeting) {
+    const startTime = new Date(meeting.date_time);
+    const endTime = new Date(startTime.getTime() + meeting.duration_minutes * 60000);
+
+    const startStr = formatICSDate(startTime);
+    const endStr = formatICSDate(endTime);
+    const createdStr = formatICSDate(new Date());
+
+    const title = meeting.title || 'Meeting';
+    let location = 'Phone Call';
+    if (meeting.meeting_type === 'online') {
+        location = meeting.meeting_link || 'Zoom Meeting';
+    } else if (meeting.meeting_type === 'in_person') {
+        location = meeting.location || 'In-Person';
+    }
+
+    const description = meeting.notes ? meeting.notes.replace(/\n/g, '\\n') : '';
+
+    return [
+        'BEGIN:VCALENDAR',
+        'VERSION:2.0',
+        'PRODID:-//YAU CRM//Meeting Scheduler//EN',
+        'CALSCALE:GREGORIAN',
+        'METHOD:REQUEST',
+        'BEGIN:VEVENT',
+        `UID:${meeting._id}-${startTime.getTime()}`,
+        `DTSTAMP:${createdStr}`,
+        `DTSTART:${startStr}`,
+        `DTEND:${endStr}`,
+        `SUMMARY:${title}`,
+        `DESCRIPTION:${description}`,
+        `LOCATION:${location}`,
+        'STATUS:CONFIRMED',
+        'SEQUENCE:0',
+        'TRANSP:OPAQUE',
+        'END:VEVENT',
+        'END:VCALENDAR'
+    ].join('\r\n');
+}
+
 /**
  * Send email notifications for an HR meeting.
  * Called WITHOUT await — fully non-blocking fire-and-forget.
@@ -543,6 +615,7 @@ export async function sendHRMeetingEmails({ meeting, actionType }) {
     }).replace('{LOCATION_SECTION}', locationHtml);
 
     const subjectInternal = `[HR Meeting] ${meeting.title} — ${statusLabel}`;
+    const icsContent = actionType !== 'canceled' ? generateICS(meeting) : null;
 
     // Send to each internal attendee
     if (meeting.internal_attendees && meeting.internal_attendees.length > 0) {
@@ -552,7 +625,8 @@ export async function sendHRMeetingEmails({ meeting, actionType }) {
                     await sendMail({
                         to: attendee.email,
                         subject: subjectInternal,
-                        html: internalHtml
+                        html: internalHtml,
+                        icsContent
                     });
                     console.log(`✅ HR Meeting internal email sent to ${attendee.email}`);
                 } catch (err) {
@@ -569,7 +643,8 @@ export async function sendHRMeetingEmails({ meeting, actionType }) {
                 await sendMail({
                     to: email,
                     subject: subjectInternal,
-                    html: internalHtml
+                    html: internalHtml,
+                    icsContent
                 });
                 console.log(`✅ HR Meeting CC email sent to ${email}`);
             } catch (err) {
@@ -606,7 +681,8 @@ export async function sendHRMeetingEmails({ meeting, actionType }) {
                 await sendMail({
                     to: candidate.email,
                     subject: subjectCandidate,
-                    html: candidateHtml
+                    html: candidateHtml,
+                    icsContent
                 });
                 console.log(`✅ HR Meeting candidate email sent to ${candidate.email}`);
             } catch (err) {
@@ -674,6 +750,7 @@ export async function sendSchoolMeetingEmails({ meeting, actionType }) {
     }).replace('{LOCATION_SECTION}', locationHtml);
 
     const subjectInternal = `[School Meeting] ${meeting.title} — ${statusLabel}`;
+    const icsContent = actionType !== 'canceled' ? generateICS(meeting) : null;
 
     if (meeting.internal_attendees && meeting.internal_attendees.length > 0) {
         for (const attendee of meeting.internal_attendees) {
@@ -682,7 +759,8 @@ export async function sendSchoolMeetingEmails({ meeting, actionType }) {
                     await sendMail({
                         to: attendee.email,
                         subject: subjectInternal,
-                        html: internalHtml
+                        html: internalHtml,
+                        icsContent
                     });
                     console.log(`✅ School Meeting internal email sent to ${attendee.email}`);
                 } catch (err) {
@@ -699,7 +777,8 @@ export async function sendSchoolMeetingEmails({ meeting, actionType }) {
                 await sendMail({
                     to: email,
                     subject: subjectInternal,
-                    html: internalHtml
+                    html: internalHtml,
+                    icsContent
                 });
                 console.log(`✅ School Meeting CC email sent to ${email}`);
             } catch (err) {
@@ -746,7 +825,8 @@ export async function sendSchoolMeetingEmails({ meeting, actionType }) {
                         await sendMail({
                             to: email,
                             subject: subjectLead,
-                            html: leadHtml
+                            html: leadHtml,
+                            icsContent
                         });
                         console.log(`✅ School Meeting lead email sent to ${email}`);
                     } catch (err) {

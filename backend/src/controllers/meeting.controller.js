@@ -292,7 +292,7 @@ async function syncMeetingToGoogleCalendar(meetingId, action) {
                     await calendar.events.delete({
                         calendarId: 'primary',
                         eventId: meeting.google_event_id,
-                        sendUpdates: 'all'
+                        sendUpdates: 'none'
                     });
                     console.log(`✅ Google Calendar event deleted: ${meeting.google_event_id}`);
                 } catch (err) {
@@ -415,7 +415,7 @@ async function syncMeetingToGoogleCalendar(meetingId, action) {
                 calendarId: 'primary',
                 eventId: meeting.google_event_id,
                 resource: event,
-                sendUpdates: 'all'
+                sendUpdates: 'none'
             });
             console.log(`✅ Google Calendar event updated: ${meeting.google_event_id}`);
         } else {
@@ -423,7 +423,7 @@ async function syncMeetingToGoogleCalendar(meetingId, action) {
             const createdEvent = await calendar.events.insert({
                 calendarId: 'primary',
                 resource: event,
-                sendUpdates: 'all'
+                sendUpdates: 'none'
             });
             meeting.google_event_id = createdEvent.data.id;
             await meeting.save();
