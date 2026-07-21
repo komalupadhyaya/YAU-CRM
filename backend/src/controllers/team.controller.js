@@ -210,3 +210,30 @@ export const deleteUser = async (req, res, next) => {
         next(err);
     }
 };
+
+/**
+ * POST /api/team/:id/zoom-invite
+ * Check if a team member exists in Zoom User Management and send an invitation if not.
+ */
+export const inviteToZoom = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const user = await User.findById(id);
+        if (!user) {
+            res.status(404);
+            throw new Error('User not found.');
+        }
+
+        const nameParts = (user.name || '').trim().split(' ');
+        const firstName = nameParts[0] || '';
+        const lastName = nameParts.slice(1).join(' ') || '';
+
+        const { inviteZoomUser } = await import('../services/zoom.service.js');
+        const result = await inviteZoomUser(user.email, firstName, lastName);
+
+        res.json(result);
+    } catch (err) {
+        next(err);
+    }
+};
+

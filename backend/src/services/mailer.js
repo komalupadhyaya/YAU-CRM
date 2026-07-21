@@ -64,6 +64,7 @@ async function sendMail({ to, subject, html, from, icsContent, icsFilename = 'in
     let rawParts = '';
 
     if (icsContent) {
+        const method = icsContent.includes('METHOD:CANCEL') ? 'CANCEL' : 'REQUEST';
         headers.push(`Content-Type: multipart/mixed; boundary="${boundary}"`);
         
         rawParts = [
@@ -76,7 +77,7 @@ async function sendMail({ to, subject, html, from, icsContent, icsFilename = 'in
             html,
             '',
             `--${boundary}`,
-            `Content-Type: text/calendar; charset=utf-8; method=REQUEST; name="${icsFilename}"`,
+            `Content-Type: text/calendar; charset=utf-8; method=${method}; name="${icsFilename}"`,
             'Content-Transfer-Encoding: base64',
             `Content-Disposition: inline; filename="${icsFilename}"`,
             '',
@@ -514,7 +515,7 @@ function formatICSDate(date) {
     return d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
 }
 
-function generateICS(meeting) {
+function generateICS(meeting, actionType = 'created') {
     const startTime = new Date(meeting.date_time);
     const endTime = new Date(startTime.getTime() + meeting.duration_minutes * 60000);
 
@@ -531,23 +532,24 @@ function generateICS(meeting) {
     }
 
     const description = meeting.notes ? meeting.notes.replace(/\n/g, '\\n') : '';
+    const isCanceled = actionType === 'canceled';
 
     return [
         'BEGIN:VCALENDAR',
         'VERSION:2.0',
         'PRODID:-//YAU CRM//Meeting Scheduler//EN',
         'CALSCALE:GREGORIAN',
-        'METHOD:REQUEST',
+        `METHOD:${isCanceled ? 'CANCEL' : 'REQUEST'}`,
         'BEGIN:VEVENT',
-        `UID:${meeting._id}-${startTime.getTime()}`,
+        `UID:${meeting._id}@yaucrm.com`,
         `DTSTAMP:${createdStr}`,
         `DTSTART:${startStr}`,
         `DTEND:${endStr}`,
-        `SUMMARY:${title}`,
+        `SUMMARY:${isCanceled ? '[CANCELED] ' : ''}${title}`,
         `DESCRIPTION:${description}`,
         `LOCATION:${location}`,
-        'STATUS:CONFIRMED',
-        'SEQUENCE:0',
+        `STATUS:${isCanceled ? 'CANCELLED' : 'CONFIRMED'}`,
+        `SEQUENCE:${isCanceled ? 1 : 0}`,
         'TRANSP:OPAQUE',
         'END:VEVENT',
         'END:VCALENDAR'
@@ -615,7 +617,7 @@ export async function sendHRMeetingEmails({ meeting, actionType }) {
     }).replace('{LOCATION_SECTION}', locationHtml);
 
     const subjectInternal = `[HR Meeting] ${meeting.title} — ${statusLabel}`;
-    const icsContent = actionType !== 'canceled' ? generateICS(meeting) : null;
+    const icsContent = generateICS(meeting, actionType);
 
     // Send to each internal attendee
     if (meeting.internal_attendees && meeting.internal_attendees.length > 0) {
@@ -750,7 +752,7 @@ export async function sendSchoolMeetingEmails({ meeting, actionType }) {
     }).replace('{LOCATION_SECTION}', locationHtml);
 
     const subjectInternal = `[School Meeting] ${meeting.title} — ${statusLabel}`;
-    const icsContent = actionType !== 'canceled' ? generateICS(meeting) : null;
+    const icsContent = generateICS(meeting, actionType);
 
     if (meeting.internal_attendees && meeting.internal_attendees.length > 0) {
         for (const attendee of meeting.internal_attendees) {

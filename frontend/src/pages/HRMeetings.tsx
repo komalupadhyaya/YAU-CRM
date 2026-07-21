@@ -120,15 +120,18 @@ function AttendeeChip({ member }: { member: TeamMember }) {
 
 // ─── Multi-select Attendee Picker ─────────────────────────────────────────────
 
-function MultiUserPicker({ teamMembers, selected, onChange, placeholder = 'Select attendees...' }: {
+function MultiUserPicker({ teamMembers, selected, onChange, placeholder = 'Select attendees...', maxSelection }: {
     teamMembers: TeamMember[];
     selected: TeamMember[];
     onChange: (members: TeamMember[]) => void;
     placeholder?: string;
+    maxSelection?: number;
 }) {
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState('');
     const ref = useRef<HTMLDivElement>(null);
+
+    const isMaxReached = maxSelection !== undefined && selected.length >= maxSelection;
 
     const filtered = teamMembers.filter(m =>
         m.isActive &&
@@ -145,23 +148,38 @@ function MultiUserPicker({ teamMembers, selected, onChange, placeholder = 'Selec
     }, []);
 
     const remove = (id: string) => onChange(selected.filter(m => m._id !== id));
-    const add = (member: TeamMember) => { onChange([...selected, member]); setQuery(''); };
+    const add = (member: TeamMember) => {
+        if (isMaxReached) return;
+        onChange([...selected, member]);
+        setQuery('');
+        if (maxSelection === 1) setOpen(false);
+    };
 
     return (
         <div ref={ref} className="relative">
-            <div onClick={() => setOpen(true)}
-                className="min-h-[38px] w-full flex flex-wrap gap-1.5 px-3 py-2 rounded-lg border border-border hover:border-primary/50 bg-background cursor-text">
+            <div 
+                onClick={() => {
+                    if (!isMaxReached) setOpen(true);
+                }}
+                className={`min-h-[38px] w-full flex flex-wrap items-center gap-1.5 px-3 py-2 rounded-lg border border-border bg-background transition-all
+                    ${isMaxReached ? 'opacity-95 cursor-default border-emerald-500/30' : 'hover:border-primary/50 cursor-text'}`}
+            >
                 {selected.map(m => (
-                    <span key={m._id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 text-xs font-medium border border-emerald-500/20">
+                    <span key={m._id} className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-semibold border border-emerald-500/20">
                         {m.name}
-                        <button type="button" onClick={(e) => { e.stopPropagation(); remove(m._id); }} className="hover:text-destructive transition-colors">
+                        <button type="button" onClick={(e) => { e.stopPropagation(); remove(m._id); }} className="hover:text-destructive transition-colors ml-0.5" title="Remove Host">
                             <X size={10} />
                         </button>
                     </span>
                 ))}
                 {selected.length === 0 && <span className="text-sm text-muted-foreground">{placeholder}</span>}
+                {isMaxReached && (
+                    <span className="text-[11px] text-muted-foreground ml-auto font-medium opacity-70">
+                        (Host selected — click X to change)
+                    </span>
+                )}
             </div>
-            {open && (
+            {open && !isMaxReached && (
                 <div className="absolute z-50 mt-1 w-full bg-popover border border-border rounded-xl shadow-xl overflow-hidden">
                     <div className="p-2 border-b border-border flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-muted/60 flex-1">
@@ -170,32 +188,34 @@ function MultiUserPicker({ teamMembers, selected, onChange, placeholder = 'Selec
                                 onChange={e => setQuery(e.target.value)}
                                 className="flex-1 bg-transparent text-sm outline-none text-foreground placeholder:text-muted-foreground" />
                         </div>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                            {filtered.length > 0 && (
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        onChange([...selected, ...filtered]);
-                                        setQuery('');
-                                    }}
-                                    className="text-xs text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 font-bold shrink-0 px-2 py-1 rounded hover:bg-emerald-500/10 transition-colors"
-                                >
-                                    Select All
-                                </button>
-                            )}
-                            {selected.length > 0 && (
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        onChange([]);
-                                        setQuery('');
-                                    }}
-                                    className="text-xs text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 font-bold shrink-0 px-2 py-1 rounded hover:bg-rose-500/10 transition-colors"
-                                >
-                                    Deselect All
-                                </button>
-                            )}
-                        </div>
+                        {maxSelection === undefined && (
+                            <div className="flex items-center gap-1.5 shrink-0">
+                                {filtered.length > 0 && (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            onChange([...selected, ...filtered]);
+                                            setQuery('');
+                                        }}
+                                        className="text-xs text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 font-bold shrink-0 px-2 py-1 rounded hover:bg-emerald-500/10 transition-colors"
+                                    >
+                                        Select All
+                                    </button>
+                                )}
+                                {selected.length > 0 && (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            onChange([]);
+                                            setQuery('');
+                                        }}
+                                        className="text-xs text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 font-bold shrink-0 px-2 py-1 rounded hover:bg-rose-500/10 transition-colors"
+                                    >
+                                        Deselect All
+                                    </button>
+                                )}
+                            </div>
+                        )}
                     </div>
                     <div className="max-h-44 overflow-y-auto">
                         {filtered.length === 0 ? (
@@ -1264,6 +1284,80 @@ function HRMeetingForm({ teamMembers, candidates, editingMeeting, onSuccess, onC
     const [location, setLocation] = useState(editingMeeting?.location ?? '');
     const [force, setForce] = useState(false);
 
+    // Zoom users list fetched from Zoom API
+    interface ZoomApiUser {
+        email: string;
+        display_name: string;
+        type: number;
+        is_owner?: boolean;
+    }
+    const [zoomUsersList, setZoomUsersList] = useState<ZoomApiUser[]>([]);
+    const [zoomUsersLoaded, setZoomUsersLoaded] = useState(false);
+
+    useEffect(() => {
+        if (meetingType !== 'online') return;
+        if (zoomUsersLoaded) return; // already fetched
+        api.get('/meetings/zoom-users')
+            .then(res => {
+                const users: ZoomApiUser[] = res.data.users || [];
+                setZoomUsersList(users);
+            })
+            .catch(() => {
+                setZoomUsersList([]);
+            })
+            .finally(() => setZoomUsersLoaded(true));
+    }, [meetingType, zoomUsersLoaded]);
+
+    // Build the list of selectable internal attendees when meeting type is online vs in_person/phone
+    const selectableAttendees = useMemo(() => {
+        if (meetingType !== 'online' || !zoomUsersLoaded || zoomUsersList.length === 0) {
+            return teamMembers;
+        }
+
+        const result: TeamMember[] = [];
+        const addedEmails = new Set<string>();
+        const adminCrmUser = teamMembers.find(m => m.role === 'admin') || teamMembers[0];
+
+        // Strictly show only active users present in Zoom User Management
+        zoomUsersList.forEach(zUser => {
+            const emailLower = (zUser.email || '').toLowerCase();
+            if (!emailLower || addedEmails.has(emailLower)) return;
+
+            const matchingCrm = teamMembers.find(m => m.email.toLowerCase() === emailLower);
+            if (matchingCrm) {
+                result.push(matchingCrm);
+                addedEmails.add(emailLower);
+            } else {
+                // Zoom user not in CRM DB (e.g. Kimberly Shackelford kimberly@thecollegemomboss.com)
+                result.push({
+                    _id: adminCrmUser?._id || `zoom_${emailLower}`,
+                    name: zUser.display_name || (zUser.is_owner ? 'Kimberly Shackelford' : emailLower),
+                    email: zUser.email,
+                    role: 'admin',
+                    isActive: true
+                });
+                addedEmails.add(emailLower);
+            }
+        });
+
+        return result;
+    }, [meetingType, zoomUsersLoaded, zoomUsersList, teamMembers]);
+
+    // Combined attendees list for Step 5 availability checking (Zoom Host + CC team members for online meetings)
+    const allAttendeesForAvailability = useMemo(() => {
+        if (meetingType === 'online') {
+            const ccMembers: TeamMember[] = [];
+            ccEmails.forEach(email => {
+                const member = teamMembers.find(m => m.email.toLowerCase() === email.toLowerCase());
+                if (member && !internalAttendees.some(ia => ia._id === member._id)) {
+                    ccMembers.push(member);
+                }
+            });
+            return [...internalAttendees, ...ccMembers];
+        }
+        return internalAttendees;
+    }, [meetingType, internalAttendees, ccEmails, teamMembers]);
+
     const [scriptLoaded, setScriptLoaded] = useState(false);
     const [scriptError, setScriptError] = useState(false);
     const addressInputRef = useRef<HTMLInputElement>(null);
@@ -1409,6 +1503,7 @@ function HRMeetingForm({ teamMembers, candidates, editingMeeting, onSuccess, onC
                 date_time: dateTime,
                 duration_minutes: duration,
                 internal_attendees: internalAttendees.map(m => m._id),
+                host_email: internalAttendees[0]?.email || null,
                 cc_attendees: [], // CC emails stored in external_emails for HR meetings
                 external_emails: ccEmails,
                 notes,
@@ -1606,17 +1701,36 @@ function HRMeetingForm({ teamMembers, candidates, editingMeeting, onSuccess, onC
                 )}
 
                 {step === 3 && (
-                    <div className="space-y-1.5 animate-fadeIn">
+                    <div className="space-y-2 animate-fadeIn">
                         <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                            <Users size={11} /> Internal Attendees <span className="text-destructive">*</span>
+                            <Users size={11} /> {meetingType === 'online' ? 'Zoom Meeting Host' : 'Internal Attendees'} <span className="text-destructive">*</span>
                         </span>
-                        <MultiUserPicker 
-                            teamMembers={teamMembers} 
-                            selected={internalAttendees} 
-                            onChange={setInternalAttendees} 
-                            placeholder="Select managers/members..." 
+
+                        {/* Zoom-eligible filter notice */}
+                        {meetingType === 'online' && (
+                            <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-emerald-500/5 border border-emerald-500/20 text-[10px] text-emerald-600 dark:text-emerald-400">
+                                <Video size={11} className="shrink-0 mt-0.5" />
+                                <span>
+                                    Select <strong>1 Zoom Host</strong> for this meeting. Additional team members can be CC'd in <strong>Step 4</strong>.
+                                </span>
+                            </div>
+                        )}
+
+                        <MultiUserPicker
+                            teamMembers={selectableAttendees}
+                            selected={internalAttendees}
+                            onChange={setInternalAttendees}
+                            placeholder={meetingType === 'online' ? 'Select 1 Zoom Host...' : 'Select managers/members...'}
+                            maxSelection={meetingType === 'online' ? 1 : undefined}
                         />
-                        <p className="text-[10px] text-muted-foreground">Select the team members to coordinate schedules.</p>
+                        <p className="text-[10px] text-muted-foreground">
+                            {meetingType === 'online' ? 'The selected host will run this Zoom meeting.' : 'Select the team members to coordinate schedules.'}
+                        </p>
+                        {meetingType === 'online' && (
+                            <p className="text-[10px] text-amber-600 dark:text-amber-400/90 font-medium flex items-center gap-1 mt-1">
+                                💡 If your email is not present in the list, please ask the admin to invite you for the Zoom ID from Team Management.
+                            </p>
+                        )}
                     </div>
                 )}
 
@@ -1630,12 +1744,26 @@ function HRMeetingForm({ teamMembers, candidates, editingMeeting, onSuccess, onC
                             emails={ccEmails} 
                             onChange={setCcEmails} 
                         />
-                        <p className="text-[10px] text-muted-foreground">Enter manually or search team member emails to CC on notifications.</p>
+                        <p className="text-[10px] text-muted-foreground">
+                            {meetingType === 'online'
+                                ? 'Select team members from the dropdown list to CC on this Zoom meeting notification.'
+                                : 'Enter manually or search team member emails to CC on notifications.'}
+                        </p>
                     </div>
                 )}
 
                 {step === 5 && (
                     <div className="space-y-3 animate-fadeIn">
+                        {/* Zoom combined availability notice */}
+                        {meetingType === 'online' && allAttendeesForAvailability.length > 1 && (
+                            <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-emerald-500/5 border border-emerald-500/20 text-[10px] text-emerald-600 dark:text-emerald-400">
+                                <Video size={11} className="shrink-0 mt-0.5" />
+                                <span>
+                                    Checking combined calendar availability for <strong>Zoom Host</strong> ({internalAttendees[0]?.name || 'Host'}) and <strong>{allAttendeesForAvailability.length - 1} CC Team Member(s)</strong>.
+                                </span>
+                            </div>
+                        )}
+
                         <div className="space-y-1.5">
                             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                                 <Calendar size={11} /> Selected Date & Time
@@ -1744,7 +1872,7 @@ function HRMeetingForm({ teamMembers, candidates, editingMeeting, onSuccess, onC
                 <AvailabilityCalendarModal
                     open={calendarOpen}
                     onClose={() => setCalendarOpen(false)}
-                    internalAttendees={internalAttendees}
+                    internalAttendees={allAttendeesForAvailability}
                     duration={duration}
                     setDuration={setDuration}
                     onSelectDateTime={setDateTime}
@@ -1985,7 +2113,7 @@ function MeetingDetailSheet({
                                         {/* Host URL */}
                                         {meeting.zoom_start_url && (
                                             <div className="space-y-1">
-                                                <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">Host URL (Staff)</p>
+                                                <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">Host URL (Admin Key)</p>
                                                 <div className="flex gap-1.5">
                                                     <a
                                                         href={meeting.zoom_start_url}
@@ -2007,12 +2135,13 @@ function MeetingDetailSheet({
                                                         <Copy size={13} />
                                                     </button>
                                                 </div>
+                                                <p className="text-[9px] text-muted-foreground leading-tight">Starts meeting using master API host key.</p>
                                             </div>
                                         )}
                                         {/* Candidate Join Link */}
                                         {meeting.meeting_link && (
                                             <div className="space-y-1">
-                                                <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">Candidate URL</p>
+                                                <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">Join URL (Staff & Candidates)</p>
                                                 <div className="flex gap-1.5">
                                                     <a
                                                         href={meeting.meeting_link}
@@ -2033,6 +2162,7 @@ function MeetingDetailSheet({
                                                         <Copy size={13} />
                                                     </button>
                                                 </div>
+                                                <p className="text-[9px] text-muted-foreground leading-tight">Joins meeting with your own logged-in profile.</p>
                                             </div>
                                         )}
                                     </div>

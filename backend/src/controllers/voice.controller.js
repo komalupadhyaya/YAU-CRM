@@ -285,8 +285,9 @@ export const handleInboundCall = async (req, res, next) => {
         if (config.extensions && config.extensions.length > 0) {
             const gather = twiml.gather({
                 numDigits: 1,
+                input: 'dtmf',
                 action: getAbsoluteUrl(req, '/api/voice/handle-extension'),
-                timeout: 10  // Wait up to 10s after the greeting ends for input
+                timeout: 15  // Wait up to 15s after the greeting ends for input
             });
 
             // Play Greeting inside the gather block so callers can "barge-in" (press digits during the greeting)
@@ -725,8 +726,9 @@ export const handleDialAction = async (req, res, next) => {
             // Ask caller if they want to leave a voicemail
             const gather = twiml.gather({
                 numDigits: 1,
+                input: 'dtmf',
                 action: getAbsoluteUrl(req, '/api/voice/handle-voicemail-choice'),
-                timeout: 5
+                timeout: 10
             });
 
             // Play voicemail greeting (custom MP3 or default TTS) during the Gather

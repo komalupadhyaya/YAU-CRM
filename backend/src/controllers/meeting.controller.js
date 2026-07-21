@@ -550,9 +550,15 @@ export const getMeetings = async (req, res, next) => {
             if (to) filter.date_time.$lte = new Date(to);
         }
 
-        // Sales reps: scope to meetings where they are an internal attendee
+        // Sales reps: scope to meetings where they are an internal attendee, CC recipient, or creator
         if (req.currentUserRole === 'sales_rep') {
-            filter.internal_attendees = req.user.id;
+            const userEmail = (req.user?.email || '').toLowerCase();
+            filter.$or = [
+                { internal_attendees: req.user.id },
+                { cc_attendees: req.user.id },
+                { external_emails: userEmail },
+                { created_by: req.user.id }
+            ];
         }
 
         const meetings = await Meeting.find(filter)
@@ -583,10 +589,19 @@ export const getMeetingCounts = async (req, res, next) => {
         let schoolFilter = { ...baseFilter, category: 'school' };
         let hrFilter = { ...baseFilter, category: 'hr' };
 
-        // Sales reps: only meetings they are attending
+        // Sales reps: include meetings where they are an internal attendee, CC recipient, or creator
         if (req.currentUserRole === 'sales_rep') {
-            schoolFilter.internal_attendees = req.user.id;
-            hrFilter.internal_attendees = req.user.id;
+            const userEmail = (req.user?.email || '').toLowerCase();
+            const repCondition = {
+                $or: [
+                    { internal_attendees: req.user.id },
+                    { cc_attendees: req.user.id },
+                    { external_emails: userEmail },
+                    { created_by: req.user.id }
+                ]
+            };
+            schoolFilter = { ...schoolFilter, ...repCondition };
+            hrFilter = { ...hrFilter, ...repCondition };
         }
 
         const [schoolCount, hrCount] = await Promise.all([
@@ -730,6 +745,11 @@ export const createMeeting = async (req, res, next) => {
                 const attendeeUsers = await User.find({ _id: { $in: internal_attendees } }).select('email');
                 let emails = attendeeUsers.map(u => u.email).filter(Boolean);
 
+                // Identify primary host email (host_email passed from frontend, or first attendee, or creator)
+                const primaryAttendeeId = internal_attendees && internal_attendees.length > 0 ? internal_attendees[0] : null;
+                const primaryAttendee = primaryAttendeeId ? attendeeUsers.find(u => u._id.toString() === primaryAttendeeId.toString()) : null;
+                const host_email = req.body.host_email || (primaryAttendee ? primaryAttendee.email : (req.user ? req.user.email : null));
+
                 // Also include the creator's email if they have a Zoom account under the same organization
                 if (req.user && req.user.email && !emails.includes(req.user.email)) {
                     emails.push(req.user.email);
@@ -740,7 +760,8 @@ export const createMeeting = async (req, res, next) => {
                     title,
                     date_time: dateTime,
                     duration_minutes,
-                    alternative_hosts: emails
+                    alternative_hosts: emails,
+                    host_email
                 });
                 meeting_link = zoomRes.join_url;
                 zoom_start_url = zoomRes.start_url;
@@ -748,6 +769,15 @@ export const createMeeting = async (req, res, next) => {
             } catch (zoomErr) {
                 console.error('Failed to create Zoom meeting, continuing without it:', zoomErr.message);
             }
+        }
+
+        // Auto-populate cc_attendees by matching emails in external_emails to User records
+        let finalCcAttendees = [...(cc_attendees || [])];
+        const ccEmailList = (external_emails || []).map(e => (e || '').toLowerCase());
+        if (ccEmailList.length > 0) {
+            const matchedUsers = await User.find({ email: { $in: ccEmailList } }).select('_id');
+            const matchedIds = matchedUsers.map(u => u._id.toString());
+            finalCcAttendees = Array.from(new Set([...finalCcAttendees.map(id => id.toString()), ...matchedIds]));
         }
 
         // All clear — create the meeting
@@ -761,7 +791,7 @@ export const createMeeting = async (req, res, next) => {
             date_time: dateTime,
             duration_minutes,
             internal_attendees,
-            cc_attendees,
+            cc_attendees: finalCcAttendees,
             external_emails,
             notes: notes || '',
             meeting_type,
@@ -886,6 +916,16 @@ export const updateMeeting = async (req, res, next) => {
         if (internal_attendees !== undefined) meeting.internal_attendees = internal_attendees;
         if (cc_attendees !== undefined) meeting.cc_attendees = cc_attendees;
         if (external_emails !== undefined) meeting.external_emails = external_emails;
+        if (cc_attendees !== undefined || external_emails !== undefined) {
+            let finalCc = [...(meeting.cc_attendees || [])];
+            const ccEmailList = (meeting.external_emails || []).map(e => (e || '').toLowerCase());
+            if (ccEmailList.length > 0) {
+                const matchedUsers = await User.find({ email: { $in: ccEmailList } }).select('_id');
+                const matchedIds = matchedUsers.map(u => u._id.toString());
+                finalCc = Array.from(new Set([...finalCc.map(id => id.toString()), ...matchedIds]));
+            }
+            meeting.cc_attendees = finalCc;
+        }
         if (notes !== undefined) meeting.notes = notes;
         if (updateLeadIds !== undefined) {
             meeting.lead_ids = updateLeadIds;
@@ -952,6 +992,12 @@ export const updateMeeting = async (req, res, next) => {
         if (meeting.meeting_type === 'online') {
             const attendeeUsers = await User.find({ _id: { $in: newAttendees } }).select('email');
             let emails = attendeeUsers.map(u => u.email).filter(Boolean);
+
+            // Identify primary host email (host_email passed from frontend, or first attendee, or creator)
+            const primaryAttendeeId = newAttendees && newAttendees.length > 0 ? newAttendees[0] : null;
+            const primaryAttendee = primaryAttendeeId ? attendeeUsers.find(u => u._id.toString() === primaryAttendeeId.toString()) : null;
+            const host_email = req.body.host_email || (primaryAttendee ? primaryAttendee.email : (req.user ? req.user.email : null));
+
             if (req.user && req.user.email && !emails.includes(req.user.email)) {
                 emails.push(req.user.email);
             }
@@ -977,7 +1023,8 @@ export const updateMeeting = async (req, res, next) => {
                         title: zoomTitle,
                         date_time: start_time,
                         duration_minutes: duration,
-                        alternative_hosts: emails
+                        alternative_hosts: emails,
+                        host_email
                     });
                     meeting.meeting_link = zoomRes.join_url;
                     meeting.zoom_start_url = zoomRes.start_url;
@@ -1181,6 +1228,21 @@ export const deleteCandidate = async (req, res, next) => {
             throw new Error('Candidate not found.');
         }
         res.json({ success: true, message: 'Candidate deleted successfully.' });
+    } catch (err) {
+        next(err);
+    }
+};
+
+/**
+ * GET /api/meetings/zoom-users
+ * Returns list of active Zoom users in the organization.
+ * Used by the frontend to filter internal attendees dropdown to Zoom-eligible members only.
+ */
+export const getZoomUsers = async (req, res, next) => {
+    try {
+        const { getZoomUsers: fetchZoomUsers } = await import('../services/zoom.service.js');
+        const users = await fetchZoomUsers();
+        res.json({ success: true, users });
     } catch (err) {
         next(err);
     }

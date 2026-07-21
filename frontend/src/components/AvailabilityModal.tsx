@@ -1132,19 +1132,19 @@ export default function AvailabilityModal({ user, open, onClose }: { user: Avail
 
                                                         let dayClass = "h-11 w-full text-xs font-bold transition-all flex flex-col items-center justify-center relative border-r border-b border-border/80 rounded-none ";
                                                         if (isSelected) {
-                                                            dayClass += "bg-transparent text-white font-bold ring-2 ring-primary ring-inset z-10";
+                                                            dayClass += "bg-transparent text-foreground font-bold ring-2 ring-primary ring-inset z-10";
                                                         } else if (!inRange || !isWeekdayEnabled) {
                                                             dayClass += "text-muted-foreground/30 cursor-not-allowed bg-transparent";
                                                         } else if (isBlocked) {
                                                             dayClass += "bg-destructive/20 text-destructive/60 cursor-not-allowed opacity-50";
                                                         } else if (override) {
                                                             if (override.enabled) {
-                                                                dayClass += "bg-transparent text-white font-bold hover:bg-accent/40";
+                                                                dayClass += "bg-transparent text-foreground font-bold hover:bg-accent/40";
                                                             } else {
                                                                 dayClass += "bg-destructive/10 text-destructive hover:bg-destructive/15";
                                                             }
                                                         } else {
-                                                            dayClass += "text-white font-bold bg-transparent hover:bg-accent/40";
+                                                            dayClass += "text-foreground font-bold bg-transparent hover:bg-accent/40";
                                                         }
 
                                                         if (!isCurrentMonth && inRange && !isSelected) {

@@ -20,6 +20,9 @@ router.post('/check-availability', auth, requireRole(...canWrite), meetingContro
 // Get schedules and meetings for attendees to render visual calendar month availability (all write roles)
 router.post('/attendees-availability', auth, requireRole(...canWrite), meetingController.getAttendeesAvailability);
 
+// Fetch active Zoom users for the attendees filter dropdown (all write roles)
+router.get('/zoom-users', auth, requireRole(...canWrite), meetingController.getZoomUsers);
+
 // Candidate management (admin + manager only)
 router.get('/candidates',  auth, requireRole(...adminOrMgr), meetingController.getCandidates);
 router.post('/candidates', auth, requireRole(...adminOrMgr), meetingController.createCandidate);

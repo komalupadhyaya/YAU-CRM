@@ -12,6 +12,7 @@ router.get('/', auth, requireRole('admin', 'manager', 'view_only'), teamControll
 router.post('/', auth, requireRole('admin'), teamController.createUser);
 router.put('/:id', auth, requireRole('admin'), teamController.updateUser);
 router.patch('/:id/toggle', auth, requireRole('admin'), teamController.toggleActive);
+router.post('/:id/zoom-invite', auth, requireRole('admin'), teamController.inviteToZoom);
 router.delete('/:id', auth, requireRole('admin'), teamController.deleteUser);
 
 export default router;
