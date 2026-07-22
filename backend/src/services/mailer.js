@@ -597,7 +597,58 @@ export async function sendHRMeetingEmails({ meeting, actionType }) {
     const candidateRoles = candidates.map(c => c.applying_for).filter(Boolean).join(', ') || 'N/A';
 
     // 1. Send to internal attendees
-    const attendeesList = meeting.internal_attendees?.map(a => `${a.name} (${a.email})`).join('\n') || '';
+    const seenEmails = new Set();
+    const teamMemberEmails = new Set();
+    if (meeting.internal_attendees) {
+        meeting.internal_attendees.forEach(a => {
+            if (a.email) {
+                const emailLower = a.email.toLowerCase();
+                seenEmails.add(emailLower);
+                teamMemberEmails.add(emailLower);
+            }
+        });
+    }
+
+    const hostList = meeting.internal_attendees?.map(a => `${a.name} (${a.email}) [Host]`) || [];
+    const ccList = [];
+    const ccUsersToSend = [];
+
+    if (meeting.cc_attendees) {
+        meeting.cc_attendees.forEach(a => {
+            if (a.email) {
+                const emailLower = a.email.toLowerCase();
+                teamMemberEmails.add(emailLower);
+                if (!seenEmails.has(emailLower)) {
+                    seenEmails.add(emailLower);
+                    ccList.push(`${a.name} (${a.email}) [CC]`);
+                    ccUsersToSend.push(a);
+                }
+            }
+        });
+    }
+
+    const externalList = [];
+    const externalEmailsToSend = [];
+
+    if (meeting.external_emails) {
+        meeting.external_emails.forEach(email => {
+            if (email) {
+                const emailLower = email.toLowerCase();
+                if (!seenEmails.has(emailLower)) {
+                    seenEmails.add(emailLower);
+                    externalList.push(`${email} [CC]`);
+                    externalEmailsToSend.push(email);
+                }
+            }
+        });
+    }
+
+    let attendeesList = '';
+    if (meeting.meeting_type === 'online') {
+        attendeesList = [...hostList, ...ccList, ...externalList].join('\n');
+    } else {
+        attendeesList = meeting.internal_attendees?.map(a => `${a.name} (${a.email})`).join('\n') || '';
+    }
 
     const locationHtml = getLocationSectionHtml(meeting, '#6366f1');
 
@@ -638,14 +689,40 @@ export async function sendHRMeetingEmails({ meeting, actionType }) {
         }
     }
 
-    // 2. Send to CC emails (external_emails contains manually typed CC emails)
-    if (meeting.external_emails && meeting.external_emails.length > 0) {
-        for (const email of meeting.external_emails) {
+    // 2. Send to CC'd team members (only for online/Zoom meetings)
+    if (meeting.meeting_type === 'online' && ccUsersToSend.length > 0) {
+        for (const ccAttendee of ccUsersToSend) {
+            if (ccAttendee.email) {
+                try {
+                    await sendMail({
+                        to: ccAttendee.email,
+                        subject: subjectInternal,
+                        html: internalHtml,
+                        icsContent
+                    });
+                    console.log(`✅ HR Meeting CC attendee email sent to ${ccAttendee.email}`);
+                } catch (err) {
+                    console.error(`❌ Failed to send HR Meeting CC attendee email to ${ccAttendee.email}:`, err.message);
+                }
+            }
+        }
+    }
+
+    // 3. Send to CC emails (external_emails contains manually typed CC emails)
+    if (externalEmailsToSend.length > 0) {
+        for (const email of externalEmailsToSend) {
             try {
+                let recipientHtml = internalHtml;
+                if (meeting.meeting_type === 'online') {
+                    const isTeam = teamMemberEmails.has(email.toLowerCase());
+                    if (!isTeam) {
+                        recipientHtml = internalHtml.replace(/<!-- CTA Button -->[\s\S]*?View Meeting in CRM[\s\S]*?<\/div>/, '');
+                    }
+                }
                 await sendMail({
                     to: email,
                     subject: subjectInternal,
-                    html: internalHtml,
+                    html: recipientHtml,
                     icsContent
                 });
                 console.log(`✅ HR Meeting CC email sent to ${email}`);

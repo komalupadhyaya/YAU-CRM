@@ -147,7 +147,9 @@ export default function CalendarPopover() {
                     meetingType: m.meeting_type,
                     meetingLink: m.meeting_link,
                     zoomStartUrl: m.zoom_start_url,
-                    location: m.location
+                    location: m.location,
+                    assignedToIds: m.internal_attendees?.map((a) => a._id || a) || [],
+                    assignedToEmails: m.internal_attendees?.map((a) => a.email || "") || []
                 });
             });
  
@@ -441,20 +443,24 @@ export default function CalendarPopover() {
                                                         <span>{ev.date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })}</span>
                                                         {ev.priority && <span className="capitalize">· {ev.priority}</span>}
                                                         {ev.leadName && <span className="truncate max-w-[120px]">· {ev.leadName}</span>}
-                                                        {ev.meetingType === "online" && (
-                                                            ev.zoomStartUrl || ev.meetingLink ? (
-                                                                <a 
-                                                                    href={ev.zoomStartUrl || ev.meetingLink} 
-                                                                    target="_blank" 
-                                                                    rel="noopener noreferrer" 
-                                                                    className="text-primary hover:underline font-semibold"
-                                                                >
-                                                                    · {ev.zoomStartUrl ? "Start Zoom" : "Join Zoom"}
-                                                                </a>
-                                                            ) : (
-                                                                <span>· Zoom</span>
-                                                            )
-                                                        )}
+                                                        {ev.meetingType === "online" && (() => {
+                                                             const isHost = ev.assignedToIds?.includes(currentUser?._id) || ev.assignedToEmails?.some((email: string) => email.toLowerCase() === currentUser?.email?.toLowerCase());
+                                                             const targetLink = (isHost && ev.zoomStartUrl) ? ev.zoomStartUrl : ev.meetingLink;
+                                                             const label = (isHost && ev.zoomStartUrl) ? "Start Zoom" : "Join Zoom";
+                                                             if (targetLink) {
+                                                                 return (
+                                                                     <a 
+                                                                         href={targetLink} 
+                                                                         target="_blank" 
+                                                                         rel="noopener noreferrer" 
+                                                                         className="text-primary hover:underline font-semibold"
+                                                                     >
+                                                                         · {label}
+                                                                     </a>
+                                                                 );
+                                                             }
+                                                             return <span>· Zoom</span>;
+                                                         })()}
                                                         {ev.meetingType === "phone" && <span>· Phone Call</span>}
                                                         {ev.meetingType === "in_person" && <span className="truncate max-w-[120px]" title={ev.location || undefined}>· {ev.location || "In-Person"}</span>}
                                                     </div>

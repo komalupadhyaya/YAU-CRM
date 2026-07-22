@@ -122,9 +122,10 @@ export default function Team() {
     // Toggle loading states per user
     const [toggling, setToggling] = useState<Record<string, boolean>>({});
 
-    // Zoom invite loading & added state maps
+    // Zoom invite loading, added & registered in Zoom state maps
     const [invitingZoom, setInvitingZoom] = useState<Record<string, boolean>>({});
     const [zoomInvited, setZoomInvited] = useState<Record<string, boolean>>({});
+    const [inZoomEmails, setInZoomEmails] = useState<Set<string>>(new Set());
 
     // Role-based permissions
     const permissions = can(currentUser?.role);
@@ -134,6 +135,24 @@ export default function Team() {
         try {
             const res = await api.get("/team");
             setUsers(res.data);
+
+            // Fetch active Zoom users to detect members already present in Zoom User Management
+            try {
+                const zoomRes = await api.get("/meetings/zoom-users");
+                const rawList = Array.isArray(zoomRes.data)
+                    ? zoomRes.data
+                    : Array.isArray(zoomRes.data?.users)
+                    ? zoomRes.data.users
+                    : [];
+                const emails = new Set<string>();
+                rawList.forEach((z: any) => {
+                    const email = (z.email || z.username || "").toLowerCase();
+                    if (email) emails.add(email);
+                });
+                setInZoomEmails(emails);
+            } catch {
+                // non-critical fallback
+            }
         } catch {
             toast.error("Failed to load team members");
         } finally {
@@ -227,11 +246,21 @@ export default function Team() {
         setInvitingZoom((prev) => ({ ...prev, [user._id]: true }));
         try {
             const res = await api.post(`/team/${user._id}/zoom-invite`);
+            const emailLower = (user.email || user.username || "").toLowerCase();
+
             if (res.data.exists || res.data.success) {
                 // Show green checkmark temporarily for 3 seconds
                 setZoomInvited((prev) => ({ ...prev, [user._id]: true }));
                 setTimeout(() => {
                     setZoomInvited((prev) => ({ ...prev, [user._id]: false }));
+                    // Only permanently hide button if user is fully active in Zoom User Management (not pending)
+                    if (!res.data.pending) {
+                        setInZoomEmails((prev) => {
+                            const next = new Set(prev);
+                            next.add(emailLower);
+                            return next;
+                        });
+                    }
                 }, 3000);
 
                 if (res.data.exists) {
@@ -277,6 +306,7 @@ export default function Team() {
 
     const totalActive = users.filter((u) => u.isActive).length;
     const totalAdmins = users.filter((u) => u.role === "admin").length;
+    const totalZoomActive = users.filter((u) => inZoomEmails.has((u.email || u.username || "").toLowerCase())).length;
 
     return (
         <AppLayout>
@@ -307,7 +337,7 @@ export default function Team() {
                 </div>
 
                 {/* ── Stats strip ── */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     <div className="bg-card border rounded-xl p-4 flex items-center gap-3 shadow-sm">
                         <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
                             <Users size={18} className="text-primary" />
@@ -333,6 +363,15 @@ export default function Team() {
                         <div>
                             <p className="text-2xl font-bold">{totalAdmins}</p>
                             <p className="text-xs text-muted-foreground">Admins</p>
+                        </div>
+                    </div>
+                    <div className="bg-card border rounded-xl p-4 flex items-center gap-3 shadow-sm">
+                        <div className="w-10 h-10 rounded-lg bg-sky-500/10 flex items-center justify-center">
+                            <Video size={18} className="text-sky-500" />
+                        </div>
+                        <div>
+                            <p className="text-2xl font-bold">{totalZoomActive}</p>
+                            <p className="text-xs text-muted-foreground">Zoom Active</p>
                         </div>
                     </div>
                 </div>
@@ -463,27 +502,29 @@ export default function Team() {
                                             {/* Actions */}
                                             <TableCell className="text-center">
                                                 <div className={`flex items-center justify-center gap-1 transition-all ${!isDefaultAdmin ? "blur-[0.5px] opacity-40 cursor-not-allowed pointer-events-none" : ""}`}>
-                                                    <Button
-                                                        id={`zoom-user-${user._id}`}
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        className={`h-8 w-8 transition-all ${
-                                                            zoomInvited[user._id]
-                                                                ? "text-emerald-500 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20"
-                                                                : "text-muted-foreground hover:text-sky-500 hover:bg-sky-500/10"
-                                                        }`}
-                                                        onClick={() => handleZoomInvite(user)}
-                                                        disabled={invitingZoom[user._id] || !isDefaultAdmin}
-                                                        title={zoomInvited[user._id] ? "In Zoom User Management (Click to re-check)" : "Add to Zoom User Management (Basic Plan)"}
-                                                    >
-                                                        {invitingZoom[user._id] ? (
-                                                            <Loader2 size={14} className="animate-spin text-sky-500" />
-                                                        ) : zoomInvited[user._id] ? (
-                                                            <Check size={14} className="text-emerald-500 font-bold" />
-                                                        ) : (
-                                                            <Video size={14} />
-                                                        )}
-                                                    </Button>
+                                                    {(!inZoomEmails.has((user.email || user.username || "").toLowerCase()) || zoomInvited[user._id]) && (
+                                                        <Button
+                                                            id={`zoom-user-${user._id}`}
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            className={`h-8 w-8 transition-all ${
+                                                                zoomInvited[user._id]
+                                                                    ? "text-emerald-500 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20"
+                                                                    : "text-muted-foreground hover:text-sky-500 hover:bg-sky-500/10"
+                                                            }`}
+                                                            onClick={() => handleZoomInvite(user)}
+                                                            disabled={invitingZoom[user._id] || !isDefaultAdmin}
+                                                            title={zoomInvited[user._id] ? "In Zoom User Management" : "Invite to Zoom User Management (Basic Plan)"}
+                                                        >
+                                                            {invitingZoom[user._id] ? (
+                                                                <Loader2 size={14} className="animate-spin text-sky-500" />
+                                                            ) : zoomInvited[user._id] ? (
+                                                                <Check size={14} className="text-emerald-500 font-bold" />
+                                                            ) : (
+                                                                <Video size={14} />
+                                                            )}
+                                                        </Button>
+                                                    )}
                                                     <Button
                                                         id={`availability-user-${user._id}`}
                                                         variant="ghost"
@@ -621,63 +662,68 @@ export default function Team() {
                                     </div>
 
                                     {/* Footer Actions */}
-                                    <div className="flex items-center justify-center gap-2 pt-1">
-                                        <Button
-                                            id={`zoom-user-mobile-${user._id}`}
-                                            variant="outline"
-                                            size="sm"
-                                            className={`h-8 gap-1.5 text-xs transition-all ${
-                                                zoomInvited[user._id]
-                                                    ? "text-emerald-600 border-emerald-500/30 bg-emerald-500/10 dark:text-emerald-400"
-                                                    : "text-muted-foreground border-border hover:text-sky-500 hover:bg-sky-500/10"
-                                            }`}
-                                            onClick={() => handleZoomInvite(user)}
-                                            disabled={invitingZoom[user._id] || !isDefaultAdmin}
-                                        >
-                                            {invitingZoom[user._id] ? (
-                                                <Loader2 size={12} className="animate-spin" />
-                                            ) : zoomInvited[user._id] ? (
-                                                <Check size={12} className="text-emerald-500 font-bold" />
-                                            ) : (
-                                                <Video size={12} />
-                                            )}
-                                            {zoomInvited[user._id] ? "Zoom Added" : "Zoom Invite"}
-                                        </Button>
-                                        <Button
-                                            id={`availability-mobile-${user._id}`}
-                                            variant="outline"
-                                            size="sm"
-                                            className="h-8 gap-1.5 text-xs text-primary border-primary/20 hover:bg-primary/10"
-                                            onClick={() => setAvailabilityTarget(user)}
-                                        >
-                                            <CalendarDays size={12} />
-                                            Availability
-                                        </Button>
-                                        <div className={`flex items-center gap-2 transition-all ${!isDefaultAdmin ? "blur-[0.5px] opacity-40 cursor-not-allowed pointer-events-none" : ""}`}>
-                                            <Button
-                                                id={`edit-user-mobile-${user._id}`}
-                                                variant="outline"
-                                                size="sm"
-                                                className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-                                                onClick={() => openEdit(user)}
-                                                disabled={!isDefaultAdmin}
-                                            >
-                                                <Pencil size={12} />
-                                                Edit
-                                            </Button>
-                                            <Button
-                                                id={`delete-user-mobile-${user._id}`}
-                                                variant="outline"
-                                                size="sm"
-                                                className="h-8 gap-1.5 text-xs text-destructive hover:bg-destructive/10 border-destructive/20 hover:border-destructive/30"
-                                                onClick={() => setDeleteTarget(user)}
-                                                disabled={!isDefaultAdmin}
-                                            >
-                                                <Trash2 size={12} />
-                                                Delete
-                                            </Button>
-                                        </div>
-                                    </div>
+                                    {(() => {
+                                        const showZoom = !inZoomEmails.has((user.email || user.username || "").toLowerCase()) || zoomInvited[user._id];
+                                        return (
+                                            <div className={`grid ${showZoom ? "grid-cols-2" : "grid-cols-3"} gap-2 w-full pt-2`}>
+                                                {showZoom && (
+                                                    <Button
+                                                        id={`zoom-user-mobile-${user._id}`}
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className={`w-full h-9 px-3 rounded-lg justify-center gap-1.5 text-xs font-semibold transition-all ${
+                                                            zoomInvited[user._id]
+                                                                ? "text-emerald-600 border-emerald-500/30 bg-emerald-500/10 dark:text-emerald-400"
+                                                                : "text-muted-foreground border-border/80 hover:text-sky-500 hover:bg-sky-500/10"
+                                                        }`}
+                                                        onClick={() => handleZoomInvite(user)}
+                                                        disabled={invitingZoom[user._id] || !isDefaultAdmin}
+                                                    >
+                                                        {invitingZoom[user._id] ? (
+                                                            <Loader2 size={13} className="animate-spin" />
+                                                        ) : zoomInvited[user._id] ? (
+                                                            <Check size={13} className="text-emerald-500 font-bold" />
+                                                        ) : (
+                                                            <Video size={13} />
+                                                        )}
+                                                        {zoomInvited[user._id] ? "Zoom Added" : "Zoom Invite"}
+                                                    </Button>
+                                                )}
+                                                <Button
+                                                    id={`availability-mobile-${user._id}`}
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="w-full h-9 px-3 rounded-lg justify-center gap-1.5 text-xs font-semibold text-primary border-primary/20 hover:bg-primary/10"
+                                                    onClick={() => setAvailabilityTarget(user)}
+                                                >
+                                                    <CalendarDays size={13} />
+                                                    Availability
+                                                </Button>
+                                                <Button
+                                                    id={`edit-user-mobile-${user._id}`}
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className={`w-full h-9 px-3 rounded-lg justify-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground border-border/80 ${!isDefaultAdmin ? "blur-[0.5px] opacity-40 cursor-not-allowed pointer-events-none" : ""}`}
+                                                    onClick={() => openEdit(user)}
+                                                    disabled={!isDefaultAdmin}
+                                                >
+                                                    <Pencil size={13} />
+                                                    Edit
+                                                </Button>
+                                                <Button
+                                                    id={`delete-user-mobile-${user._id}`}
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className={`w-full h-9 px-3 rounded-lg justify-center gap-1.5 text-xs font-semibold text-destructive hover:bg-destructive/10 border-destructive/20 hover:border-destructive/30 ${!isDefaultAdmin ? "blur-[0.5px] opacity-40 cursor-not-allowed pointer-events-none" : ""}`}
+                                                    onClick={() => setDeleteTarget(user)}
+                                                    disabled={!isDefaultAdmin}
+                                                >
+                                                    <Trash2 size={13} />
+                                                    Delete
+                                                </Button>
+                                            </div>
+                                        );
+                                    })()}
                                 </div>
                             ))
                         )}

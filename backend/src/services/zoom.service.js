@@ -84,7 +84,7 @@ export async function getZoomUsers() {
             console.warn('⚠️ Could not fetch Zoom account owner (/users/me):', meErr.response?.data?.message || meErr.message);
         }
 
-        // Fetch all active users with pagination
+        // Fetch all active users with pagination (status=active)
         let nextPageToken = '';
         do {
             const params = { status: 'active', page_size: 300 };
@@ -103,7 +103,8 @@ export async function getZoomUsers() {
                     allUsers.push({
                         email,
                         display_name: `${u.first_name || ''} ${u.last_name || ''}`.trim(),
-                        type: u.type // 1=Basic, 2=Licensed, 3=On-prem
+                        type: u.type, // 1=Basic, 2=Licensed, 3=On-prem
+                        status: u.status || 'active'
                     });
                 }
             });
@@ -328,10 +329,14 @@ export async function inviteZoomUser(email, firstName = '', lastName = '') {
             headers: { 'Authorization': `Bearer ${token}` }
         });
         if (checkRes.status === 200 && checkRes.data) {
+            const isPending = checkRes.data.status === 'pending';
             return {
                 exists: true,
+                pending: isPending,
                 success: true,
-                message: `User ${normalizedEmail} is already present in Zoom User Management.`
+                message: isPending
+                    ? `Invitation email was already sent to ${normalizedEmail} (Pending user acceptance).`
+                    : `User ${normalizedEmail} is already present in Zoom User Management.`
             };
         }
     } catch (checkErr) {
@@ -374,7 +379,7 @@ export async function inviteZoomUser(email, firstName = '', lastName = '') {
             return {
                 exists: true,
                 success: true,
-                message: `User ${normalizedEmail} is already present in Zoom User Management.`
+                message: `Invitation email was already sent to ${normalizedEmail} (Pending or active Zoom user).`
             };
         }
 

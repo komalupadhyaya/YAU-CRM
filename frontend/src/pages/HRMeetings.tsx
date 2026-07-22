@@ -2010,7 +2010,14 @@ function MeetingDetailSheet({
 }) {
     if (!meeting) return null;
 
+    const { currentUser } = useAuth();
     const [updatingStatus, setUpdatingStatus] = useState(false);
+
+    const isZoomHost = meeting.internal_attendees?.some((a: any) => {
+        const attendeeId = a._id || a;
+        const attendeeEmail = a.email || "";
+        return attendeeId === currentUser?._id || (attendeeEmail && attendeeEmail.toLowerCase() === currentUser?.email?.toLowerCase());
+    });
 
     const handleStatusChange = async (newStatus: string) => {
         setUpdatingStatus(true);
@@ -2044,7 +2051,7 @@ function MeetingDetailSheet({
                             <select
                                 value={meeting.status}
                                 onChange={(e) => handleStatusChange(e.target.value)}
-                                className={`appearance-none text-[10px] font-bold tracking-wider px-3.5 py-1.5 pr-8 rounded-full border bg-card cursor-pointer transition-all duration-200 outline-none hover:shadow-sm focus:ring-2 focus:ring-emerald-500/20 uppercase ${cfg.color} ${cfg.border}`}
+                                className={`appearance-none text-[10px] font-bold tracking-wider px-3.5 py-1.5 pr-8 rounded-full border bg-card cursor-pointer transition-all duration-200 outline-none hover:shadow-sm focus:outline-none focus:ring-0 focus-visible:ring-0 uppercase ${cfg.color} ${cfg.border}`}
                                 style={{
                                     backgroundImage: `url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%236B7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3E%3C/svg%3E")`,
                                     backgroundPosition: 'right 0.6rem center',
@@ -2090,11 +2097,9 @@ function MeetingDetailSheet({
                             <p className="text-sm font-medium">{formatDateTime(meeting.date_time)}</p>
                         </div>
                         <div className="space-y-0.5">
-                            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Duration</p>
                             <p className="text-sm font-medium">{meeting.duration_minutes} minutes</p>
                         </div>
                         <div className="space-y-0.5">
-                            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Scheduled By</p>
                             <p className="text-sm font-medium">{meeting.created_by?.name || '—'}</p>
                         </div>
                     </div>
@@ -2109,9 +2114,9 @@ function MeetingDetailSheet({
                                     Zoom Meeting
                                 </span>
                                 {meeting.zoom_start_url || meeting.meeting_link ? (
-                                    <div className={`grid gap-3 ${meeting.zoom_start_url && meeting.meeting_link ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                                    <div className={`grid gap-3 ${(meeting.zoom_start_url && isZoomHost) && meeting.meeting_link ? 'grid-cols-2' : 'grid-cols-1'}`}>
                                         {/* Host URL */}
-                                        {meeting.zoom_start_url && (
+                                        {meeting.zoom_start_url && isZoomHost && (
                                             <div className="space-y-1">
                                                 <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">Host URL (Admin Key)</p>
                                                 <div className="flex gap-1.5">

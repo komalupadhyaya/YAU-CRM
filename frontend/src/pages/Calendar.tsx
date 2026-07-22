@@ -41,6 +41,7 @@ interface CalEvent {
     assignedUser?: string;
     assignedToId?: string;
     assignedToIds?: string[];
+    assignedToEmails?: string[];
     // meeting specific
     meetingType?: "online" | "in_person" | "phone";
     meetingLink?: string | null;
@@ -270,6 +271,7 @@ export default function CalendarPage() {
                     leadName:     leadNames || candidateNames || undefined,
                     createdById:  m.created_by?._id || m.created_by,
                     assignedToIds: m.internal_attendees?.map((a: any) => a._id || a) || [],
+                    assignedToEmails: m.internal_attendees?.map((a: any) => a.email || "") || [],
                     meetingType:  m.meeting_type,
                     meetingLink:  m.meeting_link,
                     zoomStartUrl: m.zoom_start_url,
@@ -786,20 +788,26 @@ export default function CalendarPage() {
                                                                 <span className="text-foreground">{ev.durationMinutes} mins</span>
                                                             </div>
                                                         )}
-                                                        {isFollowup && ev.meetingType === 'online' && (ev.zoomStartUrl || ev.meetingLink) && (
-                                                            <div className="flex gap-2 text-xs items-center pt-0.5 pb-0.5">
-                                                                <span className="text-muted-foreground w-16 shrink-0">Zoom</span>
-                                                                <a
-                                                                    href={ev.zoomStartUrl || ev.meetingLink}
-                                                                    target="_blank"
-                                                                    rel="noopener noreferrer"
-                                                                    className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-md bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
-                                                                >
-                                                                    <Video size={11} />
-                                                                    {ev.zoomStartUrl ? 'Start Zoom Meeting' : 'Join Zoom Meeting'}
-                                                                </a>
-                                                            </div>
-                                                        )}
+                                                        {isFollowup && ev.meetingType === 'online' && (ev.zoomStartUrl || ev.meetingLink) && (() => {
+                                                             const isHost = ev.assignedToIds?.includes(currentUser?._id) || ev.assignedToEmails?.some((email) => email.toLowerCase() === currentUser?.email?.toLowerCase());
+                                                             const targetLink = (isHost && ev.zoomStartUrl) ? ev.zoomStartUrl : ev.meetingLink;
+                                                             const label = (isHost && ev.zoomStartUrl) ? 'Start Zoom Meeting' : 'Join Zoom Meeting';
+                                                             if (!targetLink) return null;
+                                                             return (
+                                                                 <div className="flex gap-2 text-xs items-center pt-0.5 pb-0.5">
+                                                                     <span className="text-muted-foreground w-16 shrink-0">Zoom</span>
+                                                                     <a
+                                                                         href={targetLink}
+                                                                         target="_blank"
+                                                                         rel="noopener noreferrer"
+                                                                         className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-md bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
+                                                                     >
+                                                                         <Video size={11} />
+                                                                         {label}
+                                                                     </a>
+                                                                 </div>
+                                                             );
+                                                         })()}
                                                         {isFollowup && (
                                                             <div className="flex gap-2 text-xs">
                                                                 <span className="text-muted-foreground w-16 shrink-0">Status</span>
