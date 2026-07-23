@@ -858,7 +858,7 @@ export default function Dashboard() {
           <div className="grid gap-4 py-2">
             {!selectedLeadResult ? (
               <div className="grid gap-3">
-                <label className="text-xs font-bold uppercase text-muted-foreground">Select Lead to Log</label>
+                <label htmlFor="search-by-lead-name" className="text-xs font-bold uppercase text-muted-foreground">Select Lead to Log</label>
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={14} />
                   <input
@@ -963,7 +963,7 @@ export default function Dashboard() {
                   </div>
                   
                   <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider flex items-center gap-1.5">
+                    <label htmlFor="input-datetime-local-45" className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider flex items-center gap-1.5">
                       <Calendar size={12} /> Next Follow-up
                     </label>
                     <DateTimePicker
@@ -979,7 +979,7 @@ export default function Dashboard() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Notes & Details</label>
+                  <label htmlFor="briefly-describe-the-interaction" className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Notes & Details</label>
                   <textarea
                       id="briefly-describe-the-interaction"
                       name="briefly-describe-the-interaction"

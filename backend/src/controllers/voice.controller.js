@@ -437,7 +437,7 @@ export const handleExtension = async (req, res, next) => {
             // Initiate outbound call to the target phone number or client browser identity
             const dialOptions = {
                 from: process.env.TWILIO_PHONE_NUMBER,
-                url: getAbsoluteUrl(req, `/api/voice/agent-join-queue?queueName=${queueName}`),
+                url: getAbsoluteUrl(req, `/api/voice/agent-join-queue?queueName=${queueName}&screen=${!isBrowserClient}`),
                 statusCallback: getAbsoluteUrl(req, `/api/voice/agent-call-status?parentCallSid=${parentCallSid}&extId=${ext._id}`),
                 statusCallbackEvent: ['completed'], // Trigger when call ends or fails (busy, no-answer, failed)
                 timeout: 20, // 20 seconds ring timeout
@@ -585,11 +585,67 @@ export const handleHoldMusic = async (req, res, next) => {
 // 4c. Return Agent Join Queue TwiML Response
 export const handleAgentJoinQueue = (req, res, next) => {
     try {
-        const { queueName } = req.query;
+        const { queueName, screen } = req.query;
         const twiml = new VoiceResponse();
-        logDebug(`📡 Agent answered outbound call. Bridging agent to queue "${queueName}"`);
-        const dial = twiml.dial();
-        dial.queue(queueName);
+
+        if (screen === 'true') {
+            logDebug(`📡 Agent answered outbound call. Playing screening whisper prompt for queue "${queueName}"`);
+            
+            // Whisper call screening: ask agent to press 1 to accept the incoming call
+            const gather = twiml.gather({
+                numDigits: 1,
+                timeout: 10,
+                action: getAbsoluteUrl(req, `/api/voice/agent-screen-confirm?queueName=${encodeURIComponent(queueName)}`),
+                method: 'POST'
+            });
+            gather.say('Hello, You have an incoming customer call. To Connect the call please press 1');
+
+            // Fallback if no key is pressed within timeout (e.g. carrier voicemail picks up)
+            twiml.say('Call not accepted. Goodbye.');
+            twiml.hangup();
+        } else {
+            logDebug(`📡 Agent answered outbound call. Directly bridging agent to queue "${queueName}"`);
+            agentCallStatusMap.set(queueName, 'answered');
+            const dial = twiml.dial();
+            dial.queue(queueName);
+        }
+
+        res.type('text/xml');
+        res.send(twiml.toString());
+    } catch (err) {
+        next(err);
+    }
+};
+
+// 4ca. Handle Agent Screen keypress confirmation
+export const handleAgentScreenConfirm = (req, res, next) => {
+    try {
+        const { queueName } = req.query;
+        const digit = req.body.Digits;
+        const twiml = new VoiceResponse();
+
+        logDebug(`📡 handleAgentScreenConfirm: digit=${digit} for queue "${queueName}"`);
+
+        if (digit === '1') {
+            logDebug(`✅ Agent pressed 1. Connecting agent to queue "${queueName}"`);
+            
+            // Mark as answered in the map immediately
+            agentCallStatusMap.set(queueName, 'answered');
+
+            twiml.say('Connecting you now.');
+            const dial = twiml.dial();
+            dial.queue(queueName);
+        } else {
+            // Did not press 1 (pressed wrong key)
+            logDebug(`❌ Agent pressed "${digit}" (not 1). Rejecting connection.`);
+            
+            // Mark as failed in the map
+            agentCallStatusMap.set(queueName, 'failed');
+
+            twiml.say('Call rejected. Goodbye.');
+            twiml.hangup();
+        }
+
         res.type('text/xml');
         res.send(twiml.toString());
     } catch (err) {
@@ -607,20 +663,25 @@ export const handleAgentCallStatus = async (req, res, next) => {
 
         logDebug(`📡 handleAgentCallStatus: status=${CallStatus}, duration=${duration}s, parentCallSid=${parentCallSid}, extId=${extId}`);
 
-        // Determine if the call was actually answered and completed vs. failed/unanswered
+        // Retrieve current connection/screening status from the map
+        const currentStatus = agentCallStatusMap.get(queueName);
+
+        // Determine if the call was actually answered and completed vs. failed/unanswered/unconfirmed
         const isHardFailure = ['busy', 'no-answer', 'failed'].includes(CallStatus);
         const isCompletedUnanswered = CallStatus === 'completed' && duration === 0;
-        const callFailed = isHardFailure || isCompletedUnanswered;
-        const callAnswered = CallStatus === 'completed' && duration > 0;
+        
+        // If status is still 'pending' when the agent leg completes, screening was never accepted
+        const callFailed = isHardFailure || isCompletedUnanswered || currentStatus === 'pending';
+        const callAnswered = CallStatus === 'completed' && duration > 0 && currentStatus === 'answered';
 
         // --- STEP 1: Write result into agentCallStatusMap immediately ---
         // handleHoldMusic polls this map every time the hold music finishes and redirects the caller
         if (callFailed) {
             agentCallStatusMap.set(queueName, 'failed');
-            logDebug(`📝 agentCallStatusMap['${queueName}'] = 'failed' (status=${CallStatus}, duration=${duration}s)`);
+            logDebug(`📝 agentCallStatusMap['${queueName}'] = 'failed' (status=${CallStatus}, duration=${duration}s, currentStatus=${currentStatus})`);
         } else if (callAnswered) {
-            agentCallStatusMap.set(queueName, 'answered');
-            logDebug(`📝 agentCallStatusMap['${queueName}'] = 'answered'`);
+            // Already marked as answered during screening or direct WebRTC connection
+            logDebug(`📝 agentCallStatusMap['${queueName}'] remains 'answered'`);
         }
 
         // --- STEP 1.5: If answered, associate parent call with this agent user ---

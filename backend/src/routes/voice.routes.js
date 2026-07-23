@@ -21,6 +21,7 @@ router.post('/voicemail-recording', voiceController.handleVoicemailRecording);
 router.post('/call-status', voiceController.handleCallStatus);
 router.post('/hold-music', voiceController.handleHoldMusic);
 router.post('/agent-join-queue', voiceController.handleAgentJoinQueue);
+router.post('/agent-screen-confirm', voiceController.handleAgentScreenConfirm);
 router.post('/agent-call-status', voiceController.handleAgentCallStatus);
 
 // --- PBX Admin Config Endpoints (Admin Only) ---

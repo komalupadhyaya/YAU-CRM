@@ -258,9 +258,11 @@ export default function CreateLead() {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                             {/* Contact Name */}
                             <div>
-                                <label className="block text-sm font-medium text-foreground mb-1.5">Contact Full Name *</label>
+                                <label htmlFor="main_contact_name" className="block text-sm font-medium text-foreground mb-1.5">Contact Full Name *</label>
                                 <input
+                                    id="main_contact_name"
                                     name="main_contact_name"
+                                    autoComplete="name"
                                     className={`input-field ${errors.main_contact_name ? "border-destructive focus:ring-destructive/20" : ""}`}
                                     placeholder="e.g. Davina Midgette"
                                     value={formData.main_contact_name}
@@ -271,8 +273,9 @@ export default function CreateLead() {
 
                             {/* Title / Role */}
                             <div>
-                                <label className="block text-sm font-medium text-foreground mb-1.5">Title / Role *</label>
+                                <label htmlFor="contact_title" className="block text-sm font-medium text-foreground mb-1.5">Title / Role *</label>
                                 <select
+                                    id="contact_title"
                                     name="contact_title"
                                     className={`input-field ${errors.contact_title ? "border-destructive focus:ring-destructive/20" : ""}`}
                                     value={formData.contact_title}
@@ -307,10 +310,11 @@ export default function CreateLead() {
 
                             {/* Department */}
                             <div>
-                                <label className="block text-sm font-medium text-foreground mb-1.5">
+                                <label htmlFor="contact_department" className="block text-sm font-medium text-foreground mb-1.5">
                                     Department *
                                 </label>
                                 <input
+                                    id="contact_department"
                                     name="contact_department"
                                     className={`input-field ${errors.contact_department ? "border-destructive focus:ring-destructive/20" : ""}`}
                                     placeholder="e.g. Administration"
@@ -322,7 +326,7 @@ export default function CreateLead() {
 
                             {/* Direct Phone + Extension */}
                             <div>
-                                <label className="block text-sm font-medium text-foreground mb-1.5 flex items-center gap-1">
+                                <label htmlFor="contact_direct_phone" className="block text-sm font-medium text-foreground mb-1.5 flex items-center gap-1">
                                     <Phone size={12} /> Direct Phone *
                                 </label>
                                 <div className="flex gap-2">
@@ -353,13 +357,16 @@ export default function CreateLead() {
                                         </div>
                                     </div>
                                     <input
+                                        id="contact_direct_phone"
                                         name="contact_direct_phone"
+                                        autoComplete="tel"
                                         className={`input-field flex-1 ${errors.contact_direct_phone ? "border-destructive focus:ring-destructive/20" : ""}`}
                                         placeholder="Phone"
                                         value={formData.contact_direct_phone}
                                         onChange={handleChange}
                                     />
                                     <input
+                                        id="contact_extension"
                                         name="contact_extension"
                                         className="input-field w-20"
                                         placeholder="Ext."
@@ -372,12 +379,14 @@ export default function CreateLead() {
 
                             {/* Contact Email */}
                             <div>
-                                <label className="block text-sm font-medium text-foreground mb-1.5 flex items-center gap-1">
+                                <label htmlFor="contact_email" className="block text-sm font-medium text-foreground mb-1.5 flex items-center gap-1">
                                     <Mail size={12} /> Email Address *
                                 </label>
                                 <input
+                                    id="contact_email"
                                     name="contact_email"
                                     type="email"
+                                    autoComplete="email"
                                     className={`input-field ${errors.contact_email ? "border-destructive focus:ring-destructive/20" : ""}`}
                                     placeholder="contact@school.edu"
                                     value={formData.contact_email}
@@ -388,10 +397,11 @@ export default function CreateLead() {
 
                             {/* Best Time to Call */}
                             <div>
-                                <label className="block text-sm font-medium text-foreground mb-1.5 flex items-center gap-1">
+                                <label htmlFor="contact_best_time" className="block text-sm font-medium text-foreground mb-1.5 flex items-center gap-1">
                                     <Clock size={12} /> Best Time to Call *
                                 </label>
                                 <select
+                                    id="contact_best_time"
                                     name="contact_best_time"
                                     className={`input-field ${errors.contact_best_time ? "border-destructive focus:ring-destructive/20" : ""}`}
                                     value={formData.contact_best_time}
@@ -409,13 +419,14 @@ export default function CreateLead() {
 
                             {/* Preferred Contact Method */}
                             <div className="md:col-span-2">
-                                <label className="block text-sm font-medium text-foreground mb-2 flex items-center gap-1">
+                                <label htmlFor="preferred-method-call" className="block text-sm font-medium text-foreground mb-2 flex items-center gap-1">
                                     <MessageSquare size={12} /> Preferred Contact Method *
                                 </label>
                                 <div className="flex gap-5">
-                                    {["Call", "Email", "Text"].map(method => (
-                                        <label key={method} className="flex items-center gap-2 cursor-pointer text-sm text-foreground">
+                                    {["Call", "Email", "Text"].map((method, idx) => (
+                                        <label key={method} htmlFor={idx === 0 ? "preferred-method-call" : undefined} className="flex items-center gap-2 cursor-pointer text-sm text-foreground">
                                             <input
+                                                id={idx === 0 ? "preferred-method-call" : undefined}
                                                 type="radio"
                                                 name="contact_preferred_method"
                                                 value={method}
@@ -445,9 +456,11 @@ export default function CreateLead() {
                             {showSecondary && (
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                                     <div>
-                                        <label className="block text-sm font-medium text-foreground mb-1.5">Secondary Name</label>
+                                        <label htmlFor="secondary_contact_name" className="block text-sm font-medium text-foreground mb-1.5">Secondary Name</label>
                                         <input
+                                            id="secondary_contact_name"
                                             name="secondary_contact_name"
+                                            autoComplete="name"
                                             className="input-field"
                                             placeholder="Full name"
                                             value={formData.secondary_contact_name}
@@ -455,8 +468,9 @@ export default function CreateLead() {
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-foreground mb-1.5">Secondary Title</label>
+                                        <label htmlFor="secondary_contact_title" className="block text-sm font-medium text-foreground mb-1.5">Secondary Title</label>
                                         <select
+                                            id="secondary_contact_title"
                                             name="secondary_contact_title"
                                             className="input-field"
                                             value={formData.secondary_contact_title}
@@ -487,8 +501,9 @@ export default function CreateLead() {
                                         )}
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-foreground mb-1.5">Secondary Department</label>
+                                        <label htmlFor="secondary_contact_department" className="block text-sm font-medium text-foreground mb-1.5">Secondary Department</label>
                                         <input
+                                            id="secondary_contact_department"
                                             name="secondary_contact_department"
                                             className="input-field"
                                             placeholder="e.g. Administration"
@@ -497,7 +512,7 @@ export default function CreateLead() {
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-foreground mb-1.5">Secondary Phone</label>
+                                        <label htmlFor="secondary_contact_phone" className="block text-sm font-medium text-foreground mb-1.5">Secondary Phone</label>
                                         <div className="flex gap-2">
                                             <div className="relative w-28 shrink-0">
                                                 <div className="absolute inset-0 flex items-center pl-8 text-xs pointer-events-none font-medium">
@@ -526,13 +541,16 @@ export default function CreateLead() {
                                                 </div>
                                             </div>
                                             <input
+                                                id="secondary_contact_phone"
                                                 name="secondary_contact_phone"
+                                                autoComplete="tel"
                                                 className="input-field flex-1"
                                                 placeholder="Phone"
                                                 value={formData.secondary_contact_phone}
                                                 onChange={handleChange}
                                             />
                                             <input
+                                                id="secondary_contact_extension"
                                                 name="secondary_contact_extension"
                                                 className="input-field w-20"
                                                 placeholder="Ext."
@@ -542,10 +560,12 @@ export default function CreateLead() {
                                         </div>
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-foreground mb-1.5">Secondary Email</label>
+                                        <label htmlFor="secondary_contact_email" className="block text-sm font-medium text-foreground mb-1.5">Secondary Email</label>
                                         <input
+                                            id="secondary_contact_email"
                                             name="secondary_contact_email"
                                             type="email"
+                                            autoComplete="email"
                                             className="input-field"
                                             placeholder="email@school.edu"
                                             value={formData.secondary_contact_email}
@@ -560,9 +580,11 @@ export default function CreateLead() {
                     <div className="page-card grid grid-cols-1 md:grid-cols-2 gap-6">
                         <h2 className="md:col-span-2 font-semibold text-foreground mb-2">Lead Details</h2>
                         <div className="md:col-span-2">
-                            <label className="block text-sm font-medium text-foreground mb-1.5">Name / Organization *</label>
+                            <label htmlFor="lead_org_name" className="block text-sm font-medium text-foreground mb-1.5">Name / Organization *</label>
                             <input
+                                id="lead_org_name"
                                 name="name"
+                                autoComplete="organization"
                                 className={`input-field ${errors.name ? "border-destructive focus:ring-destructive/20" : ""}`}
                                 placeholder="Enter name or organization"
                                 value={formData.name}
@@ -572,8 +594,9 @@ export default function CreateLead() {
                         </div>
 
                         <div>
-                            <label className="block text-sm font-medium text-foreground mb-1.5">Lead Type</label>
+                            <label htmlFor="lead_type" className="block text-sm font-medium text-foreground mb-1.5">Lead Type</label>
                             <select
+                                id="lead_type"
                                 name="type"
                                 className="input-field"
                                 value={formData.type}
@@ -602,17 +625,17 @@ export default function CreateLead() {
                         </div>
 
                         <div>
-                            <label className="block text-sm font-medium text-foreground mb-1.5">Category / Group</label>
-                            <input name="category_group" className="input-field" placeholder="e.g. PK–5, Partner, etc." value={formData.category_group} onChange={handleChange} />
+                            <label htmlFor="category_group" className="block text-sm font-medium text-foreground mb-1.5">Category / Group</label>
+                            <input id="category_group" name="category_group" className="input-field" placeholder="e.g. PK–5, Partner, etc." value={formData.category_group} onChange={handleChange} />
                         </div>
 
                         <div>
-                            <label className="block text-sm font-medium text-foreground mb-1.5">Department</label>
-                            <input name="department" className="input-field" placeholder="e.g. Administration" value={formData.department} onChange={handleChange} />
+                            <label htmlFor="department" className="block text-sm font-medium text-foreground mb-1.5">Department</label>
+                            <input id="department" name="department" className="input-field" placeholder="e.g. Administration" value={formData.department} onChange={handleChange} />
                         </div>
 
                         <div>
-                            <label className="block text-sm font-medium text-foreground mb-1.5">Telephone</label>
+                            <label htmlFor="telephone" className="block text-sm font-medium text-foreground mb-1.5">Telephone</label>
                             <div className="flex gap-2">
                                 <div className="relative w-28 shrink-0">
                                     <div className="absolute inset-0 flex items-center pl-8 text-xs pointer-events-none font-medium">
@@ -640,24 +663,24 @@ export default function CreateLead() {
                                         <ChevronDown size={12} />
                                     </div>
                                 </div>
-                                <input name="telephone" className="input-field flex-1" placeholder="Main Phone" value={formData.telephone} onChange={handleChange} />
-                                <input name="telephone_extension" className="input-field w-20" placeholder="Ext." value={formData.telephone_extension} onChange={handleChange} />
+                                <input id="telephone" name="telephone" autoComplete="tel" className="input-field flex-1" placeholder="Main Phone" value={formData.telephone} onChange={handleChange} />
+                                <input id="telephone_extension" name="telephone_extension" className="input-field w-20" placeholder="Ext." value={formData.telephone_extension} onChange={handleChange} />
                             </div>
                         </div>
 
                         <div>
-                            <label className="block text-sm font-medium text-foreground mb-1.5">Website</label>
-                            <input name="website" className="input-field" placeholder="https://www.example.com" value={formData.website} onChange={handleChange} />
+                            <label htmlFor="website" className="block text-sm font-medium text-foreground mb-1.5">Website</label>
+                            <input id="website" name="website" className="input-field" placeholder="https://www.example.com" value={formData.website} onChange={handleChange} />
                         </div>
 
                         <div className="grid grid-cols-2 gap-4">
                             <div>
-                                <label className="block text-sm font-medium text-foreground mb-1.5">Start Time</label>
-                                <input name="start_time" type="time" className="input-field" value={formData.start_time} onChange={handleChange} />
+                                <label htmlFor="start_time" className="block text-sm font-medium text-foreground mb-1.5">Start Time</label>
+                                <input id="start_time" name="start_time" type="time" className="input-field" value={formData.start_time} onChange={handleChange} />
                             </div>
                             <div>
-                                <label className="block text-sm font-medium text-foreground mb-1.5">End Time</label>
-                                <input name="end_time" type="time" className="input-field" value={formData.end_time} onChange={handleChange} />
+                                <label htmlFor="end_time" className="block text-sm font-medium text-foreground mb-1.5">End Time</label>
+                                <input id="end_time" name="end_time" type="time" className="input-field" value={formData.end_time} onChange={handleChange} />
                             </div>
                         </div>
                     </div>
@@ -665,27 +688,27 @@ export default function CreateLead() {
                     <div className="page-card grid grid-cols-1 md:grid-cols-2 gap-6">
                         <h2 className="md:col-span-2 font-semibold text-foreground mb-2">Address Details</h2>
                         <div className="col-span-1">
-                            <label className="block text-sm font-medium text-foreground mb-1.5">Number</label>
-                            <input name="address_number" className="input-field" placeholder="123" value={formData.address_number} onChange={handleChange} />
+                            <label htmlFor="address_number" className="block text-sm font-medium text-foreground mb-1.5">Number</label>
+                            <input id="address_number" name="address_number" className="input-field" placeholder="123" value={formData.address_number} onChange={handleChange} />
                         </div>
                         <div className="col-span-1">
-                            <label className="block text-sm font-medium text-foreground mb-1.5">Street Name</label>
-                            <input name="address" className="input-field" placeholder="Main St" value={formData.address} onChange={handleChange} />
+                            <label htmlFor="address" className="block text-sm font-medium text-foreground mb-1.5">Street Name</label>
+                            <input id="address" name="address" autoComplete="address-line1" className="input-field" placeholder="Main St" value={formData.address} onChange={handleChange} />
                         </div>
 
                         <div>
-                            <label className="block text-sm font-medium text-foreground mb-1.5">City</label>
-                            <input name="city" className="input-field" placeholder="City" value={formData.city} onChange={handleChange} />
+                            <label htmlFor="city" className="block text-sm font-medium text-foreground mb-1.5">City</label>
+                            <input id="city" name="city" autoComplete="address-level2" className="input-field" placeholder="City" value={formData.city} onChange={handleChange} />
                         </div>
 
                         <div className="grid grid-cols-2 gap-4">
                             <div>
-                                <label className="block text-sm font-medium text-foreground mb-1.5">State</label>
-                                <input name="state" className="input-field" placeholder="ST" value={formData.state} onChange={handleChange} />
+                                <label htmlFor="state" className="block text-sm font-medium text-foreground mb-1.5">State</label>
+                                <input id="state" name="state" autoComplete="address-level1" className="input-field" placeholder="ST" value={formData.state} onChange={handleChange} />
                             </div>
                             <div>
-                                <label className="block text-sm font-medium text-foreground mb-1.5">Zip Code</label>
-                                <input name="zip" className="input-field" placeholder="12345" value={formData.zip} onChange={handleChange} />
+                                <label htmlFor="zip" className="block text-sm font-medium text-foreground mb-1.5">Zip Code</label>
+                                <input id="zip" name="zip" autoComplete="postal-code" className="input-field" placeholder="12345" value={formData.zip} onChange={handleChange} />
                             </div>
                         </div>
                     </div>

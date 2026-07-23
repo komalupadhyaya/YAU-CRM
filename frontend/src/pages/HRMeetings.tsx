@@ -357,8 +357,14 @@ function MultiCandidatePicker({ candidates, selected, onChange }: {
                                 className="w-full flex items-center gap-2 px-3 py-2.5 text-sm hover:bg-accent/50 transition-colors text-left"
                             >
                                 <UserIcon size={12} className="text-muted-foreground shrink-0" />
-                                <span className="flex-1 truncate">{c.name}</span>
-                                {c.applying_for && <span className="text-[10px] text-muted-foreground shrink-0">{c.applying_for}</span>}
+                                <span className="font-medium shrink-0">{c.name}</span>
+                                {c.applying_for ? (
+                                    <span className="flex-1 min-w-0 text-[10px] text-muted-foreground truncate text-right ml-2" title={c.applying_for}>
+                                        {c.applying_for}
+                                    </span>
+                                ) : (
+                                    <div className="flex-1" />
+                                )}
                                 <Plus size={12} className="text-emerald-500 shrink-0" />
                             </button>
                         ))}
