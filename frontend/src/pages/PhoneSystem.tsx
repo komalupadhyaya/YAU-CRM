@@ -350,7 +350,7 @@ export default function PhoneSystem() {
                                         </div>
                                     ) : (
                                         <div className="space-y-4 p-4 bg-muted/30 border border-border/40 rounded-lg">
-                                            <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">Audio File</label>
+                                            <span className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">Audio File</span>
                                             <div className="flex items-center gap-4">
                                                 <div className="relative">
                                                     <input
@@ -581,7 +581,7 @@ export default function PhoneSystem() {
                                     <div className={`space-y-4 p-4 bg-muted/30 border border-border/40 rounded-lg transition-all duration-200 ${
                                         config.holdMusic?.enabled === false ? 'opacity-40 pointer-events-none' : ''
                                     }`}>
-                                        <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">Hold Music File (MP3)</label>
+                                        <span className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">Hold Music File (MP3)</span>
                                         <div className="flex items-center gap-4">
                                             <div className="relative">
                                                 <input

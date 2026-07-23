@@ -463,7 +463,7 @@ export default function Dialer() {
     return (
         <div 
             ref={containerRef}
-            className={`fixed bottom-6 right-6 z-[9999] font-sans ${isDragging ? 'select-none' : ''}`}
+            className={`fixed bottom-6 right-6 z-[45] sm:z-[9999] font-sans ${isDragging ? 'select-none' : ''}`}
             style={{ transform: `translate(${position.x}px, ${position.y}px)` }}
         >
             {isMinimized ? (

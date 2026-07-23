@@ -829,8 +829,11 @@ export default function AvailabilityModal({ user, open, onClose }: { user: Avail
                                     <div className="border border-border/60 bg-muted/10 rounded-xl p-4 space-y-4">
                                         <div className="grid grid-cols-2 gap-3">
                                             <div className="space-y-1">
-                                                <label className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">Start Date</label>
+                                                <label htmlFor="availability-start-date" className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">Start Date</label>
                                                 <input
+                                                    id="availability-start-date"
+                                                    name="availability-start-date"
+                                                    autoComplete="off"
                                                     type="date"
                                                     value={dateRangeStart}
                                                     max={dateRangeEnd || undefined}
@@ -846,8 +849,11 @@ export default function AvailabilityModal({ user, open, onClose }: { user: Avail
                                                 />
                                             </div>
                                             <div className="space-y-1">
-                                                <label className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">End Date</label>
+                                                <label htmlFor="availability-end-date" className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">End Date</label>
                                                 <input
+                                                    id="availability-end-date"
+                                                    name="availability-end-date"
+                                                    autoComplete="off"
                                                     type="date"
                                                     value={dateRangeEnd}
                                                     min={dateRangeStart || undefined}
@@ -872,8 +878,10 @@ export default function AvailabilityModal({ user, open, onClose }: { user: Avail
                                             return (
                                                 <div key={day} className="flex flex-col gap-2 pb-2 border-b border-border/40 last:border-b-0 last:pb-0">
                                                     <div className="flex items-center justify-between">
-                                                        <label className="flex items-center gap-2 cursor-pointer">
+                                                        <div className="flex items-center gap-2">
                                                             <input
+                                                                id={`weekly-avail-enable-${day}`}
+                                                                name={`weekly-avail-enable-${day}`}
                                                                 type="checkbox"
                                                                 checked={enabled}
                                                                 onChange={(e) => {
@@ -898,10 +906,12 @@ export default function AvailabilityModal({ user, open, onClose }: { user: Avail
                                                                         }
                                                                     }
                                                                 }}
-                                                                className="rounded border-border bg-background text-primary focus:ring-primary focus:ring-offset-background h-4 w-4"
+                                                                className="rounded border-border bg-background text-primary focus:ring-primary focus:ring-offset-background h-4 w-4 cursor-pointer"
                                                             />
-                                                            <span className="text-xs font-bold text-foreground capitalize w-20">{day}</span>
-                                                        </label>
+                                                            <label htmlFor={`weekly-avail-enable-${day}`} className="text-xs font-bold text-foreground capitalize w-20 cursor-pointer select-none">
+                                                                {day}
+                                                            </label>
+                                                        </div>
                                                         
                                                         {enabled ? (
                                                             <span className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider">

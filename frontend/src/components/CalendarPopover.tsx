@@ -215,7 +215,7 @@ export default function CalendarPopover() {
 
             {/* Popover */}
             {open && (
-                <div className="absolute right-0 top-11 z-50 w-[360px] bg-popover border border-border rounded-2xl shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                <div className="fixed left-4 right-4 sm:absolute sm:left-auto sm:right-0 sm:w-[360px] top-14 sm:top-11 z-50 bg-popover border border-border rounded-2xl shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
                     {/* ── Month Header ── */}
                     <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-card/80">
                         <button

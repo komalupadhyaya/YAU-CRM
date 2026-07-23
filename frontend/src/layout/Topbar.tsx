@@ -144,7 +144,7 @@ function NotificationBell() {
 
       {/* Dropdown panel */}
       {open && (
-        <div className="absolute right-0 top-11 w-80 sm:w-96 bg-card border border-border shadow-2xl rounded-2xl overflow-hidden z-50 animate-in fade-in slide-in-from-top-2 duration-200">
+        <div className="fixed left-4 right-4 sm:absolute sm:left-auto sm:right-0 sm:w-96 top-14 sm:top-11 bg-card border border-border shadow-2xl rounded-2xl overflow-hidden z-50 animate-in fade-in slide-in-from-top-2 duration-200">
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-border">
             <div className="flex items-center gap-2">
@@ -295,7 +295,7 @@ export default function Topbar() {
 
               {/* Hover details card */}
               {isHovered && (
-                <div className="absolute right-0 top-9 w-64 bg-card border border-border shadow-xl rounded-2xl p-4 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
+                <div className="fixed left-4 right-4 sm:absolute sm:left-auto sm:right-0 sm:w-64 top-14 sm:top-9 bg-card border border-border shadow-xl rounded-2xl p-4 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
                   <div className="flex items-center gap-3 border-b border-border pb-3 mb-3">
                     <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-base border border-primary/20 select-none">
                       {(currentUser.name || currentUser.username).charAt(0).toUpperCase()}
