@@ -9,6 +9,8 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
+import { countryCodes } from "../utils/countryCodes";
 import {
   Table,
   TableBody,
@@ -41,7 +43,14 @@ import {
   Send,
   MessageSquare,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Shuffle,
+  User,
+  Users,
+  Building,
+  ChevronUp,
+  ChevronDown,
+  MapPin
 } from "lucide-react";
 
 interface EALead {
@@ -59,6 +68,9 @@ interface EALead {
     direction: "inbound" | "outbound";
     message: string;
     timestamp: string;
+    isBulk?: boolean;
+    status?: 'pending' | 'sent' | 'failed' | 'received';
+    twilioSid?: string;
     _id?: string;
   }>;
 }
@@ -106,6 +118,55 @@ export default function EALeads() {
   // 1-on-1 SMS state
   const [singleSmsMessage, setSingleSmsMessage] = useState("");
   const [sendingSingleSms, setSendingSingleSms] = useState(false);
+
+  // Conversion state
+  const [convertDialogOpen, setConvertDialogOpen] = useState(false);
+  const [leadToConvert, setLeadToConvert] = useState<EALead | null>(null);
+  const [campaigns, setCampaigns] = useState<any[]>([]);
+  const [selectedCampaignId, setSelectedCampaignId] = useState("");
+  const [converting, setConverting] = useState(false);
+  const [convertFormData, setConvertFormData] = useState({
+    name: "",
+    type: "",
+    category_group: "",
+    department: "",
+    main_contact_name: "",
+    main_contact_email: "",
+    telephone: "",
+    telephone_extension: "",
+    city: "",
+    state: "",
+    address: "",
+    address_number: "",
+    zip: "",
+    website: "",
+    start_time: "",
+    end_time: "",
+    // Primary Contact Person
+    contact_title: "",
+    contact_department: "",
+    contact_direct_phone: "",
+    contact_extension: "",
+    contact_email: "",
+    contact_best_time: "",
+    contact_preferred_method: "",
+    // Secondary Contact
+    secondary_contact_name: "",
+    secondary_contact_title: "",
+    secondary_contact_department: "",
+    secondary_contact_phone: "",
+    secondary_contact_extension: "",
+    secondary_contact_email: "",
+    // Prefixes
+    contact_phone_prefix: "+1",
+    secondary_phone_prefix: "+1",
+    telephone_prefix: "+1",
+  });
+  const [convertCustomTitle, setConvertCustomTitle] = useState("");
+  const [convertSecondaryCustomTitle, setConvertSecondaryCustomTitle] = useState("");
+  const [convertCustomLeadType, setConvertCustomLeadType] = useState("");
+  const [showConvertSecondary, setShowConvertSecondary] = useState(false);
+  const [convertErrors, setConvertErrors] = useState<Record<string, string>>({});
 
   // Manual Add Form state
   const [addDialogOpen, setAddDialogOpen] = useState(false);
@@ -232,6 +293,191 @@ export default function EALeads() {
     }
   };
 
+  // Handle form change for conversion
+  const handleConvertFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    setConvertFormData(prev => ({ ...prev, [name]: value }));
+    if (convertErrors[name]) {
+      setConvertErrors(prev => {
+        const next = { ...prev };
+        delete next[name];
+        return next;
+      });
+    }
+  };
+
+  const handleConvertRadioChange = (field: string, value: string) => {
+    setConvertFormData(prev => ({ ...prev, [field]: value }));
+    if (convertErrors[field]) {
+      setConvertErrors(prev => {
+        const next = { ...prev };
+        delete next[field];
+        return next;
+      });
+    }
+  };
+
+  // Fetch campaigns for dropdown
+  const fetchCampaigns = async () => {
+    try {
+      const res = await api.get("/campaigns");
+      const fetchedCampaigns = res.data || [];
+      
+      // Check if "EA-Lead" campaign exists case-insensitively
+      const eaLeadCampaign = fetchedCampaigns.find(
+        (c: any) => c.name.toLowerCase() === "ea-lead"
+      );
+      
+      let finalCampaigns = [...fetchedCampaigns];
+      let selectId = "";
+
+      if (eaLeadCampaign) {
+        selectId = eaLeadCampaign._id;
+      } else {
+        // If it does not exist, insert a virtual campaign option at the beginning of the list
+        const virtualOption = { _id: "default-ea-lead-campaign", name: "EA-Lead" };
+        finalCampaigns = [virtualOption, ...fetchedCampaigns];
+        selectId = "default-ea-lead-campaign";
+      }
+
+      setCampaigns(finalCampaigns);
+      setSelectedCampaignId(selectId);
+    } catch {
+      toast.error("Failed to fetch campaigns.");
+    }
+  };
+
+  // Open Convert Dialog
+  const handleOpenConvert = (lead: EALead) => {
+    setLeadToConvert(lead);
+    
+    // Clean up country code prefix if it starts with +
+    let cleanedPhone = lead.phone || "";
+    let matchedPrefix = "+1";
+    
+    const found = countryCodes.find(c => cleanedPhone.startsWith(c.dialCode));
+    if (found) {
+      matchedPrefix = found.dialCode;
+      cleanedPhone = cleanedPhone.substring(found.dialCode.length);
+    } else if (cleanedPhone.startsWith("+")) {
+      // General match
+      const plusMatch = cleanedPhone.match(/^\+\d+/);
+      if (plusMatch) {
+        matchedPrefix = plusMatch[0];
+        cleanedPhone = cleanedPhone.substring(matchedPrefix.length);
+      }
+    }
+
+    setConvertFormData({
+      name: lead.name,
+      type: "",
+      category_group: "",
+      department: "",
+      main_contact_name: lead.name,
+      main_contact_email: lead.email,
+      telephone: cleanedPhone,
+      telephone_extension: "",
+      city: "",
+      state: "",
+      address: "",
+      address_number: "",
+      zip: "",
+      website: "",
+      start_time: "",
+      end_time: "",
+      contact_title: "",
+      contact_department: "EA-Lead",
+      contact_direct_phone: cleanedPhone,
+      contact_extension: "",
+      contact_email: lead.email,
+      contact_best_time: "Anytime",
+      contact_preferred_method: "Text",
+      secondary_contact_name: "",
+      secondary_contact_title: "",
+      secondary_contact_department: "",
+      secondary_contact_phone: "",
+      secondary_contact_extension: "",
+      secondary_contact_email: "",
+      contact_phone_prefix: matchedPrefix,
+      secondary_phone_prefix: "+1",
+      telephone_prefix: matchedPrefix,
+    });
+
+    setConvertCustomTitle("");
+    setConvertSecondaryCustomTitle("");
+    setConvertCustomLeadType("");
+    setShowConvertSecondary(false);
+    setConvertErrors({});
+    fetchCampaigns();
+    setConvertDialogOpen(true);
+  };
+
+  // Validate Convert Form
+  const validateConvertForm = () => {
+    const newErrors: Record<string, string> = {};
+    if (!convertFormData.name.trim()) newErrors.name = "Organization / School name is required";
+
+    // Primary Contact Person Validation
+    if (!convertFormData.main_contact_name.trim()) newErrors.main_contact_name = "Primary contact name is required";
+    if (!convertFormData.contact_title) {
+      newErrors.contact_title = "Please select a title / role";
+    } else if (convertFormData.contact_title === "Other" && !convertCustomTitle.trim()) {
+      newErrors.contact_title = "Please specify the custom title";
+    }
+    if (!convertFormData.contact_department.trim()) newErrors.contact_department = "Department name is required";
+    if (!convertFormData.contact_direct_phone.trim()) newErrors.contact_direct_phone = "Direct phone number is required";
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!convertFormData.contact_email.trim()) {
+      newErrors.contact_email = "Primary contact email is required";
+    } else if (!emailRegex.test(convertFormData.contact_email)) {
+      newErrors.contact_email = "Please enter a valid email address";
+    }
+
+    if (!convertFormData.contact_best_time) newErrors.contact_best_time = "Please select the best time to call";
+    if (!convertFormData.contact_preferred_method) newErrors.contact_preferred_method = "Please select a preferred contact method";
+
+    setConvertErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  // Submit Lead Conversion
+  const handleConvertLead = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!leadToConvert || !selectedCampaignId) return;
+
+    if (!validateConvertForm()) {
+      toast.error("Please fill in all required fields marked with *");
+      return;
+    }
+
+    setConverting(true);
+    try {
+      const finalTitle = convertFormData.contact_title === "Other" ? convertCustomTitle.trim() : convertFormData.contact_title;
+      const finalSecondaryTitle = convertFormData.secondary_contact_title === "Other" ? convertSecondaryCustomTitle.trim() : convertFormData.secondary_contact_title;
+
+      const payload = {
+        ...convertFormData,
+        campaignId: selectedCampaignId,
+        type: convertFormData.type === "Other" ? convertCustomLeadType : convertFormData.type,
+        contact_direct_phone: convertFormData.contact_phone_prefix + convertFormData.contact_direct_phone.replace(/\D/g, ''),
+        secondary_contact_phone: convertFormData.secondary_contact_phone ? (convertFormData.secondary_phone_prefix + convertFormData.secondary_contact_phone.replace(/\D/g, '')) : "",
+        telephone: convertFormData.telephone ? (convertFormData.telephone_prefix + convertFormData.telephone.replace(/\D/g, '')) : "",
+        contact_title: finalTitle,
+        secondary_contact_title: finalSecondaryTitle
+      };
+
+      await api.post(`/ea-leads/${leadToConvert._id}/convert`, payload);
+      toast.success("Lead successfully converted to main CRM Lead.");
+      setConvertDialogOpen(false);
+      fetchLeads();
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || "Failed to convert lead.");
+    } finally {
+      setConverting(false);
+    }
+  };
+
   // Open View Dialog
   const handleOpenView = async (lead: EALead) => {
     setSelectedLead(lead);
@@ -328,7 +574,7 @@ export default function EALeads() {
       toast.success("Lead details updated successfully.");
       setEditDialogOpen(false);
     } catch {
-      toast.error("Failed to update lead details");
+      // API error is automatically toasted by the global response interceptor in api.ts
     } finally {
       setSaving(false);
     }
@@ -544,11 +790,25 @@ export default function EALeads() {
         message: bulkSmsMessage,
         leadIds: selectedIds
       });
-      toast.success(res.data?.message || "Bulk SMS sent successfully.");
+      if (res.data?.failCount > 0) {
+        if (res.data?.successCount === 0) {
+          toast.error(res.data.message || "Bulk SMS failed to send. Check Twilio Console logs.");
+        } else {
+          toast.warning(res.data.message || "Bulk SMS partially sent. Some messages failed.");
+        }
+      } else {
+        toast.success(res.data?.message || "Bulk SMS sent successfully.");
+      }
       setBulkSmsMessage("");
       setSelectedIds([]);
       setBulkSmsOpen(false);
       fetchLeads();
+      
+      // Instant message list refresh if the target lead is currently being viewed
+      if (selectedLead && selectedIds.includes(selectedLead._id)) {
+        const leadRes = await api.get(`/ea-leads/${selectedLead._id}`);
+        setSelectedLead(leadRes.data);
+      }
     } catch {
       toast.error("Failed to send bulk SMS.");
     } finally {
@@ -593,16 +853,15 @@ export default function EALeads() {
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            {selectedIds.length > 0 && (
-              <Button
-                variant="outline"
-                className="border-border text-foreground hover:bg-accent flex items-center gap-1.5"
-                onClick={() => setBulkSmsOpen(true)}
-              >
-                <MessageSquare size={16} />
-                Send Bulk SMS ({selectedIds.length})
-              </Button>
-            )}
+            <Button
+              variant="outline"
+              className="border-border text-foreground hover:bg-accent flex items-center gap-1.5"
+              onClick={() => setBulkSmsOpen(true)}
+              disabled={selectedIds.length === 0}
+            >
+              <MessageSquare size={16} />
+              Send Bulk SMS ({selectedIds.length})
+            </Button>
             {permissions.createEdit && (
               <Button
                 onClick={handleOpenAdd}
@@ -684,7 +943,7 @@ export default function EALeads() {
                     <TableHead className="w-[200px]">Name</TableHead>
                     <TableHead>Email Address</TableHead>
                     <TableHead>Phone Number</TableHead>
-                    <TableHead>Source</TableHead>
+                    <TableHead className="text-center">Source</TableHead>
                     <TableHead>Consent</TableHead>
                     <TableHead>Date Submitted</TableHead>
                     <TableHead className="text-center">Actions</TableHead>
@@ -710,7 +969,7 @@ export default function EALeads() {
                       </TableCell>
                       <TableCell className="text-muted-foreground font-medium">{lead.email}</TableCell>
                       <TableCell className="text-muted-foreground font-medium">{lead.phone}</TableCell>
-                      <TableCell>
+                      <TableCell className="text-center">
                         <span className="inline-flex items-center gap-1 rounded-full bg-secondary border border-border px-2.5 py-0.5 text-xs font-semibold text-muted-foreground">
                           {lead.source}
                         </span>
@@ -743,6 +1002,17 @@ export default function EALeads() {
                           >
                             <MessageSquare size={14} />
                           </Button>
+                          {permissions.createEdit && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 hover:bg-accent hover:text-foreground text-amber-600 dark:text-amber-400"
+                              onClick={() => handleOpenConvert(lead)}
+                              title="Convert to CRM Lead"
+                            >
+                              <Shuffle size={14} />
+                            </Button>
+                          )}
                           {permissions.createEdit && (
                             <Button
                               variant="ghost"
@@ -867,63 +1137,91 @@ export default function EALeads() {
               </TabsContent>
 
               <TabsContent value="messages">
-                <div className="flex flex-col h-[400px] border rounded-xl overflow-hidden bg-background">
-                  {/* Chat message area */}
-                  <div className="flex-1 overflow-y-auto p-4 space-y-3 max-h-[330px]">
-                    {!selectedLead.smsHistory || selectedLead.smsHistory.length === 0 ? (
-                      <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-1.5 py-12">
-                        <MessageSquare className="opacity-40" size={24} />
-                        <p className="text-xs">No message history with this lead yet.</p>
-                      </div>
-                    ) : (
-                      selectedLead.smsHistory.map((msg, i) => {
-                        const isInbound = msg.direction === 'inbound';
-                        return (
-                          <div
-                            key={msg._id || i}
-                            className={`flex flex-col max-w-[80%] ${isInbound ? 'self-start mr-auto' : 'self-end ml-auto items-end'}`}
-                          >
-                            <div
-                              className={`rounded-2xl px-3 py-2 text-xs leading-relaxed ${
-                                isInbound
-                                  ? 'bg-muted text-foreground rounded-tl-none'
-                                  : 'bg-primary text-primary-foreground rounded-tr-none'
-                              }`}
-                            >
-                              {msg.message}
-                            </div>
-                            <span className="text-[10px] text-muted-foreground mt-1 px-1">
-                              {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </span>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-
-                  {/* Send chat message input */}
-                  <form onSubmit={handleSendSingleSMS} className="p-2 border-t flex gap-1.5 bg-card shrink-0">
-                    <Input
-                      placeholder={selectedLead.isConsent ? "Type SMS message..." : "Lead has not given SMS consent"}
-                      value={singleSmsMessage}
-                      onChange={(e) => setSingleSmsMessage(e.target.value)}
-                      disabled={sendingSingleSms || !selectedLead.isConsent}
-                      className="flex-1 bg-background text-xs h-8 border-border"
-                    />
-                    <Button
-                      type="submit"
-                      size="sm"
-                      className="h-8 w-8 p-0 shrink-0"
-                      disabled={sendingSingleSms || !singleSmsMessage.trim() || !selectedLead.isConsent}
-                    >
-                      {sendingSingleSms ? (
-                        <Loader2 size={12} className="animate-spin" />
+                <TooltipProvider>
+                  <div className="flex flex-col h-[400px] border rounded-xl overflow-hidden bg-background">
+                    {/* Chat message area */}
+                    <div className="flex-1 overflow-y-auto p-4 space-y-3 max-h-[330px]">
+                      {!selectedLead.smsHistory || selectedLead.smsHistory.length === 0 ? (
+                        <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-1.5 py-12">
+                          <MessageSquare className="opacity-40" size={24} />
+                          <p className="text-xs">No message history with this lead yet.</p>
+                        </div>
                       ) : (
-                        <Send size={12} />
+                        selectedLead.smsHistory.map((msg, i) => {
+                          const isInbound = msg.direction === 'inbound';
+                          const isFailed = !isInbound && msg.status === 'failed';
+                          const isPending = !isInbound && msg.status === 'pending';
+                          return (
+                            <div
+                              key={msg._id || i}
+                              className={`flex flex-col max-w-[80%] ${isInbound ? 'self-start mr-auto' : 'self-end ml-auto items-end'}`}
+                            >
+                              <div className={`flex items-center gap-2 ${isInbound ? 'justify-start' : 'justify-end'}`}>
+                                {!isInbound && msg.isBulk && (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <div className="inline-flex items-center justify-center text-muted-foreground hover:text-foreground cursor-pointer bg-secondary border border-border p-1 rounded-full transition-colors shrink-0">
+                                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                                      </div>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="p-1.5 text-[10px] shadow-md bg-popover text-popover-foreground rounded border border-border">
+                                      Bulk
+                                    </TooltipContent>
+                                  </Tooltip>
+                                )}
+                                <div
+                                  className={`rounded-2xl px-3 py-2 text-xs leading-relaxed ${
+                                    isInbound
+                                      ? 'bg-muted text-foreground rounded-tl-none'
+                                      : isFailed
+                                        ? 'bg-destructive/90 text-white rounded-tr-none'
+                                        : 'bg-primary text-primary-foreground rounded-tr-none'
+                                  }`}
+                                >
+                                  {msg.message}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1.5 mt-1 px-1">
+                                {isFailed && (
+                                  <span className="inline-flex items-center gap-0.5 text-[9px] bg-destructive/15 text-destructive border border-destructive/30 px-1.5 py-0.5 rounded-full font-semibold leading-tight">
+                                    <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                                    Failed
+                                  </span>
+                                )}
+                                <span className="text-[10px] text-muted-foreground">
+                                  {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })
                       )}
-                    </Button>
-                  </form>
-                </div>
+                    </div>
+
+                    {/* Send chat message input */}
+                    <form onSubmit={handleSendSingleSMS} className="p-2 border-t flex gap-1.5 bg-card shrink-0">
+                      <Input
+                        placeholder={selectedLead.isConsent ? "Type SMS message..." : "Lead has not given SMS consent"}
+                        value={singleSmsMessage}
+                        onChange={(e) => setSingleSmsMessage(e.target.value)}
+                        disabled={sendingSingleSms || !selectedLead.isConsent}
+                        className="flex-1 bg-background text-xs h-8 border-border"
+                      />
+                      <Button
+                        type="submit"
+                        size="sm"
+                        className="h-8 w-8 p-0 shrink-0"
+                        disabled={sendingSingleSms || !singleSmsMessage.trim() || !selectedLead.isConsent}
+                      >
+                        {sendingSingleSms ? (
+                          <Loader2 size={12} className="animate-spin" />
+                        ) : (
+                          <Send size={12} />
+                        )}
+                      </Button>
+                    </form>
+                  </div>
+                </TooltipProvider>
               </TabsContent>
             </Tabs>
           )}
@@ -1047,6 +1345,7 @@ export default function EALeads() {
                 onChange={(e) => setEditSource(e.target.value)}
                 className="bg-background border-border text-foreground"
                 required
+                disabled
               />
             </div>
 
@@ -1058,6 +1357,7 @@ export default function EALeads() {
                 value={editDateSubmitted}
                 onChange={(e) => setEditDateSubmitted(e.target.value)}
                 className="bg-background border-border text-foreground [color-scheme:light] dark:[color-scheme:dark]"
+                disabled
               />
             </div>
 
@@ -1177,6 +1477,610 @@ export default function EALeads() {
                   </>
                 ) : (
                   "Add Lead"
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Convert Lead Dialog */}
+      <Dialog open={convertDialogOpen} onOpenChange={setConvertDialogOpen}>
+        <DialogContent aria-describedby={undefined} className="sm:max-w-3xl bg-card border-border text-foreground max-h-[90vh] overflow-y-auto custom-scrollbar">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-xl font-bold">
+              <Shuffle size={16} className="text-primary" />
+              Add Lead to {campaigns.find(c => c._id === selectedCampaignId)?.name || 'Testing'}
+            </DialogTitle>
+            <DialogDescription className="sr-only">
+              Convert this EA Lead into a main CRM Lead.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleConvertLead} className="grid grid-cols-1 gap-6 py-2 p-1 pr-3">
+            {/* Target Campaign Selection */}
+            <div className="space-y-1.5 border-b pb-4">
+              <Label htmlFor="convert-campaign-select" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Select Target Campaign *</Label>
+              <select
+                id="convert-campaign-select"
+                value={selectedCampaignId}
+                onChange={(e) => setSelectedCampaignId(e.target.value)}
+                className="w-full bg-background border border-border text-foreground text-sm rounded-lg p-2.5 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer"
+                required
+              >
+                {campaigns.length === 0 ? (
+                  <option value="" disabled>Loading campaigns...</option>
+                ) : (
+                  campaigns.map((c) => (
+                    <option key={c._id} value={c._id}>
+                      {c.name}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+
+            {/* Primary Contact Person */}
+            <div className="space-y-4 border-b pb-6">
+              <div className="flex items-center justify-start gap-2">
+                <div className="p-1.5 rounded-lg bg-primary/10">
+                  <Users size={16} className="text-primary" />
+                </div>
+                <h3 className="font-bold text-sm uppercase tracking-wider">Primary Contact Person</h3>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Contact Name */}
+                <div className="space-y-1">
+                  <Label htmlFor="convert-main_contact_name" className="text-xs font-medium">Contact Full Name *</Label>
+                  <Input
+                    id="convert-main_contact_name"
+                    name="main_contact_name"
+                    placeholder="e.g. Davina Midgette"
+                    className={`bg-background border-border text-foreground ${convertErrors.main_contact_name ? "border-destructive focus:ring-destructive/20" : ""}`}
+                    value={convertFormData.main_contact_name}
+                    onChange={handleConvertFormChange}
+                    required
+                  />
+                  {convertErrors.main_contact_name && <p className="text-[10px] text-destructive">{convertErrors.main_contact_name}</p>}
+                </div>
+
+                {/* Title / Role */}
+                <div className="space-y-1">
+                  <Label htmlFor="convert-contact_title" className="text-xs font-medium">Title / Role *</Label>
+                  <select
+                    id="convert-contact_title"
+                    name="contact_title"
+                    className={`w-full bg-background border border-border text-foreground text-sm rounded-lg p-2.5 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer ${convertErrors.contact_title ? "border-destructive focus:ring-destructive/20" : ""}`}
+                    value={convertFormData.contact_title}
+                    onChange={handleConvertFormChange}
+                    required
+                  >
+                    <option value="">Select title...</option>
+                    <option>Principal</option>
+                    <option>Assistant Principal</option>
+                    <option>Athletic Director</option>
+                    <option>After-School Coordinator</option>
+                    <option>Front Office Administrator</option>
+                    <option>PTA/PTO Contact</option>
+                    <option>Other</option>
+                  </select>
+                  {convertErrors.contact_title && <p className="text-[10px] text-destructive">{convertErrors.contact_title}</p>}
+                  {convertFormData.contact_title === "Other" && (
+                    <Input
+                      id="convert-please-specify-title"
+                      placeholder="Please specify title..."
+                      className="bg-background border-border text-foreground mt-2"
+                      value={convertCustomTitle}
+                      onChange={(e) => setConvertCustomTitle(e.target.value)}
+                      required
+                    />
+                  )}
+                </div>
+
+                {/* Department */}
+                <div className="space-y-1">
+                  <Label htmlFor="convert-contact_department" className="text-xs font-medium">Department *</Label>
+                  <Input
+                    id="convert-contact_department"
+                    name="contact_department"
+                    placeholder="e.g. Administration"
+                    className={`bg-background border-border text-foreground ${convertErrors.contact_department ? "border-destructive focus:ring-destructive/20" : ""}`}
+                    value={convertFormData.contact_department}
+                    onChange={handleConvertFormChange}
+                    required
+                  />
+                  {convertErrors.contact_department && <p className="text-[10px] text-destructive">{convertErrors.contact_department}</p>}
+                </div>
+
+                {/* Direct Phone */}
+                <div className="space-y-1">
+                  <Label htmlFor="convert-contact_direct_phone" className="text-xs font-medium flex items-center gap-1">
+                    <Phone size={12} /> Direct Phone *
+                  </Label>
+                  <div className="flex gap-2">
+                    <div className="relative w-28 shrink-0">
+                      <div className="absolute inset-0 flex items-center pl-8 text-xs pointer-events-none font-medium">
+                        {convertFormData.contact_phone_prefix}
+                      </div>
+                      <select
+                        id="convert-contact_phone_prefix"
+                        name="contact_phone_prefix"
+                        className="w-full h-[38px] dark:bg-card border border-border px-2 text-transparent appearance-none bg-no-repeat rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer"
+                        style={{
+                          backgroundImage: `url(https://flagcdn.com/w20/${(countryCodes.find(c => c.dialCode === convertFormData.contact_phone_prefix)?.code || 'US').toLowerCase()}.png)`,
+                          backgroundPosition: 'left 0.5rem center'
+                        }}
+                        value={convertFormData.contact_phone_prefix}
+                        onChange={(e) => setConvertFormData({ ...convertFormData, contact_phone_prefix: e.target.value })}
+                      >
+                        {countryCodes.map(c => (
+                          <option key={`${c.code}-${c.dialCode}`} value={c.dialCode} className="text-foreground">
+                            {c.name} ({c.dialCode})
+                          </option>
+                        ))}
+                      </select>
+                      <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground">
+                        <ChevronDown size={12} />
+                      </div>
+                    </div>
+                    <Input
+                      id="convert-contact_direct_phone"
+                      name="contact_direct_phone"
+                      placeholder="Phone"
+                      className={`flex-1 bg-background border-border text-foreground ${convertErrors.contact_direct_phone ? "border-destructive focus:ring-destructive/20" : ""}`}
+                      value={convertFormData.contact_direct_phone}
+                      onChange={handleConvertFormChange}
+                      required
+                    />
+                    <Input
+                      id="convert-contact_extension"
+                      name="contact_extension"
+                      placeholder="Ext."
+                      className="w-20 bg-background border-border text-foreground"
+                      value={convertFormData.contact_extension}
+                      onChange={handleConvertFormChange}
+                    />
+                  </div>
+                  {convertErrors.contact_direct_phone && <p className="text-[10px] text-destructive">{convertErrors.contact_direct_phone}</p>}
+                </div>
+
+                {/* Email Address */}
+                <div className="space-y-1">
+                  <Label htmlFor="convert-contact_email" className="text-xs font-medium">Email Address *</Label>
+                  <Input
+                    id="convert-contact_email"
+                    name="contact_email"
+                    type="email"
+                    placeholder="email@example.com"
+                    className={`bg-background border-border text-foreground ${convertErrors.contact_email ? "border-destructive focus:ring-destructive/20" : ""}`}
+                    value={convertFormData.contact_email}
+                    onChange={handleConvertFormChange}
+                    required
+                  />
+                  {convertErrors.contact_email && <p className="text-[10px] text-destructive">{convertErrors.contact_email}</p>}
+                </div>
+
+                {/* Best Time to Call */}
+                <div className="space-y-1">
+                  <Label htmlFor="convert-contact_best_time" className="text-xs font-medium">Best Time to Call *</Label>
+                  <select
+                    id="convert-contact_best_time"
+                    name="contact_best_time"
+                    className={`w-full bg-background border border-border text-foreground text-sm rounded-lg p-2.5 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer ${convertErrors.contact_best_time ? "border-destructive focus:ring-destructive/20" : ""}`}
+                    value={convertFormData.contact_best_time}
+                    onChange={handleConvertFormChange}
+                    required
+                  >
+                    <option value="">Select time...</option>
+                    <option>Morning (8am–11am)</option>
+                    <option>Midday (11am–1pm)</option>
+                    <option>Afternoon (1pm–4pm)</option>
+                    <option>Late Afternoon (4pm–6pm)</option>
+                    <option>Anytime</option>
+                  </select>
+                  {convertErrors.contact_best_time && <p className="text-[10px] text-destructive">{convertErrors.contact_best_time}</p>}
+                </div>
+
+                {/* Preferred Method */}
+                <div className="col-span-1 md:col-span-2 space-y-2">
+                  <span className="text-xs font-medium block">Preferred Contact Method *</span>
+                  <div className="flex gap-4">
+                    {["Call", "Email", "Text"].map(method => (
+                      <label key={method} className="flex items-center justify-center gap-2 cursor-pointer text-xs text-foreground">
+                        <input
+                          type="radio"
+                          name="contact_preferred_method"
+                          value={method}
+                          checked={convertFormData.contact_preferred_method === method}
+                          onChange={() => handleConvertRadioChange("contact_preferred_method", method)}
+                          className="h-4 w-4 border-border text-primary focus:ring-primary bg-background cursor-pointer"
+                        />
+                        {method}
+                      </label>
+                    ))}
+                  </div>
+                  {convertErrors.contact_preferred_method && <p className="text-[10px] text-destructive">{convertErrors.contact_preferred_method}</p>}
+                </div>
+              </div>
+            </div>
+
+            {/* Secondary Contact (Optional) */}
+            <div className="space-y-4 border-b pb-6">
+              <button
+                type="button"
+                onClick={() => setShowConvertSecondary(!showConvertSecondary)}
+                className="flex items-center justify-center gap-2 text-xs font-bold text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {showConvertSecondary ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                Add Secondary Contact (Optional)
+              </button>
+
+              {showConvertSecondary && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-1 duration-200">
+                  <div className="space-y-1">
+                    <Label htmlFor="convert-secondary_contact_name" className="text-xs font-medium">Secondary Name</Label>
+                    <Input
+                      id="convert-secondary_contact_name"
+                      name="secondary_contact_name"
+                      placeholder="Name"
+                      className="bg-background border-border text-foreground"
+                      value={convertFormData.secondary_contact_name}
+                      onChange={handleConvertFormChange}
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label htmlFor="convert-secondary_contact_title" className="text-xs font-medium">Secondary Title</Label>
+                    <select
+                      id="convert-secondary_contact_title"
+                      name="secondary_contact_title"
+                      className="w-full bg-background border border-border text-foreground text-sm rounded-lg p-2.5 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer"
+                      value={convertFormData.secondary_contact_title}
+                      onChange={handleConvertFormChange}
+                    >
+                      <option value="">Select title...</option>
+                      <option>Principal</option>
+                      <option>Assistant Principal</option>
+                      <option>Athletic Director</option>
+                      <option>After-School Coordinator</option>
+                      <option>Front Office Administrator</option>
+                      <option>PTA/PTO Contact</option>
+                      <option>Other</option>
+                    </select>
+                    {convertFormData.secondary_contact_title === "Other" && (
+                      <Input
+                        id="convert-please-specify-secondary-title"
+                        placeholder="Please specify title..."
+                        className="bg-background border-border text-foreground mt-2"
+                        value={convertSecondaryCustomTitle}
+                        onChange={(e) => setConvertSecondaryCustomTitle(e.target.value)}
+                      />
+                    )}
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label htmlFor="convert-secondary_contact_department" className="text-xs font-medium">Secondary Department</Label>
+                    <Input
+                      id="convert-secondary_contact_department"
+                      name="secondary_contact_department"
+                      placeholder="Department"
+                      className="bg-background border-border text-foreground"
+                      value={convertFormData.secondary_contact_department}
+                      onChange={handleConvertFormChange}
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label htmlFor="convert-secondary_contact_phone" className="text-xs font-medium flex items-center gap-1">
+                      <Phone size={12} /> Secondary Phone
+                    </Label>
+                    <div className="flex gap-2">
+                      <div className="relative w-28 shrink-0">
+                        <div className="absolute inset-0 flex items-center pl-8 text-xs pointer-events-none font-medium">
+                          {convertFormData.secondary_phone_prefix}
+                        </div>
+                        <select
+                          id="convert-secondary_phone_prefix"
+                          name="secondary_phone_prefix"
+                          className="w-full h-[38px] dark:bg-card border border-border px-2 text-transparent appearance-none bg-no-repeat rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer"
+                          style={{
+                            backgroundImage: `url(https://flagcdn.com/w20/${(countryCodes.find(c => c.dialCode === convertFormData.secondary_phone_prefix)?.code || 'US').toLowerCase()}.png)`,
+                            backgroundPosition: 'left 0.5rem center'
+                          }}
+                          value={convertFormData.secondary_phone_prefix}
+                          onChange={(e) => setConvertFormData({ ...convertFormData, secondary_phone_prefix: e.target.value })}
+                        >
+                          {countryCodes.map(c => (
+                            <option key={`${c.code}-${c.dialCode}`} value={c.dialCode} className="text-foreground">
+                              {c.name} ({c.dialCode})
+                            </option>
+                          ))}
+                        </select>
+                        <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground">
+                          <ChevronDown size={12} />
+                        </div>
+                      </div>
+                      <Input
+                        id="convert-secondary_contact_phone"
+                        name="secondary_contact_phone"
+                        placeholder="Phone"
+                        className="flex-1 bg-background border-border text-foreground"
+                        value={convertFormData.secondary_contact_phone}
+                        onChange={handleConvertFormChange}
+                      />
+                      <Input
+                        id="convert-secondary_contact_extension"
+                        name="secondary_contact_extension"
+                        placeholder="Ext."
+                        className="w-20 bg-background border-border text-foreground"
+                        value={convertFormData.secondary_contact_extension}
+                        onChange={handleConvertFormChange}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label htmlFor="convert-secondary_contact_email" className="text-xs font-medium">Secondary Email</Label>
+                    <Input
+                      id="convert-secondary_contact_email"
+                      name="secondary_contact_email"
+                      type="email"
+                      placeholder="email@example.com"
+                      className="bg-background border-border text-foreground"
+                      value={convertFormData.secondary_contact_email}
+                      onChange={handleConvertFormChange}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Organization Details */}
+            <div className="space-y-4 border-b pb-6">
+              <div className="flex items-center justify-start gap-2">
+                <div className="p-1.5 rounded-lg bg-primary/10">
+                  <Building size={16} className="text-primary" />
+                </div>
+                <h3 className="font-bold text-sm uppercase tracking-wider">Organization Details</h3>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <Label htmlFor="convert-org-name" className="text-xs font-medium">Name / Organization *</Label>
+                  <Input
+                    id="convert-org-name"
+                    name="name"
+                    placeholder="Lead Name"
+                    className={`bg-background border-border text-foreground ${convertErrors.name ? "border-destructive focus:ring-destructive/20" : ""}`}
+                    value={convertFormData.name}
+                    onChange={handleConvertFormChange}
+                    required
+                  />
+                  {convertErrors.name && <p className="text-[10px] text-destructive">{convertErrors.name}</p>}
+                </div>
+
+                <div className="space-y-1">
+                  <Label htmlFor="convert-lead-type" className="text-xs font-medium">Lead Type</Label>
+                  <select
+                    id="convert-lead-type"
+                    name="type"
+                    className="w-full bg-background border border-border text-foreground text-sm rounded-lg p-2.5 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer"
+                    value={convertFormData.type}
+                    onChange={handleConvertFormChange}
+                  >
+                    <option value="">Select type...</option>
+                    <option>Public School</option>
+                    <option>Private School</option>
+                    <option>Charter School</option>
+                    <option>Community Center</option>
+                    <option>Other</option>
+                  </select>
+                  {convertFormData.type === "Other" && (
+                    <Input
+                      id="convert-custom-lead-type"
+                      placeholder="Please specify type..."
+                      className="bg-background border-border text-foreground mt-2"
+                      value={convertCustomLeadType}
+                      onChange={(e) => setConvertCustomLeadType(e.target.value)}
+                    />
+                  )}
+                </div>
+
+                <div className="space-y-1">
+                  <Label htmlFor="convert-category-group" className="text-xs font-medium">Category / Group</Label>
+                  <Input
+                    id="convert-category-group"
+                    name="category_group"
+                    placeholder="Category"
+                    className="bg-background border-border text-foreground"
+                    value={convertFormData.category_group}
+                    onChange={handleConvertFormChange}
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <Label htmlFor="convert-org-department" className="text-xs font-medium">Department</Label>
+                  <Input
+                    id="convert-org-department"
+                    name="department"
+                    placeholder="e.g. Sales, Marketing"
+                    className="bg-background border-border text-foreground"
+                    value={convertFormData.department}
+                    onChange={handleConvertFormChange}
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <Label htmlFor="convert-telephone" className="text-xs font-medium flex items-center gap-1">
+                    <Phone size={12} /> Main Phone
+                  </Label>
+                  <div className="flex gap-2">
+                    <div className="relative w-28 shrink-0">
+                      <div className="absolute inset-0 flex items-center pl-8 text-xs pointer-events-none font-medium">
+                        {convertFormData.telephone_prefix}
+                      </div>
+                      <select
+                        id="convert-telephone_prefix"
+                        name="telephone_prefix"
+                        className="w-full h-[38px] dark:bg-card border border-border px-2 text-transparent appearance-none bg-no-repeat rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer"
+                        style={{
+                          backgroundImage: `url(https://flagcdn.com/w20/${(countryCodes.find(c => c.dialCode === convertFormData.telephone_prefix)?.code || 'US').toLowerCase()}.png)`,
+                          backgroundPosition: 'left 0.5rem center'
+                        }}
+                        value={convertFormData.telephone_prefix}
+                        onChange={(e) => setConvertFormData({ ...convertFormData, telephone_prefix: e.target.value })}
+                      >
+                        {countryCodes.map(c => (
+                          <option key={`${c.code}-${c.dialCode}`} value={c.dialCode} className="text-foreground">
+                            {c.name} ({c.dialCode})
+                          </option>
+                        ))}
+                      </select>
+                      <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground">
+                        <ChevronDown size={12} />
+                      </div>
+                    </div>
+                    <Input
+                      id="convert-telephone"
+                      name="telephone"
+                      placeholder="Phone"
+                      className="flex-1 bg-background border-border text-foreground"
+                      value={convertFormData.telephone}
+                      onChange={handleConvertFormChange}
+                    />
+                    <Input
+                      id="convert-telephone_extension"
+                      name="telephone_extension"
+                      placeholder="Ext."
+                      className="w-20 bg-background border-border text-foreground"
+                      value={convertFormData.telephone_extension}
+                      onChange={handleConvertFormChange}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <Label htmlFor="convert-website" className="text-xs font-medium">Website</Label>
+                  <Input
+                    id="convert-website"
+                    name="website"
+                    placeholder="https://..."
+                    className="bg-background border-border text-foreground"
+                    value={convertFormData.website}
+                    onChange={handleConvertFormChange}
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <Label htmlFor="convert-start-time" className="text-xs font-medium">Start Time</Label>
+                  <Input
+                    id="convert-start-time"
+                    name="start_time"
+                    type="time"
+                    className="bg-background border-border text-foreground [color-scheme:light] dark:[color-scheme:dark]"
+                    value={convertFormData.start_time}
+                    onChange={handleConvertFormChange}
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <Label htmlFor="convert-end-time" className="text-xs font-medium">End Time</Label>
+                  <Input
+                    id="convert-end-time"
+                    name="end_time"
+                    type="time"
+                    className="bg-background border-border text-foreground [color-scheme:light] dark:[color-scheme:dark]"
+                    value={convertFormData.end_time}
+                    onChange={handleConvertFormChange}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Address Details */}
+            <div className="space-y-4 pb-4">
+              <div className="flex items-center justify-start gap-2">
+                <div className="p-1.5 rounded-lg bg-primary/10">
+                  <MapPin size={16} className="text-primary" />
+                </div>
+                <h3 className="font-bold text-sm uppercase tracking-wider">Address Details</h3>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <Label htmlFor="convert-address-number" className="text-xs font-medium">Number</Label>
+                  <Input
+                    id="convert-address-number"
+                    name="address_number"
+                    placeholder="123"
+                    className="bg-background border-border text-foreground"
+                    value={convertFormData.address_number}
+                    onChange={handleConvertFormChange}
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <Label htmlFor="convert-address" className="text-xs font-medium">Street</Label>
+                  <Input
+                    id="convert-address"
+                    name="address"
+                    placeholder="Street Address"
+                    className="bg-background border-border text-foreground"
+                    value={convertFormData.address}
+                    onChange={handleConvertFormChange}
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <Label htmlFor="convert-city" className="text-xs font-medium">City</Label>
+                  <Input
+                    id="convert-city"
+                    name="city"
+                    placeholder="City"
+                    className="bg-background border-border text-foreground"
+                    value={convertFormData.city}
+                    onChange={handleConvertFormChange}
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <Label htmlFor="convert-state" className="text-xs font-medium">State</Label>
+                  <Input
+                    id="convert-state"
+                    name="state"
+                    placeholder="ST"
+                    className="bg-background border-border text-foreground"
+                    value={convertFormData.state}
+                    onChange={handleConvertFormChange}
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <Label htmlFor="convert-zip" className="text-xs font-medium">Zip</Label>
+                  <Input
+                    id="convert-zip"
+                    name="zip"
+                    placeholder="Zip"
+                    className="bg-background border-border text-foreground"
+                    value={convertFormData.zip}
+                    onChange={handleConvertFormChange}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <DialogFooter className="pt-4 border-t border-border">
+              <Button type="button" variant="outline" className="border-border text-foreground" onClick={() => setConvertDialogOpen(false)} disabled={converting}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={converting || !selectedCampaignId}>
+                {converting ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin mr-1.5" /> Converting...
+                  </>
+                ) : (
+                  "Convert Lead"
                 )}
               </Button>
             </DialogFooter>

@@ -12,7 +12,10 @@ const EALeadSchema = new mongoose.Schema({
         {
             direction: { type: String, enum: ['inbound', 'outbound'] },
             message: String,
-            timestamp: { type: Date, default: Date.now }
+            timestamp: { type: Date, default: Date.now },
+            isBulk: { type: Boolean, default: false },
+            status: { type: String, enum: ['pending', 'sent', 'failed', 'received'], default: 'pending' },
+            twilioSid: { type: String, default: null }
         }
     ]
 }, { timestamps: true });

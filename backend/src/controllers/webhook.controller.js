@@ -187,3 +187,52 @@ export const handleTwilioReply = async (req, res) => {
         return res.status(200).send('Error processing reply');
     }
 };
+
+/**
+ * Handle Twilio SMS Delivery Status Callback
+ * POST /api/webhooks/twilio-sms-status
+ * 
+ * Twilio calls this endpoint when a message status changes:
+ * queued → sending → sent → delivered (success)
+ *                        ↘ failed / undelivered (failure)
+ */
+export const handleTwilioSmsStatus = async (req, res) => {
+    try {
+        const { MessageSid, MessageStatus } = req.body;
+        console.log(`[Twilio Status Callback] SID: ${MessageSid}, Status: ${MessageStatus}`);
+
+        if (!MessageSid || !MessageStatus) {
+            return res.status(200).send('Missing payload');
+        }
+
+        // Only update on terminal statuses — ignore intermediate ones (queued, sending, sent)
+        const terminalStatuses = ['delivered', 'failed', 'undelivered'];
+        if (!terminalStatuses.includes(MessageStatus)) {
+            return res.status(200).send('Intermediate status — no update needed');
+        }
+
+        // Find the lead that has this message SID in its history
+        const lead = await EALead.findOne({ 'smsHistory.twilioSid': MessageSid });
+        if (!lead) {
+            console.warn(`[Twilio Status Callback] No EA Lead found for SID: ${MessageSid}`);
+            return res.status(200).send('Lead not found');
+        }
+
+        // Find the specific history entry and update its status
+        const historyEntry = lead.smsHistory.find(m => m.twilioSid === MessageSid);
+        if (historyEntry) {
+            if (MessageStatus === 'delivered') {
+                historyEntry.status = 'sent'; // Show as blue (delivered = truly sent)
+            } else {
+                historyEntry.status = 'failed'; // Show as red (failed/undelivered)
+            }
+            await lead.save();
+            console.log(`[Twilio Status Callback] Updated SID ${MessageSid} → status: ${historyEntry.status} (lead: ${lead.name})`);
+        }
+
+        return res.status(200).send('OK');
+    } catch (error) {
+        console.error('[Twilio Status Callback] Error:', error);
+        return res.status(200).send('Error');
+    }
+};

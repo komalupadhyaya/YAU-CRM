@@ -19,11 +19,16 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     const status = error.response?.status;
-    const message =
+    let message =
       error.response?.data?.message ||
       error.response?.data?.error ||
+      (typeof error.response?.data === "string" ? error.response.data : null) ||
       error.message ||
       "An unexpected error occurred";
+
+    if (typeof message === "string" && message.includes("already completed this form")) {
+      message = "This number or the email is already present";
+    }
 
     // Handle 401 Unauthorized — cookie is invalid or expired
     if (status === 401) {
