@@ -20,7 +20,7 @@ if (process.env.GOOGLE_REFRESH_TOKEN && process.env.GOOGLE_REFRESH_TOKEN !== 'yo
 
 export const createFollowup = async (req, res, next) => {
     try {
-        const { title, date_time, type, notes, assigned_user, priority, contact_id, cc_emails, force } = req.body;
+        const { title, date_time, type, notes, assigned_user, priority, contact_id, cc_emails, force, send_invite } = req.body;
         
         if (!date_time) {
             res.status(400);
@@ -124,18 +124,7 @@ export const createFollowup = async (req, res, next) => {
                     const eventStartTime = new Date(date_time);
                     const eventEndTime = new Date(eventStartTime.getTime() + 30 * 60000); // 30 min duration
                     
-                    // Fetch client email (Primary Contact)
-                    let clientEmail = null;
-                    const primaryContact = await Contact.findOne({ lead_id: req.params.schoolId, is_primary: true });
-                    if (primaryContact?.email) {
-                        clientEmail = primaryContact.email;
-                    } else if (contact_id) {
-                        const contactInfo = await Contact.findById(contact_id);
-                        clientEmail = contactInfo?.email;
-                    }
-
                     const attendees = [];
-                    if (clientEmail) attendees.push({ email: clientEmail });
                     
                     ccArray.forEach(email => {
                         attendees.push({ email });
@@ -192,7 +181,8 @@ export const createFollowup = async (req, res, next) => {
             assigned_user: assigned_user || null,
             priority: priority || null,
             cc_emails: ccArray,
-            created_by: req.user.id
+            created_by: req.user.id,
+            send_invite: send_invite || false
         });
 
         // Log to activity feed (Section 2D Requirement)
@@ -215,18 +205,21 @@ export const createFollowup = async (req, res, next) => {
                 const eventEndTime = new Date(eventStartTime.getTime() + 30 * 60000); // 30 min duration
                 const leadInfo = await Lead.findById(req.params.schoolId);
                 
-                // Fetch client email (Primary Contact)
-                let clientEmail = null;
-                const primaryContact = await Contact.findOne({ lead_id: req.params.schoolId, is_primary: true });
-                if (primaryContact?.email) {
-                    clientEmail = primaryContact.email;
-                } else if (contact_id) {
-                    const contactInfo = await Contact.findById(contact_id);
-                    clientEmail = contactInfo?.email;
-                }
-
                 const attendees = [];
-                if (clientEmail) attendees.push({ email: clientEmail });
+
+                let clientEmail = null;
+                if (fu.send_invite) {
+                    const primaryContact = await Contact.findOne({ lead_id: req.params.schoolId, is_primary: true });
+                    if (primaryContact?.email) {
+                        clientEmail = primaryContact.email;
+                    } else if (contact_id) {
+                        const contactInfo = await Contact.findById(contact_id);
+                        clientEmail = contactInfo?.email;
+                    }
+                    if (clientEmail) {
+                        attendees.push({ email: clientEmail });
+                    }
+                }
                 
                 // Add CC emails as attendees
                 ccArray.forEach(email => {
@@ -541,7 +534,7 @@ export const updateFollowup = async (req, res, next) => {
 
         const lead = await Lead.findById(fu.lead_id).select('assigned_to name');
 
-        const { title, notes, date_time, type, assigned_user, priority, status, cc_emails } = req.body;
+        const { title, notes, date_time, type, assigned_user, priority, status, cc_emails, send_invite } = req.body;
 
         const oldStatus = fu.status;
 
@@ -576,6 +569,8 @@ export const updateFollowup = async (req, res, next) => {
             ccArray = fu.cc_emails || [];
         }
 
+        if (send_invite !== undefined) fu.send_invite = send_invite;
+
         await fu.save();
 
         // Google Calendar integration
@@ -591,15 +586,26 @@ export const updateFollowup = async (req, res, next) => {
                     const eventStartTime = new Date(fu.date_time);
                     const eventEndTime = new Date(eventStartTime.getTime() + 30 * 60000); // 30 min duration
                     
-                    // Fetch primary contact client email
+                    const attendees = [];
+                    
                     let clientEmail = null;
-                    const primaryContact = await Contact.findOne({ lead_id: fu.lead_id, is_primary: true });
-                    if (primaryContact?.email) {
-                        clientEmail = primaryContact.email;
+                    if (fu.send_invite) {
+                        if (fu.lead_id) {
+                            const primaryContact = await Contact.findOne({ lead_id: fu.lead_id, is_primary: true });
+                            if (primaryContact?.email) {
+                                clientEmail = primaryContact.email;
+                            }
+                        } else if (fu.candidate_id) {
+                            const candidate = await Candidate.findById(fu.candidate_id);
+                            if (candidate?.email) {
+                                clientEmail = candidate.email;
+                            }
+                        }
+                        if (clientEmail) {
+                            attendees.push({ email: clientEmail });
+                        }
                     }
 
-                    const attendees = [];
-                    if (clientEmail) attendees.push({ email: clientEmail });
                     ccArray.forEach(email => attendees.push({ email }));
                     if (process.env.ADMIN_EMAIL) attendees.push({ email: process.env.ADMIN_EMAIL });
 
@@ -739,7 +745,7 @@ export const getFollowupsByCandidate = async (req, res, next) => {
 
 export const createCandidateFollowup = async (req, res, next) => {
     try {
-        const { title, date_time, type, notes, assigned_user, priority, cc_emails, force } = req.body;
+        const { title, date_time, type, notes, assigned_user, priority, cc_emails, force, send_invite } = req.body;
         
         if (!date_time) {
             res.status(400);
@@ -826,7 +832,8 @@ export const createCandidateFollowup = async (req, res, next) => {
             assigned_user: assigned_user || null,
             priority: priority || null,
             cc_emails: ccArray,
-            created_by: req.user.id
+            created_by: req.user.id,
+            send_invite: send_invite || false
         });
 
         // Google Calendar Event
@@ -838,7 +845,9 @@ export const createCandidateFollowup = async (req, res, next) => {
                 const eventEndTime = new Date(eventStartTime.getTime() + 30 * 60000);
                 
                 const attendees = [];
-                if (candidate.email) attendees.push({ email: candidate.email });
+                if (fu.send_invite && candidate.email) {
+                    attendees.push({ email: candidate.email });
+                }
                 ccArray.forEach(email => attendees.push({ email }));
                 if (process.env.ADMIN_EMAIL) attendees.push({ email: process.env.ADMIN_EMAIL });
 

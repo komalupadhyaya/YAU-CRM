@@ -681,7 +681,8 @@ export default function LeadDetail() {
         notes: meetingData.notes,
         contact_id: selectedContactForMeeting?._id,
         cc_emails: meetingCc,
-        force
+        force,
+        send_invite: true
       });
       toast.success("Meeting scheduled and invite sent");
       setIsMeetingModalOpen(false);

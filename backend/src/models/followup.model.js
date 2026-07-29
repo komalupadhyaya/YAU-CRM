@@ -23,6 +23,7 @@ const FollowupSchema = new mongoose.Schema({
     cc_emails: [{ type: String }],
     completed_at: Date,
     reminderSent: { type: Boolean, default: false },
+    send_invite: { type: Boolean, default: false },
     created_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null }
 }, { timestamps: true });
 
