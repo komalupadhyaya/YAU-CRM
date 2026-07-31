@@ -8,6 +8,64 @@ import Call from '../models/call.model.js';
 import Followup from '../models/followup.model.js';
 import Meeting from '../models/meeting.model.js';
 import Task from '../models/tasks.model.js';
+import User from '../models/user.model.js';
+
+/**
+ * Propagates lead assignment to pending follow-ups, tasks, and scheduled meetings.
+ * Does not trigger any calendar invitations or email updates.
+ * @param {string} leadId - The ID of the lead being reassigned.
+ * @param {string|null} newAssignedTo - The ID of the user the lead is being assigned to.
+ * @param {string|null} oldAssignedTo - The ID of the user the lead was previously assigned to.
+ */
+async function propagateLeadAssignment(leadId, newAssignedTo, oldAssignedTo) {
+    try {
+        let newUsername = null;
+        if (newAssignedTo) {
+            const user = await User.findById(newAssignedTo);
+            if (user) {
+                newUsername = user.username;
+            }
+        }
+
+        // 1. Update pending follow-ups
+        await Followup.updateMany(
+            { lead_id: leadId, status: 'pending' },
+            { $set: { assigned_user: newUsername } }
+        );
+
+        // 2. Update pending tasks
+        await Task.updateMany(
+            { lead_id: leadId, status: 'pending', isDeleted: { $ne: true } },
+            { $set: { assignedTo: newAssignedTo } }
+        );
+
+        // 3. Update scheduled meetings
+        const meetingQuery = {
+            $or: [
+                { lead_id: leadId },
+                { lead_ids: leadId }
+            ],
+            status: { $in: ['scheduled', 'rescheduled'] }
+        };
+
+        if (oldAssignedTo) {
+            await Meeting.updateMany(
+                meetingQuery,
+                { $pull: { internal_attendees: oldAssignedTo } }
+            );
+        }
+
+        if (newAssignedTo) {
+            await Meeting.updateMany(
+                meetingQuery,
+                { $addToSet: { internal_attendees: newAssignedTo } }
+            );
+        }
+    } catch (err) {
+        console.error('Error propagating lead assignment:', err);
+    }
+}
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/leads  –  Paginated master list with search / filter / enrichment
@@ -316,6 +374,7 @@ export const updateLead = async (req, res, next) => {
                     assigned_from: oldAssignedTo || null,
                     assigned_to: newAssignedTo || null
                 });
+                await propagateLeadAssignment(lead._id, newAssignedTo, oldAssignedTo);
             }
         }
 
@@ -532,6 +591,7 @@ export const assignLead = async (req, res, next) => {
                 assigned_from: oldAssignedTo || null,
                 assigned_to: newAssignedTo || null
             });
+            await propagateLeadAssignment(lead._id, newAssignedTo, oldAssignedTo);
         }
 
         res.json(lead);
@@ -570,6 +630,7 @@ export const assignLeadsBulk = async (req, res, next) => {
                     assigned_from: oldAssignedTo || null,
                     assigned_to: newAssignedTo || null
                 });
+                await propagateLeadAssignment(existingLead._id, newAssignedTo, oldAssignedTo);
             }
         }
         if (historyDocs.length > 0) {

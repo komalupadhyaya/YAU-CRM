@@ -64,6 +64,9 @@ export default function PhoneSystem() {
     const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
     const [fieldToDelete, setFieldToDelete] = useState<string | null>(null);
 
+    // Track extensions currently being deleted to prevent double-clicks
+    const [deletingDigits, setDeletingDigits] = useState<number[]>([]);
+
     useEffect(() => {
         fetchConfig();
     }, []);
@@ -210,12 +213,17 @@ export default function PhoneSystem() {
         setNewExt({ digit: (newExt.digit % 9) + 1, label: '', forwardTo: '' });
     };
 
-    const handleDeleteExtension = (digit: number) => {
-        if (!config) return;
-        const updatedExtensions = config.extensions.filter((ext) => ext.digit !== digit);
-        const newConfig = { ...config, extensions: updatedExtensions };
-        setConfig(newConfig);
-        handleSaveConfig(newConfig);
+    const handleDeleteExtension = async (digit: number) => {
+        if (!config || deletingDigits.includes(digit)) return;
+        setDeletingDigits(prev => [...prev, digit]);
+        try {
+            const updatedExtensions = config.extensions.filter((ext) => ext.digit !== digit);
+            const newConfig = { ...config, extensions: updatedExtensions };
+            setConfig(newConfig);
+            await handleSaveConfig(newConfig);
+        } finally {
+            setDeletingDigits(prev => prev.filter(d => d !== digit));
+        }
     };
 
     if (loading) {
@@ -477,7 +485,8 @@ export default function PhoneSystem() {
                                                     </div>
                                                     <button
                                                         onClick={() => handleDeleteExtension(ext.digit)}
-                                                        className="text-muted-foreground/80 hover:text-rose-500 p-2 rounded-lg hover:bg-rose-500/10 transition-colors"
+                                                        disabled={deletingDigits.includes(ext.digit)}
+                                                        className="text-muted-foreground/80 hover:text-rose-500 p-2 rounded-lg hover:bg-rose-500/10 transition-colors disabled:opacity-50 disabled:pointer-events-none"
                                                         title="Delete Extension"
                                                     >
                                                         <Trash2 className="w-4 h-4" />
