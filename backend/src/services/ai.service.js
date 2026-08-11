@@ -41,8 +41,8 @@ async function getAnthropicClient() {
     return anthropicClient;
 }
 
-// ── System prompt builder ─────────────────────────────────────────
-function buildSystemPrompt() {
+// ── System prompt builder for SMS ─────────────────────────────────
+function buildSmsSystemPrompt() {
     return `You are a professional CRM sales assistant for YAU Sports — a company that coordinates sports programs with schools and organizations.
 
 Your job is to write a short, warm, and effective SMS message on behalf of the sales team.
@@ -58,9 +58,9 @@ RULES (follow strictly):
 - Never include placeholder text like [Name] or [Company] — use actual names if available.`;
 }
 
-// ── User content builder ──────────────────────────────────────────
-function buildUserContent({ leadName, leadStatus, recentMessages, userPrompt }) {
-    const formattedMessages = recentMessages.length > 0
+// ── User content builder for SMS ──────────────────────────────────
+function buildSmsUserContent({ leadName, contactName, leadStatus, recentMessages, userPrompt }) {
+    const formattedMessages = (recentMessages && recentMessages.length > 0)
         ? recentMessages.map((m, i) => {
             const dir = m.direction === 'inbound' ? '[THEM]' : '[YOU]';
             const ts = m.timestamp ? new Date(m.timestamp).toLocaleString('en-US', {
@@ -75,10 +75,11 @@ function buildUserContent({ leadName, leadStatus, recentMessages, userPrompt }) 
         : 'Not specified — generate a natural, context-appropriate follow-up.';
 
     return `Lead Information:
-- Name: ${leadName || 'Unknown'}
+- Organization / Lead Name: ${leadName || 'Unknown'}
+- Contact Person: ${contactName || 'Primary Contact'}
 - Current CRM Status: ${leadStatus || 'Unknown'}
 
-Last ${recentMessages.length} SMS messages (oldest → newest):
+Last ${(recentMessages || []).length} SMS messages (oldest → newest):
 ${formattedMessages}
 
 Your goal for this new message:
@@ -87,27 +88,78 @@ ${goal}
 Write the SMS now:`;
 }
 
+// ── System prompt builder for Email ───────────────────────────────
+function buildEmailSystemPrompt() {
+    return `You are a professional CRM sales and partnership assistant for YAU Sports — an organization providing youth athletics programs, sports clinics, after-school camps, and sports enrichment for schools and organizations.
+
+Your job is to compose a polite, compelling, well-structured email on behalf of the sales / partnerships team.
+
+RULES (follow strictly):
+- Generate a clear, engaging subject line and an email body formatted with HTML tags (such as <p>, <br>, <ul>, <li>, <strong>) suitable for a rich-text email editor.
+- Address the recipient respectfully by name if provided.
+- Tone: Professional, warm, consultative, and concise.
+- If a user goal/prompt is provided, address it directly (e.g. follow-up after call, introducing athletic programs, scheduling a meeting, sharing information).
+- If no goal is provided, craft an effective introductory or follow-up email tailored to the lead's status and organization.
+- Sign off professionally from "The YAU Sports Team".
+- Return your response strictly as a JSON object with keys "subject" and "body".
+Example output format:
+{
+  "subject": "Exciting Sports Programs for [School/Organization]",
+  "body": "<p>Hi [Name],</p><p>I hope your week is off to a great start...</p><p>Best regards,<br>The YAU Sports Team</p>"
+}`;
+}
+
+// ── User content builder for Email ────────────────────────────────
+function buildEmailUserContent({ leadName, contactName, contactTitle, leadStatus, leadCategory, recentNotes, userPrompt }) {
+    const formattedNotes = (recentNotes && recentNotes.length > 0)
+        ? recentNotes.map((n, i) => `  ${i + 1}. [${(n.type || 'NOTE').toUpperCase()}] ${n.content}`).join('\n')
+        : '  (No previous notes logged)';
+
+    const goal = userPrompt && userPrompt.trim()
+        ? userPrompt.trim()
+        : 'Generate a professional introductory or follow-up email tailored to this organization.';
+
+    return `Lead Details:
+- Organization Name: ${leadName || 'Unknown'}
+- Contact Person: ${contactName || 'Valued Partner'}
+- Contact Title: ${contactTitle || 'N/A'}
+- Category / Type: ${leadCategory || 'Educational / Sports Organization'}
+- Current CRM Status: ${leadStatus || 'Unknown'}
+
+Recent Lead Activity Notes:
+${formattedNotes}
+
+Rep's Goal for this email:
+${goal}
+
+Generate the email JSON now:`;
+}
+
 // ── Groq provider ─────────────────────────────────────────────────
-async function callGroq(systemPrompt, userContent) {
+async function callGroq(systemPrompt, userContent, jsonMode = false) {
     const client = getGroqClient();
-    const response = await client.chat.completions.create({
+    const options = {
         model: 'llama-3.3-70b-versatile', // Best Groq model for instruction following
         messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user',   content: userContent }
         ],
-        max_tokens: 200,  // SMS should be short; cap to avoid runaway output
-        temperature: 0.7, // Some creativity, but not too unpredictable
-    });
+        max_tokens: jsonMode ? 800 : 200,  // Cap tokens
+        temperature: 0.7,
+    };
+    if (jsonMode) {
+        options.response_format = { type: 'json_object' };
+    }
+    const response = await client.chat.completions.create(options);
     return response.choices?.[0]?.message?.content?.trim() || '';
 }
 
 // ── Claude provider (ready for future switch) ─────────────────────
-async function callClaude(systemPrompt, userContent) {
+async function callClaude(systemPrompt, userContent, maxTokens = 200) {
     const client = await getAnthropicClient();
     const response = await client.messages.create({
         model: 'claude-sonnet-4-5',
-        max_tokens: 200,
+        max_tokens: maxTokens,
         system: systemPrompt,
         messages: [
             { role: 'user', content: userContent }
@@ -122,24 +174,71 @@ async function callClaude(systemPrompt, userContent) {
  *
  * @param {Object} params
  * @param {string} params.leadName       - Lead / organization name
+ * @param {string} [params.contactName]  - Contact person's name
  * @param {string} params.leadStatus     - Current CRM status of the lead
  * @param {Array}  params.recentMessages - Last N smsHistory entries from DB
  * @param {string} [params.userPrompt]   - Optional goal/intent from the sales rep
  * @returns {Promise<string>}            - The AI-generated SMS draft text
  */
-async function generateSmsMessage({ leadName, leadStatus, recentMessages, userPrompt }) {
-    const systemPrompt = buildSystemPrompt();
-    const userContent  = buildUserContent({ leadName, leadStatus, recentMessages, userPrompt });
+async function generateSmsMessage({ leadName, contactName, leadStatus, recentMessages, userPrompt }) {
+    const systemPrompt = buildSmsSystemPrompt();
+    const userContent  = buildSmsUserContent({ leadName, contactName, leadStatus, recentMessages, userPrompt });
 
     if (PROVIDER === 'groq') {
-        return callGroq(systemPrompt, userContent);
+        return callGroq(systemPrompt, userContent, false);
     }
 
     if (PROVIDER === 'claude') {
-        return callClaude(systemPrompt, userContent);
+        return callClaude(systemPrompt, userContent, 200);
     }
 
     throw new Error(`Unknown AI_PROVIDER: "${PROVIDER}". Valid values: "groq", "claude".`);
 }
 
-export default { generateSmsMessage };
+/**
+ * Generate an AI-suggested Email subject and body for a lead.
+ *
+ * @param {Object} params
+ * @param {string} params.leadName       - Lead / organization name
+ * @param {string} [params.contactName]  - Contact person's name
+ * @param {string} [params.contactTitle] - Contact person's title
+ * @param {string} [params.leadStatus]   - Current CRM status of the lead
+ * @param {string} [params.leadCategory] - Category/type of lead
+ * @param {Array}  [params.recentNotes]  - Recent notes or activity logs
+ * @param {string} [params.userPrompt]   - Optional goal/intent from the sales rep
+ * @returns {Promise<{ subject: string, body: string }>} - Draft subject and HTML body
+ */
+async function generateEmailMessage({ leadName, contactName, contactTitle, leadStatus, leadCategory, recentNotes, userPrompt }) {
+    const systemPrompt = buildEmailSystemPrompt();
+    const userContent  = buildEmailUserContent({ leadName, contactName, contactTitle, leadStatus, leadCategory, recentNotes, userPrompt });
+
+    let raw = '';
+    if (PROVIDER === 'groq') {
+        raw = await callGroq(systemPrompt, userContent, true);
+    } else if (PROVIDER === 'claude') {
+        raw = await callClaude(systemPrompt, userContent, 800);
+    } else {
+        throw new Error(`Unknown AI_PROVIDER: "${PROVIDER}". Valid values: "groq", "claude".`);
+    }
+
+    try {
+        const jsonMatch = raw.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]);
+            return {
+                subject: parsed.subject || `Partnering with YAU Sports - ${leadName || ''}`,
+                body: parsed.body || `<p>${raw.replace(/\n/g, '<br/>')}</p>`
+            };
+        }
+    } catch (e) {
+        console.warn('Failed to parse AI email JSON, falling back to text:', e);
+    }
+
+    return {
+        subject: `Partnering with YAU Sports - ${leadName || ''}`,
+        body: `<p>${raw.replace(/\n/g, '<br/>')}</p>`
+    };
+}
+
+export default { generateSmsMessage, generateEmailMessage };
+

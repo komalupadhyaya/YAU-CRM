@@ -124,23 +124,46 @@ export const sendSms = async (req, res, next) => {
 };
 
 /**
- * Fetch all SMS conversations from both EA Leads and Main CRM Leads
+ * Fetch all SMS conversations from both EA Leads and Main CRM Leads.
+ * - admin / manager  → all conversations (EA Leads + all CRM Leads)
+ * - sales_rep        → only CRM Leads assigned to them (no EA Leads)
  * GET /api/sms/conversations
  */
 export const getConversations = async (req, res) => {
     try {
+        const userId = req.user.id;
+        const userRole = req.currentUserRole; // 'admin' | 'manager' | 'sales_rep'
+        const isPrivileged = userRole === 'admin' || userRole === 'manager';
+
         // Find SMS Notes to identify main leads that have SMS activity feed logs
         const smsNotes = await Note.find({ type: 'sms' });
         const leadIdsWithNotes = [...new Set(smsNotes.map(n => n.lead_id.toString()))];
 
-        const [eaLeads, mainLeads] = await Promise.all([
-            EALead.find({ 'smsHistory.0': { $exists: true } }),
-            Lead.find({
+        // Build queries based on role:
+        // - sales_rep: no EA Leads, only assigned CRM Leads
+        // - admin/manager: all EA Leads and all CRM Leads
+        const eaLeadsPromise = isPrivileged
+            ? EALead.find({ 'smsHistory.0': { $exists: true } })
+            : Promise.resolve([]);
+
+        const mainLeadsQuery = isPrivileged
+            ? {
                 $or: [
                     { 'smsHistory.0': { $exists: true } },
                     { _id: { $in: leadIdsWithNotes } }
                 ]
-            })
+              }
+            : {
+                assigned_to: userId,
+                $or: [
+                    { 'smsHistory.0': { $exists: true } },
+                    { _id: { $in: leadIdsWithNotes } }
+                ]
+              };
+
+        const [eaLeads, mainLeads] = await Promise.all([
+            eaLeadsPromise,
+            Lead.find(mainLeadsQuery)
         ]);
 
         const conversations = [];
@@ -236,6 +259,94 @@ export const getConversations = async (req, res) => {
     } catch (error) {
         console.error('Error fetching SMS conversations:', error);
         return res.status(500).json({ error: 'Failed to fetch conversations' });
+    }
+};
+
+/**
+ * Fetch all EA Leads and Main CRM Leads that currently do NOT have any SMS message history.
+ * Restricted to admin and manager roles.
+ * GET /api/sms/available-leads
+ */
+export const getAvailableLeads = async (req, res) => {
+    try {
+        // Find main lead IDs that have SMS activity in Note collection
+        const smsNotes = await Note.find({ type: 'sms' }).select('lead_id');
+        const leadIdsWithNotes = [...new Set(smsNotes.map(n => n.lead_id?.toString()).filter(Boolean))];
+
+        // 1. EA Leads without smsHistory (or empty smsHistory)
+        const eaLeads = await EALead.find({
+            $or: [
+                { smsHistory: { $exists: false } },
+                { smsHistory: { $size: 0 } }
+            ]
+        }).select('name email phone isConsent createdAt');
+
+        // 2. Main CRM Leads without smsHistory and not in leadIdsWithNotes
+        const mainLeads = await Lead.find({
+            _id: { $nin: leadIdsWithNotes },
+            $or: [
+                { smsHistory: { $exists: false } },
+                { smsHistory: { $size: 0 } }
+            ]
+        }).select('name telephone type category_group department createdAt');
+
+        const leadIds = mainLeads.map(l => l._id);
+        const contacts = await Contact.find({ lead_id: { $in: leadIds } });
+
+        // Map contacts by lead_id
+        const contactsByLead = {};
+        contacts.forEach(c => {
+            const lid = c.lead_id.toString();
+            if (!contactsByLead[lid]) contactsByLead[lid] = [];
+            contactsByLead[lid].push(c);
+        });
+
+        const available = [];
+
+        // Format EA Leads
+        eaLeads.forEach(lead => {
+            available.push({
+                _id: lead._id,
+                leadType: 'ea_lead',
+                name: lead.name,
+                contactName: lead.name,
+                email: lead.email || '',
+                phone: lead.phone || '',
+                categoryTag: 'EA Lead',
+                isConsent: lead.isConsent ?? true,
+                createdAt: lead.createdAt
+            });
+        });
+
+        // Format Main Leads
+        mainLeads.forEach(lead => {
+            const leadContacts = contactsByLead[lead._id.toString()] || [];
+            const primaryContact = leadContacts.find(c => c.is_primary) || leadContacts[0];
+            const leadPhone = primaryContact?.direct_phone || lead.telephone || '';
+            const contactName = primaryContact?.name || '';
+            const displayName = contactName ? `${lead.name} (${contactName})` : lead.name;
+
+            available.push({
+                _id: lead._id,
+                leadType: 'main_lead',
+                name: displayName,
+                rawName: lead.name,
+                contactName: contactName,
+                email: primaryContact?.email || '',
+                phone: leadPhone,
+                categoryTag: lead.type || 'CRM Lead',
+                isConsent: true,
+                createdAt: lead.createdAt
+            });
+        });
+
+        // Sort alphabetically by name
+        available.sort((a, b) => a.name.localeCompare(b.name));
+
+        return res.status(200).json(available);
+    } catch (error) {
+        console.error('Error fetching available leads for SMS:', error);
+        return res.status(500).json({ error: 'Failed to fetch available leads' });
     }
 };
 
@@ -386,7 +497,12 @@ export const sendChatSms = async (req, res) => {
             return res.status(404).json({ error: 'Lead not found' });
         }
 
-        const phoneToUse = lead.phone || lead.telephone;
+        let phoneToUse = lead.phone || lead.telephone;
+        if (!phoneToUse && (leadType === 'main_lead' || !lead.phone)) {
+            const primaryContact = await Contact.findOne({ lead_id: lead._id, is_primary: true }) ||
+                                   await Contact.findOne({ lead_id: lead._id });
+            phoneToUse = primaryContact?.direct_phone;
+        }
         if (!phoneToUse) {
             return res.status(400).json({ error: 'Lead does not have a phone number.' });
         }
@@ -460,13 +576,13 @@ export const sendChatSms = async (req, res) => {
  */
 export const generateSmsMessage = async (req, res) => {
     try {
-        const { leadId, leadType, userPrompt } = req.body;
+        const { leadId, leadType, contactName, userPrompt } = req.body;
 
         if (!leadId) {
             return res.status(400).json({ error: 'leadId is required' });
         }
 
-        // Fetch the lead — currently supports main leads; EA lead support can be added later
+        // Fetch the lead — supports main leads and EA leads
         let lead = null;
         if (leadType === 'ea_lead') {
             lead = await EALead.findById(leadId).lean();
@@ -491,9 +607,12 @@ export const generateSmsMessage = async (req, res) => {
         const smsHistory = lead.smsHistory || [];
         const recentMessages = smsHistory.slice(-10);
 
+        const contactPersonName = contactName || lead.contacts?.[0]?.name || lead.main_contact_name || '';
+
         // Call AI service
         const draft = await aiService.generateSmsMessage({
             leadName:       lead.name,
+            contactName:    contactPersonName,
             leadStatus:     lead.status,
             recentMessages,
             userPrompt:     userPrompt || ''

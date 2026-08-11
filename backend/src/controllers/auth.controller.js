@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import User from '../models/user.model.js';
+import presenceService from '../services/presence.service.js';
 
 // ── Cookie config shared by login & logout ─────────────────────────────────
 const COOKIE_NAME = 'yau_crm_token';
@@ -58,6 +59,16 @@ export const login = async (req, res, next) => {
 };
 
 export const logout = (req, res) => {
+    try {
+        const token = req.cookies?.[COOKIE_NAME];
+        if (token) {
+            const decoded = jwt.verify(token, process.env.JWT_SECRET);
+            if (decoded?.id) {
+                presenceService.handleExplicitLogout(decoded.id);
+            }
+        }
+    } catch {}
+
     // Clear the cookie by setting maxAge to 0
     res.cookie(COOKIE_NAME, '', { ...COOKIE_OPTIONS, maxAge: 0 });
     res.json({ success: true, message: 'Logged out successfully' });

@@ -56,7 +56,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       await api.post('/auth/logout');
     } catch {}
     setCurrentUser(null);
-    window.location.href = '/login';
+
+    // Dismiss active notifications 5 seconds after logout
+    setTimeout(() => {
+      import('sonner').then(({ toast }) => {
+        toast.dismiss();
+      });
+    }, 5000);
+
+    window.history.pushState({}, '', '/login');
+    window.dispatchEvent(new PopStateEvent('popstate'));
   };
 
   return (

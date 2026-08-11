@@ -9,6 +9,7 @@ const allowedRoles = ['admin', 'manager', 'sales_rep'];
 
 router.post('/send-sms', auth, requireRole(...allowedRoles), smsController.sendSms);
 router.get('/conversations', auth, requireRole(...allowedRoles), smsController.getConversations);
+router.get('/available-leads', auth, requireRole('admin', 'manager'), smsController.getAvailableLeads);
 router.get('/unread-count', auth, smsController.getUnreadCount);
 router.post('/mark-read/:leadId', auth, smsController.markAsRead);
 router.post('/send-chat-sms', auth, requireRole(...allowedRoles), smsController.sendChatSms);

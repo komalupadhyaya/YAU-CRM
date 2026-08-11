@@ -1,6 +1,8 @@
 import { google } from 'googleapis';
 import Note from '../models/note.model.js';
 import Lead from '../models/lead.model.js';
+import EALead from '../models/eaLead.model.js';
+import aiService from '../services/ai.service.js';
 import dns from 'dns/promises';
 
 export const verifyEmailDomain = async (req, res) => {
@@ -113,3 +115,78 @@ export const sendEmail = async (req, res, next) => {
         next(err);
     }
 };
+
+/**
+ * Generate an AI-suggested Email subject and body for a lead
+ * POST /api/emails/ai-generate-email
+ *
+ * Body: { leadId, leadType, contactId, contactName, userPrompt }
+ * Returns: { success: true, subject: "...", body: "..." }
+ */
+export const generateEmailMessage = async (req, res) => {
+    try {
+        const { leadId, leadType, contactName, userPrompt } = req.body;
+
+        if (!leadId) {
+            return res.status(400).json({ error: 'leadId is required' });
+        }
+
+        let lead = null;
+        if (leadType === 'ea_lead') {
+            lead = await EALead.findById(leadId).lean();
+        } else {
+            lead = await Lead.findById(leadId).lean();
+        }
+
+        if (!lead) {
+            return res.status(404).json({ error: 'Lead not found' });
+        }
+
+        // Sales rep access check for main leads
+        if (leadType !== 'ea_lead' && req.currentUserRole === 'sales_rep') {
+            const assignedId = lead.assigned_to ? lead.assigned_to.toString() : null;
+            if (assignedId && assignedId !== req.user.id) {
+                return res.status(403).json({ error: 'Access denied. This lead is not assigned to you.' });
+            }
+        }
+
+        // Fetch recent notes for context
+        let recentNotes = [];
+        try {
+            const notes = await Note.find({ lead_id: leadId }).sort({ createdAt: -1 }).limit(5).lean();
+            recentNotes = notes.map(n => ({
+                type: n.type,
+                content: n.content,
+                date: n.createdAt
+            }));
+        } catch (e) {
+            console.warn('Could not fetch notes for email AI context:', e.message);
+        }
+
+        const personName = contactName || lead.contacts?.[0]?.name || lead.main_contact_name || '';
+        const personTitle = lead.contacts?.[0]?.title || '';
+
+        const result = await aiService.generateEmailMessage({
+            leadName:     lead.name,
+            contactName:  personName,
+            contactTitle: personTitle,
+            leadStatus:   lead.status,
+            leadCategory: lead.category_group || lead.type || '',
+            recentNotes,
+            userPrompt:   userPrompt || ''
+        });
+
+        return res.json({
+            success: true,
+            subject: result.subject,
+            body:    result.body
+        });
+
+    } catch (error) {
+        console.error('AI Generate Email Error:', error);
+        return res.status(500).json({
+            error: error.message || 'Failed to generate AI email'
+        });
+    }
+};
+

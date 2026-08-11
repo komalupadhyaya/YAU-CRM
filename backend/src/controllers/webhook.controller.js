@@ -4,7 +4,10 @@ import { Campaign } from '../models/campaign.model.js';
 import { Followup } from '../models/followup.model.js';
 import { Note } from '../models/note.model.js';
 import { User } from '../models/user.model.js';
+import { Settings } from '../models/settings.model.js';
 import EALead from '../models/eaLead.model.js';
+import smsForwarderService from '../services/smsForwarder.service.js';
+import { sendSMSReplyEmailNotification } from '../services/mailer.js';
 
 /**
  * Handle JotForm Webhook submissions
@@ -156,44 +159,40 @@ export const handleTwilioReply = async (req, res) => {
         const digits = last10From.split('');
         const regexPattern = digits.map(d => `${d}\\D*`).join('') + '$';
 
-        let lead = await EALead.findOne({
+        // 1. Find ALL matching EA Leads
+        const matchingEALeads = await EALead.find({
             $or: [
                 { phone: From },
                 { phone: { $regex: regexPattern } }
             ]
+        }).populate('assigned_to', 'name phone email isActive');
+
+        // 2. Find ALL matching Contacts linked to Main Leads
+        const matchingContacts = await Contact.find({
+            $or: [
+                { direct_phone: From },
+                { direct_phone: { $regex: regexPattern } }
+            ]
         });
+        const contactLeadIds = matchingContacts.map(c => c.lead_id).filter(Boolean);
 
-        let leadType = 'ea_lead';
+        // 3. Find ALL matching Main Leads (direct telephone or via contact)
+        const matchingMainLeads = await Lead.find({
+            $or: [
+                { _id: { $in: contactLeadIds } },
+                { telephone: From },
+                { telephone: { $regex: regexPattern } }
+            ]
+        }).populate('assigned_to', 'name phone email isActive');
 
-        if (!lead) {
-            // Search in main Lead or Contact models
-            const matchingContact = await Contact.findOne({
-                $or: [
-                    { direct_phone: From },
-                    { direct_phone: { $regex: regexPattern } }
-                ]
-            });
+        const totalMatches = matchingEALeads.length + matchingMainLeads.length;
 
-            if (matchingContact && matchingContact.lead_id) {
-                lead = await Lead.findById(matchingContact.lead_id);
-                leadType = 'main_lead';
-            } else {
-                lead = await Lead.findOne({
-                    $or: [
-                        { telephone: From },
-                        { telephone: { $regex: regexPattern } }
-                    ]
-                });
-                if (lead) leadType = 'main_lead';
-            }
-        }
-
-        if (!lead) {
+        if (totalMatches === 0) {
             console.log(`[Twilio Webhook] No matching EA Lead or main Lead found for phone: ${From}`);
             return res.status(200).send('Lead not found');
         }
 
-        // Add inbound message to history
+        // Add inbound message to history for ALL matched leads
         const newMessage = {
             direction: 'inbound',
             message: Body.trim(),
@@ -202,12 +201,21 @@ export const handleTwilioReply = async (req, res) => {
             status: 'received'
         };
 
-        if (!lead.smsHistory) lead.smsHistory = [];
-        lead.smsHistory.push(newMessage);
-        lead.unreadCount = (lead.unreadCount || 0) + 1;
+        for (const eaLead of matchingEALeads) {
+            if (!eaLead.smsHistory) eaLead.smsHistory = [];
+            eaLead.smsHistory.push(newMessage);
+            eaLead.unreadCount = (eaLead.unreadCount || 0) + 1;
+            await eaLead.save();
+            console.log(`[Twilio Webhook] Saved inbound SMS reply to EA Lead "${eaLead.name}" (${eaLead._id})`);
+        }
 
-        await lead.save();
-        console.log(`[Twilio Webhook] Saved inbound SMS reply from "${lead.name}" (${leadType})`);
+        for (const mainLead of matchingMainLeads) {
+            if (!mainLead.smsHistory) mainLead.smsHistory = [];
+            mainLead.smsHistory.push(newMessage);
+            mainLead.unreadCount = (mainLead.unreadCount || 0) + 1;
+            await mainLead.save();
+            console.log(`[Twilio Webhook] Saved inbound SMS reply to Main Lead "${mainLead.name}" (${mainLead._id})`);
+        }
 
         // Compute total unread count across all leads
         const [eaUnread, mainUnread] = await Promise.all([
@@ -217,19 +225,113 @@ export const handleTwilioReply = async (req, res) => {
 
         const totalUnreadCount = (eaUnread[0]?.total || 0) + (mainUnread[0]?.total || 0);
 
-        // Emit Socket.IO event if io is available
+        // Retrieve global and rep-specific Notification Settings
+        let systemSettings = null;
+        try {
+            systemSettings = await Settings.findOne();
+        } catch (e) {}
+
+        const globalNotif = systemSettings?.notificationSettings?.global || {
+            inAppEnabled: true,
+            emailEnabled: true,
+            smsForwardEnabled: true,
+            fallbackEmails: [],
+            fallbackPhone: ""
+        };
+
+        const repSettingsList = systemSettings?.notificationSettings?.repSettings || [];
+        const getRepRule = (userObj) => {
+            if (!userObj?._id) return null;
+            const matched = repSettingsList.find(r => String(r.userId) === String(userObj._id) || String(r.userId?._id) === String(userObj._id));
+            return {
+                inAppEnabled: matched ? matched.inAppEnabled : true,
+                emailEnabled: matched ? matched.emailEnabled : true,
+                smsForwardEnabled: matched ? matched.smsForwardEnabled : true,
+                emails: (matched?.emails && matched.emails.length > 0) ? matched.emails : (userObj.email ? [userObj.email] : []),
+                phone: matched?.phone || userObj.phone || ""
+            };
+        };
+
+        // Emit Socket.IO events for in-app notifications
         const io = req.app.get('io');
-        if (io) {
-            io.emit('sms:received', {
-                leadId: lead._id,
-                leadType,
-                senderName: lead.name,
-                phone: From,
-                message: Body.trim(),
-                timestamp: newMessage.timestamp,
-                unreadCount: lead.unreadCount,
-                totalUnreadCount
-            });
+        if (io && globalNotif.inAppEnabled !== false) {
+            for (const eaLead of matchingEALeads) {
+                const repRule = getRepRule(eaLead.assigned_to);
+                if (!repRule || repRule.inAppEnabled !== false) {
+                    io.emit('sms:received', {
+                        leadId: eaLead._id,
+                        leadType: 'ea_lead',
+                        senderName: eaLead.name,
+                        phone: From,
+                        message: Body.trim(),
+                        timestamp: newMessage.timestamp,
+                        unreadCount: eaLead.unreadCount,
+                        totalUnreadCount
+                    });
+                }
+            }
+            for (const mainLead of matchingMainLeads) {
+                const repRule = getRepRule(mainLead.assigned_to);
+                if (!repRule || repRule.inAppEnabled !== false) {
+                    io.emit('sms:received', {
+                        leadId: mainLead._id,
+                        leadType: 'main_lead',
+                        senderName: mainLead.name,
+                        phone: From,
+                        message: Body.trim(),
+                        timestamp: newMessage.timestamp,
+                        unreadCount: mainLead.unreadCount,
+                        totalUnreadCount
+                    });
+                }
+            }
+        }
+
+        const allMatchedLeads = [
+            ...matchingEALeads.map(l => ({ ...l.toObject(), leadType: 'ea_lead' })),
+            ...matchingMainLeads.map(l => ({ ...l.toObject(), leadType: 'main_lead' }))
+        ];
+
+        // 4. Forward inbound reply to assigned rep's cell phone via Twilio SMS
+        if (globalNotif.smsForwardEnabled !== false) {
+            for (const lead of allMatchedLeads) {
+                const repRule = getRepRule(lead.assigned_to);
+                const targetPhone = repRule ? repRule.phone : globalNotif.fallbackPhone;
+                const canForward = repRule ? repRule.smsForwardEnabled !== false : Boolean(globalNotif.fallbackPhone);
+
+                if (canForward && targetPhone) {
+                    smsForwarderService.forwardReplyToRep({
+                        rep: { ...lead.assigned_to, phone: targetPhone },
+                        lead: {
+                            _id: lead._id,
+                            name: lead.name,
+                            leadType: lead.leadType,
+                            phone: From
+                        },
+                        replyMessage: Body.trim()
+                    }).catch(err => console.error('[Twilio Webhook] SMS forward error:', err.message));
+                }
+            }
+        }
+
+        // 5. Send automated email notification to assigned rep(s) (supports multiple emails)
+        if (globalNotif.emailEnabled !== false) {
+            for (const lead of allMatchedLeads) {
+                const repRule = getRepRule(lead.assigned_to);
+                const targetEmails = (repRule && repRule.emails?.length > 0) ? repRule.emails : (globalNotif.fallbackEmails || []);
+                const canSendEmail = repRule ? repRule.emailEnabled !== false : (globalNotif.fallbackEmails?.length > 0);
+
+                if (canSendEmail && targetEmails.length > 0) {
+                    sendSMSReplyEmailNotification({
+                        to: targetEmails,
+                        leadName: lead.name,
+                        leadPhone: From,
+                        leadType: lead.leadType,
+                        leadId: lead._id,
+                        replyMessage: Body.trim()
+                    }).catch(err => console.error('[Twilio Webhook] Email notification error:', err.message));
+                }
+            }
         }
 
         return res.status(200).send('<Response></Response>'); // Twilio expects TwiML XML

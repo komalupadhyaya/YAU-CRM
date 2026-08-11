@@ -26,6 +26,8 @@ import VoicemailInbox from "./pages/VoicemailInbox";
 import CallHistoryPage from "@/pages/CallHistory";
 import SMSMessages from "@/pages/SMSMessages";
 import { SMSProvider } from "./context/SMSContext";
+import { PresenceProvider } from "./context/PresenceContext";
+import { SocketProvider } from "./context/SocketContext";
 
 import RequireAuth from "./components/RequireAuth";
 import RequireRole from "./components/RequireRole";
@@ -49,44 +51,48 @@ const App = () => {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <SMSProvider>
-          <TooltipProvider>
-          <Toaster />
-          <Sonner />
-          <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-            <Routes>
-              <Route path="/login" element={<Login />} />
-              <Route path="/dashboard" element={<RequireAuth><Dashboard /></RequireAuth>} />
-              <Route path="/lead/:id" element={<RequireAuth><LeadDetail /></RequireAuth>} />
-              <Route path="/leads/create" element={<RequireAuth><CreateLead /></RequireAuth>} />
-              <Route path="/campaigns" element={<RequireAuth><Campaigns /></RequireAuth>} />
-              <Route path="/followups" element={<RequireAuth><FollowUps /></RequireAuth>} />
-              <Route path="/reports" element={<RequireAuth><Reports /></RequireAuth>} />
-              <Route path="/team" element={<RequireAuth><RequireRole roles={['admin', 'manager']}><Team /></RequireRole></RequireAuth>} />
-              <Route path="/candidates" element={<RequireAuth><RequireRole roles={['admin', 'manager']}><Candidates /></RequireRole></RequireAuth>} />
-              <Route path="/lead-scheduler" element={<RequireAuth><RequireRole roles={['admin', 'manager']}><LeadScheduler /></RequireRole></RequireAuth>} />
-              <Route path="/ea-leads" element={<RequireAuth><EALeads /></RequireAuth>} />
-              <Route path="/sms" element={<RequireAuth><SMSMessages /></RequireAuth>} />
-              <Route path="/history" element={<RequireAuth><RequireRole roles={['admin', 'manager']}><HistoryPage /></RequireRole></RequireAuth>} />
-              <Route path="/settings" element={<RequireAuth><RequireRole roles={['admin']}><Settings /></RequireRole></RequireAuth>} />
-              <Route path="/phone-system" element={<RequireAuth><RequireRole roles={['admin']}><PhoneSystem /></RequireRole></RequireAuth>} />
-              <Route path="/call-history" element={<RequireAuth><RequireRole roles={['admin']}><CallHistoryPage /></RequireRole></RequireAuth>} />
-              <Route path="/voicemail-inbox" element={<RequireAuth><RequireRole roles={['admin']}><VoicemailInbox /></RequireRole></RequireAuth>} />
-              <Route path="/tasks" element={<RequireAuth><Tasks /></RequireAuth>} />
-              <Route path="/calendar" element={<RequireAuth><Calendar /></RequireAuth>} />
-              <Route path="/help" element={<RequireAuth><Help /></RequireAuth>} />
-              <Route path="/meetings/school" element={<RequireAuth><SchoolMeetings /></RequireAuth>} />
-              <Route path="/meetings/hr" element={<RequireAuth><HRMeetings /></RequireAuth>} />
-              <Route path="/" element={<Login />} />
+        <SocketProvider>
+          <PresenceProvider>
+            <SMSProvider>
+              <TooltipProvider>
+              <Toaster />
+              <Sonner position="top-right" closeButton richColors expand={true} />
+              <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+              <Routes>
+                <Route path="/login" element={<Login />} />
+                <Route path="/dashboard" element={<RequireAuth><Dashboard /></RequireAuth>} />
+                <Route path="/lead/:id" element={<RequireAuth><LeadDetail /></RequireAuth>} />
+                <Route path="/leads/create" element={<RequireAuth><CreateLead /></RequireAuth>} />
+                <Route path="/campaigns" element={<RequireAuth><Campaigns /></RequireAuth>} />
+                <Route path="/followups" element={<RequireAuth><FollowUps /></RequireAuth>} />
+                <Route path="/reports" element={<RequireAuth><Reports /></RequireAuth>} />
+                <Route path="/team" element={<RequireAuth><RequireRole roles={['admin', 'manager']}><Team /></RequireRole></RequireAuth>} />
+                <Route path="/candidates" element={<RequireAuth><RequireRole roles={['admin', 'manager']}><Candidates /></RequireRole></RequireAuth>} />
+                <Route path="/lead-scheduler" element={<RequireAuth><RequireRole roles={['admin', 'manager']}><LeadScheduler /></RequireRole></RequireAuth>} />
+                <Route path="/ea-leads" element={<RequireAuth><EALeads /></RequireAuth>} />
+                <Route path="/sms" element={<RequireAuth><RequireRole roles={['admin', 'manager', 'sales_rep']}><SMSMessages /></RequireRole></RequireAuth>} />
+                <Route path="/history" element={<RequireAuth><RequireRole roles={['admin', 'manager']}><HistoryPage /></RequireRole></RequireAuth>} />
+                <Route path="/settings" element={<RequireAuth><RequireRole roles={['admin']}><Settings /></RequireRole></RequireAuth>} />
+                <Route path="/phone-system" element={<RequireAuth><RequireRole roles={['admin']}><PhoneSystem /></RequireRole></RequireAuth>} />
+                <Route path="/call-history" element={<RequireAuth><RequireRole roles={['admin']}><CallHistoryPage /></RequireRole></RequireAuth>} />
+                <Route path="/voicemail-inbox" element={<RequireAuth><RequireRole roles={['admin']}><VoicemailInbox /></RequireRole></RequireAuth>} />
+                <Route path="/tasks" element={<RequireAuth><Tasks /></RequireAuth>} />
+                <Route path="/calendar" element={<RequireAuth><Calendar /></RequireAuth>} />
+                <Route path="/help" element={<RequireAuth><Help /></RequireAuth>} />
+                <Route path="/meetings/school" element={<RequireAuth><SchoolMeetings /></RequireAuth>} />
+                <Route path="/meetings/hr" element={<RequireAuth><HRMeetings /></RequireAuth>} />
+                <Route path="/" element={<Login />} />
 
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-            <Dialer />
-          </BrowserRouter>
-        </TooltipProvider>
-      </SMSProvider>
-    </AuthProvider>
-  </QueryClientProvider>
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+              <Dialer />
+            </BrowserRouter>
+          </TooltipProvider>
+        </SMSProvider>
+      </PresenceProvider>
+    </SocketProvider>
+  </AuthProvider>
+</QueryClientProvider>
   );
 };
 

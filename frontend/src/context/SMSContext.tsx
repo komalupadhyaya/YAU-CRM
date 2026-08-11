@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { io, Socket } from 'socket.io-client';
 import api from '../api/api';
 import { useAuth } from './AuthContext';
+import { useSocket } from './SocketContext';
 
 export interface RecentSMSItem {
   leadId: string;
@@ -35,6 +35,7 @@ export const SMSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
   const [recentSMSList, setRecentSMSList] = useState<RecentSMSItem[]>([]);
   const { currentUser } = useAuth();
+  const socket = useSocket();
 
   const fetchUnreadStats = useCallback(async () => {
     if (!currentUser) return;
@@ -66,20 +67,18 @@ export const SMSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     fetchUnreadStats();
 
-    // Determine backend URL for socket connection
-    const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
-    const socket: Socket = io(backendUrl, {
-      withCredentials: true,
-      transports: ['websocket', 'polling'],
-      reconnectionAttempts: 10,
-    });
+    if (!socket) return;
 
-    socket.on('connect', () => {
-      console.log('⚡ Connected to Socket.IO server for real-time SMS updates');
-    });
-
-    socket.on('sms:received', (data: { leadId: string; leadType: 'ea_lead' | 'main_lead'; senderName: string; phone: string; message: string; timestamp: string; totalUnreadCount: number }) => {
-      console.log('📩 Real-time SMS received:', data);
+    const handleSMSReceived = (data: {
+      leadId: string;
+      leadType: 'ea_lead' | 'main_lead';
+      senderName: string;
+      phone: string;
+      message: string;
+      timestamp: string;
+      totalUnreadCount: number;
+    }) => {
+      console.log('📩 Real-time SMS received on shared socket:', data);
       setUnreadSMSCount(data.totalUnreadCount);
       sessionStorage.setItem('unreadSMSCount', String(data.totalUnreadCount));
 
@@ -92,37 +91,58 @@ export const SMSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           phone: data.phone,
           categoryTag: data.leadType === 'ea_lead' ? 'EA Lead' : 'CRM Lead',
           message: data.message,
-          timestamp: data.timestamp
+          timestamp: data.timestamp,
         },
-        ...prev.filter(item => item.leadId !== data.leadId)
+        ...prev.filter(item => item.leadId !== data.leadId),
       ]);
 
-      // Show toast notification
+      // Show top-right interactive toast notification with direct SPA navigation
       import('sonner').then(({ toast }) => {
-        toast.info(`New SMS from ${data.senderName}`, {
-          description: data.message.length > 50 ? `${data.message.substring(0, 50)}...` : data.message,
-          duration: 6000,
+        const leadLabel = data.leadType === 'ea_lead' ? 'EA Lead' : 'CRM Lead';
+        const sender = data.senderName || data.phone;
+        const preview = data.message.length > 75 ? `${data.message.substring(0, 75)}...` : data.message;
+
+        const openConversation = () => {
+          // Client-side SPA navigation so the notification remains visible and does not reload the page
+          window.history.pushState({}, '', `/sms?leadId=${data.leadId}`);
+          window.dispatchEvent(new PopStateEvent('popstate'));
+        };
+
+        toast(`💬 Reply from ${sender}`, {
+          description: `${preview} • [${leadLabel}]`,
+          duration: 15000,
+          action: {
+            label: 'Open Chat',
+            onClick: openConversation,
+          },
+          onClick: openConversation,
         });
       });
-    });
+    };
 
-    socket.on('sms:read', (data: { totalUnreadCount: number }) => {
+    const handleSMSRead = (data: { totalUnreadCount: number }) => {
       setUnreadSMSCount(data.totalUnreadCount);
       sessionStorage.setItem('unreadSMSCount', String(data.totalUnreadCount));
-    });
+    };
 
-    socket.on('sms:sent', () => {
+    const handleSMSSent = () => {
       fetchUnreadStats();
-    });
+    };
 
-    // Fallback polling every 15 seconds
-    const interval = setInterval(fetchUnreadStats, 15000);
+    socket.on('sms:received', handleSMSReceived);
+    socket.on('sms:read', handleSMSRead);
+    socket.on('sms:sent', handleSMSSent);
+
+    // Fallback polling every 30 seconds
+    const interval = setInterval(fetchUnreadStats, 30000);
 
     return () => {
-      socket.disconnect();
+      socket.off('sms:received', handleSMSReceived);
+      socket.off('sms:read', handleSMSRead);
+      socket.off('sms:sent', handleSMSSent);
       clearInterval(interval);
     };
-  }, [currentUser, fetchUnreadStats]);
+  }, [currentUser, socket, fetchUnreadStats]);
 
   return (
     <SMSContext.Provider value={{ unreadSMSCount, recentSMSList, markAsRead, refreshUnreadCount: fetchUnreadStats }}>

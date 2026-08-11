@@ -64,6 +64,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
+import { usePresence, PresenceStatus } from "../context/PresenceContext";
 
 interface TeamUser {
     _id: string;
@@ -74,7 +75,23 @@ interface TeamUser {
     phone?: string;
     isActive: boolean;
     createdAt: string;
+    presenceStatus?: PresenceStatus;
+    lastActiveAt?: string;
 }
+
+const formatLastSeen = (timestamp?: string | null) => {
+    if (!timestamp) return "Offline";
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+
+    if (diffMins < 1) return "Active just now";
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+};
 
 
 const ROLES = [
@@ -102,8 +119,24 @@ const defaultForm = {
 export default function Team() {
     const [users, setUsers] = useState<TeamUser[]>([]);
     const { currentUser } = useAuth();
+    const { getPresence } = usePresence();
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState("");
+
+    // Helper to determine active live status for a user
+    const getUserLivePresence = useCallback((user: TeamUser) => {
+        const live = getPresence(user._id);
+        if (live && live.status) {
+            return {
+                status: live.status,
+                lastActiveAt: live.lastActiveAt || user.lastActiveAt,
+            };
+        }
+        return {
+            status: user.presenceStatus || 'offline',
+            lastActiveAt: user.lastActiveAt,
+        };
+    }, [getPresence]);
 
     // Modal state for user
     const [modalOpen, setModalOpen] = useState(false);
@@ -305,6 +338,8 @@ export default function Team() {
     });
 
     const totalActive = users.filter((u) => u.isActive).length;
+    const totalOnlineNow = users.filter((u) => u.isActive && getUserLivePresence(u).status === 'online').length;
+    const totalAwayNow = users.filter((u) => u.isActive && getUserLivePresence(u).status === 'away').length;
     const totalAdmins = users.filter((u) => u.role === "admin").length;
     const totalZoomActive = users.filter((u) => inZoomEmails.has((u.email || u.username || "").toLowerCase())).length;
 
@@ -319,8 +354,8 @@ export default function Team() {
                         </h1>
                         <p className="text-muted-foreground mt-1">
                             {permissions.manageTeam
-                              ? 'Create and manage internal CRM users with separate logins and role-based access.'
-                              : 'View your team members and their roles.'}
+                              ? 'Create and manage internal CRM users with separate logins, live online presence, and role-based access.'
+                              : 'View your team members, live online status, and roles.'}
                         </p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
@@ -347,13 +382,23 @@ export default function Team() {
                             <p className="text-xs text-muted-foreground">Total Members</p>
                         </div>
                     </div>
-                    <div className="bg-card border rounded-xl p-4 flex items-center gap-3 shadow-sm">
+                    <div className="bg-card border rounded-xl p-4 flex items-center gap-3 shadow-sm relative overflow-hidden">
                         <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center">
-                            <UserCheck size={18} className="text-emerald-500" />
+                            <span className="relative flex h-3 w-3">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                            </span>
                         </div>
                         <div>
-                            <p className="text-2xl font-bold">{totalActive}</p>
-                            <p className="text-xs text-muted-foreground">Active</p>
+                            <div className="flex items-center gap-1.5">
+                                <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{totalOnlineNow}</p>
+                                {totalAwayNow > 0 && (
+                                    <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded">
+                                        +{totalAwayNow} Away
+                                    </span>
+                                )}
+                            </div>
+                            <p className="text-xs text-muted-foreground">Online Now (Live)</p>
                         </div>
                     </div>
                     <div className="bg-card border rounded-xl p-4 flex items-center gap-3 shadow-sm">
@@ -395,9 +440,9 @@ export default function Team() {
                                 <TableRow className="hover:bg-transparent">
                                     <TableHead>Member</TableHead>
                                     <TableHead>Email</TableHead>
-                                    <TableHead>Phone Number</TableHead>
                                     <TableHead>Role</TableHead>
-                                    <TableHead>Status</TableHead>
+                                    <TableHead>Live Status</TableHead>
+                                    <TableHead>Account</TableHead>
                                     <TableHead>Joined</TableHead>
                                     <TableHead className="text-center">Actions</TableHead>
                                 </TableRow>
@@ -425,24 +470,45 @@ export default function Team() {
                                         </TableCell>
                                     </TableRow>
                                 ) : (
-                                    filtered.map((user) => (
+                                    filtered.map((user) => {
+                                        const livePresence = getUserLivePresence(user);
+                                        return (
                                         <TableRow key={user._id} className={!user.isActive ? "bg-muted/10 border-dashed" : ""}>
                                             {/* Avatar + Name */}
                                             <TableCell>
                                                 <div className="flex items-center gap-3">
-                                                    <div
-                                                        className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm shrink-0
-                                                            ${user.isActive
-                                                                ? "bg-primary/20 text-primary"
-                                                                : "bg-muted text-muted-foreground"
-                                                            }`}
-                                                    >
-                                                        {(user.name || user.username || "").charAt(0).toUpperCase() || "?"}
+                                                    <div className="relative shrink-0">
+                                                        <div
+                                                            className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm shrink-0
+                                                                ${user.isActive
+                                                                    ? "bg-primary/20 text-primary"
+                                                                    : "bg-muted text-muted-foreground"
+                                                                }`}
+                                                        >
+                                                            {(user.name || user.username || "").charAt(0).toUpperCase() || "?"}
+                                                        </div>
+                                                        {user.isActive && (
+                                                            <span
+                                                                className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-card ${
+                                                                    livePresence.status === 'online'
+                                                                        ? 'bg-emerald-500 ring-2 ring-emerald-500/20'
+                                                                        : livePresence.status === 'away'
+                                                                        ? 'bg-amber-500 ring-2 ring-amber-500/20'
+                                                                        : 'bg-zinc-400 dark:bg-zinc-600'
+                                                                }`}
+                                                                title={livePresence.status === 'online' ? 'Online' : livePresence.status === 'away' ? 'Away / Sleep' : 'Offline'}
+                                                            />
+                                                        )}
                                                     </div>
                                                     <div className="min-w-0">
                                                         <p className="font-semibold text-sm truncate">
                                                             {user.name || "—"}
                                                         </p>
+                                                        {user.phone && (
+                                                            <p className="text-[11px] text-muted-foreground font-mono truncate">
+                                                                {user.phone}
+                                                            </p>
+                                                        )}
                                                     </div>
                                                 </div>
                                             </TableCell>
@@ -457,14 +523,6 @@ export default function Team() {
                                                 </div>
                                             </TableCell>
 
-                                            {/* Phone Number */}
-                                            <TableCell>
-                                                <div className="flex items-center gap-2 text-sm text-muted-foreground font-mono">
-                                                    <Phone size={13} />
-                                                    <span>{user.phone || "—"}</span>
-                                                </div>
-                                            </TableCell>
-
                                             {/* Role Badge */}
                                             <TableCell>
                                                 <span
@@ -473,6 +531,33 @@ export default function Team() {
                                                     <Shield size={10} />
                                                     {getRoleLabel(user.role)}
                                                 </span>
+                                            </TableCell>
+
+                                            {/* Live Status */}
+                                            <TableCell>
+                                                {!user.isActive ? (
+                                                    <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/40 border border-border/40 px-2 py-0.5 rounded-full">
+                                                        Deactivated
+                                                    </span>
+                                                ) : livePresence.status === 'online' ? (
+                                                    <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/25 px-2.5 py-0.5 rounded-full whitespace-nowrap">
+                                                        <span className="relative flex h-2 w-2">
+                                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                                            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                                                        </span>
+                                                        Online
+                                                    </span>
+                                                ) : livePresence.status === 'away' ? (
+                                                    <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/25 px-2.5 py-0.5 rounded-full whitespace-nowrap">
+                                                        <span className="inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                                                        Away (Idle)
+                                                    </span>
+                                                ) : (
+                                                    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground bg-muted/60 border border-border/70 px-2.5 py-0.5 rounded-full whitespace-nowrap">
+                                                        <span className="inline-flex rounded-full h-2 w-2 bg-zinc-400 dark:bg-zinc-600"></span>
+                                                        {formatLastSeen(livePresence.lastActiveAt)}
+                                                    </span>
+                                                )}
                                             </TableCell>
 
                                             {/* Active Toggle */}
@@ -560,7 +645,8 @@ export default function Team() {
                                                 </div>
                                             </TableCell>
                                         </TableRow>
-                                    ))
+                                        );
+                                    })
                                 )}
                             </TableBody>
                         </Table>
@@ -592,7 +678,9 @@ export default function Team() {
                                 </div>
                             </div>
                         ) : (
-                            filtered.map((user) => (
+                            filtered.map((user) => {
+                                const livePresence = getUserLivePresence(user);
+                                return (
                                 <div 
                                     key={user._id} 
                                     className={`bg-card border rounded-xl p-5 space-y-4 shadow-sm relative transition-all duration-200 ${!user.isActive ? "bg-muted/10 border-dashed" : ""}`}
@@ -600,14 +688,27 @@ export default function Team() {
                                     {/* Header: Avatar, Name, Email, and Role Badge */}
                                     <div className="flex items-start justify-between gap-3">
                                         <div className="flex items-center gap-3 min-w-0">
-                                            <div
-                                                className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0 select-none
-                                                    ${user.isActive
-                                                        ? "bg-primary/20 text-primary"
-                                                        : "bg-muted text-muted-foreground"
-                                                    }`}
-                                            >
-                                                {(user.name || user.username).charAt(0).toUpperCase()}
+                                            <div className="relative shrink-0">
+                                                <div
+                                                    className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0 select-none
+                                                        ${user.isActive
+                                                            ? "bg-primary/20 text-primary"
+                                                            : "bg-muted text-muted-foreground"
+                                                        }`}
+                                                >
+                                                    {(user.name || user.username).charAt(0).toUpperCase()}
+                                                </div>
+                                                {user.isActive && (
+                                                    <span
+                                                        className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-card ${
+                                                            livePresence.status === 'online'
+                                                                ? 'bg-emerald-500'
+                                                                : livePresence.status === 'away'
+                                                                ? 'bg-amber-500'
+                                                                : 'bg-zinc-400 dark:bg-zinc-600'
+                                                        }`}
+                                                    />
+                                                )}
                                             </div>
                                             <div className="min-w-0">
                                                 <p className="font-semibold text-sm text-foreground truncate">
@@ -619,13 +720,30 @@ export default function Team() {
                                             </div>
                                         </div>
 
-                                        {/* Role Badge */}
-                                        <span
-                                            className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2.5 py-0.5 rounded-full border shrink-0 ${getRoleStyle(user.role)}`}
-                                        >
-                                            <Shield size={10} />
-                                            {getRoleLabel(user.role)}
-                                        </span>
+                                        {/* Role & Live Status Badge */}
+                                        <div className="flex flex-col items-end gap-1 shrink-0">
+                                            <span
+                                                className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2.5 py-0.5 rounded-full border shrink-0 ${getRoleStyle(user.role)}`}
+                                            >
+                                                <Shield size={10} />
+                                                {getRoleLabel(user.role)}
+                                            </span>
+                                            {user.isActive && (
+                                                livePresence.status === 'online' ? (
+                                                    <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.2 rounded-full">
+                                                        ● Online
+                                                    </span>
+                                                ) : livePresence.status === 'away' ? (
+                                                    <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.2 rounded-full">
+                                                        ● Away
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-[10px] text-muted-foreground">
+                                                        {formatLastSeen(livePresence.lastActiveAt)}
+                                                    </span>
+                                                )
+                                            )}
+                                        </div>
                                     </div>
 
                                     {/* Body: Phone, Status & Joined Date */}
@@ -725,7 +843,8 @@ export default function Team() {
                                         );
                                     })()}
                                 </div>
-                            ))
+                                );
+                            })
                         )}
                     </div>
 

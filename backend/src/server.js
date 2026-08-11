@@ -4,6 +4,7 @@ import { Server } from 'socket.io';
 import connectDB from './config/db.config.js';
 import app from './app.js';
 import { initCronJobs } from './utils/cron.js';
+import presenceService from './services/presence.service.js';
 
 // Connect to Database
 connectDB();
@@ -29,12 +30,8 @@ const io = new Server(server, {
     }
 });
 
-io.on('connection', (socket) => {
-    console.log(`⚡ Client connected to Socket.IO: ${socket.id}`);
-    socket.on('disconnect', () => {
-        console.log(`🔌 Client disconnected from Socket.IO: ${socket.id}`);
-    });
-});
+// Initialize real-time presence service on Socket.IO
+presenceService.init(io);
 
 app.set('io', io);
 

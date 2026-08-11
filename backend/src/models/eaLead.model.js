@@ -8,6 +8,7 @@ const EALeadSchema = new mongoose.Schema({
     dateSubmitted: { type: Date, default: Date.now },
     submissionCount: { type: Number, default: 1 },
     isConsent: { type: Boolean, default: true },
+    assigned_to: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null, index: true },
     unreadCount: { type: Number, default: 0 },
     smsHistory: [
         {

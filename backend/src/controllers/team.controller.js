@@ -2,23 +2,27 @@ import bcrypt from 'bcryptjs';
 import User from '../models/user.model.js';
 import { sendNewMemberEmails, sendDeactivationEmail, sendReactivationEmail, sendDeletionEmail } from '../services/mailer.js';
 import { invalidatedUsers } from '../utils/sessionCache.js';
-
-
-
+import presenceService from '../services/presence.service.js';
 
 /**
  * GET /api/team
- * Returns a list of all users with safe fields (no password).
+ * Returns a list of all users with safe fields (no password) + real-time presence status.
  */
 export const getUsers = async (req, res, next) => {
     try {
-        const users = await User.find({}, 'username name email role isActive phone createdAt')
+        const users = await User.find({}, 'username name email role isActive phone presenceStatus lastActiveAt createdAt')
             .sort({ createdAt: -1 });
 
         const safeUsers = users.map(u => {
             const obj = u.toObject();
             if (!obj.role) obj.role = 'user';
             if (obj.isActive === undefined) obj.isActive = true;
+
+            // Enrich with live in-memory presence if available
+            const livePresence = presenceService.getUserPresence(obj._id);
+            obj.presenceStatus = livePresence.status || obj.presenceStatus || 'offline';
+            obj.lastActiveAt = livePresence.lastActiveAt || obj.lastActiveAt || obj.updatedAt || obj.createdAt;
+
             return obj;
         });
 
