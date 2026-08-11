@@ -49,6 +49,16 @@ const LeadSchema = new mongoose.Schema({
         default: null,
         index: true
     },
+    unreadCount: { type: Number, default: 0 },
+    smsHistory: [{
+        direction: { type: String, enum: ['inbound', 'outbound'] },
+        message: String,
+        timestamp: { type: Date, default: Date.now },
+        isBulk: { type: Boolean, default: false },
+        status: { type: String, enum: ['pending', 'sent', 'failed', 'received'], default: 'pending' },
+        twilioSid: { type: String, default: null },
+        isRead: { type: Boolean, default: false }
+    }],
     callHistory: [{
         callSid: { type: String, required: true },
         parentCallSid: { type: String },

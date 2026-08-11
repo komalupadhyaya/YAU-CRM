@@ -24,6 +24,8 @@ import HRMeetings from "./pages/HRMeetings";
 import PhoneSystem from "./pages/PhoneSystem";
 import VoicemailInbox from "./pages/VoicemailInbox";
 import CallHistoryPage from "@/pages/CallHistory";
+import SMSMessages from "@/pages/SMSMessages";
+import { SMSProvider } from "./context/SMSContext";
 
 import RequireAuth from "./components/RequireAuth";
 import RequireRole from "./components/RequireRole";
@@ -47,7 +49,8 @@ const App = () => {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <TooltipProvider>
+        <SMSProvider>
+          <TooltipProvider>
           <Toaster />
           <Sonner />
           <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
@@ -63,6 +66,7 @@ const App = () => {
               <Route path="/candidates" element={<RequireAuth><RequireRole roles={['admin', 'manager']}><Candidates /></RequireRole></RequireAuth>} />
               <Route path="/lead-scheduler" element={<RequireAuth><RequireRole roles={['admin', 'manager']}><LeadScheduler /></RequireRole></RequireAuth>} />
               <Route path="/ea-leads" element={<RequireAuth><EALeads /></RequireAuth>} />
+              <Route path="/sms" element={<RequireAuth><SMSMessages /></RequireAuth>} />
               <Route path="/history" element={<RequireAuth><RequireRole roles={['admin', 'manager']}><HistoryPage /></RequireRole></RequireAuth>} />
               <Route path="/settings" element={<RequireAuth><RequireRole roles={['admin']}><Settings /></RequireRole></RequireAuth>} />
               <Route path="/phone-system" element={<RequireAuth><RequireRole roles={['admin']}><PhoneSystem /></RequireRole></RequireAuth>} />
@@ -80,8 +84,9 @@ const App = () => {
             <Dialer />
           </BrowserRouter>
         </TooltipProvider>
-      </AuthProvider>
-    </QueryClientProvider>
+      </SMSProvider>
+    </AuthProvider>
+  </QueryClientProvider>
   );
 };
 

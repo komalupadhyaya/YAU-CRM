@@ -30,10 +30,12 @@ import {
   Phone,
   Voicemail,
   PhoneCall,
-  Video
+  Video,
+  MessageSquare
 } from "lucide-react";
 import { useSidebar } from "./SidebarContext";
 import { useFollowUp } from "../context/FollowUpContext";
+import { useSMS } from "../context/SMSContext";
 import { useAuth } from "../context/AuthContext";
 import { can } from "../utils/permissions";
 
@@ -54,6 +56,7 @@ const topNavItems = [
   { to: "/reports",         label: "Reports",         icon: BarChart3 },
   { to: "/lead-scheduler",  label: "Lead Scheduler",  icon: UserCheck },
   { to: "/ea-leads",        label: "EA Leads",        icon: Sparkles },
+  { to: "/sms",             label: "SMS Messages",    icon: MessageSquare },
   { to: "/candidates",      label: "HC Candidates",      icon: UserPlus },
   // { to: "/history",      label: "History",         icon: History },
   { to: "/team",            label: "Team",            icon: Users },
@@ -81,6 +84,7 @@ export default function Sidebar() {
   const navigate = useNavigate();
   const { collapsed, mobileOpen, toggleCollapsed, closeMobile } = useSidebar();
   const { dueTodayCount, dueTodayNames, schoolMeetingCount, hrMeetingCount } = useFollowUp();
+  const { unreadSMSCount } = useSMS();
   const { currentUser } = useAuth();
   const permissions = can(currentUser?.role);
   const [settingsExpanded, setSettingsExpanded] = useState(false);
@@ -213,8 +217,9 @@ export default function Sidebar() {
       const isFollowUps = to === "/followups" && dueTodayCount > 0;
       const isSchoolMeetings = to === "/meetings/school" && schoolMeetingCount > 0;
       const isHRMeetings = to === "/meetings/hr" && hrMeetingCount > 0;
-      const showBadge = isFollowUps || isSchoolMeetings || isHRMeetings;
-      const badgeCount = isFollowUps ? dueTodayCount : isSchoolMeetings ? schoolMeetingCount : hrMeetingCount;
+      const isSMS = to === "/sms" && unreadSMSCount > 0;
+      const showBadge = isFollowUps || isSchoolMeetings || isHRMeetings || isSMS;
+      const badgeCount = isFollowUps ? dueTodayCount : isSchoolMeetings ? schoolMeetingCount : isHRMeetings ? hrMeetingCount : unreadSMSCount;
       
       let tooltipContent = label;
       if (isFollowUps) {
@@ -223,6 +228,8 @@ export default function Sidebar() {
         tooltipContent = `${label} (${schoolMeetingCount} upcoming)`;
       } else if (isHRMeetings) {
         tooltipContent = `${label} (${hrMeetingCount} upcoming)`;
+      } else if (isSMS) {
+        tooltipContent = `${label} (${unreadSMSCount} unread)`;
       }
 
       return (

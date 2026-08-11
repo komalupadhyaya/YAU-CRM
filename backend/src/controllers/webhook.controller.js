@@ -153,33 +153,84 @@ export const handleTwilioReply = async (req, res) => {
             return res.status(200).send('Invalid sender phone');
         }
 
-        // Build a flexible regex pattern from last10From to match numbers with formatting
-        // (allowing optional non-digit characters like spaces, hyphens, parentheses between digits)
         const digits = last10From.split('');
         const regexPattern = digits.map(d => `${d}\\D*`).join('') + '$';
 
-        // Search for EA Lead matching sender phone
-        const lead = await EALead.findOne({
+        let lead = await EALead.findOne({
             $or: [
                 { phone: From },
                 { phone: { $regex: regexPattern } }
             ]
         });
 
+        let leadType = 'ea_lead';
+
         if (!lead) {
-            console.log(`[Twilio Webhook] No matching EA Lead found for phone: ${From}`);
+            // Search in main Lead or Contact models
+            const matchingContact = await Contact.findOne({
+                $or: [
+                    { direct_phone: From },
+                    { direct_phone: { $regex: regexPattern } }
+                ]
+            });
+
+            if (matchingContact && matchingContact.lead_id) {
+                lead = await Lead.findById(matchingContact.lead_id);
+                leadType = 'main_lead';
+            } else {
+                lead = await Lead.findOne({
+                    $or: [
+                        { telephone: From },
+                        { telephone: { $regex: regexPattern } }
+                    ]
+                });
+                if (lead) leadType = 'main_lead';
+            }
+        }
+
+        if (!lead) {
+            console.log(`[Twilio Webhook] No matching EA Lead or main Lead found for phone: ${From}`);
             return res.status(200).send('Lead not found');
         }
 
         // Add inbound message to history
-        lead.smsHistory.push({
+        const newMessage = {
             direction: 'inbound',
             message: Body.trim(),
-            timestamp: new Date()
-        });
+            timestamp: new Date(),
+            isRead: false,
+            status: 'received'
+        };
+
+        if (!lead.smsHistory) lead.smsHistory = [];
+        lead.smsHistory.push(newMessage);
+        lead.unreadCount = (lead.unreadCount || 0) + 1;
 
         await lead.save();
-        console.log(`[Twilio Webhook] Saved inbound SMS reply from "${lead.name}" (${lead.phone})`);
+        console.log(`[Twilio Webhook] Saved inbound SMS reply from "${lead.name}" (${leadType})`);
+
+        // Compute total unread count across all leads
+        const [eaUnread, mainUnread] = await Promise.all([
+            EALead.aggregate([{ $group: { _id: null, total: { $sum: '$unreadCount' } } }]),
+            Lead.aggregate([{ $group: { _id: null, total: { $sum: '$unreadCount' } } }])
+        ]);
+
+        const totalUnreadCount = (eaUnread[0]?.total || 0) + (mainUnread[0]?.total || 0);
+
+        // Emit Socket.IO event if io is available
+        const io = req.app.get('io');
+        if (io) {
+            io.emit('sms:received', {
+                leadId: lead._id,
+                leadType,
+                senderName: lead.name,
+                phone: From,
+                message: Body.trim(),
+                timestamp: newMessage.timestamp,
+                unreadCount: lead.unreadCount,
+                totalUnreadCount
+            });
+        }
 
         return res.status(200).send('<Response></Response>'); // Twilio expects TwiML XML
     } catch (error) {
