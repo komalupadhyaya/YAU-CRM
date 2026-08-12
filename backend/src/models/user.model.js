@@ -11,7 +11,14 @@ const UserSchema = new mongoose.Schema({
         default: 'sales_rep'
     },
     isActive: { type: Boolean, default: true },
-    phone: { type: String, default: "" }
+    phone: { type: String, default: "" },
+    presenceStatus: {
+        type: String,
+        enum: ['online', 'away', 'offline'],
+        default: 'offline'
+    },
+    lastActiveAt: { type: Date, default: Date.now },
+    lastLoginAt: { type: Date }
 }, { timestamps: true });
 
 export const User = mongoose.model('User', UserSchema);

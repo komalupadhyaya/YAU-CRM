@@ -670,7 +670,7 @@ export const convertEALead = async (req, res) => {
             });
         }
 
-        // Migrate SMS message history to Note documents in the main Lead's activity feed
+        // Migrate SMS message history to Note documents in the main Lead's activity feed and save to smsHistory
         if (eaLead.smsHistory && eaLead.smsHistory.length > 0) {
             const notesToCreate = eaLead.smsHistory.map(msg => {
                 const directionText = msg.direction === 'inbound' ? 'RECEIVED from' : 'SENT to';
@@ -683,6 +683,9 @@ export const convertEALead = async (req, res) => {
                 };
             });
             await Note.insertMany(notesToCreate);
+
+            mainLead.smsHistory = eaLead.smsHistory;
+            await mainLead.save();
         }
 
         // Delete the original EA Lead

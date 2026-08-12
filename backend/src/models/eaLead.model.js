@@ -8,6 +8,8 @@ const EALeadSchema = new mongoose.Schema({
     dateSubmitted: { type: Date, default: Date.now },
     submissionCount: { type: Number, default: 1 },
     isConsent: { type: Boolean, default: true },
+    assigned_to: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null, index: true },
+    unreadCount: { type: Number, default: 0 },
     smsHistory: [
         {
             direction: { type: String, enum: ['inbound', 'outbound'] },
@@ -15,7 +17,8 @@ const EALeadSchema = new mongoose.Schema({
             timestamp: { type: Date, default: Date.now },
             isBulk: { type: Boolean, default: false },
             status: { type: String, enum: ['pending', 'sent', 'failed', 'received'], default: 'pending' },
-            twilioSid: { type: String, default: null }
+            twilioSid: { type: String, default: null },
+            isRead: { type: Boolean, default: false }
         }
     ]
 }, { timestamps: true });

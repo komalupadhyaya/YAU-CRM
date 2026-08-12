@@ -167,50 +167,42 @@ export default function Dialer() {
     const deviceRef = useRef<Device | null>(null);
     const callRef = useRef<Call | null>(null);
     const timerRef = useRef<NodeJS.Timeout | null>(null);
+    // Guard to ensure Device is initialized only once per session, after first user gesture
+    const deviceInitializedRef = useRef<boolean>(false);
 
-    // Initialize Twilio Device on Login
+    // Lazy-initialize Twilio Device only after the first user gesture.
+    // This satisfies browser autoplay policies (Chrome/Edge) which block HTMLAudioElement.play()
+    // if called programmatically before any user interaction on the page.
     useEffect(() => {
         if (!currentUser) {
+            // On logout: clean up device and reset the initialized flag
+            deviceInitializedRef.current = false;
             cleanupDevice();
             return;
         }
 
-        initializeDevice();
+        const handleFirstGesture = () => {
+            if (!deviceInitializedRef.current) {
+                deviceInitializedRef.current = true;
+                initializeDevice();
+            }
+            // Self-remove after first trigger
+            document.removeEventListener('click', handleFirstGesture);
+            document.removeEventListener('keydown', handleFirstGesture);
+            document.removeEventListener('touchstart', handleFirstGesture);
+        };
+
+        document.addEventListener('click', handleFirstGesture);
+        document.addEventListener('keydown', handleFirstGesture);
+        document.addEventListener('touchstart', handleFirstGesture);
 
         return () => {
+            document.removeEventListener('click', handleFirstGesture);
+            document.removeEventListener('keydown', handleFirstGesture);
+            document.removeEventListener('touchstart', handleFirstGesture);
             cleanupDevice();
         };
     }, [currentUser]);
-
-    // Resume AudioContext on first user interaction to satisfy browser autoplay policies
-    useEffect(() => {
-        const handleUserGesture = () => {
-            if (Device.audioContext) {
-                if (Device.audioContext.state === 'suspended') {
-                    Device.audioContext.resume()
-                        .then(() => {
-                            console.log('Twilio AudioContext successfully resumed via user gesture.');
-                            cleanup();
-                        })
-                        .catch(err => {
-                            console.warn('Failed to resume Twilio AudioContext:', err);
-                        });
-                } else if (Device.audioContext.state === 'running') {
-                    cleanup();
-                }
-            }
-        };
-
-        const cleanup = () => {
-            document.removeEventListener('click', handleUserGesture);
-            document.removeEventListener('keydown', handleUserGesture);
-        };
-
-        document.addEventListener('click', handleUserGesture);
-        document.addEventListener('keydown', handleUserGesture);
-
-        return cleanup;
-    }, []);
 
     // Handle token refresh or initialization
     const initializeDevice = async () => {
@@ -224,9 +216,10 @@ export default function Dialer() {
                 return;
             }
 
-            // Instantiate Twilio Device
+            // Instantiate Twilio Device with disableAudioContextSounds to prevent browser autoplay errors
             const device = new Device(token, {
-                codecPreferences: [Call.Codec.Opus, Call.Codec.PCMU]
+                codecPreferences: [Call.Codec.Opus, Call.Codec.PCMU],
+                disableAudioContextSounds: true
             });
 
             // Register Event Listeners

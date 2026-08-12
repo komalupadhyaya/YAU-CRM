@@ -7,7 +7,7 @@ import AppLayout from "../layout/AppLayout";
 import { useAuth } from "../context/AuthContext";
 import { can } from "../utils/permissions";
 import { useDialerStore } from "../store/dialerStore";
-import { CalendarPlus, Save, ArrowLeft, History, Info, User, Phone, Mail, Clock, MessageSquare, ChevronDown, ChevronUp, Edit, Video, Send, CheckCircle2, Trash2, Play, Pause, ExternalLink, FileText, Smartphone, X, RefreshCw, Zap } from "lucide-react";
+import { CalendarPlus, Save, ArrowLeft, History, Info, User, Phone, Mail, Clock, MessageSquare, ChevronDown, ChevronUp, Edit, Video, Send, CheckCircle2, Trash2, Play, Pause, ExternalLink, FileText, Smartphone, X, RefreshCw, Zap, Wand2, Sparkles, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { countryCodes } from "../utils/countryCodes";
 import {
@@ -248,6 +248,9 @@ export default function LeadDetail() {
   const [ccInput, setCcInput] = useState("");
   const [verifiedDomains, setVerifiedDomains] = useState<Record<string, { valid: boolean; message?: string }>>({});
   const [emailErrors, setEmailErrors] = useState<Record<string, string>>({});
+  const [showEmailAiPanel, setShowEmailAiPanel] = useState(false);
+  const [emailAiPrompt, setEmailAiPrompt] = useState("");
+  const [emailAiGenerating, setEmailAiGenerating] = useState(false);
 
   const checkDomain = async (email: string) => {
     const domain = email.split('@')[1];
@@ -267,6 +270,9 @@ export default function LeadDetail() {
     message: ""
   });
   const [smsErrors, setSmsErrors] = useState<Record<string, string>>({});
+  const [showSmsAiPanel, setShowSmsAiPanel] = useState(false);
+  const [smsAiPrompt, setSmsAiPrompt] = useState("");
+  const [smsAiGenerating, setSmsAiGenerating] = useState(false);
 
   const [isDeleteNoteModalOpen, setIsDeleteNoteModalOpen] = useState(false);
   const [noteToDelete, setNoteToDelete] = useState<string | null>(null);
@@ -813,6 +819,71 @@ export default function LeadDetail() {
     }
   };
 
+  const handleEmailAiGenerate = async () => {
+    if (!lead || emailAiGenerating) return;
+    setEmailAiGenerating(true);
+    try {
+      const contactPerson = selectedContactForEmail?.name || (lead as Lead)?.contacts?.[0]?.name || lead?.main_contact_name || "";
+      const res = await api.post('/emails/ai-generate-email', {
+        leadId: lead._id || id,
+        leadType: 'main_lead',
+        contactName: contactPerson,
+        userPrompt: emailAiPrompt.trim() || undefined
+      });
+
+      if (!res.data.body && !res.data.subject) {
+        toast.error('AI returned an empty email. Please try again.');
+        return;
+      }
+
+      setEmailData(prev => ({
+        ...prev,
+        subject: res.data.subject || prev.subject,
+        body: res.data.body || prev.body
+      }));
+      setShowEmailAiPanel(false);
+      setEmailAiPrompt('');
+      setEmailErrors({});
+      toast.success('AI email draft ready — review and send!');
+    } catch (err: any) {
+      console.error('AI generate email error:', err);
+      toast.error(err.response?.data?.error || err.response?.data?.message || 'Failed to generate AI email');
+    } finally {
+      setEmailAiGenerating(false);
+    }
+  };
+
+  const handleSmsAiGenerate = async () => {
+    if (!lead || smsAiGenerating) return;
+    setSmsAiGenerating(true);
+    try {
+      const contactPerson = selectedContactForSms?.name || (lead as Lead)?.contacts?.[0]?.name || lead?.main_contact_name || "";
+      const res = await api.post('/sms/ai-generate-sms', {
+        leadId: lead._id || id,
+        leadType: 'main_lead',
+        contactName: contactPerson,
+        userPrompt: smsAiPrompt.trim() || undefined
+      });
+
+      const draft: string = res.data.draft || '';
+      if (!draft) {
+        toast.error('AI returned an empty draft. Please try again.');
+        return;
+      }
+
+      setSmsData(prev => ({ ...prev, message: draft }));
+      setShowSmsAiPanel(false);
+      setSmsAiPrompt('');
+      setSmsErrors({});
+      toast.success('AI SMS draft ready — review and send!');
+    } catch (err: any) {
+      console.error('AI generate SMS error:', err);
+      toast.error(err.response?.data?.error || err.response?.data?.message || 'Failed to generate AI SMS message');
+    } finally {
+      setSmsAiGenerating(false);
+    }
+  };
+
   const sendSms = async () => {
     if (isSubmitting) return;
     const errors: Record<string, string> = {};
@@ -841,6 +912,8 @@ export default function LeadDetail() {
       toast.success("SMS sent successfully");
       setIsSmsModalOpen(false);
       setSmsData({ message: "" });
+      setShowSmsAiPanel(false);
+      setSmsAiPrompt("");
       setSmsErrors({});
       loadAll(true);
     } catch (err: unknown) {
@@ -878,6 +951,8 @@ export default function LeadDetail() {
       toast.success("Email sent successfully");
       setIsEmailModalOpen(false);
       setEmailData({ subject: "", body: "", cc: [], to: "" });
+      setShowEmailAiPanel(false);
+      setEmailAiPrompt("");
       setCcInput("");
       setEmailErrors({});
       loadAll(true);
@@ -2063,9 +2138,23 @@ export default function LeadDetail() {
       {/* Email Modal */}
       <Dialog open={isEmailModalOpen} onOpenChange={(open) => {
         setIsEmailModalOpen(open);
-        if (!open) setEmailErrors({});
+        if (!open) {
+          setEmailErrors({});
+          setShowEmailAiPanel(false);
+          setEmailAiPrompt("");
+        }
       }}>
-        <DialogContent aria-describedby={undefined} className="w-[90vw] max-w-2xl dark:bg-card p-0 overflow-hidden !flex !flex-col max-h-[90vh]">
+        <DialogContent
+          aria-describedby={undefined}
+          className="w-[90vw] max-w-2xl dark:bg-card p-0 overflow-hidden !flex !flex-col max-h-[90vh]"
+          onEscapeKeyDown={(e) => {
+            if (showEmailAiPanel) {
+              e.preventDefault();
+              setShowEmailAiPanel(false);
+              setEmailAiPrompt("");
+            }
+          }}
+        >
           <DialogHeader className="p-6 pb-2 border-b flex-shrink-0">
             <DialogTitle className="dark:text-foreground">Send Email to {selectedContactForEmail?.name || lead?.name || "Lead"}</DialogTitle>
           </DialogHeader>
@@ -2181,7 +2270,87 @@ export default function LeadDetail() {
                 {emailErrors.subject && <p className="text-xs text-destructive font-medium">{emailErrors.subject}</p>}
               </div>
               <div className="grid gap-2">
-                <span className="text-sm font-medium">Message Body <span className="text-destructive">*</span></span>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">Message Body <span className="text-destructive">*</span></span>
+                  <button
+                    type="button"
+                    onClick={() => setShowEmailAiPanel(prev => !prev)}
+                    className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg border transition-all ${
+                      showEmailAiPanel
+                        ? 'bg-violet-500/15 border-violet-500/30 text-violet-600 dark:text-violet-400 shadow-sm'
+                        : 'bg-violet-500/5 hover:bg-violet-500/10 border-violet-500/20 text-violet-600 dark:text-violet-400'
+                    }`}
+                  >
+                    <Wand2 size={12} className="text-violet-500" />
+                    <span>AI Email Assistant</span>
+                    <ChevronDown size={11} className={`transition-transform duration-200 ${showEmailAiPanel ? 'rotate-180' : ''}`} />
+                  </button>
+                </div>
+
+                {/* AI Assistant Panel */}
+                {showEmailAiPanel && (
+                  <div className="rounded-xl border border-violet-500/30 bg-violet-500/5 p-3.5 space-y-2.5 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <Sparkles size={14} className="text-violet-500" />
+                        <span className="text-xs font-bold text-violet-600 dark:text-violet-400">
+                          AI Email Composer
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => { setShowEmailAiPanel(false); setEmailAiPrompt(''); }}
+                        className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded hover:bg-muted/50"
+                      >
+                        <X size={13} />
+                      </button>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <p className="text-[11px] text-muted-foreground">
+                        What's the goal of this email?
+                      </p>
+                      <textarea
+                        placeholder='e.g. "Follow up after our call", "Introduce sports programs", "Send pricing and schedule demo"'
+                        value={emailAiPrompt}
+                        onChange={e => setEmailAiPrompt(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            handleEmailAiGenerate();
+                          }
+                          if (e.key === 'Escape') {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setShowEmailAiPanel(false);
+                            setEmailAiPrompt('');
+                          }
+                        }}
+                        className="input-field text-xs bg-background border-border min-h-[58px] max-h-32 resize-none py-2 custom-scrollbar w-full"
+                        autoFocus
+                      />
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-0.5">
+                      <button
+                        type="button"
+                        onClick={handleEmailAiGenerate}
+                        disabled={emailAiGenerating}
+                        className="btn-primary h-7 px-3 text-xs font-semibold gap-1.5 bg-violet-600 hover:bg-violet-700 text-white shadow-sm flex items-center"
+                      >
+                        {emailAiGenerating ? (
+                          <><Loader2 size={12} className="animate-spin" /> Generating Email...</>
+                        ) : (
+                          <><Wand2 size={12} /> Generate Draft</>
+                        )}
+                      </button>
+                      <p className="text-[10px] text-muted-foreground">
+                        Generates subject & formatted message · Fills compose box
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 <div className="[&_.ql-editor]:min-h-[180px]">
                   <ReactQuill
                     theme="snow"
@@ -2405,10 +2574,24 @@ export default function LeadDetail() {
         open={isSmsModalOpen}
         onOpenChange={(open) => {
           setIsSmsModalOpen(open);
-          if (!open) setSmsErrors({});
+          if (!open) {
+            setSmsErrors({});
+            setShowSmsAiPanel(false);
+            setSmsAiPrompt("");
+          }
         }}
       >
-        <DialogContent aria-describedby={undefined} className="w-[90vw] max-w-md dark:bg-card p-0 overflow-hidden !flex !flex-col max-h-[90vh]">
+        <DialogContent
+          aria-describedby={undefined}
+          className="w-[90vw] max-w-md dark:bg-card p-0 overflow-hidden !flex !flex-col max-h-[90vh]"
+          onEscapeKeyDown={(e) => {
+            if (showSmsAiPanel) {
+              e.preventDefault();
+              setShowSmsAiPanel(false);
+              setSmsAiPrompt("");
+            }
+          }}
+        >
           <DialogHeader className="p-6 pb-2 border-b flex-shrink-0"><DialogTitle className="dark:text-foreground">Send SMS</DialogTitle></DialogHeader>
           <div className="flex-1 overflow-y-auto p-6 py-4 custom-scrollbar min-h-0">
             <div className="grid gap-4">
@@ -2421,7 +2604,87 @@ export default function LeadDetail() {
                 </div>
               </div>
               <div className="grid gap-2">
-                <label htmlFor="sms_message" className="text-sm font-medium">Message <span className="text-destructive">*</span></label>
+                <div className="flex items-center justify-between">
+                  <label htmlFor="sms_message" className="text-sm font-medium">Message <span className="text-destructive">*</span></label>
+                  <button
+                    type="button"
+                    onClick={() => setShowSmsAiPanel(prev => !prev)}
+                    className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg border transition-all ${
+                      showSmsAiPanel
+                        ? 'bg-violet-500/15 border-violet-500/30 text-violet-600 dark:text-violet-400 shadow-sm'
+                        : 'bg-violet-500/5 hover:bg-violet-500/10 border-violet-500/20 text-violet-600 dark:text-violet-400'
+                    }`}
+                  >
+                    <Wand2 size={12} className="text-violet-500" />
+                    <span>AI Message Assistant</span>
+                    <ChevronDown size={11} className={`transition-transform duration-200 ${showSmsAiPanel ? 'rotate-180' : ''}`} />
+                  </button>
+                </div>
+
+                {/* AI Suggest Panel */}
+                {showSmsAiPanel && (
+                  <div className="rounded-xl border border-violet-500/30 bg-violet-500/5 p-3 space-y-2.5 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <Sparkles size={13} className="text-violet-500" />
+                        <span className="text-[11px] font-bold text-violet-600 dark:text-violet-400">
+                          AI Message Assistant
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => { setShowSmsAiPanel(false); setSmsAiPrompt(''); }}
+                        className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded hover:bg-muted/50"
+                      >
+                        <X size={13} />
+                      </button>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <p className="text-[10px] text-muted-foreground">
+                        What's the goal of this message?
+                      </p>
+                      <textarea
+                        placeholder='e.g. "Follow up on proposal", "Schedule a meeting"'
+                        value={smsAiPrompt}
+                        onChange={e => setSmsAiPrompt(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            handleSmsAiGenerate();
+                          }
+                          if (e.key === 'Escape') {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setShowSmsAiPanel(false);
+                            setSmsAiPrompt('');
+                          }
+                        }}
+                        className="input-field text-xs bg-background border-border min-h-[56px] max-h-28 resize-none py-2 custom-scrollbar w-full"
+                        autoFocus
+                      />
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleSmsAiGenerate}
+                        disabled={smsAiGenerating}
+                        className="btn-primary h-7 px-3 text-[11px] font-semibold gap-1.5 bg-violet-600 hover:bg-violet-700 text-white shadow-sm flex items-center"
+                      >
+                        {smsAiGenerating ? (
+                          <><Loader2 size={12} className="animate-spin" /> Generating...</>
+                        ) : (
+                          <><Wand2 size={12} /> Generate Draft</>
+                        )}
+                      </button>
+                      <p className="text-[10px] text-muted-foreground">
+                        Under 160 chars · Fills compose box
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 <textarea
                   id="sms_message"
                   name="message"

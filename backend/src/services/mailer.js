@@ -1057,5 +1057,141 @@ export async function sendVoicemailEmailNotification({ to, fromNumber, duration,
     }
 }
 
+/**
+ * Send email notification for an inbound SMS reply to assigned sales rep(s).
+ * Non-blocking, fire-and-forget helper.
+ */
+export async function sendSMSReplyEmailNotification({
+    to,
+    leadName,
+    leadPhone,
+    leadType = 'CRM Lead',
+    leadId,
+    replyMessage,
+    timestamp = new Date()
+}) {
+    if (!to) return;
+    const crmUrl = process.env.FRONTEND_URL || 'https://crm.yauapp.com';
+    const conversationUrl = `${crmUrl}/sms?leadId=${leadId}`;
+    const formattedDate = new Date(timestamp).toLocaleString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: 'numeric',
+        hour12: true
+    });
+    const categoryLabel = leadType === 'ea_lead' ? 'EA Lead' : 'CRM Lead';
+    const cleanName = leadName || leadPhone || 'Lead';
+
+    const recipients = Array.isArray(to) ? to.filter(Boolean) : [to].filter(Boolean);
+    if (recipients.length === 0) return;
+
+    const html = `
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>New SMS Reply from ${cleanName}</title>
+    </head>
+    <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f4f4f5; color: #18181b;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f4f4f5; padding: 30px 15px;">
+            <tr>
+                <td align="center">
+                    <table role="presentation" width="100%" max-width="580" style="max-width: 580px; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05); border: 1px solid #e4e4e7;">
+                        
+                        <!-- Header Banner -->
+                        <tr>
+                            <td style="background-color: #09090b; padding: 24px 30px; text-align: left;">
+                                <div style="display: inline-block;">
+                                    <span style="font-size: 18px; font-weight: 800; color: #ffffff; letter-spacing: 0.5px;">YAU<span style="color: #3b82f6;">CRM</span></span>
+                                </div>
+                                <span style="float: right; font-size: 11px; font-weight: 700; background-color: rgba(59, 130, 246, 0.15); color: #60a5fa; padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(59, 130, 246, 0.3); text-transform: uppercase;">
+                                    SMS Inbound Alert
+                                </span>
+                            </td>
+                        </tr>
+
+                        <!-- Body Content -->
+                        <tr>
+                            <td style="padding: 30px;">
+                                <h1 style="margin: 0 0 8px 0; font-size: 18px; font-weight: 700; color: #09090b;">
+                                    💬 You have a new SMS reply from <span style="color: #2563eb;">${cleanName}</span>
+                                </h1>
+                                <p style="margin: 0 0 20px 0; font-size: 13px; color: #71717a;">
+                                    A lead assigned to you has replied to an SMS conversation.
+                                </p>
+
+                                <!-- Message Quote Bubble -->
+                                <div style="background-color: #f8fafc; border-left: 4px solid #2563eb; border-radius: 6px; padding: 16px 18px; margin-bottom: 24px;">
+                                    <p style="margin: 0; font-size: 14px; line-height: 1.5; color: #0f172a; font-style: normal; font-weight: 500;">
+                                        "${replyMessage}"
+                                    </p>
+                                </div>
+
+                                <!-- Lead Details Grid -->
+                                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-bottom: 28px; border-top: 1px solid #f1f5f9; border-bottom: 1px solid #f1f5f9;">
+                                    <tr>
+                                        <td style="padding: 10px 0; font-size: 12px; color: #64748b; width: 40%;">Lead Name:</td>
+                                        <td style="padding: 10px 0; font-size: 13px; color: #0f172a; font-weight: 600;">${cleanName}</td>
+                                    </tr>
+                                    <tr>
+                                        <td style="padding: 10px 0; font-size: 12px; color: #64748b; border-top: 1px solid #f1f5f9;">Phone Number:</td>
+                                        <td style="padding: 10px 0; font-size: 13px; color: #0f172a; font-weight: 600; border-top: 1px solid #f1f5f9;">${leadPhone || 'N/A'}</td>
+                                    </tr>
+                                    <tr>
+                                        <td style="padding: 10px 0; font-size: 12px; color: #64748b; border-top: 1px solid #f1f5f9;">Category:</td>
+                                        <td style="padding: 10px 0; font-size: 13px; color: #0f172a; font-weight: 600; border-top: 1px solid #f1f5f9;">${categoryLabel}</td>
+                                    </tr>
+                                    <tr>
+                                        <td style="padding: 10px 0; font-size: 12px; color: #64748b; border-top: 1px solid #f1f5f9;">Received At:</td>
+                                        <td style="padding: 10px 0; font-size: 13px; color: #0f172a; font-weight: 600; border-top: 1px solid #f1f5f9;">${formattedDate}</td>
+                                    </tr>
+                                </table>
+
+                                <!-- Action Button -->
+                                <div style="text-align: center; margin: 10px 0 20px 0;">
+                                    <a href="${conversationUrl}" target="_blank" style="display: inline-block; background-color: #2563eb; color: #ffffff; text-decoration: none; font-size: 14px; font-weight: 700; padding: 14px 28px; border-radius: 8px; box-shadow: 0 2px 6px rgba(37, 99, 235, 0.3);">
+                                        👉 Click Here to Respond in CRM
+                                    </a>
+                                </div>
+                                <p style="text-align: center; margin: 0; font-size: 11px; color: #94a3b8;">
+                                    Direct link: <a href="${conversationUrl}" style="color: #2563eb;">${conversationUrl}</a>
+                                </p>
+                            </td>
+                        </tr>
+
+                        <!-- Footer -->
+                        <tr>
+                            <td style="background-color: #fafafa; padding: 18px 30px; text-align: center; border-top: 1px solid #e4e4e7;">
+                                <p style="margin: 0; font-size: 11px; color: #a1a1aa;">
+                                    Youth Athlete University CRM • Real-time SMS Notification Dispatcher
+                                </p>
+                            </td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
+        </table>
+    </body>
+    </html>
+    `;
+
+    for (const email of recipients) {
+        try {
+            await sendMail({
+                to: email,
+                subject: `💬 New SMS reply from ${cleanName}`,
+                html,
+            });
+            console.log(`✅ SMS reply notification email sent successfully to ${email}`);
+        } catch (err) {
+            console.error(`❌ Failed to send SMS reply notification email to ${email}:`, err.message);
+        }
+    }
+}
+
+
 
 

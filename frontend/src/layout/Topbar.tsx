@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { LogOut, Menu, Moon, Sun, Bell, CheckCheck, Clock, CalendarClock, Trash2 } from "lucide-react";
+import { LogOut, Menu, Moon, Sun, Bell, CheckCheck, Clock, CalendarClock, Trash2, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { useSidebar } from "./SidebarContext";
 import { useThemeStore } from "../store/themeStore";
 import { useAuth } from "../context/AuthContext";
+import { useSMS } from "../context/SMSContext";
 import CalendarPopover from "../components/CalendarPopover";
 import api from "../api/api";
 import AvailabilityModal from "../components/AvailabilityModal";
@@ -248,6 +249,120 @@ function NotificationBell() {
   );
 }
 
+// ── SMS Navbar Popover Component ─────────────────────────────────────────────
+
+function SMSNavbarPopover() {
+  const [open, setOpen] = useState(false);
+  const { unreadSMSCount, recentSMSList, markAsRead } = useSMS();
+  const panelRef = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const handleOpenInbox = () => {
+    setOpen(false);
+    navigate("/sms");
+  };
+
+  const handleSelectMessage = async (item: any) => {
+    setOpen(false);
+    await markAsRead(item.leadId, item.leadType);
+    navigate(`/sms?leadId=${item.leadId}`);
+  };
+
+  return (
+    <div ref={panelRef} className="relative">
+      <button
+        id="sms-navbar-btn"
+        onClick={() => setOpen((o) => !o)}
+        className="relative p-2 text-muted-foreground hover:text-foreground rounded-xl hover:bg-accent transition-all duration-200"
+        title="SMS Messages"
+        aria-label="Open SMS inbox"
+      >
+        <MessageSquare size={20} />
+        {unreadSMSCount > 0 && (
+          <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold leading-none shadow-sm animate-in zoom-in-50 duration-200">
+            {unreadSMSCount > 9 ? "9+" : unreadSMSCount}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div className="fixed left-4 right-4 sm:absolute sm:left-auto sm:right-0 sm:w-96 top-14 sm:top-11 bg-card border border-border shadow-2xl rounded-2xl overflow-hidden z-50 animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+            <div className="flex items-center gap-2">
+              <MessageSquare size={15} className="text-primary" />
+              <span className="text-sm font-bold">SMS Messages</span>
+              {unreadSMSCount > 0 && (
+                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-500 border border-red-500/20">
+                  {unreadSMSCount} unread
+                </span>
+              )}
+            </div>
+            <button
+              onClick={handleOpenInbox}
+              className="text-xs text-primary hover:underline font-semibold"
+            >
+              Open Full Inbox
+            </button>
+          </div>
+
+          <div className="max-h-[360px] overflow-y-auto custom-scrollbar">
+            {recentSMSList.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                <MessageSquare size={28} className="mb-3 opacity-20" />
+                <p className="text-sm font-medium">No unread SMS messages</p>
+                <button
+                  onClick={handleOpenInbox}
+                  className="text-xs text-primary mt-2 font-semibold hover:underline"
+                >
+                  View all conversations →
+                </button>
+              </div>
+            ) : (
+              recentSMSList.map((item) => (
+                <div
+                  key={`${item.leadId}-${item.timestamp}`}
+                  onClick={() => handleSelectMessage(item)}
+                  className="w-full flex items-start gap-3 px-4 py-3.5 text-left hover:bg-accent/60 transition-colors border-b border-border/50 last:border-b-0 cursor-pointer bg-primary/5"
+                >
+                  <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">
+                    {item.senderName.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-1">
+                      <p className="text-xs font-bold text-foreground truncate">
+                        {item.senderName}
+                      </p>
+                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-muted text-muted-foreground font-semibold">
+                        {item.categoryTag}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2 leading-relaxed">
+                      {item.message}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground/60 mt-1 font-medium">
+                      {timeAgo(item.timestamp)}
+                    </p>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main Topbar ───────────────────────────────────────────────────────────────
 
 export default function Topbar() {
@@ -347,6 +462,9 @@ export default function Topbar() {
 
         {/* Calendar Popover */}
         <CalendarPopover />
+
+        {/* SMS Messages Navbar Button */}
+        <SMSNavbarPopover />
 
         {/* Notification Bell */}
         <NotificationBell />

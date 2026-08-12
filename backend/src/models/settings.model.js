@@ -20,6 +20,23 @@ const SettingsSchema = new mongoose.Schema({
             "Program Confirmed",
             "On Hold"
         ]
+    },
+    notificationSettings: {
+        global: {
+            inAppEnabled: { type: Boolean, default: true },
+            emailEnabled: { type: Boolean, default: true },
+            smsForwardEnabled: { type: Boolean, default: true },
+            fallbackEmails: { type: [String], default: [] },
+            fallbackPhone: { type: String, default: "" }
+        },
+        repSettings: [{
+            userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+            inAppEnabled: { type: Boolean, default: true },
+            emailEnabled: { type: Boolean, default: true },
+            smsForwardEnabled: { type: Boolean, default: true },
+            emails: { type: [String], default: [] },
+            phone: { type: String, default: "" }
+        }]
     }
 }, { timestamps: true });
 

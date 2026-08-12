@@ -30,10 +30,12 @@ import {
   Phone,
   Voicemail,
   PhoneCall,
-  Video
+  Video,
+  MessageSquare
 } from "lucide-react";
 import { useSidebar } from "./SidebarContext";
 import { useFollowUp } from "../context/FollowUpContext";
+import { useSMS } from "../context/SMSContext";
 import { useAuth } from "../context/AuthContext";
 import { can } from "../utils/permissions";
 
@@ -54,6 +56,7 @@ const topNavItems = [
   { to: "/reports",         label: "Reports",         icon: BarChart3 },
   { to: "/lead-scheduler",  label: "Lead Scheduler",  icon: UserCheck },
   { to: "/ea-leads",        label: "EA Leads",        icon: Sparkles },
+  { to: "/sms",             label: "SMS Messages",    icon: MessageSquare },
   { to: "/candidates",      label: "HC Candidates",      icon: UserPlus },
   // { to: "/history",      label: "History",         icon: History },
   { to: "/team",            label: "Team",            icon: Users },
@@ -74,16 +77,46 @@ const bottomNavItems = [
 ];
 
 
-const quickActions: any[] = [];
+let savedSidebarScrollTop = 0;
 
 export default function Sidebar() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const { collapsed, mobileOpen, toggleCollapsed, closeMobile } = useSidebar();
   const { dueTodayCount, dueTodayNames, schoolMeetingCount, hrMeetingCount } = useFollowUp();
+  const { unreadSMSCount } = useSMS();
   const { currentUser } = useAuth();
   const permissions = can(currentUser?.role);
   const [settingsExpanded, setSettingsExpanded] = useState(false);
+
+  const desktopNavRef = React.useRef<HTMLElement>(null);
+  const mobileNavRef = React.useRef<HTMLElement>(null);
+
+  // Restore scroll position when pathname changes or component mounts
+  React.useLayoutEffect(() => {
+    const saved = sessionStorage.getItem("crm_sidebar_nav_scroll");
+    const scrollTop = saved !== null ? Number(saved) : savedSidebarScrollTop;
+
+    const restore = () => {
+      if (desktopNavRef.current && scrollTop > 0) {
+        desktopNavRef.current.scrollTop = scrollTop;
+      }
+      if (mobileNavRef.current && scrollTop > 0) {
+        mobileNavRef.current.scrollTop = scrollTop;
+      }
+    };
+
+    restore();
+    // Re-apply on next animation frame in case child components render asynchronously
+    const frame = requestAnimationFrame(restore);
+    return () => cancelAnimationFrame(frame);
+  }, [pathname]);
+
+  const handleNavScroll = (e: React.UIEvent<HTMLElement>) => {
+    const top = e.currentTarget.scrollTop;
+    savedSidebarScrollTop = top;
+    sessionStorage.setItem("crm_sidebar_nav_scroll", String(top));
+  };
 
   // Filter nav items based on the current user's role
   const visibleTopNavItems = topNavItems.map(item => {
@@ -183,7 +216,13 @@ export default function Sidebar() {
                   <DropdownMenuItem key={child.to} asChild className="cursor-pointer focus:bg-accent focus:text-accent-foreground">
                     <Link
                       to={child.to}
-                      onClick={isMobile ? closeMobile : undefined}
+                      onClick={() => {
+                        if (desktopNavRef.current) {
+                          savedSidebarScrollTop = desktopNavRef.current.scrollTop;
+                          sessionStorage.setItem("crm_sidebar_nav_scroll", String(desktopNavRef.current.scrollTop));
+                        }
+                        if (isMobile) closeMobile();
+                      }}
                       className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
                         childActive ? "bg-primary/10 text-primary font-semibold" : "text-popover-foreground"
                       }`}
@@ -213,8 +252,9 @@ export default function Sidebar() {
       const isFollowUps = to === "/followups" && dueTodayCount > 0;
       const isSchoolMeetings = to === "/meetings/school" && schoolMeetingCount > 0;
       const isHRMeetings = to === "/meetings/hr" && hrMeetingCount > 0;
-      const showBadge = isFollowUps || isSchoolMeetings || isHRMeetings;
-      const badgeCount = isFollowUps ? dueTodayCount : isSchoolMeetings ? schoolMeetingCount : hrMeetingCount;
+      const isSMS = to === "/sms" && unreadSMSCount > 0;
+      const showBadge = isFollowUps || isSchoolMeetings || isHRMeetings || isSMS;
+      const badgeCount = isFollowUps ? dueTodayCount : isSchoolMeetings ? schoolMeetingCount : isHRMeetings ? hrMeetingCount : unreadSMSCount;
       
       let tooltipContent = label;
       if (isFollowUps) {
@@ -223,6 +263,8 @@ export default function Sidebar() {
         tooltipContent = `${label} (${schoolMeetingCount} upcoming)`;
       } else if (isHRMeetings) {
         tooltipContent = `${label} (${hrMeetingCount} upcoming)`;
+      } else if (isSMS) {
+        tooltipContent = `${label} (${unreadSMSCount} unread)`;
       }
 
       return (
@@ -230,7 +272,13 @@ export default function Sidebar() {
           key={to}
           to={to}
           title={isMobile ? undefined : tooltipContent}
-          onClick={isMobile ? closeMobile : undefined}
+          onClick={() => {
+            if (desktopNavRef.current) {
+              savedSidebarScrollTop = desktopNavRef.current.scrollTop;
+              sessionStorage.setItem("crm_sidebar_nav_scroll", String(desktopNavRef.current.scrollTop));
+            }
+            if (isMobile) closeMobile();
+          }}
           className={`sidebar-item relative ${active ? "sidebar-item-active" : "sidebar-item-inactive"} ${collapsed && !isMobile ? "justify-center px-0" : ""}`}
         >
           <div className="relative">
@@ -297,7 +345,11 @@ export default function Sidebar() {
         </div>
 
         {/* Top Nav */}
-        <nav className="flex-1 py-4 px-2 space-y-1 overflow-y-auto overflow-x-hidden">
+        <nav
+          ref={desktopNavRef}
+          onScroll={handleNavScroll}
+          className="flex-1 py-4 px-2 space-y-1 overflow-y-auto overflow-x-hidden"
+        >
           {!collapsed && (
             <p className="text-[10px] uppercase tracking-widest text-sidebar-muted font-semibold px-3 mb-2">Menu</p>
           )}
@@ -336,7 +388,11 @@ export default function Sidebar() {
         </div>
 
         {/* Mobile Top Nav */}
-        <nav className="flex-1 py-4 px-2 space-y-1 overflow-y-auto">
+        <nav
+          ref={mobileNavRef}
+          onScroll={handleNavScroll}
+          className="flex-1 py-4 px-2 space-y-1 overflow-y-auto"
+        >
           <p className="text-[10px] uppercase tracking-widest text-sidebar-muted font-semibold px-3 mb-2">Menu</p>
           {renderNavItems(visibleTopNavItems, true)}
         </nav>
