@@ -40,6 +40,16 @@ export const updateSettings = async (req, res, next) => {
         if (statusLabels) updateData.statusLabels = statusLabels;
         if (notificationSettings) updateData.notificationSettings = notificationSettings;
 
+        // Sync actual User document phone numbers from repSettings to user profile phone data
+        if (notificationSettings && Array.isArray(notificationSettings.repSettings)) {
+            for (const rs of notificationSettings.repSettings) {
+                const uid = typeof rs.userId === "object" ? rs.userId._id : rs.userId;
+                if (uid && rs.phone !== undefined) {
+                    await User.findByIdAndUpdate(uid, { phone: rs.phone });
+                }
+            }
+        }
+
         const settings = await Settings.findOneAndUpdate(
             {},
             updateData,

@@ -8,6 +8,7 @@ import { Settings } from '../models/settings.model.js';
 import EALead from '../models/eaLead.model.js';
 import smsForwarderService from '../services/smsForwarder.service.js';
 import { sendSMSReplyEmailNotification } from '../services/mailer.js';
+import presenceService from '../services/presence.service.js';
 
 /**
  * Handle JotForm Webhook submissions
@@ -255,34 +256,84 @@ export const handleTwilioReply = async (req, res) => {
         // Emit Socket.IO events for in-app notifications
         const io = req.app.get('io');
         if (io && globalNotif.inAppEnabled !== false) {
+            const emitToUser = (userId, payload) => {
+                const userSocketIds = presenceService.userSockets.get(String(userId));
+                if (userSocketIds) {
+                    for (const socketId of userSocketIds) {
+                        io.to(socketId).emit('sms:received', payload);
+                    }
+                }
+            };
+
             for (const eaLead of matchingEALeads) {
-                const repRule = getRepRule(eaLead.assigned_to);
-                if (!repRule || repRule.inAppEnabled !== false) {
-                    io.emit('sms:received', {
-                        leadId: eaLead._id,
-                        leadType: 'ea_lead',
-                        senderName: eaLead.name,
-                        phone: From,
-                        message: Body.trim(),
-                        timestamp: newMessage.timestamp,
-                        unreadCount: eaLead.unreadCount,
-                        totalUnreadCount
-                    });
+                const assignedUserId = eaLead.assigned_to?._id || eaLead.assigned_to;
+                if (assignedUserId) {
+                    const repRule = getRepRule(eaLead.assigned_to);
+                    if (!repRule || repRule.inAppEnabled !== false) {
+                        emitToUser(assignedUserId, {
+                            leadId: eaLead._id,
+                            leadType: 'ea_lead',
+                            senderName: eaLead.name,
+                            phone: From,
+                            message: Body.trim(),
+                            timestamp: newMessage.timestamp,
+                            unreadCount: eaLead.unreadCount,
+                            totalUnreadCount
+                        });
+                    }
+                } else {
+                    const activeUsers = await User.find({ isActive: true }).select('_id');
+                    for (const u of activeUsers) {
+                        const repRule = getRepRule(u);
+                        if (!repRule || repRule.inAppEnabled !== false) {
+                            emitToUser(u._id, {
+                                leadId: eaLead._id,
+                                leadType: 'ea_lead',
+                                senderName: eaLead.name,
+                                phone: From,
+                                message: Body.trim(),
+                                timestamp: newMessage.timestamp,
+                                unreadCount: eaLead.unreadCount,
+                                totalUnreadCount
+                            });
+                        }
+                    }
                 }
             }
+
             for (const mainLead of matchingMainLeads) {
-                const repRule = getRepRule(mainLead.assigned_to);
-                if (!repRule || repRule.inAppEnabled !== false) {
-                    io.emit('sms:received', {
-                        leadId: mainLead._id,
-                        leadType: 'main_lead',
-                        senderName: mainLead.name,
-                        phone: From,
-                        message: Body.trim(),
-                        timestamp: newMessage.timestamp,
-                        unreadCount: mainLead.unreadCount,
-                        totalUnreadCount
-                    });
+                const assignedUserId = mainLead.assigned_to?._id || mainLead.assigned_to;
+                if (assignedUserId) {
+                    const repRule = getRepRule(mainLead.assigned_to);
+                    if (!repRule || repRule.inAppEnabled !== false) {
+                        emitToUser(assignedUserId, {
+                            leadId: mainLead._id,
+                            leadType: 'main_lead',
+                            senderName: mainLead.name,
+                            phone: From,
+                            message: Body.trim(),
+                            timestamp: newMessage.timestamp,
+                            unreadCount: mainLead.unreadCount,
+                            totalUnreadCount
+                        });
+                    }
+                } else {
+                    const activeUsers = await User.find({ isActive: true }).select('_id');
+                    for (const u of activeUsers) {
+                        const repRule = getRepRule(u);
+                        if (!repRule || repRule.inAppEnabled !== false) {
+                            emitToUser(u._id, {
+                                leadId: mainLead._id,
+                                leadType: 'main_lead',
+                                senderName: mainLead.name,
+                                phone: From,
+                                message: Body.trim(),
+                                timestamp: newMessage.timestamp,
+                                unreadCount: mainLead.unreadCount,
+                                totalUnreadCount
+                            });
+                        }
+                    }
                 }
             }
         }

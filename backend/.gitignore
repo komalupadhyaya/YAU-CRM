@@ -33,3 +33,5 @@ test-email.js
 test-sms.js
 migrate-phones.js 
 check-twilio.js
+scratch/
+.agents

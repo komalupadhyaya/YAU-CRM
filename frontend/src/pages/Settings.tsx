@@ -152,14 +152,21 @@ export default function Settings() {
         if (!settings) return;
         setSaving(true);
         try {
-            // Normalize repSettings so userId is string ID for DB persistence
+            const globalInApp = settings.notificationSettings?.global.inAppEnabled ?? true;
+            const globalEmail = settings.notificationSettings?.global.emailEnabled ?? true;
+            const globalSms = settings.notificationSettings?.global.smsForwardEnabled ?? true;
+
+            // Normalize repSettings and force off per-rep switches if global toggle is disabled
             const payload = {
                 ...settings,
                 notificationSettings: {
                     ...settings.notificationSettings,
-                    repSettings: settings.notificationSettings?.repSettings.map((rs) => ({
+                    repSettings: (settings.notificationSettings?.repSettings || []).map((rs) => ({
                         ...rs,
-                        userId: typeof rs.userId === "object" ? rs.userId._id : rs.userId
+                        userId: typeof rs.userId === "object" ? rs.userId._id : rs.userId,
+                        inAppEnabled: globalInApp ? rs.inAppEnabled : false,
+                        emailEnabled: globalEmail ? rs.emailEnabled : false,
+                        smsForwardEnabled: globalSms ? rs.smsForwardEnabled : false
                     }))
                 }
             };
@@ -202,6 +209,25 @@ export default function Settings() {
     // --- Global Notification Actions ---
     const updateGlobalNotif = (field: keyof GlobalNotificationSettings, value: any) => {
         if (!settings || !settings.notificationSettings) return;
+
+        let updatedRepSettings = settings.notificationSettings.repSettings;
+        if (field === "inAppEnabled") {
+            updatedRepSettings = updatedRepSettings.map((rs) => ({
+                ...rs,
+                inAppEnabled: !!value
+            }));
+        } else if (field === "emailEnabled") {
+            updatedRepSettings = updatedRepSettings.map((rs) => ({
+                ...rs,
+                emailEnabled: !!value
+            }));
+        } else if (field === "smsForwardEnabled") {
+            updatedRepSettings = updatedRepSettings.map((rs) => ({
+                ...rs,
+                smsForwardEnabled: !!value
+            }));
+        }
+
         setSettings({
             ...settings,
             notificationSettings: {
@@ -209,7 +235,8 @@ export default function Settings() {
                 global: {
                     ...settings.notificationSettings.global,
                     [field]: value
-                }
+                },
+                repSettings: updatedRepSettings
             }
         });
     };
@@ -525,10 +552,22 @@ export default function Settings() {
                                                         <div className="flex items-center gap-2">
                                                             <Switch
                                                                 id={`inapp-${userIdStr}`}
-                                                                checked={repSetting.inAppEnabled}
+                                                                checked={
+                                                                    (settings?.notificationSettings?.global.inAppEnabled ?? true)
+                                                                        ? repSetting.inAppEnabled
+                                                                        : false
+                                                                }
+                                                                disabled={!(settings?.notificationSettings?.global.inAppEnabled ?? true)}
                                                                 onCheckedChange={(val) => updateRepSetting(userIdStr, "inAppEnabled", val)}
                                                             />
-                                                            <Label htmlFor={`inapp-${userIdStr}`} className="text-xs cursor-pointer flex items-center gap-1">
+                                                            <Label
+                                                                htmlFor={`inapp-${userIdStr}`}
+                                                                className={`text-xs flex items-center gap-1 ${
+                                                                    !(settings?.notificationSettings?.global.inAppEnabled ?? true)
+                                                                        ? "opacity-50 cursor-not-allowed"
+                                                                        : "cursor-pointer"
+                                                                }`}
+                                                            >
                                                                 <BellRing size={13} className="text-primary" /> In-App
                                                             </Label>
                                                         </div>
@@ -536,10 +575,22 @@ export default function Settings() {
                                                         <div className="flex items-center gap-2">
                                                             <Switch
                                                                 id={`email-${userIdStr}`}
-                                                                checked={repSetting.emailEnabled}
+                                                                checked={
+                                                                    (settings?.notificationSettings?.global.emailEnabled ?? true)
+                                                                        ? repSetting.emailEnabled
+                                                                        : false
+                                                                }
+                                                                disabled={!(settings?.notificationSettings?.global.emailEnabled ?? true)}
                                                                 onCheckedChange={(val) => updateRepSetting(userIdStr, "emailEnabled", val)}
                                                             />
-                                                            <Label htmlFor={`email-${userIdStr}`} className="text-xs cursor-pointer flex items-center gap-1">
+                                                            <Label
+                                                                htmlFor={`email-${userIdStr}`}
+                                                                className={`text-xs flex items-center gap-1 ${
+                                                                    !(settings?.notificationSettings?.global.emailEnabled ?? true)
+                                                                        ? "opacity-50 cursor-not-allowed"
+                                                                        : "cursor-pointer"
+                                                                }`}
+                                                            >
                                                                 <Mail size={13} className="text-blue-500" /> Email
                                                             </Label>
                                                         </div>
@@ -547,10 +598,22 @@ export default function Settings() {
                                                         <div className="flex items-center gap-2">
                                                             <Switch
                                                                 id={`sms-${userIdStr}`}
-                                                                checked={repSetting.smsForwardEnabled}
+                                                                checked={
+                                                                    (settings?.notificationSettings?.global.smsForwardEnabled ?? true)
+                                                                        ? repSetting.smsForwardEnabled
+                                                                        : false
+                                                                }
+                                                                disabled={!(settings?.notificationSettings?.global.smsForwardEnabled ?? true)}
                                                                 onCheckedChange={(val) => updateRepSetting(userIdStr, "smsForwardEnabled", val)}
                                                             />
-                                                            <Label htmlFor={`sms-${userIdStr}`} className="text-xs cursor-pointer flex items-center gap-1">
+                                                            <Label
+                                                                htmlFor={`sms-${userIdStr}`}
+                                                                className={`text-xs flex items-center gap-1 ${
+                                                                    !(settings?.notificationSettings?.global.smsForwardEnabled ?? true)
+                                                                        ? "opacity-50 cursor-not-allowed"
+                                                                        : "cursor-pointer"
+                                                                }`}
+                                                            >
                                                                 <Smartphone size={13} className="text-emerald-500" /> SMS Forward
                                                             </Label>
                                                         </div>
