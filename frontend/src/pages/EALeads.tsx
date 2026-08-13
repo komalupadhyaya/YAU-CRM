@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import api from "../api/api";
 import AppLayout from "../layout/AppLayout";
 import { useAuth } from "../context/AuthContext";
 import { can } from "../utils/permissions";
+import { getRelativeDateLabel } from "../utils/dateHelpers";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -78,6 +80,7 @@ interface EALead {
 export default function EALeads() {
   const { currentUser } = useAuth();
   const permissions = can(currentUser?.role);
+  const isPrivileged = currentUser?.role === 'admin' || currentUser?.role === 'manager';
 
   if (!permissions.viewEALeads) {
     return (
@@ -93,10 +96,12 @@ export default function EALeads() {
     );
   }
 
+  const [searchParams] = useSearchParams();
+
   // Leads state
   const [leads, setLeads] = useState<EALead[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState(searchParams.get("search") || "");
 
   // Modal states
   const [selectedLead, setSelectedLead] = useState<EALead | null>(null);
@@ -475,6 +480,23 @@ export default function EALeads() {
       toast.error(err.response?.data?.error || "Failed to convert lead.");
     } finally {
       setConverting(false);
+    }
+  };
+
+  const handleReenableConsent = async () => {
+    if (!selectedLead) return;
+    try {
+      const res = await api.post(`/sms/consent/${selectedLead._id}`, {
+        leadType: 'ea_lead',
+        consent: true
+      });
+      toast.success(res.data.message || 'SMS consent successfully re-enabled');
+      const freshDetails = { ...selectedLead, isConsent: true };
+      setSelectedLead(freshDetails);
+      setLeads(prev => prev.map(l => l._id === selectedLead._id ? freshDetails : l));
+    } catch (err: any) {
+      console.error("Failed to re-enable consent:", err);
+      toast.error(err.response?.data?.error || "Failed to re-enable consent");
     }
   };
 
@@ -1147,79 +1169,116 @@ export default function EALeads() {
                           <p className="text-xs">No message history with this lead yet.</p>
                         </div>
                       ) : (
-                        selectedLead.smsHistory.map((msg, i) => {
-                          const isInbound = msg.direction === 'inbound';
-                          const isFailed = !isInbound && msg.status === 'failed';
-                          const isPending = !isInbound && msg.status === 'pending';
-                          return (
-                            <div
-                              key={msg._id || i}
-                              className={`flex flex-col max-w-[80%] ${isInbound ? 'self-start mr-auto' : 'self-end ml-auto items-end'}`}
-                            >
-                              <div className={`flex items-center gap-2 ${isInbound ? 'justify-start' : 'justify-end'}`}>
-                                {!isInbound && msg.isBulk && (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <div className="inline-flex items-center justify-center text-muted-foreground hover:text-foreground cursor-pointer bg-secondary border border-border p-1 rounded-full transition-colors shrink-0">
-                                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                                      </div>
-                                    </TooltipTrigger>
-                                    <TooltipContent className="p-1.5 text-[10px] shadow-md bg-popover text-popover-foreground rounded border border-border">
-                                      Bulk
-                                    </TooltipContent>
-                                  </Tooltip>
+                        (() => {
+                          let lastDateLabel = '';
+                          return selectedLead.smsHistory.map((msg, i) => {
+                            const isInbound = msg.direction === 'inbound';
+                            const isFailed = !isInbound && msg.status === 'failed';
+                            const isPending = !isInbound && msg.status === 'pending';
+                            const dateLabel = getRelativeDateLabel(msg.timestamp);
+                            const showDateSeparator = dateLabel !== lastDateLabel;
+                            if (showDateSeparator) {
+                              lastDateLabel = dateLabel;
+                            }
+                            return (
+                              <React.Fragment key={msg._id || i}>
+                                {showDateSeparator && (
+                                  <div className="flex justify-center my-3 w-full">
+                                    <span className="bg-muted text-muted-foreground text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-border/50 uppercase tracking-wider">
+                                      {dateLabel}
+                                    </span>
+                                  </div>
                                 )}
                                 <div
-                                  className={`rounded-2xl px-3 py-2 text-xs leading-relaxed ${
-                                    isInbound
-                                      ? 'bg-muted text-foreground rounded-tl-none'
-                                      : isFailed
-                                        ? 'bg-destructive/90 text-white rounded-tr-none'
-                                        : 'bg-primary text-primary-foreground rounded-tr-none'
-                                  }`}
+                                  className={`flex flex-col max-w-[80%] ${isInbound ? 'self-start mr-auto' : 'self-end ml-auto items-end'}`}
                                 >
-                                  {msg.message}
+                                  <div className={`flex items-center gap-2 ${isInbound ? 'justify-start' : 'justify-end'}`}>
+                                    {!isInbound && msg.isBulk && (
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <div className="inline-flex items-center justify-center text-muted-foreground hover:text-foreground cursor-pointer bg-secondary border border-border p-1 rounded-full transition-colors shrink-0">
+                                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                                          </div>
+                                        </TooltipTrigger>
+                                        <TooltipContent className="p-1.5 text-[10px] shadow-md bg-popover text-popover-foreground rounded border border-border">
+                                          Bulk
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    )}
+                                    <div
+                                      className={`rounded-2xl px-3 py-2 text-xs leading-relaxed ${
+                                        isInbound
+                                          ? 'bg-muted text-foreground rounded-tl-none'
+                                          : isFailed
+                                            ? 'bg-destructive/90 text-white rounded-tr-none'
+                                            : 'bg-primary text-primary-foreground rounded-tr-none'
+                                      }`}
+                                    >
+                                      {msg.message}
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-1.5 mt-1 px-1">
+                                    {isFailed && (
+                                      <span className="inline-flex items-center gap-0.5 text-[9px] bg-destructive/15 text-destructive border border-destructive/30 px-1.5 py-0.5 rounded-full font-semibold leading-tight">
+                                        <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                                        Failed
+                                      </span>
+                                    )}
+                                    <span className="text-[10px] text-muted-foreground">
+                                      {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    </span>
+                                  </div>
                                 </div>
-                              </div>
-                              <div className="flex items-center gap-1.5 mt-1 px-1">
-                                {isFailed && (
-                                  <span className="inline-flex items-center gap-0.5 text-[9px] bg-destructive/15 text-destructive border border-destructive/30 px-1.5 py-0.5 rounded-full font-semibold leading-tight">
-                                    <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                                    Failed
-                                  </span>
-                                )}
-                                <span className="text-[10px] text-muted-foreground">
-                                  {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                </span>
-                              </div>
-                            </div>
-                          );
-                        })
+                              </React.Fragment>
+                            );
+                          });
+                        })()
                       )}
                     </div>
 
                     {/* Send chat message input */}
-                    <form onSubmit={handleSendSingleSMS} className="p-2 border-t flex gap-1.5 bg-card shrink-0">
-                      <Input
-                        placeholder={selectedLead.isConsent ? "Type SMS message..." : "Lead has not given SMS consent"}
-                        value={singleSmsMessage}
-                        onChange={(e) => setSingleSmsMessage(e.target.value)}
-                        disabled={sendingSingleSms || !selectedLead.isConsent}
-                        className="flex-1 bg-background text-xs h-8 border-border"
-                      />
-                      <Button
-                        type="submit"
-                        size="sm"
-                        className="h-8 w-8 p-0 shrink-0"
-                        disabled={sendingSingleSms || !singleSmsMessage.trim() || !selectedLead.isConsent}
-                      >
-                        {sendingSingleSms ? (
-                          <Loader2 size={12} className="animate-spin" />
-                        ) : (
-                          <Send size={12} />
+                    {selectedLead.isConsent === false ? (
+                      <div className="p-3 border-t bg-destructive/5 flex flex-col items-center justify-center gap-1.5 text-center animate-in fade-in duration-200">
+                        <div className="flex items-center gap-1.5 text-destructive text-[11px] font-bold">
+                          <AlertCircle size={13} /> SMS Consent Revoked
+                        </div>
+                        <p className="text-[10px] text-muted-foreground max-w-[320px]">
+                          This contact has opted out of SMS messages (sent STOP). Outbound messaging is disabled.
+                        </p>
+                        {isPrivileged && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={handleReenableConsent}
+                            className="h-7 text-[10px] bg-blue-600 hover:bg-blue-700 text-white font-semibold transition-all px-2.5 rounded-md shadow-sm"
+                          >
+                            Re-enable Consent
+                          </Button>
                         )}
-                      </Button>
-                    </form>
+                      </div>
+                    ) : (
+                      <form onSubmit={handleSendSingleSMS} className="p-2 border-t flex gap-1.5 bg-card shrink-0">
+                        <Input
+                          placeholder={selectedLead.isConsent ? "Type SMS message..." : "Lead has not given SMS consent"}
+                          value={singleSmsMessage}
+                          onChange={(e) => setSingleSmsMessage(e.target.value)}
+                          disabled={sendingSingleSms || !selectedLead.isConsent}
+                          className="flex-1 bg-background text-xs h-8 border-border"
+                        />
+                        <Button
+                          type="submit"
+                          size="sm"
+                          className="h-8 w-8 p-0 shrink-0"
+                          disabled={sendingSingleSms || !singleSmsMessage.trim() || !selectedLead.isConsent}
+                        >
+                          {sendingSingleSms ? (
+                            <Loader2 size={12} className="animate-spin" />
+                          ) : (
+                            <Send size={12} />
+                          )}
+                        </Button>
+                      </form>
+                    )}
                   </div>
                 </TooltipProvider>
               </TabsContent>

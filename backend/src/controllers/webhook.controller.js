@@ -202,10 +202,16 @@ export const handleTwilioReply = async (req, res) => {
             status: 'received'
         };
 
+        const isStopKeyword = Body.trim().toLowerCase() === 'stop';
+
         for (const eaLead of matchingEALeads) {
             if (!eaLead.smsHistory) eaLead.smsHistory = [];
             eaLead.smsHistory.push(newMessage);
             eaLead.unreadCount = (eaLead.unreadCount || 0) + 1;
+            if (isStopKeyword) {
+                eaLead.isConsent = false;
+                console.log(`[Twilio Webhook] Revoking SMS consent for EA Lead "${eaLead.name}" (${eaLead._id}) due to STOP message.`);
+            }
             await eaLead.save();
             console.log(`[Twilio Webhook] Saved inbound SMS reply to EA Lead "${eaLead.name}" (${eaLead._id})`);
         }
@@ -214,6 +220,10 @@ export const handleTwilioReply = async (req, res) => {
             if (!mainLead.smsHistory) mainLead.smsHistory = [];
             mainLead.smsHistory.push(newMessage);
             mainLead.unreadCount = (mainLead.unreadCount || 0) + 1;
+            if (isStopKeyword) {
+                mainLead.isConsent = false;
+                console.log(`[Twilio Webhook] Revoking SMS consent for Main Lead "${mainLead.name}" (${mainLead._id}) due to STOP message.`);
+            }
             await mainLead.save();
             console.log(`[Twilio Webhook] Saved inbound SMS reply to Main Lead "${mainLead.name}" (${mainLead._id})`);
         }

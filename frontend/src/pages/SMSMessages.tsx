@@ -5,6 +5,7 @@ import api from '../api/api';
 import { useSMS } from '../context/SMSContext';
 import { useAuth } from '../context/AuthContext';
 import { can } from '../utils/permissions';
+import { formatConversationTimestamp, getRelativeDateLabel } from '../utils/dateHelpers';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -86,7 +87,7 @@ export default function SMSMessages() {
   const [refreshing, setRefreshing] = useState(false);
   const [manualRefreshing, setManualRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeFilter, setActiveFilter] = useState<'all' | 'ea_lead' | 'main_lead' | 'unread'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'ea_lead' | 'main_lead' | 'unread' | 'opted_out'>('all');
   const [chatMessageFilter, setChatMessageFilter] = useState<'all' | 'direct' | 'bulk'>('all');
 
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(searchParams.get('leadId'));
@@ -108,6 +109,17 @@ export default function SMSMessages() {
   const [loadingAvailableLeads, setLoadingAvailableLeads] = useState(false);
   const [newChatSearch, setNewChatSearch] = useState('');
   const [newChatFilter, setNewChatFilter] = useState<'all' | 'ea_lead' | 'main_lead'>('all');
+  const [sortBy, setSortBy] = useState<'recent' | 'unread' | 'name'>('recent');
+
+  // Bulk SMS state
+  const [showBulkSmsModal, setShowBulkSmsModal] = useState(false);
+  const [bulkSmsMessage, setBulkSmsMessage] = useState('');
+  const [sendingBulkSms, setSendingBulkSms] = useState(false);
+  const [bulkLeadSearch, setBulkLeadSearch] = useState('');
+  const [selectedBulkLeadIds, setSelectedBulkLeadIds] = useState<{ [key: string]: boolean }>({});
+  const [bulkFilter, setBulkFilter] = useState<'all' | 'ea_lead' | 'main_lead'>('all');
+  const [allConsentedLeads, setAllConsentedLeads] = useState<AvailableLeadItem[]>([]);
+  const [loadingConsentedLeads, setLoadingConsentedLeads] = useState(false);
 
   // Keep ref synchronized with state
   useEffect(() => {
@@ -146,6 +158,81 @@ export default function SMSMessages() {
       toast.error('Failed to load available leads');
     } finally {
       setLoadingAvailableLeads(false);
+    }
+  };
+
+  const handleOpenBulkSms = async () => {
+    setShowBulkSmsModal(true);
+    setBulkSmsMessage('');
+    setSelectedBulkLeadIds({});
+    setBulkLeadSearch('');
+    setBulkFilter('all');
+    setLoadingConsentedLeads(true);
+    try {
+      const res = await api.get('/sms/consented-leads');
+      setAllConsentedLeads(res.data || []);
+    } catch (err) {
+      console.error('Failed to load consented leads:', err);
+      toast.error('Failed to load consented leads');
+    } finally {
+      setLoadingConsentedLeads(false);
+    }
+  };
+
+  const handleSendBulkSMS = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!bulkSmsMessage.trim() || sendingBulkSms) return;
+
+    const targets = Object.keys(selectedBulkLeadIds)
+      .filter(key => selectedBulkLeadIds[key])
+      .map(key => {
+        const [leadType, id] = key.split(':');
+        return { id, type: leadType as 'ea_lead' | 'main_lead' };
+      });
+
+    if (targets.length === 0) {
+      toast.error('Please select at least one contact.');
+      return;
+    }
+
+    setSendingBulkSms(true);
+    try {
+      const res = await api.post('/sms/bulk-sms', {
+        message: bulkSmsMessage,
+        targets
+      });
+
+      toast.success(res.data.message || 'Bulk SMS sent successfully.');
+      setShowBulkSmsModal(false);
+      setBulkSmsMessage('');
+      setSelectedBulkLeadIds({});
+      fetchConversations(true);
+    } catch (err: any) {
+      console.error('Failed to send bulk SMS:', err);
+      toast.error(err.response?.data?.error || err.response?.data?.message || 'Failed to send bulk SMS');
+    } finally {
+      setSendingBulkSms(false);
+    }
+  };
+
+  const handleReenableConsent = async () => {
+    if (!activeConversation) return;
+
+    try {
+      const res = await api.post(`/sms/consent/${activeConversation._id}`, {
+        leadType: activeConversation.leadType,
+        consent: true
+      });
+
+      toast.success(res.data.message || 'Consent re-enabled successfully');
+      
+      // Update local state
+      setConversations(prev =>
+        prev.map(c => (c._id === activeConversation._id ? { ...c, isConsent: true } : c))
+      );
+    } catch (err: any) {
+      console.error('Failed to re-enable consent:', err);
+      toast.error(err.response?.data?.error || err.response?.data?.message || 'Failed to re-enable consent');
     }
   };
 
@@ -302,7 +389,7 @@ export default function SMSMessages() {
 
   // Filtered conversation list
   const filteredConversations = useMemo(() => {
-    return conversations.filter(c => {
+    const filtered = conversations.filter(c => {
       const matchesSearch =
         c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         c.phone.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -313,10 +400,25 @@ export default function SMSMessages() {
       if (activeFilter === 'ea_lead') return c.leadType === 'ea_lead';
       if (activeFilter === 'main_lead') return c.leadType === 'main_lead';
       if (activeFilter === 'unread') return c.unreadCount > 0;
+      if (activeFilter === 'opted_out') return c.isConsent === false;
 
       return true;
     });
-  }, [conversations, searchQuery, activeFilter]);
+
+    // Apply sorting
+    return [...filtered].sort((a, b) => {
+      if (sortBy === 'unread') {
+        if (b.unreadCount !== a.unreadCount) {
+          return b.unreadCount - a.unreadCount;
+        }
+        return new Date(b.lastMessageTimestamp).getTime() - new Date(a.lastMessageTimestamp).getTime();
+      }
+      if (sortBy === 'name') {
+        return a.name.localeCompare(b.name);
+      }
+      return new Date(b.lastMessageTimestamp).getTime() - new Date(a.lastMessageTimestamp).getTime();
+    });
+  }, [conversations, searchQuery, activeFilter, sortBy]);
 
   // Filtered available leads for New Chat modal
   const filteredAvailableLeads = useMemo(() => {
@@ -340,6 +442,56 @@ export default function SMSMessages() {
 
   const eaAvailableCount = useMemo(() => availableLeads.filter(l => l.leadType === 'ea_lead').length, [availableLeads]);
   const mainAvailableCount = useMemo(() => availableLeads.filter(l => l.leadType === 'main_lead').length, [availableLeads]);
+
+  // Filtered consented leads for Bulk SMS modal
+  const filteredBulkLeads = useMemo(() => {
+    return allConsentedLeads.filter(lead => {
+      const q = bulkLeadSearch.toLowerCase().trim();
+      const matchesSearch =
+        !q ||
+        lead.name.toLowerCase().includes(q) ||
+        (lead.contactName && lead.contactName.toLowerCase().includes(q)) ||
+        (lead.phone && lead.phone.includes(q)) ||
+        (lead.email && lead.email.toLowerCase().includes(q));
+
+      if (!matchesSearch) return false;
+
+      if (bulkFilter === 'ea_lead') return lead.leadType === 'ea_lead';
+      if (bulkFilter === 'main_lead') return lead.leadType === 'main_lead';
+
+      return true;
+    });
+  }, [allConsentedLeads, bulkLeadSearch, bulkFilter]);
+
+  const eaBulkCount = useMemo(() => allConsentedLeads.filter(l => l.leadType === 'ea_lead').length, [allConsentedLeads]);
+  const mainBulkCount = useMemo(() => allConsentedLeads.filter(l => l.leadType === 'main_lead').length, [allConsentedLeads]);
+
+  const isAllBulkSelected = useMemo(() => {
+    if (filteredBulkLeads.length === 0) return false;
+    return filteredBulkLeads.every(lead => selectedBulkLeadIds[`${lead.leadType}:${lead._id}`]);
+  }, [filteredBulkLeads, selectedBulkLeadIds]);
+
+  const handleToggleAllBulk = () => {
+    const newSelections = { ...selectedBulkLeadIds };
+    if (isAllBulkSelected) {
+      filteredBulkLeads.forEach(lead => {
+        delete newSelections[`${lead.leadType}:${lead._id}`];
+      });
+    } else {
+      filteredBulkLeads.forEach(lead => {
+        newSelections[`${lead.leadType}:${lead._id}`] = true;
+      });
+    }
+    setSelectedBulkLeadIds(newSelections);
+  };
+
+  const handleToggleLeadBulk = (leadType: string, id: string) => {
+    const key = `${leadType}:${id}`;
+    setSelectedBulkLeadIds(prev => ({
+      ...prev,
+      [key]: !prev[key]
+    }));
+  };
 
   // Handle send 1-on-1 SMS
   const handleSendSMS = async (e?: React.FormEvent) => {
@@ -499,27 +651,38 @@ export default function SMSMessages() {
 
           <div className="flex items-center gap-2">
             {isPrivileged && (
-              <Button
-                size="sm"
-                onClick={handleOpenNewChat}
-                className="h-8 gap-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition-all"
-              >
-                <MessageSquarePlus size={14} />
-                <span>New Chat</span>
-              </Button>
+              <>
+                <Button
+                  size="sm"
+                  onClick={handleOpenBulkSms}
+                  className="h-8 gap-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-sm transition-all"
+                >
+                  <Users size={14} />
+                  <span>Bulk SMS</span>
+                </Button>
+
+                <Button
+                  size="sm"
+                  onClick={handleOpenNewChat}
+                  className="h-8 gap-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition-all"
+                >
+                  <MessageSquarePlus size={14} />
+                  <span>New Chat</span>
+                </Button>
+              </>
             )}
 
             <Button
               variant="outline"
               size="sm"
               onClick={handleManualRefresh}
-              disabled={manualRefreshing || refreshing}
+              disabled={manualRefreshing}
               className="h-8 gap-1.5 text-xs border-border transition-all active:scale-95 hover:bg-accent/70"
             >
               <RefreshCw
                 size={14}
                 className={`transition-transform duration-700 ease-in-out ${
-                  manualRefreshing || refreshing ? 'animate-spin' : 'group-hover:rotate-180'
+                  manualRefreshing ? 'animate-spin' : 'group-hover:rotate-180'
                 }`}
               />
               <span>Refresh</span>
@@ -535,15 +698,26 @@ export default function SMSMessages() {
             
             {/* Search & Filter Header */}
             <div className="p-3 border-b border-border space-y-2 flex-shrink-0">
-              <div className="relative">
-                <Search size={15} className="absolute left-3 top-2.5 text-muted-foreground" />
-                <Input
-                  type="text"
-                  placeholder="Search conversations..."
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  className="pl-9 text-xs h-9 bg-background border-border w-full"
-                />
+              <div className="flex items-center gap-1.5">
+                <div className="relative flex-1">
+                  <Search size={15} className="absolute left-3 top-2.5 text-muted-foreground" />
+                  <Input
+                    type="text"
+                    placeholder="Search conversations..."
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                    className="pl-9 text-xs h-9 bg-background border-border w-full"
+                  />
+                </div>
+                <select
+                  value={sortBy}
+                  onChange={e => setSortBy(e.target.value as any)}
+                  className="h-9 px-2 text-[11px] bg-background border border-border rounded-lg text-foreground focus:outline-none cursor-pointer shrink-0 font-semibold"
+                >
+                  <option value="recent">Recent</option>
+                  <option value="unread">Unread</option>
+                  <option value="name">A-Z</option>
+                </select>
               </div>
 
               {/* Filter Tabs — hide EA Leads tab for sales_rep (they have no EA lead access) */}
@@ -553,6 +727,7 @@ export default function SMSMessages() {
                   ...(currentUser?.role !== 'sales_rep' ? [{ id: 'ea_lead', label: 'EA Leads' }] : []),
                   { id: 'main_lead', label: 'CRM Leads' },
                   { id: 'unread', label: 'Unread' },
+                  { id: 'opted_out', label: 'Opted Out' },
                 ].map(tab => (
                   <button
                     key={tab.id}
@@ -615,7 +790,7 @@ export default function SMSMessages() {
                             {conv.name}
                           </h4>
                           <span className="text-[10px] text-muted-foreground shrink-0 font-medium">
-                            {formatTime(conv.lastMessageTimestamp)}
+                            {formatConversationTimestamp(conv.lastMessageTimestamp)}
                           </span>
                         </div>
 
@@ -629,6 +804,11 @@ export default function SMSMessages() {
                           >
                             {conv.categoryTag}
                           </span>
+                          {conv.isConsent === false && (
+                            <span className="text-[9px] font-extrabold px-1.5 py-0.2 rounded uppercase tracking-wider bg-red-500/15 text-red-600 border border-red-500/30 shrink-0">
+                              Opted Out
+                            </span>
+                          )}
                           <span className="text-[11px] text-muted-foreground truncate">
                             {conv.phone}
                           </span>
@@ -767,7 +947,7 @@ export default function SMSMessages() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => navigate('/ea-leads')}
+                        onClick={() => navigate(`/ea-leads?search=${encodeURIComponent(activeConversation.phone)}`)}
                         className="h-8 gap-1.5 text-xs border-border"
                       >
                         <Sparkles size={14} className="text-amber-500" />
@@ -806,191 +986,235 @@ export default function SMSMessages() {
                       </p>
                     </div>
                   ) : (
-                    displayedMessages.map((msg, index) => {
-                      const isInbound = msg.direction === 'inbound';
-                      const isFailed = !isInbound && (msg.status === 'failed' || msg.status === 'undelivered');
-                      return (
-                        <div
-                          key={msg._id || `${msg.timestamp}-${index}`}
-                          className={`flex flex-col ${isInbound ? 'items-start' : 'items-end'}`}
-                        >
-                          {/* Bubble Container */}
-                          <div className={`flex items-center gap-2 max-w-[80%] ${isInbound ? 'justify-start mr-auto' : 'justify-end ml-auto'}`}>
-                            {!isInbound && msg.isBulk && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <div className="inline-flex items-center justify-center text-muted-foreground hover:text-foreground cursor-pointer bg-secondary border border-border p-1 rounded-full transition-colors shrink-0">
-                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                                      <circle cx="9" cy="7" r="4" />
-                                      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                                      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-                                    </svg>
-                                  </div>
-                                </TooltipTrigger>
-                                <TooltipContent className="p-1.5 text-[10px] shadow-md bg-popover text-popover-foreground rounded border border-border">
-                                  Bulk Message
-                                </TooltipContent>
-                              </Tooltip>
+                    (() => {
+                      let lastDateLabel = '';
+                      return displayedMessages.map((msg, index) => {
+                        const isInbound = msg.direction === 'inbound';
+                        const isFailed = !isInbound && (msg.status === 'failed' || msg.status === 'undelivered');
+                        const dateLabel = getRelativeDateLabel(msg.timestamp);
+                        const showDateSeparator = dateLabel !== lastDateLabel;
+                        if (showDateSeparator) {
+                          lastDateLabel = dateLabel;
+                        }
+                        return (
+                          <React.Fragment key={msg._id || `${msg.timestamp}-${index}`}>
+                            {showDateSeparator && (
+                              <div className="flex justify-center my-4 w-full">
+                                <span className="bg-muted text-muted-foreground text-[10px] font-bold px-3 py-1 rounded-full border border-border/50 uppercase tracking-wider shadow-xs">
+                                  {dateLabel}
+                                </span>
+                              </div>
                             )}
                             <div
-                              className={`rounded-2xl px-4 py-3 text-xs leading-relaxed shadow-sm ${
-                                isInbound
-                                  ? 'bg-card text-card-foreground border border-border rounded-tl-none'
-                                  : isFailed
-                                  ? 'bg-destructive/15 text-foreground border border-destructive/40 rounded-tr-none'
-                                  : 'bg-primary text-primary-foreground rounded-tr-none'
-                              }`}
+                              className={`flex flex-col ${isInbound ? 'items-start' : 'items-end'}`}
                             >
-                              <p className="whitespace-pre-wrap break-words font-sans">{msg.message}</p>
-                            </div>
-                          </div>
-
-                          {/* Message Meta / Timestamp / Status */}
-                          <div
-                            className={`flex items-center gap-1.5 mt-1 text-[10px] text-muted-foreground px-1 font-medium`}
-                          >
-                            <span>{formatTime(msg.timestamp)}</span>
-                            {!isInbound && (
-                              <span>
-                                {isFailed ? (
-                                  <span className="inline-flex items-center gap-1 text-destructive font-semibold">
-                                    <AlertCircle size={12} className="inline stroke-[2.5]" />
-                                    <span>Not sent</span>
-                                  </span>
-                                ) : (
-                                  <CheckCheck size={13} className="text-emerald-500 inline stroke-[2.5]" />
+                              {/* Bubble Container */}
+                              <div className={`flex items-center gap-2 max-w-[80%] ${isInbound ? 'justify-start mr-auto' : 'justify-end ml-auto'}`}>
+                                {!isInbound && msg.isBulk && (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <div className="inline-flex items-center justify-center text-muted-foreground hover:text-foreground cursor-pointer bg-secondary border border-border p-1 rounded-full transition-colors shrink-0">
+                                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                                          <circle cx="9" cy="7" r="4" />
+                                          <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                                          <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                                        </svg>
+                                      </div>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="p-1.5 text-[10px] shadow-md bg-popover text-popover-foreground rounded border border-border">
+                                      Bulk Message
+                                    </TooltipContent>
+                                  </Tooltip>
                                 )}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })
+                                <div
+                                  className={`rounded-2xl px-4 py-3 text-xs leading-relaxed shadow-sm ${
+                                    isInbound
+                                      ? 'bg-card text-card-foreground border border-border rounded-tl-none'
+                                      : isFailed
+                                      ? 'bg-destructive/15 text-foreground border border-destructive/40 rounded-tr-none'
+                                      : 'bg-primary text-primary-foreground rounded-tr-none'
+                                  }`}
+                                >
+                                  <p className="whitespace-pre-wrap break-words font-sans">{msg.message}</p>
+                                </div>
+                              </div>
+
+                              {/* Message Meta / Timestamp / Status */}
+                              <div
+                                className={`flex items-center gap-1.5 mt-1 text-[10px] text-muted-foreground px-1 font-medium`}
+                              >
+                                <span>{formatTime(msg.timestamp)}</span>
+                                {!isInbound && (
+                                  <span>
+                                    {isFailed ? (
+                                      <span className="inline-flex items-center gap-1 text-destructive font-semibold">
+                                        <AlertCircle size={12} className="inline stroke-[2.5]" />
+                                        <span>Not sent</span>
+                                      </span>
+                                    ) : (
+                                      <CheckCheck size={13} className="text-emerald-500 inline stroke-[2.5]" />
+                                    )}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </React.Fragment>
+                        );
+                      });
+                    })()
                   )}
                 </div>
 
                 {/* Bottom Input Area */}
                 <div className="p-4 border-t border-border bg-card flex-shrink-0">
-                  <form onSubmit={handleSendSMS} className="space-y-2">
-
-                    {/* AI Suggest Panel */}
-                    {showAiPanel && (
-                      <div className="mb-2 rounded-xl border border-violet-500/30 bg-violet-500/5 p-3 space-y-2.5 animate-in fade-in slide-in-from-bottom-2 duration-200">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-1.5">
-                            <Wand2 size={13} className="text-violet-500" />
-                            <span className="text-[11px] font-bold text-violet-600 dark:text-violet-400">
-                              AI Message Assistant
-                            </span>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => { setShowAiPanel(false); setAiPrompt(''); }}
-                            className="text-muted-foreground hover:text-foreground transition-colors"
-                          >
-                            <X size={13} />
-                          </button>
-                        </div>
-
-                        <div className="space-y-1.5">
-                          <p className="text-[10px] text-muted-foreground">
-                            What's the goal of this message?
-                          </p>
-                          <Textarea
-                            id="ai-prompt-input"
-                            placeholder='e.g. "Follow up on proposal", "Schedule a meeting", "Check if they got our email"'
-                            value={aiPrompt}
-                            onChange={e => setAiPrompt(e.target.value)}
-                            onKeyDown={e => {
-                              if (e.key === 'Enter' && !e.shiftKey) {
-                                e.preventDefault();
-                                handleAiGenerate();
-                              }
-                              if (e.key === 'Escape') {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                setShowAiPanel(false);
-                                setAiPrompt('');
-                              }
-                            }}
-                            className="min-h-[56px] max-h-28 text-xs bg-background border-border resize-none py-2 custom-scrollbar"
-                            autoFocus
-                          />
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          <Button
-                            id="ai-generate-btn"
-                            type="button"
-                            size="sm"
-                            onClick={handleAiGenerate}
-                            disabled={aiGenerating}
-                            className="h-7 px-3 text-[11px] font-semibold gap-1.5 bg-violet-600 hover:bg-violet-700 text-white shadow-sm"
-                          >
-                            {aiGenerating ? (
-                              <><Loader2 size={12} className="animate-spin" /> Generating...</>
-                            ) : (
-                              <><Wand2 size={12} /> Generate Draft</>
-                            )}
-                          </Button>
-                          <p className="text-[10px] text-muted-foreground">
-                            Analyses last 10 messages · Fills compose box
+                  {activeConversation.isConsent === false ? (
+                    <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 flex flex-col sm:flex-row items-center justify-between gap-3 animate-in fade-in duration-200">
+                      <div className="flex items-center gap-2.5">
+                        <PhoneOff size={16} className="text-destructive" />
+                        <div>
+                          <p className="text-xs font-bold text-destructive">SMS Consent Revoked</p>
+                          <p className="text-[11px] text-muted-foreground">
+                            This contact has opted out of SMS messages (sent STOP). Outbound messaging is disabled.
                           </p>
                         </div>
                       </div>
-                    )}
+                      {isPrivileged && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={handleReenableConsent}
+                          className="h-8 text-xs bg-blue-600 hover:bg-blue-700 text-white font-semibold transition-all active:scale-95 shrink-0 shadow-sm"
+                        >
+                          Re-enable Consent
+                        </Button>
+                      )}
+                    </div>
+                  ) : (
+                    <form onSubmit={handleSendSMS} className="space-y-2">
 
-                    <div className="relative flex items-center gap-2">
-                      <Textarea
-                        value={replyText}
-                        onChange={e => setReplyText(e.target.value)}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter' && !e.shiftKey) {
-                            e.preventDefault();
-                            handleSendSMS();
-                          }
-                        }}
-                        placeholder={`Type a text message to ${activeConversation.name}... (Press Enter to send)`}
-                        className="min-h-[44px] max-h-32 text-xs bg-background border-border resize-none py-3 pr-12 custom-scrollbar"
-                      />
-                      <Button
-                        type="submit"
-                        disabled={sending || !replyText.trim()}
-                        className="h-10 px-4 gap-1.5 text-xs font-semibold shrink-0 shadow-sm"
-                      >
-                        {sending ? (
-                          <Loader2 size={15} className="animate-spin" />
-                        ) : (
-                          <>
-                            <Send size={15} />
-                            <span className="hidden sm:inline">Send</span>
-                          </>
+                      {/* AI Suggest Panel - Hidden for production build */}
+                      {false && showAiPanel && (
+                        <div className="mb-2 rounded-xl border border-violet-500/30 bg-violet-500/5 p-3 space-y-2.5 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-1.5">
+                              <Wand2 size={13} className="text-violet-500" />
+                              <span className="text-[11px] font-bold text-violet-600 dark:text-violet-400">
+                                AI Message Assistant
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => { setShowAiPanel(false); setAiPrompt(''); }}
+                              className="text-muted-foreground hover:text-foreground transition-colors"
+                            >
+                              <X size={13} />
+                            </button>
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <p className="text-[10px] text-muted-foreground">
+                              What's the goal of this message?
+                            </p>
+                            <Textarea
+                              id="ai-prompt-input"
+                              placeholder='e.g. "Follow up on proposal", "Schedule a meeting", "Check if they got our email"'
+                              value={aiPrompt}
+                              onChange={e => setAiPrompt(e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter' && !e.shiftKey) {
+                                  e.preventDefault();
+                                  handleAiGenerate();
+                                }
+                                if (e.key === 'Escape') {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setShowAiPanel(false);
+                                  setAiPrompt('');
+                                }
+                              }}
+                              className="min-h-[56px] max-h-28 text-xs bg-background border-border resize-none py-2 custom-scrollbar"
+                              autoFocus
+                            />
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <Button
+                              id="ai-generate-btn"
+                              type="button"
+                              size="sm"
+                              onClick={handleAiGenerate}
+                              disabled={aiGenerating}
+                              className="h-7 px-3 text-[11px] font-semibold gap-1.5 bg-violet-600 hover:bg-violet-700 text-white shadow-sm"
+                            >
+                              {aiGenerating ? (
+                                <><Loader2 size={12} className="animate-spin" /> Generating...</>
+                              ) : (
+                                <><Wand2 size={12} /> Generate Draft</>
+                              )}
+                            </Button>
+                            <p className="text-[10px] text-muted-foreground">
+                              Analyses last 10 messages · Fills compose box
+                            </p>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="relative flex items-center gap-2">
+                        <Textarea
+                          value={replyText}
+                          onChange={e => setReplyText(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault();
+                              handleSendSMS();
+                            }
+                          }}
+                          placeholder={`Type a text message to ${activeConversation.name}... (Press Enter to send)`}
+                          className="min-h-[44px] max-h-32 text-xs bg-background border-border resize-none py-3 pr-12 custom-scrollbar"
+                        />
+                        <Button
+                          type="submit"
+                          disabled={sending || !replyText.trim()}
+                          className="h-10 px-4 gap-1.5 text-xs font-semibold shrink-0 shadow-sm"
+                        >
+                          {sending ? (
+                            <Loader2 size={15} className="animate-spin" />
+                          ) : (
+                            <>
+                              <Send size={15} />
+                              <span className="hidden sm:inline">Send</span>
+                            </>
+                          )}
+                        </Button>
+                      </div>
+
+                      {/* Footer Info / Segment Count */}
+                      <div className="flex items-center justify-between text-[11px] text-muted-foreground px-1">
+                        {/* AI Suggest toggle button - Hidden for production build */}
+                        {false && (
+                          <button
+                            type="button"
+                            id="ai-suggest-toggle"
+                            onClick={() => setShowAiPanel(prev => !prev)}
+                            className={`flex items-center gap-1 font-semibold transition-colors ${
+                              showAiPanel
+                                ? 'text-violet-600 dark:text-violet-400'
+                                : 'text-muted-foreground hover:text-violet-500'
+                            }`}
+                          >
+                            <Wand2 size={12} />
+                            <span>AI Suggest</span>
+                            <ChevronDown size={11} className={`transition-transform ${showAiPanel ? 'rotate-180' : ''}`} />
+                          </button>
                         )}
-                      </Button>
-                    </div>
-
-                    {/* Footer Info / Segment Count */}
-                    <div className="flex items-center justify-between text-[11px] text-muted-foreground px-1">
-                      <button
-                        type="button"
-                        id="ai-suggest-toggle"
-                        onClick={() => setShowAiPanel(prev => !prev)}
-                        className={`flex items-center gap-1 font-semibold transition-colors ${
-                          showAiPanel
-                            ? 'text-violet-600 dark:text-violet-400'
-                            : 'text-muted-foreground hover:text-violet-500'
-                        }`}
-                      >
-                        <Wand2 size={12} />
-                        <span>AI Suggest</span>
-                        <ChevronDown size={11} className={`transition-transform ${showAiPanel ? 'rotate-180' : ''}`} />
-                      </button>
-                      <span className="font-semibold">
-                        {smsSegments.chars} / {smsSegments.max} chars ({smsSegments.segments} SMS)
-                      </span>
-                    </div>
-                  </form>
+                        <div />
+                        <span className="font-semibold">
+                          {smsSegments.chars} / {smsSegments.max} chars ({smsSegments.segments} SMS)
+                        </span>
+                      </div>
+                    </form>
+                  )}
                 </div>
               </>
             )}
@@ -1179,6 +1403,213 @@ export default function SMSMessages() {
               >
                 Cancel
               </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk SMS Modal */}
+      {showBulkSmsModal && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
+          onClick={() => setShowBulkSmsModal(false)}
+        >
+          <div
+            className="bg-card text-card-foreground border border-border rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-150"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="p-4 sm:p-5 border-b border-border flex items-center justify-between bg-muted/30">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-500/15 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold border border-blue-500/20">
+                  <Users size={20} />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-foreground">Send Bulk SMS</h2>
+                  <p className="text-xs text-muted-foreground">
+                    Compose a message and select multiple consented contacts
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowBulkSmsModal(false)}
+                className="w-8 h-8 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Split layout inside Modal */}
+            <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-h-[400px]">
+              {/* Left Column: Composer */}
+              <form onSubmit={handleSendBulkSMS} className="w-full md:w-1/2 p-5 border-r border-border flex flex-col justify-between space-y-4">
+                <div className="space-y-4 flex-1">
+                  <div className="space-y-1.5">
+                    <label htmlFor="bulk-message-text" className="text-xs font-bold text-foreground">
+                      Message Body
+                    </label>
+                    <Textarea
+                      id="bulk-message-text"
+                      placeholder="Type your message here... Use {{name}} to insert the recipient's name."
+                      value={bulkSmsMessage}
+                      onChange={e => setBulkSmsMessage(e.target.value)}
+                      className="min-h-[160px] text-xs bg-background border-border resize-none py-3 custom-scrollbar"
+                      required
+                    />
+                    <p className="text-[10px] text-muted-foreground">
+                      Template variable support: <span className="font-mono bg-muted px-1.5 py-0.5 rounded text-foreground">{"{{name}}"}</span> will be replaced by the recipient's name.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="pt-3 border-t border-border flex items-center justify-between text-xs text-muted-foreground">
+                  <div className="flex flex-col">
+                    <span className="font-semibold">
+                      {bulkSmsMessage.length} chars ({(bulkSmsMessage.length <= 160) ? 1 : Math.ceil(bulkSmsMessage.length / 153)} SMS)
+                    </span>
+                    <span className="text-[10px] opacity-70">
+                      Twilio limits apply per recipient segment
+                    </span>
+                  </div>
+                  <Button
+                    type="submit"
+                    disabled={sendingBulkSms || !bulkSmsMessage.trim() || Object.values(selectedBulkLeadIds).filter(Boolean).length === 0}
+                    className="h-9 px-4 gap-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
+                  >
+                    {sendingBulkSms ? (
+                      <Loader2 size={14} className="animate-spin" />
+                    ) : (
+                      <>
+                        <Send size={14} />
+                        <span>Send Bulk SMS ({Object.values(selectedBulkLeadIds).filter(Boolean).length})</span>
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </form>
+
+              {/* Right Column: Audience List */}
+              <div className="w-full md:w-1/2 flex flex-col bg-muted/10">
+                {/* Search & Tabs */}
+                <div className="p-4 border-b border-border space-y-3 bg-card flex-shrink-0">
+                  <div className="relative">
+                    <Search size={15} className="absolute left-3 top-2.5 text-muted-foreground" />
+                    <Input
+                      type="text"
+                      placeholder="Search candidates..."
+                      value={bulkLeadSearch}
+                      onChange={e => setBulkLeadSearch(e.target.value)}
+                      className="pl-9 pr-8 text-xs h-9 bg-background border-border"
+                    />
+                    {bulkLeadSearch && (
+                      <button
+                        type="button"
+                        onClick={() => setBulkLeadSearch('')}
+                        className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      {[
+                        { id: 'all', label: `All (${allConsentedLeads.length})` },
+                        { id: 'ea_lead', label: `EA (${eaBulkCount})` },
+                        { id: 'main_lead', label: `CRM (${mainBulkCount})` },
+                      ].map(tab => (
+                        <button
+                          key={tab.id}
+                          onClick={() => setBulkFilter(tab.id as any)}
+                          className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold transition-all ${
+                            bulkFilter === tab.id
+                              ? 'bg-primary text-primary-foreground shadow-sm'
+                              : 'bg-muted text-muted-foreground hover:bg-accent hover:text-foreground'
+                          }`}
+                        >
+                          {tab.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleToggleAllBulk}
+                      className="h-7 px-2 text-[10px] font-bold border-border"
+                    >
+                      {isAllBulkSelected ? 'Deselect All' : 'Select All'}
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Candidate List */}
+                <div className="flex-1 overflow-y-auto p-2 custom-scrollbar space-y-1 max-h-[300px] md:max-h-none">
+                  {loadingConsentedLeads ? (
+                    <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+                      <Loader2 size={24} className="animate-spin mb-2 text-primary" />
+                      <p className="text-xs font-medium">Loading consented leads...</p>
+                    </div>
+                  ) : filteredBulkLeads.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-16 px-4 text-center text-muted-foreground">
+                      <MessageSquare size={32} className="mb-2 opacity-20" />
+                      <p className="text-sm font-semibold">No consented leads found</p>
+                      <p className="text-xs mt-1 opacity-70">
+                        No matches found or no leads have SMS consent.
+                      </p>
+                    </div>
+                  ) : (
+                    filteredBulkLeads.map(lead => {
+                      const key = `${lead.leadType}:${lead._id}`;
+                      const isSelected = Boolean(selectedBulkLeadIds[key]);
+                      return (
+                        <div
+                          key={key}
+                          onClick={() => handleToggleLeadBulk(lead.leadType, lead._id)}
+                          className={`p-2 rounded-xl border border-transparent transition-all flex items-center justify-between gap-3 cursor-pointer hover:bg-primary/5 hover:border-primary/10 ${
+                            isSelected ? 'bg-primary/5 border-primary/20' : ''
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            {/* Checkbox indicator */}
+                            <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors shrink-0 ${
+                              isSelected ? 'bg-primary border-primary text-primary-foreground' : 'border-border bg-background'
+                            }`}>
+                              {isSelected && <Check size={11} className="stroke-[3]" />}
+                            </div>
+
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <h4 className="text-xs font-bold text-foreground truncate">
+                                  {lead.name}
+                                </h4>
+                                <span
+                                  className={`text-[8px] font-extrabold px-1.5 py-0.2 rounded uppercase tracking-wider shrink-0 ${
+                                    lead.leadType === 'ea_lead'
+                                      ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
+                                      : 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/30'
+                                  }`}
+                                >
+                                  {lead.categoryTag}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2 mt-0.5 text-[10px] text-muted-foreground truncate">
+                                <span className="font-medium text-foreground/80">{lead.phone}</span>
+                                {lead.email && <span className="truncate opacity-75">· {lead.email}</span>}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                <div className="p-3 bg-muted/40 border-t border-border flex items-center justify-between text-xs text-muted-foreground flex-shrink-0">
+                  <span>Selected {Object.values(selectedBulkLeadIds).filter(Boolean).length} / {filteredBulkLeads.length} filtered contacts</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
