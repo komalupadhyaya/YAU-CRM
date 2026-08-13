@@ -20,6 +20,10 @@ export const sendSms = async (req, res, next) => {
             res.status(404);
             throw new Error('Lead not found');
         }
+        if (lead.isConsent === false) {
+            res.status(400);
+            throw new Error('This recipient has opted out of SMS communication (sent STOP).');
+        }
         if (req.currentUserRole === 'sales_rep' && (!lead.assigned_to || lead.assigned_to.toString() !== req.user.id)) {
             res.status(403);
             throw new Error('Access denied. This lead is not assigned to you.');
@@ -245,7 +249,7 @@ export const getConversations = async (req, res) => {
                 email: primaryContact?.email || '',
                 phone: leadPhone,
                 categoryTag: lead.type || 'CRM Lead',
-                isConsent: true,
+                isConsent: lead.isConsent ?? true,
                 unreadCount: lead.unreadCount || 0,
                 lastMessage: lastMsg ? lastMsg.message : '',
                 lastMessageTimestamp: lastMsg ? lastMsg.timestamp : lead.updatedAt,
@@ -497,6 +501,10 @@ export const sendChatSms = async (req, res) => {
             return res.status(404).json({ error: 'Lead not found' });
         }
 
+        if (lead.isConsent === false) {
+            return res.status(400).json({ error: 'This recipient has opted out of SMS communication (sent STOP).' });
+        }
+
         let phoneToUse = lead.phone || lead.telephone;
         if (!phoneToUse && (leadType === 'main_lead' || !lead.phone)) {
             const primaryContact = await Contact.findOne({ lead_id: lead._id, is_primary: true }) ||
@@ -629,5 +637,261 @@ export const generateSmsMessage = async (req, res) => {
         return res.status(500).json({
             error: error.message || 'Failed to generate AI SMS message'
         });
+    }
+};
+
+/**
+ * Fetch all consented leads (EA Leads and CRM Leads) with valid phone numbers.
+ * GET /api/sms/consented-leads
+ */
+export const getConsentedLeads = async (req, res) => {
+    try {
+        // 1. EA Leads where isConsent !== false and phone exists
+        const eaLeads = await EALead.find({
+            isConsent: { $ne: false },
+            phone: { $exists: true, $ne: '' }
+        }).select('name email phone isConsent createdAt');
+
+        // 2. Main CRM Leads where isConsent !== false
+        const mainLeads = await Lead.find({
+            isConsent: { $ne: false }
+        }).select('name telephone type category_group department createdAt isConsent');
+
+        const leadIds = mainLeads.map(l => l._id);
+        const contacts = await Contact.find({ lead_id: { $in: leadIds } });
+
+        const contactsByLead = {};
+        contacts.forEach(c => {
+            const lid = c.lead_id.toString();
+            if (!contactsByLead[lid]) contactsByLead[lid] = [];
+            contactsByLead[lid].push(c);
+        });
+
+        const available = [];
+
+        // Format EA Leads
+        eaLeads.forEach(lead => {
+            available.push({
+                _id: lead._id,
+                leadType: 'ea_lead',
+                name: lead.name,
+                contactName: lead.name,
+                email: lead.email || '',
+                phone: lead.phone || '',
+                categoryTag: 'EA Lead',
+                isConsent: true,
+                createdAt: lead.createdAt
+            });
+        });
+
+        // Format Main Leads
+        mainLeads.forEach(lead => {
+            const leadContacts = contactsByLead[lead._id.toString()] || [];
+            const primaryContact = leadContacts.find(c => c.is_primary) || leadContacts[0];
+            const leadPhone = primaryContact?.direct_phone || lead.telephone || '';
+            
+            if (leadPhone) {
+                const contactName = primaryContact?.name || '';
+                const displayName = contactName ? `${lead.name} (${contactName})` : lead.name;
+
+                available.push({
+                    _id: lead._id,
+                    leadType: 'main_lead',
+                    name: displayName,
+                    rawName: lead.name,
+                    contactName: contactName,
+                    email: primaryContact?.email || '',
+                    phone: leadPhone,
+                    categoryTag: lead.type || 'CRM Lead',
+                    isConsent: lead.isConsent ?? true,
+                    createdAt: lead.createdAt
+                });
+            }
+        });
+
+        available.sort((a, b) => a.name.localeCompare(b.name));
+        return res.status(200).json(available);
+    } catch (error) {
+        console.error('Error fetching consented leads for Bulk SMS:', error);
+        return res.status(500).json({ error: 'Failed to fetch consented leads' });
+    }
+};
+
+/**
+ * Send bulk SMS to selected EA leads and CRM leads
+ * POST /api/sms/bulk-sms
+ */
+export const sendBulkSMS = async (req, res) => {
+    try {
+        const { message, targets } = req.body; // targets: [{ id: "...", type: "ea_lead" | "main_lead" }]
+        if (!message || !message.trim()) {
+            return res.status(400).json({ error: 'Message content is required.' });
+        }
+        if (!targets || !Array.isArray(targets) || targets.length === 0) {
+            return res.status(400).json({ error: 'No targets specified for bulk SMS.' });
+        }
+
+        const { TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER } = process.env;
+        if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_PHONE_NUMBER) {
+            return res.status(500).json({ error: 'Twilio credentials not configured' });
+        }
+
+        const formatPhone = (num) => {
+            if (!num) return null;
+            const clean = num.toString().replace(/\D/g, '');
+            if (num.toString().startsWith('+')) return `+${clean}`;
+            if (clean.length === 10) return `+1${clean}`;
+            if (clean.length === 11 && clean.startsWith('1')) return `+${clean}`;
+            return `+${clean}`;
+        };
+
+        const fromNumber = formatPhone(TWILIO_PHONE_NUMBER);
+        const client = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+        const statusCallbackUrl = `${process.env.BACKEND_URL}/api/webhooks/twilio-sms-status`;
+
+        let successCount = 0;
+        let failCount = 0;
+
+        for (const target of targets) {
+            const { id, type } = target;
+            let lead = null;
+            let phoneToUse = '';
+            let nameToUse = '';
+
+            if (type === 'ea_lead') {
+                lead = await EALead.findById(id);
+                if (lead && lead.isConsent !== false) {
+                    phoneToUse = lead.phone;
+                    nameToUse = lead.name;
+                }
+            } else {
+                lead = await Lead.findById(id);
+                if (lead && lead.isConsent !== false) {
+                    const primaryContact = await Contact.findOne({ lead_id: lead._id, is_primary: true }) ||
+                                           await Contact.findOne({ lead_id: lead._id });
+                    phoneToUse = primaryContact?.direct_phone || lead.telephone;
+                    nameToUse = primaryContact?.name || lead.name;
+                }
+            }
+
+            if (!lead || !phoneToUse) {
+                failCount++;
+                console.warn(`[Bulk SMS Central] Skipping lead ${id} (type: ${type}) — no phone or lead not found/consented.`);
+                continue;
+            }
+
+            const fullPhone = formatPhone(phoneToUse);
+            if (!fullPhone) {
+                failCount++;
+                continue;
+            }
+
+            // Support {{name}} personalization
+            const personalizedMessage = message.replace(/\{\{name\}\}/gi, nameToUse);
+
+            try {
+                const twilioMsg = await client.messages.create({
+                    body: personalizedMessage,
+                    from: fromNumber,
+                    to: fullPhone,
+                    statusCallback: statusCallbackUrl
+                });
+
+                const newMsgEntry = {
+                    direction: 'outbound',
+                    message: personalizedMessage,
+                    timestamp: new Date(),
+                    isBulk: true,
+                    status: 'pending',
+                    twilioSid: twilioMsg.sid,
+                    isRead: true
+                };
+
+                if (!lead.smsHistory) lead.smsHistory = [];
+                lead.smsHistory.push(newMsgEntry);
+                await lead.save();
+
+                const io = req.app.get('io');
+                if (io) {
+                    io.emit('sms:sent', {
+                        leadId: lead._id,
+                        leadType: type,
+                        message: newMsgEntry
+                    });
+                }
+
+                successCount++;
+            } catch (err) {
+                console.error(`[Bulk SMS Central] ❌ Twilio API rejected send to ${fullPhone}:`, err.message);
+
+                const failedEntry = {
+                    direction: 'outbound',
+                    message: personalizedMessage,
+                    timestamp: new Date(),
+                    isBulk: true,
+                    status: 'failed',
+                    twilioSid: null,
+                    isRead: true
+                };
+
+                if (!lead.smsHistory) lead.smsHistory = [];
+                lead.smsHistory.push(failedEntry);
+                await lead.save();
+
+                failCount++;
+            }
+        }
+
+        return res.status(200).json({
+            success: successCount > 0,
+            successCount,
+            failCount,
+            message: failCount === 0
+                ? `Bulk SMS sent successfully to ${successCount} contact${successCount !== 1 ? 's' : ''}.`
+                : successCount === 0
+                    ? `Bulk SMS failed for all ${failCount} contact${failCount !== 1 ? 's' : ''}.`
+                    : `Bulk SMS sent to ${successCount} contact${successCount !== 1 ? 's' : ''}, but failed for ${failCount}.`
+        });
+    } catch (error) {
+        console.error('Bulk SMS General Error:', error);
+        return res.status(500).json({ error: error.message || 'Failed to send bulk SMS' });
+    }
+};
+
+/**
+ * Update SMS consent status for a lead
+ * POST /api/sms/consent/:leadId
+ */
+export const updateConsent = async (req, res) => {
+    try {
+        const { leadId } = req.params;
+        const { leadType, consent } = req.body; // consent: true | false
+
+        if (consent === undefined) {
+            return res.status(400).json({ error: 'Consent value is required' });
+        }
+
+        let lead = null;
+        if (leadType === 'ea_lead') {
+            lead = await EALead.findById(leadId);
+        } else {
+            lead = await Lead.findById(leadId);
+        }
+
+        if (!lead) {
+            return res.status(404).json({ error: 'Lead not found' });
+        }
+
+        lead.isConsent = !!consent;
+        await lead.save();
+
+        return res.status(200).json({
+            success: true,
+            isConsent: lead.isConsent,
+            message: `SMS consent successfully ${lead.isConsent ? 're-enabled' : 'revoked'} for ${lead.name}.`
+        });
+    } catch (error) {
+        console.error('Error updating SMS consent:', error);
+        return res.status(500).json({ error: error.message || 'Failed to update SMS consent' });
     }
 };

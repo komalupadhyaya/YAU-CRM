@@ -32,6 +32,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     const backendUrl =
       import.meta.env.VITE_BACKEND_URL ||
+      (import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace(/\/api$/, '') : '') ||
       (window.location.hostname === 'localhost' ? 'http://localhost:5000' : window.location.origin);
 
     const socketInstance: Socket = io(backendUrl, {

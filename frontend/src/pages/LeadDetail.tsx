@@ -7,7 +7,7 @@ import AppLayout from "../layout/AppLayout";
 import { useAuth } from "../context/AuthContext";
 import { can } from "../utils/permissions";
 import { useDialerStore } from "../store/dialerStore";
-import { CalendarPlus, Save, ArrowLeft, History, Info, User, Phone, Mail, Clock, MessageSquare, ChevronDown, ChevronUp, Edit, Video, Send, CheckCircle2, Trash2, Play, Pause, ExternalLink, FileText, Smartphone, X, RefreshCw, Zap, Wand2, Sparkles, Loader2 } from "lucide-react";
+import { CalendarPlus, Save, ArrowLeft, History, Info, User, Phone, Mail, Clock, MessageSquare, ChevronDown, ChevronUp, Edit, Video, Send, CheckCircle2, Trash2, Play, Pause, ExternalLink, FileText, Smartphone, X, RefreshCw, Zap, Wand2, Sparkles, Loader2, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 import { countryCodes } from "../utils/countryCodes";
 import {
@@ -179,6 +179,7 @@ export default function LeadDetail() {
   const { currentUser } = useAuth();
   const permissions = can(currentUser?.role);
   const isReadOnly = permissions.isReadOnly;
+  const isPrivileged = currentUser?.role === 'admin' || currentUser?.role === 'manager';
 
   const { id } = useParams();
   const navigate = useNavigate();
@@ -823,7 +824,7 @@ export default function LeadDetail() {
     if (!lead || emailAiGenerating) return;
     setEmailAiGenerating(true);
     try {
-      const contactPerson = selectedContactForEmail?.name || (lead as Lead)?.contacts?.[0]?.name || lead?.main_contact_name || "";
+      const contactPerson = selectedContactForEmail?.name || (lead as Lead)?.contacts?.[0]?.name || (lead as any)?.main_contact_name || "";
       const res = await api.post('/emails/ai-generate-email', {
         leadId: lead._id || id,
         leadType: 'main_lead',
@@ -857,7 +858,7 @@ export default function LeadDetail() {
     if (!lead || smsAiGenerating) return;
     setSmsAiGenerating(true);
     try {
-      const contactPerson = selectedContactForSms?.name || (lead as Lead)?.contacts?.[0]?.name || lead?.main_contact_name || "";
+      const contactPerson = selectedContactForSms?.name || (lead as Lead)?.contacts?.[0]?.name || (lead as any)?.main_contact_name || "";
       const res = await api.post('/sms/ai-generate-sms', {
         leadId: lead._id || id,
         leadType: 'main_lead',
@@ -881,6 +882,21 @@ export default function LeadDetail() {
       toast.error(err.response?.data?.error || err.response?.data?.message || 'Failed to generate AI SMS message');
     } finally {
       setSmsAiGenerating(false);
+    }
+  };
+
+  const handleReenableConsent = async () => {
+    if (!lead) return;
+    try {
+      const res = await api.post(`/sms/consent/${lead._id}`, {
+        leadType: 'main_lead',
+        consent: true
+      });
+      toast.success(res.data.message || 'SMS consent successfully re-enabled');
+      setLead(prev => prev ? { ...prev, isConsent: true } : null);
+    } catch (err: any) {
+      console.error("Failed to re-enable consent:", err);
+      toast.error(err.response?.data?.error || "Failed to re-enable consent");
     }
   };
 
@@ -2272,23 +2288,26 @@ export default function LeadDetail() {
               <div className="grid gap-2">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium">Message Body <span className="text-destructive">*</span></span>
-                  <button
-                    type="button"
-                    onClick={() => setShowEmailAiPanel(prev => !prev)}
-                    className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg border transition-all ${
-                      showEmailAiPanel
-                        ? 'bg-violet-500/15 border-violet-500/30 text-violet-600 dark:text-violet-400 shadow-sm'
-                        : 'bg-violet-500/5 hover:bg-violet-500/10 border-violet-500/20 text-violet-600 dark:text-violet-400'
-                    }`}
-                  >
-                    <Wand2 size={12} className="text-violet-500" />
-                    <span>AI Email Assistant</span>
-                    <ChevronDown size={11} className={`transition-transform duration-200 ${showEmailAiPanel ? 'rotate-180' : ''}`} />
-                  </button>
+                  {/* AI Email Assistant Toggle Button - Hidden for production build */}
+                  {false && (
+                    <button
+                      type="button"
+                      onClick={() => setShowEmailAiPanel(prev => !prev)}
+                      className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg border transition-all ${
+                        showEmailAiPanel
+                          ? 'bg-violet-500/15 border-violet-500/30 text-violet-600 dark:text-violet-400 shadow-sm'
+                          : 'bg-violet-500/5 hover:bg-violet-500/10 border-violet-500/20 text-violet-600 dark:text-violet-400'
+                      }`}
+                    >
+                      <Wand2 size={12} className="text-violet-500" />
+                      <span>AI Email Assistant</span>
+                      <ChevronDown size={11} className={`transition-transform duration-200 ${showEmailAiPanel ? 'rotate-180' : ''}`} />
+                    </button>
+                  )}
                 </div>
 
-                {/* AI Assistant Panel */}
-                {showEmailAiPanel && (
+                {/* AI Assistant Panel - Hidden for production build */}
+                {false && showEmailAiPanel && (
                   <div className="rounded-xl border border-violet-500/30 bg-violet-500/5 p-3.5 space-y-2.5 animate-in fade-in slide-in-from-bottom-2 duration-200">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-1.5">
@@ -2606,23 +2625,26 @@ export default function LeadDetail() {
               <div className="grid gap-2">
                 <div className="flex items-center justify-between">
                   <label htmlFor="sms_message" className="text-sm font-medium">Message <span className="text-destructive">*</span></label>
-                  <button
-                    type="button"
-                    onClick={() => setShowSmsAiPanel(prev => !prev)}
-                    className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg border transition-all ${
-                      showSmsAiPanel
-                        ? 'bg-violet-500/15 border-violet-500/30 text-violet-600 dark:text-violet-400 shadow-sm'
-                        : 'bg-violet-500/5 hover:bg-violet-500/10 border-violet-500/20 text-violet-600 dark:text-violet-400'
-                    }`}
-                  >
-                    <Wand2 size={12} className="text-violet-500" />
-                    <span>AI Message Assistant</span>
-                    <ChevronDown size={11} className={`transition-transform duration-200 ${showSmsAiPanel ? 'rotate-180' : ''}`} />
-                  </button>
+                  {/* AI Message Assistant Toggle Button - Hidden for production build */}
+                  {false && (
+                    <button
+                      type="button"
+                      onClick={() => setShowSmsAiPanel(prev => !prev)}
+                      className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg border transition-all ${
+                        showSmsAiPanel
+                          ? 'bg-violet-500/15 border-violet-500/30 text-violet-600 dark:text-violet-400 shadow-sm'
+                          : 'bg-violet-500/5 hover:bg-violet-500/10 border-violet-500/20 text-violet-600 dark:text-violet-400'
+                      }`}
+                    >
+                      <Wand2 size={12} className="text-violet-500" />
+                      <span>AI Message Assistant</span>
+                      <ChevronDown size={11} className={`transition-transform duration-200 ${showSmsAiPanel ? 'rotate-180' : ''}`} />
+                    </button>
+                  )}
                 </div>
 
-                {/* AI Suggest Panel */}
-                {showSmsAiPanel && (
+                {/* AI Suggest Panel - Hidden for production build */}
+                {false && showSmsAiPanel && (
                   <div className="rounded-xl border border-violet-500/30 bg-violet-500/5 p-3 space-y-2.5 animate-in fade-in slide-in-from-bottom-2 duration-200">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-1.5">
@@ -2685,23 +2707,45 @@ export default function LeadDetail() {
                   </div>
                 )}
 
-                <textarea
-                  id="sms_message"
-                  name="message"
-                  className={`input-field min-h-[120px] ${smsErrors.message ? "border-destructive focus:border-destructive focus:ring-destructive/20" : ""}`}
-                  placeholder="Type your SMS message..."
-                  value={smsData.message || ""}
-                  onChange={e => {
-                    setSmsData({ message: e.target.value });
-                    if (e.target.value.trim()) setSmsErrors({});
-                  }}
-                />
-                <div className="flex justify-between items-center">
-                  {smsErrors.message ? (
-                    <p className="text-xs text-destructive font-medium">{smsErrors.message}</p>
-                  ) : <span />}
-                  <p className="text-xs text-muted-foreground">{smsData.message.length} chars (approx {Math.ceil((smsData.message.length || 1) / 160)} SMS)</p>
-                </div>
+                {lead?.isConsent === false ? (
+                  <div className="p-4 rounded-xl border border-destructive/30 bg-destructive/5 flex flex-col items-center justify-center gap-2 text-center animate-in fade-in duration-200 w-full">
+                    <div className="flex items-center gap-1.5 text-destructive text-sm font-bold">
+                      <AlertCircle size={16} className="text-destructive" /> SMS Consent Revoked
+                    </div>
+                    <p className="text-xs text-muted-foreground max-w-[280px]">
+                      This contact has opted out of SMS messages (sent STOP). Outbound messaging is disabled.
+                    </p>
+                    {isPrivileged && (
+                      <button
+                        type="button"
+                        onClick={handleReenableConsent}
+                        className="h-8 text-xs bg-blue-600 hover:bg-blue-700 text-white font-semibold transition-all px-3 rounded-lg shadow-sm font-sans"
+                      >
+                        Re-enable Consent
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    <textarea
+                      id="sms_message"
+                      name="message"
+                      className={`input-field min-h-[120px] ${smsErrors.message ? "border-destructive focus-visible:border-destructive focus-visible:ring-destructive/20" : ""}`}
+                      placeholder="Type your SMS message..."
+                      value={smsData.message || ""}
+                      onChange={e => {
+                        setSmsData({ message: e.target.value });
+                        if (e.target.value.trim()) setSmsErrors({});
+                      }}
+                    />
+                    <div className="flex justify-between items-center">
+                      {smsErrors.message ? (
+                        <p className="text-xs text-destructive font-medium">{smsErrors.message}</p>
+                      ) : <span />}
+                      <p className="text-xs text-muted-foreground">{smsData.message.length} chars (approx {Math.ceil((smsData.message.length || 1) / 160)} SMS)</p>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -2710,13 +2754,15 @@ export default function LeadDetail() {
               setIsSmsModalOpen(false);
               setSmsErrors({});
             }}>Cancel</button>
-            <button
-              disabled={isSubmitting}
-              className={`btn-primary flex items-center justify-center gap-2 ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`}
-              onClick={sendSms}
-            >
-              <MessageSquare size={16} /> {isSubmitting ? "Sending..." : "Send SMS"}
-            </button>
+            {lead?.isConsent !== false && (
+              <button
+                disabled={isSubmitting}
+                className={`btn-primary flex items-center justify-center gap-2 ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`}
+                onClick={sendSms}
+              >
+                <MessageSquare size={16} /> {isSubmitting ? "Sending..." : "Send SMS"}
+              </button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

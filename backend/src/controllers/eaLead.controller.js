@@ -448,6 +448,10 @@ export const sendSingleSMS = async (req, res) => {
             return res.status(404).json({ error: 'Lead not found' });
         }
 
+        if (lead.isConsent === false) {
+            return res.status(400).json({ error: 'This recipient has opted out of SMS communication (sent STOP).' });
+        }
+
         if (!lead.phone) {
             return res.status(400).json({ error: 'Lead does not have a valid phone number.' });
         }

@@ -34,6 +34,7 @@ export interface Lead {
     createdAt: string;
     updatedAt: string;
     contacts?: Contact[];
+    isConsent?: boolean;
     campaign_id?: { _id: string, name: string };
     assigned_to?: { _id: string, name: string, email?: string, role?: string } | null;
     callHistory?: Array<{
