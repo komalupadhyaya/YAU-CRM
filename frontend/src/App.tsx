@@ -25,6 +25,7 @@ import PhoneSystem from "./pages/PhoneSystem";
 import VoicemailInbox from "./pages/VoicemailInbox";
 import CallHistoryPage from "@/pages/CallHistory";
 import SMSMessages from "@/pages/SMSMessages";
+import EmailCenter from "./pages/EmailCenter";
 import { SMSProvider } from "./context/SMSContext";
 import { PresenceProvider } from "./context/PresenceContext";
 import { SocketProvider } from "./context/SocketContext";
@@ -71,6 +72,7 @@ const App = () => {
                 <Route path="/lead-scheduler" element={<RequireAuth><RequireRole roles={['admin', 'manager']}><LeadScheduler /></RequireRole></RequireAuth>} />
                 <Route path="/ea-leads" element={<RequireAuth><EALeads /></RequireAuth>} />
                 <Route path="/sms" element={<RequireAuth><RequireRole roles={['admin', 'manager', 'sales_rep']}><SMSMessages /></RequireRole></RequireAuth>} />
+                <Route path="/email-center" element={<RequireAuth><RequireRole roles={['admin', 'manager', 'sales_rep']}><EmailCenter /></RequireRole></RequireAuth>} />
                 <Route path="/history" element={<RequireAuth><RequireRole roles={['admin', 'manager']}><HistoryPage /></RequireRole></RequireAuth>} />
                 <Route path="/settings" element={<RequireAuth><RequireRole roles={['admin']}><Settings /></RequireRole></RequireAuth>} />
                 <Route path="/phone-system" element={<RequireAuth><RequireRole roles={['admin']}><PhoneSystem /></RequireRole></RequireAuth>} />

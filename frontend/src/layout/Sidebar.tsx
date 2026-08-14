@@ -31,7 +31,8 @@ import {
   Voicemail,
   PhoneCall,
   Video,
-  MessageSquare
+  MessageSquare,
+  Mail
 } from "lucide-react";
 import { useSidebar } from "./SidebarContext";
 import { useFollowUp } from "../context/FollowUpContext";
@@ -57,6 +58,7 @@ const topNavItems = [
   { to: "/lead-scheduler",  label: "Lead Scheduler",  icon: UserCheck },
   { to: "/ea-leads",        label: "EA Leads",        icon: Sparkles },
   { to: "/sms",             label: "SMS Messages",    icon: MessageSquare },
+  { to: "/email-center",    label: "Email Center",    icon: Mail },
   { to: "/candidates",      label: "HC Candidates",      icon: UserPlus },
   // { to: "/history",      label: "History",         icon: History },
   { to: "/team",            label: "Team",            icon: Users },

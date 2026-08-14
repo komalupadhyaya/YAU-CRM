@@ -1,7 +1,7 @@
 /**
  * mailer.js — Shared Gmail API mailer service
  *
- * Reuses the same Google OAuth2 client as email.controller.js.
+ * Reuses the same Google OAuth2 client as campaigns.controller.js.
  * Reads HTML templates from src/emails/, fills placeholders, and sends via Gmail API.
  */
 

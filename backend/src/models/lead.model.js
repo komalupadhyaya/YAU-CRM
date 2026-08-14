@@ -51,6 +51,7 @@ const LeadSchema = new mongoose.Schema({
     },
     unreadCount: { type: Number, default: 0 },
     isConsent: { type: Boolean, default: true },
+    isEmailConsent: { type: Boolean, default: true },
     smsHistory: [{
         direction: { type: String, enum: ['inbound', 'outbound'] },
         message: String,

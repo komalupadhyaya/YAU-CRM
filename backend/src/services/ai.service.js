@@ -240,5 +240,75 @@ async function generateEmailMessage({ leadName, contactName, contactTitle, leadS
     };
 }
 
-export default { generateSmsMessage, generateEmailMessage };
+// ── System prompt builder for Templates ────────────────────────────
+function buildTemplateSystemPrompt() {
+    return `You are a world-class email marketing designer and copywriter for YAU Sports — a youth sports, athletic development, and school sports partnership organization.
+
+Your job is to generate or update a high-converting, beautifully formatted email marketing template based on the user's prompt.
+
+RULES (follow strictly):
+- Create an engaging, professional subject line.
+- Create a complete HTML email body with modern inline-styled structure, clear headings, bullet points, call-to-action button, and polite closing.
+- Use {{name}} as the dynamic placeholder for the recipient's name (e.g. "Hi {{name}},").
+- If existing HTML template code is provided, PRESERVE its overall layout and structure while modifying, adding, or styling sections according to the user's new instructions.
+- Return strictly JSON format with keys "name", "subject", "content", and "category".
+Example output format:
+{
+  "name": "Summer Basketball Camp Invitation",
+  "subject": "Registration Open for Summer Basketball Camp! 🏀",
+  "category": "Promotional",
+  "content": "<h2>Join Our Summer Basketball Camp</h2><p>Hi {{name}},</p><p>We are excited to invite your young athlete...</p><p><a href=\\"https://youthathleteuniversity.org\\" style=\\"background:#0066cc;color:#fff;padding:10px 20px;text-decoration:none;border-radius:6px;display:inline-block;\\">Register Now</a></p><br/><p>Best regards,<br/>The YAU Team</p>"
+}`;
+}
+
+/**
+ * Generate or refine an AI-created Email Template using Groq AI.
+ *
+ * @param {Object} params
+ * @param {string} params.prompt           - User's prompt/idea or follow-up instruction
+ * @param {string} [params.category]        - Optional category tag
+ * @param {string} [params.existingContent] - Optional existing HTML template code to refine
+ * @returns {Promise<{ name: string, subject: string, content: string, category: string }>}
+ */
+async function generateEmailTemplate({ prompt, category, existingContent }) {
+    const systemPrompt = buildTemplateSystemPrompt();
+    let userContent = `User Request / Prompt: ${prompt || 'Create a general sports program announcement email template.'}\nCategory Preference: ${category || 'General'}`;
+
+    if (existingContent && existingContent.trim()) {
+        userContent += `\n\n[EXISTING HTML TEMPLATE CODE TO MODIFY / REFINE]:\n\`\`\`html\n${existingContent}\n\`\`\`\n\nInstructions: Apply the user's requested changes directly to the existing HTML template code above. Return the updated complete HTML email in the JSON response.`;
+    }
+
+    let raw = '';
+    if (PROVIDER === 'groq') {
+        raw = await callGroq(systemPrompt, userContent, true);
+    } else if (PROVIDER === 'claude') {
+        raw = await callClaude(systemPrompt, userContent, 1000);
+    } else {
+        throw new Error(`Unknown AI_PROVIDER: "${PROVIDER}". Valid values: "groq", "claude".`);
+    }
+
+    try {
+        const jsonMatch = raw.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]);
+            return {
+                name: parsed.name || 'AI Generated Template',
+                subject: parsed.subject || 'Special Announcement from YAU Sports',
+                category: parsed.category || category || 'AI Generated',
+                content: parsed.content || `<p>Hi {{name}},</p><p>${raw.replace(/\n/g, '<br/>')}</p>`
+            };
+        }
+    } catch (e) {
+        console.warn('Failed to parse AI template JSON, falling back to text:', e);
+    }
+
+    return {
+        name: 'AI Generated Template',
+        subject: 'Special Announcement from YAU Sports',
+        category: category || 'AI Generated',
+        content: `<p>Hi {{name}},</p><p>${raw.replace(/\n/g, '<br/>')}</p>`
+    };
+}
+
+export default { generateSmsMessage, generateEmailMessage, generateEmailTemplate };
 

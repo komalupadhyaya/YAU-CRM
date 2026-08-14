@@ -19,5 +19,8 @@ router.post('/twilio-reply', webhookController.handleTwilioReply);
 // Public endpoint for Twilio SMS Delivery Status Callback
 router.post('/twilio-sms-status', webhookController.handleTwilioSmsStatus);
 
+// Public endpoint for SendGrid Event Webhook
+router.post('/sendgrid', webhookController.handleSendGridWebhook);
+
 export default router;
 

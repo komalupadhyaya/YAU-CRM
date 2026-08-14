@@ -6,6 +6,9 @@ import { User } from '../models/user.model.js';
 import Notification from '../models/notification.model.js';
 import { sendDailySummaryEmail, sendReminderEmail } from '../services/mailer.js';
 import { invalidatedUsers } from './sessionCache.js';
+import EmailCampaign from '../models/emailCampaign.model.js';
+import { resolveSegmentRecipients } from '../controllers/segments.controller.js';
+import { dispatchCampaignInBackground } from '../controllers/campaigns.controller.js';
 
 export const initCronJobs = () => {
 
@@ -176,5 +179,33 @@ export const initCronJobs = () => {
         }
     });
 
-    console.log('✅ Cron jobs initialized: Daily summary (8AM EST) + 30-min reminders (every minute).');
+    // ── 3. Scheduled Campaign Sender — runs every minute ──────────────────────
+    cron.schedule('* * * * *', async () => {
+        try {
+            const now = new Date();
+            const pendingCampaigns = await EmailCampaign.find({
+                status: 'scheduled',
+                sendAt: { $lte: now }
+            }).populate('segmentId');
+
+            if (pendingCampaigns.length > 0) {
+                console.log(`[Campaign Cron] Found ${pendingCampaigns.length} scheduled campaigns due for delivery.`);
+            }
+
+            for (const campaign of pendingCampaigns) {
+                campaign.status = 'sending';
+                await campaign.save();
+
+                // Resolve recipients
+                const recipients = await resolveSegmentRecipients(campaign.segmentId);
+                
+                // Dispatch in background
+                dispatchCampaignInBackground(campaign, recipients);
+            }
+        } catch (err) {
+            console.error('[Campaign Cron] Error dispatching scheduled campaigns:', err.message);
+        }
+    });
+
+    console.log('✅ Cron jobs initialized: Daily summary (8AM EST) + 30-min reminders (every minute) + campaign sender (every minute).');
 };

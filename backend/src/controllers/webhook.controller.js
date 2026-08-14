@@ -6,6 +6,7 @@ import { Note } from '../models/note.model.js';
 import { User } from '../models/user.model.js';
 import { Settings } from '../models/settings.model.js';
 import EALead from '../models/eaLead.model.js';
+import EmailHistory from '../models/emailHistory.model.js';
 import smsForwarderService from '../services/smsForwarder.service.js';
 import { sendSMSReplyEmailNotification } from '../services/mailer.js';
 import presenceService from '../services/presence.service.js';
@@ -448,5 +449,159 @@ export const handleTwilioSmsStatus = async (req, res) => {
     } catch (error) {
         console.error('[Twilio Status Callback] Error:', error);
         return res.status(200).send('Error');
+    }
+};
+
+import crypto from 'crypto';
+import EmailCampaign from '../models/emailCampaign.model.js';
+
+const verifySendGridSignature = (publicKeyBase64, payload, signature, timestamp) => {
+    try {
+        const verifier = crypto.createVerify('sha256');
+        verifier.update(timestamp + payload);
+        
+        const publicKeyPem = `-----BEGIN PUBLIC KEY-----\n${publicKeyBase64}\n-----END PUBLIC KEY-----`;
+        
+        return verifier.verify(publicKeyPem, signature, 'base64');
+    } catch (err) {
+        console.error('[SendGrid Webhook Verification] Signature verification error:', err.message);
+        return false;
+    }
+};
+
+export const handleSendGridWebhook = async (req, res) => {
+    try {
+        console.log('--- SENDGRID EVENT WEBHOOK RECEIVED ---');
+        
+        const secret = process.env.SENDGRID_WEBHOOK_SECRET;
+        if (secret) {
+            const signature = req.headers['x-twilio-email-event-webhook-signature'];
+            const timestamp = req.headers['x-twilio-email-event-webhook-timestamp'];
+            
+            if (!signature || !timestamp) {
+                console.warn('[SendGrid Webhook] Signature verification enabled but headers are missing!');
+                return res.status(401).json({ error: 'Signature headers missing' });
+            }
+            
+            const rawBody = JSON.stringify(req.body);
+            const isValid = verifySendGridSignature(secret, rawBody, signature, timestamp);
+            if (!isValid) {
+                console.error('[SendGrid Webhook] Invalid signature verification!');
+                return res.status(401).json({ error: 'Invalid signature' });
+            }
+            console.log('[SendGrid Webhook] Signature verified successfully.');
+        }
+
+        const events = req.body;
+        if (!Array.isArray(events)) {
+            return res.status(400).json({ error: 'Payload must be an array' });
+        }
+
+        console.log(`[SendGrid Webhook] Processing ${events.length} events...`);
+
+        for (const event of events) {
+            const { event: eventType, email, leadId, leadModel, campaignId } = event;
+            console.log(`[SendGrid Webhook Event] type: ${eventType} | email: ${email} | campaignId: ${campaignId}`);
+
+            if (!campaignId) continue;
+
+            const campaign = await EmailCampaign.findById(campaignId);
+            if (!campaign) {
+                console.warn(`[SendGrid Webhook] Campaign not found for ID: ${campaignId}`);
+                continue;
+            }
+
+            if (eventType === 'delivered') {
+                campaign.stats.delivered = (campaign.stats.delivered || 0) + 1;
+            } else if (eventType === 'open') {
+                campaign.stats.opens = (campaign.stats.opens || 0) + 1;
+            } else if (eventType === 'click') {
+                campaign.stats.clicks = (campaign.stats.clicks || 0) + 1;
+            } else if (['bounce', 'blocked', 'dropped'].includes(eventType)) {
+                campaign.stats.bounces = (campaign.stats.bounces || 0) + 1;
+            } else if (eventType === 'unsubscribe') {
+                campaign.stats.unsubscribes = (campaign.stats.unsubscribes || 0) + 1;
+            }
+
+            if (campaign.recipientLogs && campaign.recipientLogs.length > 0) {
+                const sgMsgId = event.sg_message_id ? event.sg_message_id.split('.')[0] : null;
+                const logItem = campaign.recipientLogs.find(log => 
+                    (log.messageId && sgMsgId && log.messageId.startsWith(sgMsgId)) ||
+                    (log.email && email && log.email.toLowerCase() === email.toLowerCase())
+                );
+                if (logItem) {
+                    if (event.sg_message_id && !logItem.messageId) {
+                        logItem.messageId = event.sg_message_id;
+                    }
+                    if (['bounce', 'blocked', 'dropped'].includes(eventType)) {
+                        logItem.status = 'bounce';
+                        logItem.error = event.reason || event.response || `SendGrid Event: ${eventType}`;
+                    } else {
+                        logItem.status = eventType;
+                    }
+                }
+            }
+
+            await campaign.save();
+
+            // Also update central EmailHistory collection!
+            const sgMsgId = event.sg_message_id ? event.sg_message_id.split('.')[0] : null;
+            let emailHistoryDoc = null;
+
+            if (sgMsgId) {
+                emailHistoryDoc = await EmailHistory.findOne({
+                    messageId: { $regex: `^${sgMsgId}` }
+                });
+            }
+            if (!emailHistoryDoc && campaignId && email) {
+                emailHistoryDoc = await EmailHistory.findOne({
+                    campaignId,
+                    to: email.toLowerCase().trim()
+                });
+            }
+
+            if (emailHistoryDoc) {
+                if (['bounce', 'blocked', 'dropped'].includes(eventType)) {
+                    emailHistoryDoc.status = 'bounce';
+                    emailHistoryDoc.error = event.reason || event.response || `SendGrid Event: ${eventType}`;
+                } else {
+                    emailHistoryDoc.status = eventType;
+                }
+                if (event.sg_message_id && !emailHistoryDoc.messageId) {
+                    emailHistoryDoc.messageId = event.sg_message_id;
+                }
+                await emailHistoryDoc.save();
+            }
+
+            if (['unsubscribe', 'bounce', 'spam'].includes(eventType)) {
+                console.log(`[SendGrid Webhook] Revoking email consent for ${email} due to event: ${eventType}`);
+                if (leadId) {
+                    if (leadModel === 'EALead') {
+                        await EALead.findByIdAndUpdate(leadId, { isEmailConsent: false });
+                    } else {
+                        await Lead.findByIdAndUpdate(leadId, { isEmailConsent: false });
+                    }
+
+                    await Note.create({
+                        lead_id: leadId,
+                        type: 'note',
+                        content: `EMAIL CONSENT REVOKED: System received a SendGrid ${eventType.toUpperCase()} event for ${email}. Marketing emails are disabled.`
+                    });
+                }
+            } else if (['open', 'click'].includes(eventType)) {
+                if (leadId) {
+                    await Note.create({
+                        lead_id: leadId,
+                        type: 'note',
+                        content: `Email campaign "${campaign.title}" was ${eventType}ed by ${email}.`
+                    });
+                }
+            }
+        }
+
+        res.json({ success: true });
+    } catch (err) {
+        console.error('[SendGrid Webhook] Error:', err.message);
+        res.status(500).json({ error: 'Internal Server Error' });
     }
 };
