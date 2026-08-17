@@ -9,6 +9,7 @@ import Followup from '../models/followup.model.js';
 import Meeting from '../models/meeting.model.js';
 import Task from '../models/tasks.model.js';
 import User from '../models/user.model.js';
+import { scoreAndUpdateLead } from '../services/ai.service.js';
 
 /**
  * Propagates lead assignment to pending follow-ups, tasks, and scheduled meetings.
@@ -302,6 +303,9 @@ export const createLead = async (req, res, next) => {
                 is_primary: false
             });
         }
+
+        // AI Intelligence Layer Trigger
+        scoreAndUpdateLead(lead._id, 'main_lead').catch(e => console.error('[AI Lead Create Scoring Error]:', e.message));
 
         res.status(201).json(lead);
     } catch (err) {

@@ -1,16 +1,13 @@
 import cron from 'node-cron';
 import Followup from '../models/followup.model.js';
+import { scanAndFlagStalledLeads } from '../services/ai/stalled.service.js';
+import { generateWeeklyReport } from '../services/ai/weeklyReport.service.js';
 
 /**
- * Weekly Cron Job — Purge Completed Follow-Ups
- *
- * Schedule: Every Sunday at midnight (00:00)
- * Cron expr: '0 0 * * 0'
- *
- * Finds all follow-ups with status === 'done' and permanently
- * deletes them from the database to keep the collection lean.
+ * Register Background Cron Jobs for YAU CRM
  */
 export function startCronJobs() {
+    // 1. Weekly Follow-up Purge — Every Sunday at midnight
     cron.schedule('0 0 * * 0', async () => {
         const startedAt = new Date().toISOString();
         console.log(`[CRON] Weekly follow-up purge started at ${startedAt}`);
@@ -21,9 +18,28 @@ export function startCronJobs() {
         } catch (err) {
             console.error('[CRON] Follow-up purge failed:', err.message);
         }
-    }, {
-        timezone: 'UTC'  // Change to your preferred timezone e.g. 'Asia/Karachi'
-    });
+    }, { timezone: 'America/New_York' });
 
-    console.log('[CRON] Weekly follow-up purge job registered (runs every Sunday at 00:00 UTC).');
+    // 2. Nightly Stalled Lead Scanner — Every night at 2:00 AM EST
+    cron.schedule('0 2 * * *', async () => {
+        console.log('[CRON] Starting nightly stalled lead scanning...');
+        try {
+            await scanAndFlagStalledLeads();
+        } catch (err) {
+            console.error('[CRON] Stalled lead scan failed:', err.message);
+        }
+    }, { timezone: 'America/New_York' });
+
+    // 3. Weekly AI Performance Report — Every Monday at 8:00 AM EST
+    cron.schedule('0 8 * * 1', async () => {
+        console.log('[CRON] Starting Monday morning AI weekly performance report generation...');
+        try {
+            await generateWeeklyReport();
+        } catch (err) {
+            console.error('[CRON] Weekly AI report failed:', err.message);
+        }
+    }, { timezone: 'America/New_York' });
+
+    console.log('[CRON] Cron jobs registered (Followup purge, Stalled lead scan, Weekly AI report).');
 }
+

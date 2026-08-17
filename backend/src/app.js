@@ -27,6 +27,7 @@ import meetingRoutes from './routes/meeting.routes.js';
 import availabilityRoutes from './routes/availability.routes.js';
 
 import templateRoutes from './routes/templates.routes.js';
+import aiRoutes from './routes/ai.routes.js';
 import { startCronJobs } from './utils/cron.utils.js';
 
 const app = express();
@@ -263,6 +264,7 @@ app.use('/api/meetings', meetingRoutes);
 app.use('/api/availability', availabilityRoutes);
 app.use('/api/ea-leads', eaLeadRoutes);
 app.use('/api/voice', voiceRoutes);
+app.use('/api/ai', aiRoutes);
 app.use('/api', templateRoutes);
 
 

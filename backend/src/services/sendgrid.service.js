@@ -93,3 +93,24 @@ export const sendSendGridMail = async ({ to, subject, html, leadId, leadModel, c
         return { success: false, error: errorDetails };
     }
 };
+
+/**
+ * Helper to send general system/notification emails via SendGrid
+ */
+export const sendGeneralEmail = async ({ to, subject, html }) => {
+    const recipients = Array.isArray(to) ? to : [to];
+    let lastResult = { success: true };
+    for (const recipient of recipients) {
+        lastResult = await sendSendGridMail({
+            to: recipient,
+            subject,
+            html,
+            leadId: 'system',
+            leadModel: 'EALead',
+            campaignId: 'system'
+        });
+    }
+    return lastResult;
+};
+
+export default { sendSendGridMail, sendGeneralEmail };

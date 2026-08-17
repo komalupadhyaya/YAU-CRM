@@ -10,6 +10,7 @@ import EmailHistory from '../models/emailHistory.model.js';
 import smsForwarderService from '../services/smsForwarder.service.js';
 import { sendSMSReplyEmailNotification } from '../services/mailer.js';
 import presenceService from '../services/presence.service.js';
+import { scoreAndUpdateLead, handleInboundSmsReplyAi, generateAndSaveNextAction } from '../services/ai.service.js';
 
 /**
  * Handle JotForm Webhook submissions
@@ -215,6 +216,11 @@ export const handleTwilioReply = async (req, res) => {
             }
             await eaLead.save();
             console.log(`[Twilio Webhook] Saved inbound SMS reply to EA Lead "${eaLead.name}" (${eaLead._id})`);
+
+            // AI Intelligence Layer Triggers
+            scoreAndUpdateLead(eaLead._id, 'ea_lead').catch(e => console.error('[AI Rescore Error]:', e.message));
+            handleInboundSmsReplyAi({ leadId: eaLead._id, leadType: 'ea_lead', incomingMessage: Body.trim(), leadDoc: eaLead }).catch(e => console.error('[AI Reply Assistant Error]:', e.message));
+            generateAndSaveNextAction(eaLead._id, 'ea_lead', `Inbound SMS reply received: "${Body.trim()}"`).catch(e => console.error('[AI Next Action Error]:', e.message));
         }
 
         for (const mainLead of matchingMainLeads) {
@@ -227,6 +233,11 @@ export const handleTwilioReply = async (req, res) => {
             }
             await mainLead.save();
             console.log(`[Twilio Webhook] Saved inbound SMS reply to Main Lead "${mainLead.name}" (${mainLead._id})`);
+
+            // AI Intelligence Layer Triggers
+            scoreAndUpdateLead(mainLead._id, 'main_lead').catch(e => console.error('[AI Rescore Error]:', e.message));
+            handleInboundSmsReplyAi({ leadId: mainLead._id, leadType: 'main_lead', incomingMessage: Body.trim(), leadDoc: mainLead }).catch(e => console.error('[AI Reply Assistant Error]:', e.message));
+            generateAndSaveNextAction(mainLead._id, 'main_lead', `Inbound SMS reply received: "${Body.trim()}"`).catch(e => console.error('[AI Next Action Error]:', e.message));
         }
 
         // Compute total unread count across all leads

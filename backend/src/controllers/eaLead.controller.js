@@ -7,6 +7,7 @@ import Note from '../models/note.model.js';
 import Campaign from '../models/campaign.model.js';
 import { getCCAccessToken } from '../utils/constantContact.js';
 import { sendEAWelcomeEmail } from '../services/mailer.js';
+import { scoreAndUpdateLead, processInitialEALeadSms } from '../services/ai.service.js';
 
 const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 
@@ -197,6 +198,10 @@ export const submitEALead = async (req, res) => {
         }
 
         sendEAWelcomeEmail({ name: lead.name, email: lead.email });
+
+        // AI Intelligence Layer Triggers
+        scoreAndUpdateLead(lead._id, 'ea_lead').catch(e => console.error('[AI EA Submit Scoring Error]:', e.message));
+        processInitialEALeadSms(lead._id).catch(e => console.error('[AI EA Submit SMS Error]:', e.message));
 
         // Determine redirect vs JSON response
         const acceptsJson = req.headers.accept && req.headers.accept.includes('application/json');
@@ -558,6 +563,10 @@ export const createEALead = async (req, res) => {
         }
 
         sendEAWelcomeEmail({ name: lead.name, email: lead.email });
+
+        // AI Intelligence Layer Triggers
+        scoreAndUpdateLead(lead._id, 'ea_lead').catch(e => console.error('[AI EA Manual Add Scoring Error]:', e.message));
+        processInitialEALeadSms(lead._id).catch(e => console.error('[AI EA Manual Add SMS Error]:', e.message));
 
         return res.status(201).json(lead);
 

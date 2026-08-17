@@ -59,7 +59,8 @@ const LeadSchema = new mongoose.Schema({
         isBulk: { type: Boolean, default: false },
         status: { type: String, enum: ['pending', 'sent', 'failed', 'received'], default: 'pending' },
         twilioSid: { type: String, default: null },
-        isRead: { type: Boolean, default: false }
+        isRead: { type: Boolean, default: false },
+        sentBy: { type: String, enum: ['staff', 'ai'], default: 'staff' }
     }],
     callHistory: [{
         callSid: { type: String, required: true },
@@ -69,7 +70,35 @@ const LeadSchema = new mongoose.Schema({
         recordingUrl: { type: String },
         status: { type: String },
         timestamp: { type: Date, default: Date.now }
-    }]
+    }],
+
+    // ── AI Intelligence Fields ─────────────────────────────────────────────
+    aiScore: {
+        score: { type: String, enum: ['Hot', 'Warm', 'Cold'], default: 'Cold' },
+        reason: { type: String, default: '' },
+        scoreUpdated: { type: Date, default: Date.now },
+        isManualOverride: { type: Boolean, default: false }
+    },
+    stalledInfo: {
+        isStalled: { type: Boolean, default: false },
+        daysStalled: { type: Number, default: 0 },
+        flaggedAt: { type: Date, default: null },
+        draftFollowup: { type: String, default: '' }
+    },
+    aiReplyDraft: {
+        text: { type: String, default: '' },
+        category: { type: String, default: '' },
+        confidenceScore: { type: Number, default: 0 },
+        generatedAt: { type: Date, default: Date.now },
+        status: { type: String, enum: ['pending', 'approved', 'auto_sent', 'dismissed', 'flagged_complaint'], default: 'pending' }
+    },
+    aiNextAction: {
+        actionText: { type: String, default: '' },
+        taskType: { type: String, default: 'Follow-up' },
+        suggestedDate: { type: Date, default: null },
+        rationale: { type: String, default: '' },
+        createdAt: { type: Date, default: Date.now }
+    }
 }, { timestamps: true });
 
 export const Lead = mongoose.model('Lead', LeadSchema);

@@ -28,6 +28,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { DateTimePicker } from "@/components/ui/datetime-picker";
 import { toESTDate } from "../utils/timezoneHelper";
+import StalledLeadsWidget from "../components/dashboard/StalledLeadsWidget";
+import WeeklyReportWidget from "../components/dashboard/WeeklyReportWidget";
 
 interface Campaign {
   _id: string;
@@ -580,6 +582,12 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* AI Intelligence Layer Dashboard Widgets */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+        <WeeklyReportWidget />
+        <StalledLeadsWidget />
       </div>
 
       <div className="flex flex-col lg:flex-row gap-6">

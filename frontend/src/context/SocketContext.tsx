@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useAuth } from './AuthContext';
+import { toast } from 'sonner';
 
 interface SocketContextValue {
   socket: Socket | null;
@@ -57,6 +58,34 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     socketInstance.on('connect_error', (error) => {
       console.warn('⚠️ Socket.IO connection warning:', error.message);
+    });
+
+    // ── AI Real-Time Event Toasts ─────────────────────────────────────
+    socketInstance.on('ai:scored', (data: any) => {
+      console.log('⚡ Received AI Scored Event:', data);
+      const badge = data.score === 'Hot' ? '🔴 Hot' : data.score === 'Warm' ? '🟡 Warm' : '🔵 Cold';
+      toast.info(`Claude AI Scored Lead: ${badge}`, {
+        description: `Lead: "${data.leadName || 'New Lead'}" — ${data.reason}`,
+        duration: 5000
+      });
+    });
+
+    socketInstance.on('ai:reply_assistant', (data: any) => {
+      if (data.autoSent) {
+        toast.success(`Claude AI Auto-Replied to SMS from ${data.leadName}! 📱`, {
+          description: `"${data.text}"`
+        });
+      } else {
+        toast.info(`Claude AI Drafted Reply for ${data.leadName} 📝`, {
+          description: `Review and approve in CRM.`
+        });
+      }
+    });
+
+    socketInstance.on('ai:initial_contact', (data: any) => {
+      toast.success(`Claude AI Contact Message Sent for ${data.leadName}! 🚀`, {
+        description: data.text
+      });
     });
 
     return () => {

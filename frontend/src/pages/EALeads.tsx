@@ -13,6 +13,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import { countryCodes } from "../utils/countryCodes";
+import LeadScoreBadge from "../components/ai/LeadScoreBadge";
+import NextActionCard from "../components/ai/NextActionCard";
+import AiReplyDraftCard from "../components/ai/AiReplyDraftCard";
+import { sendStalledFollowup } from "../api/ai.api";
 import {
   Table,
   TableBody,
@@ -52,7 +56,13 @@ import {
   Building,
   ChevronUp,
   ChevronDown,
-  MapPin
+  MapPin,
+  Brain,
+  Clock,
+  Activity,
+  Check,
+  Bot,
+  TrendingUp
 } from "lucide-react";
 
 interface EALead {
@@ -74,6 +84,7 @@ interface EALead {
     status?: 'pending' | 'sent' | 'failed' | 'received';
     twilioSid?: string;
     _id?: string;
+    sentBy?: "staff" | "ai";
   }>;
 }
 
@@ -192,6 +203,7 @@ export default function EALeads() {
   const [editIsConsent, setEditIsConsent] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [sendingFollowup, setSendingFollowup] = useState(false);
 
   // Fetch leads
   const fetchLeads = async () => {
@@ -497,6 +509,28 @@ export default function EALeads() {
     } catch (err: any) {
       console.error("Failed to re-enable consent:", err);
       toast.error(err.response?.data?.error || "Failed to re-enable consent");
+    }
+  };
+
+  const handleSendStalledFollowup = async () => {
+    if (!selectedLead) return;
+    const toastId = toast.loading('Sending stalled lead follow-up...');
+    try {
+      setSendingFollowup(true);
+      const res = await sendStalledFollowup(selectedLead._id, 'ea_lead');
+      if (res.success) {
+        toast.success('Follow-up sent successfully! 📩', { id: toastId });
+        const updatedRes = await api.get(`/ea-leads/${selectedLead._id}`);
+        if (updatedRes.data) {
+          setSelectedLead(updatedRes.data);
+          setLeads(prev => prev.map(l => l._id === selectedLead._id ? updatedRes.data : l));
+        }
+      }
+    } catch (err: any) {
+      console.error("Failed to send stalled follow-up:", err);
+      toast.error(err.response?.data?.message || err.message || 'Failed to send follow-up', { id: toastId });
+    } finally {
+      setSendingFollowup(false);
     }
   };
 
@@ -981,13 +1015,23 @@ export default function EALeads() {
                            aria-label={`Select ${lead.name}`}
                         />
                       </TableCell>
-                      <TableCell className="font-semibold text-foreground truncate max-w-[200px]">
-                        {lead.name}
-                        {lead.submissionCount > 1 && (
-                          <span className="ml-2 inline-flex items-center gap-0.5 rounded bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold text-primary border border-primary/20" title={`Submitted ${lead.submissionCount} times`}>
-                            x{lead.submissionCount}
-                          </span>
-                        )}
+                      <TableCell className="font-semibold text-foreground truncate max-w-[250px]">
+                        <div className="flex items-center gap-2">
+                          <span>{lead.name}</span>
+                          <LeadScoreBadge
+                            leadId={lead._id}
+                            leadType="ea_lead"
+                            aiScore={(lead as any).aiScore}
+                            onScoreUpdated={(newScore) => {
+                              setLeads(prev => prev.map(l => l._id === lead._id ? { ...l, aiScore: newScore } : l));
+                            }}
+                          />
+                          {lead.submissionCount > 1 && (
+                            <span className="inline-flex items-center gap-0.5 rounded bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold text-primary border border-primary/20" title={`Submitted ${lead.submissionCount} times`}>
+                              x{lead.submissionCount}
+                            </span>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell className="text-muted-foreground font-medium">{lead.email}</TableCell>
                       <TableCell className="text-muted-foreground font-medium">{lead.phone}</TableCell>
@@ -1071,7 +1115,7 @@ export default function EALeads() {
         </div>
       </div>      {/* View Lead Dialog */}
       <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
-        <DialogContent className="sm:max-w-[550px] bg-card border-border text-foreground">
+        <DialogContent className="sm:max-w-[550px] bg-card border-border text-foreground overflow-x-hidden">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-xl font-bold">
               <span className="w-6 h-6 rounded-lg bg-primary/15 flex items-center justify-center shrink-0">
@@ -1086,10 +1130,13 @@ export default function EALeads() {
           
           {selectedLead && (
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-              <TabsList className="grid w-full grid-cols-2 bg-muted/50 border border-border/60 mb-4 p-1 rounded-xl">
+              <TabsList className="grid w-full grid-cols-3 bg-muted/50 border border-border/60 mb-4 p-1 rounded-xl">
                 <TabsTrigger value="details">Details</TabsTrigger>
                 <TabsTrigger value="messages" className="flex items-center gap-1.5">
                   <MessageSquare size={14} /> Messages
+                </TabsTrigger>
+                <TabsTrigger value="ai" className="flex items-center gap-1.5 text-indigo-500 font-semibold data-[state=active]:bg-indigo-500/15 data-[state=active]:text-indigo-400">
+                  <Sparkles size={14} /> AI Insights
                 </TabsTrigger>
               </TabsList>
 
@@ -1158,6 +1205,166 @@ export default function EALeads() {
                 </div>
               </TabsContent>
 
+              <TabsContent value="ai">
+                <div className="space-y-4 py-2 max-h-[420px] overflow-y-auto overflow-x-hidden pr-1">
+                  
+                  {/* Top Stats Grid */}
+                  <div className="grid grid-cols-2 gap-3">
+                    {/* Score Card */}
+                    <div className={`p-3.5 rounded-2xl border transition-all flex flex-col justify-between h-20 bg-slate-50/80 border-slate-200/80 dark:bg-slate-900/60 dark:border-slate-800 ${
+                      selectedLead.aiScore?.score === 'Hot'
+                        ? 'shadow-sm shadow-red-500/5 border-red-200/80 dark:border-red-500/20 dark:shadow-red-950/10'
+                        : selectedLead.aiScore?.score === 'Warm'
+                          ? 'shadow-sm shadow-amber-500/5 border-amber-200/80 dark:border-amber-500/20 dark:shadow-amber-950/10'
+                          : 'shadow-sm shadow-blue-500/5 border-blue-200/80 dark:border-blue-500/20 dark:shadow-blue-950/10'
+                    }`}>
+                      <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                        <Brain className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" /> Priority Level
+                      </div>
+                      <div className="flex items-center justify-between mt-1">
+                        <span className="text-xs text-slate-700 dark:text-slate-300 font-semibold">AI Score</span>
+                        <LeadScoreBadge
+                          leadId={selectedLead._id}
+                          leadType="ea_lead"
+                          aiScore={selectedLead.aiScore}
+                          showRationale={false}
+                          onScoreUpdated={(newScore) => {
+                            setSelectedLead(prev => prev ? { ...prev, aiScore: newScore } : null);
+                            setLeads(prev => prev.map(l => l._id === selectedLead._id ? { ...l, aiScore: newScore } : l));
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Status Card */}
+                    <div className={`p-3.5 rounded-2xl border transition-all flex flex-col justify-between h-20 bg-slate-50/80 border-slate-200/80 dark:bg-slate-900/60 dark:border-slate-800 ${
+                      selectedLead.stalledInfo?.isStalled
+                        ? 'shadow-sm shadow-amber-500/5 border-amber-200/80 dark:border-amber-500/20 dark:shadow-amber-950/10'
+                        : 'shadow-sm shadow-emerald-500/5 border-emerald-200/80 dark:border-emerald-500/20 dark:shadow-emerald-950/10'
+                    }`}>
+                      <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                        <Activity className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" /> Lead Health
+                      </div>
+                      <div className="flex items-center justify-between mt-1">
+                        <span className="text-xs text-slate-700 dark:text-slate-300 font-semibold">Status</span>
+                        {selectedLead.stalledInfo?.isStalled ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-100 text-amber-800 border border-amber-200 dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/20 animate-pulse">
+                            Stalled ({selectedLead.stalledInfo.daysStalled}d)
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20">
+                            Active
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* AI Scoring Rationale & Analysis Card */}
+                  <div className="p-4 rounded-2xl bg-white border border-slate-200 dark:bg-slate-900 dark:border-slate-800 text-slate-800 dark:text-slate-200 space-y-3 shadow-md">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                        <TrendingUp className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" /> Scoring Analysis & Logic
+                      </span>
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1 font-medium">
+                        <Clock className="w-3 h-3 text-slate-400 dark:text-slate-500" /> {selectedLead.aiScore?.scoreUpdated ? new Date(selectedLead.aiScore.scoreUpdated).toLocaleDateString() : 'Recent'}
+                      </span>
+                    </div>
+
+                    <div className="text-xs text-slate-800 bg-indigo-50/50 border border-indigo-100 dark:bg-indigo-950/20 dark:border-0 border-l-2 border-l-indigo-500/50 dark:border-l-2 dark:border-l-indigo-500/50 p-3.5 rounded-r-xl rounded-l-xs leading-relaxed font-medium dark:text-slate-300">
+                      <p className="text-[9px] uppercase font-bold tracking-wider text-indigo-600 dark:text-indigo-400/80 mb-1">Scoring Rationale</p>
+                      {selectedLead.aiScore?.reason || "Scored dynamically based on lead submission & intent criteria."}
+                    </div>
+
+                    <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 pt-2 border-t border-slate-100 dark:border-slate-800/80">
+                      <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                        Updated at {selectedLead.aiScore?.scoreUpdated ? new Date(selectedLead.aiScore.scoreUpdated).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                      </span>
+                      <span className={`text-[9px] px-2 py-0.5 rounded-full border font-bold uppercase tracking-wider ${
+                        selectedLead.aiScore?.isManualOverride 
+                          ? 'bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/20' 
+                          : 'bg-indigo-100 text-indigo-850 border-indigo-200 dark:bg-indigo-500/10 dark:text-indigo-400 dark:border-indigo-500/20'
+                      }`}>
+                        {selectedLead.aiScore?.isManualOverride ? 'Manual Override' : 'Automated AI Score'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* AI Next Action Suggestion Card */}
+                  {selectedLead.aiNextAction?.actionText && (
+                    <NextActionCard
+                      leadId={selectedLead._id}
+                      leadType="ea_lead"
+                      aiNextAction={selectedLead.aiNextAction}
+                      onActionCompleted={() => {
+                        api.get(`/ea-leads/${selectedLead._id}`).then(res => {
+                          setSelectedLead(res.data);
+                          setLeads(prev => prev.map(l => l._id === selectedLead._id ? res.data : l));
+                        });
+                      }}
+                    />
+                  )}
+
+                  {/* AI Reply Assistant Draft Card */}
+                  {selectedLead.aiReplyDraft?.text && selectedLead.aiReplyDraft.status === 'pending' && (
+                    <AiReplyDraftCard
+                      leadId={selectedLead._id}
+                      leadType="ea_lead"
+                      aiReplyDraft={selectedLead.aiReplyDraft}
+                      onReplyAction={() => {
+                        api.get(`/ea-leads/${selectedLead._id}`).then(res => {
+                          setSelectedLead(res.data);
+                          setLeads(prev => prev.map(l => l._id === selectedLead._id ? res.data : l));
+                        });
+                      }}
+                    />
+                  )}
+
+                  {/* Stalled Lead Radar Card */}
+                  {selectedLead.stalledInfo?.isStalled && (
+                    <div className="p-4 rounded-2xl bg-amber-50/80 border border-amber-200 dark:bg-amber-500/10 dark:border-amber-500/30 text-amber-900 dark:text-amber-200 space-y-3 shadow-md">
+                      <div className="flex items-center justify-between text-xs font-bold text-amber-800 dark:text-amber-400">
+                        <span className="flex items-center gap-1.5">
+                          <AlertCircle size={14} className="stroke-[2.5]" /> Stalled Lead Alert ({selectedLead.stalledInfo.daysStalled} days inactive)
+                        </span>
+                        <span className="text-[9px] bg-amber-100 text-amber-800 border border-amber-200 dark:bg-amber-500/20 dark:text-amber-400 dark:border-amber-500/30 font-bold uppercase tracking-wider">Action Required</span>
+                      </div>
+                      <p className="text-xs text-amber-900 dark:text-amber-100/90 leading-relaxed bg-amber-50 dark:bg-amber-950/40 p-3 rounded-xl border border-amber-100 dark:border-amber-500/20 italic">
+                        "{selectedLead.stalledInfo.draftFollowup || "Lead has had no staff interaction. Recommended follow-up ready."}"
+                      </p>
+                      <div className="flex justify-end pt-1">
+                        <Button
+                          size="sm"
+                          disabled={sendingFollowup}
+                          onClick={handleSendStalledFollowup}
+                          className="h-8 text-xs bg-amber-600 hover:bg-amber-500 dark:bg-amber-600 dark:hover:bg-amber-500 text-white dark:text-slate-950 font-bold flex items-center gap-1.5 rounded-xl transition-all shadow-md"
+                        >
+                          {sendingFollowup ? (
+                            <Loader2 size={12} className="animate-spin" />
+                          ) : (
+                            <Send size={12} />
+                          )}
+                          <span>Approve & Send Follow-up</span>
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Fallback Healthy State */}
+                  {!selectedLead.aiNextAction?.actionText && (!selectedLead.aiReplyDraft?.text || selectedLead.aiReplyDraft.status !== 'pending') && !selectedLead.stalledInfo?.isStalled && (
+                    <div className="p-5 text-center bg-slate-50/50 border border-dashed border-slate-200 dark:bg-slate-900/40 dark:border-slate-800 rounded-2xl flex flex-col items-center justify-center gap-2 animate-in fade-in duration-200">
+                      <div className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 flex items-center justify-center text-emerald-800 dark:text-emerald-400">
+                        <Check className="w-4 h-4 text-emerald-850 dark:text-emerald-400 stroke-[2.5]" />
+                      </div>
+                      <h5 className="text-xs font-bold text-slate-800 dark:text-slate-200">Lead Health is Healthy</h5>
+                      <p className="text-[10px] text-slate-500 dark:text-muted-foreground max-w-[280px] leading-relaxed">
+                        No stalled alerts, pending reply drafts, or critical actions need attention.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </TabsContent>
+
               <TabsContent value="messages">
                 <TooltipProvider>
                   <div className="flex flex-col h-[400px] border rounded-xl overflow-hidden bg-background">
@@ -1211,7 +1418,9 @@ export default function EALeads() {
                                           ? 'bg-muted text-foreground rounded-tl-none'
                                           : isFailed
                                             ? 'bg-destructive/90 text-white rounded-tr-none'
-                                            : 'bg-primary text-primary-foreground rounded-tr-none'
+                                            : msg.sentBy === 'ai'
+                                              ? 'bg-gradient-to-br from-indigo-500 to-purple-600 text-white rounded-tr-none shadow-sm shadow-indigo-500/10 border-0'
+                                              : 'bg-primary text-primary-foreground rounded-tr-none'
                                       }`}
                                     >
                                       {msg.message}
@@ -1222,6 +1431,11 @@ export default function EALeads() {
                                       <span className="inline-flex items-center gap-0.5 text-[9px] bg-destructive/15 text-destructive border border-destructive/30 px-1.5 py-0.5 rounded-full font-semibold leading-tight">
                                         <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                                         Failed
+                                      </span>
+                                    )}
+                                    {msg.sentBy === 'ai' && (
+                                      <span className="inline-flex items-center gap-0.5 text-[9px] bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-1.5 py-0.5 rounded-full font-bold">
+                                        <Sparkles className="w-2.5 h-2.5" /> AI
                                       </span>
                                     )}
                                     <span className="text-[10px] text-muted-foreground">

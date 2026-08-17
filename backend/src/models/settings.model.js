@@ -37,6 +37,19 @@ const SettingsSchema = new mongoose.Schema({
             emails: { type: [String], default: [] },
             phone: { type: String, default: "" }
         }]
+    },
+    aiSettings: {
+        autoSmsEnabled: { type: Boolean, default: true },
+        autoSmsDelaySeconds: { type: Number, default: 0 },
+        autoReplyEnabled: { type: Boolean, default: true },
+        stalledThresholds: {
+            type: Object,
+            default: {
+                default: { Hot: 3, Warm: 5, Cold: 7 },
+                ea_lead: { Hot: 3, Warm: 5, Cold: 7 },
+                main_lead: { Hot: 5, Warm: 7, Cold: 10 }
+            }
+        }
     }
 }, { timestamps: true });
 

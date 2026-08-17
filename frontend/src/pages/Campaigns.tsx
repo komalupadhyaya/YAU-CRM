@@ -1206,8 +1206,8 @@ const Campaigns = () => {
     }
     finally { setIsSubmitting(false); }
   };
-  const filteredCampaigns = campaigns.filter(c =>
-    c.name.toLowerCase().includes(campaignSearch.toLowerCase())
+  const filteredCampaigns = (campaigns || []).filter(c =>
+    c && (c.name || "").toLowerCase().includes((campaignSearch || "").toLowerCase())
   );
 
   const [campaignToDelete, setCampaignToDelete] = useState<Campaign | null>(null);
@@ -1230,9 +1230,10 @@ const Campaigns = () => {
     }
   };
 
-  const filteredLeads = leads.filter(s => {
-    const matchesSearch = s.name.toLowerCase().includes(leadSearch.toLowerCase()) ||
-      s.city?.toLowerCase().includes(leadSearch.toLowerCase());
+  const filteredLeads = (leads || []).filter(s => {
+    if (!s) return false;
+    const matchesSearch = (s.name || "").toLowerCase().includes((leadSearch || "").toLowerCase()) ||
+      (s.city || "").toLowerCase().includes((leadSearch || "").toLowerCase());
     const matchesStatus = statusFilter === "all" || s.status === statusFilter;
     return matchesSearch && matchesStatus;
   });

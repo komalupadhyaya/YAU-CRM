@@ -45,6 +45,7 @@ export interface SMSMessageItem {
   twilioSid?: string;
   isRead?: boolean;
   isBulk?: boolean;
+  sentBy?: 'staff' | 'ai';
 }
 
 export interface SMSConversation {
@@ -1033,6 +1034,8 @@ export default function SMSMessages() {
                                       ? 'bg-card text-card-foreground border border-border rounded-tl-none'
                                       : isFailed
                                       ? 'bg-destructive/15 text-foreground border border-destructive/40 rounded-tr-none'
+                                      : msg.sentBy === 'ai'
+                                      ? 'bg-gradient-to-br from-indigo-500 to-purple-600 text-white rounded-tr-none border-0 shadow-sm shadow-indigo-500/10'
                                       : 'bg-primary text-primary-foreground rounded-tr-none'
                                   }`}
                                 >
@@ -1044,6 +1047,11 @@ export default function SMSMessages() {
                               <div
                                 className={`flex items-center gap-1.5 mt-1 text-[10px] text-muted-foreground px-1 font-medium`}
                               >
+                                {msg.sentBy === 'ai' && (
+                                  <span className="inline-flex items-center gap-0.5 text-[9px] bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-1.5 py-0.5 rounded-full font-bold">
+                                    <Sparkles className="w-2.5 h-2.5" /> AI
+                                  </span>
+                                )}
                                 <span>{formatTime(msg.timestamp)}</span>
                                 {!isInbound && (
                                   <span>

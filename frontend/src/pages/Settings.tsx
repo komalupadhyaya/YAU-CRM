@@ -360,10 +360,14 @@ export default function Settings() {
 
                 {/* Tabs */}
                 <Tabs defaultValue="notifications" className="space-y-6">
-                    <TabsList className="grid grid-cols-2 max-w-md bg-muted/60 p-1">
+                    <TabsList className="grid grid-cols-3 max-w-lg bg-muted/60 p-1">
                         <TabsTrigger value="notifications" className="gap-2">
                             <BellRing size={16} />
-                            Notification Settings
+                            Notifications
+                        </TabsTrigger>
+                        <TabsTrigger value="ai" className="gap-2">
+                            <Sparkles size={16} />
+                            AI Intelligence
                         </TabsTrigger>
                         <TabsTrigger value="general" className="gap-2">
                             <Sliders size={16} />
@@ -699,7 +703,126 @@ export default function Settings() {
                         </div>
                     </TabsContent>
 
-                    {/* ══════════════════ TAB 2: GENERAL CRM PREFERENCES & PIPELINE ══════════════════ */}
+                    {/* ══════════════════ TAB 2: AI INTELLIGENCE LAYER SETTINGS ══════════════════ */}
+                    <TabsContent value="ai" className="space-y-8">
+                        <div className="bg-card border border-border/60 rounded-xl p-6 shadow-sm space-y-6">
+                            <div className="flex items-center gap-3 border-b border-border/40 pb-4">
+                                <div className="p-2 rounded-xl bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                                    <Sparkles size={20} />
+                                </div>
+                                <div>
+                                    <h2 className="text-lg font-bold">Claude AI Intelligence Layer Configuration</h2>
+                                    <p className="text-xs text-muted-foreground">Manage automated SMS follow-ups, AI two-way reply rules, and stalled lead threshold days.</p>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                {/* Auto SMS Settings */}
+                                <div className="bg-muted/30 border border-border/50 rounded-xl p-4 space-y-4">
+                                    <h3 className="text-sm font-bold flex items-center gap-2 text-foreground">
+                                        <MessageSquare size={16} className="text-blue-500" />
+                                        Automated Personalized SMS
+                                    </h3>
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <Label className="text-xs font-semibold">Enable Initial Form SMS</Label>
+                                            <p className="text-[11px] text-muted-foreground">Automatically write personalized SMS on form submission</p>
+                                        </div>
+                                        <Switch
+                                            checked={settings?.aiSettings?.autoSmsEnabled ?? true}
+                                            onCheckedChange={(checked) => setSettings(s => s ? { ...s, aiSettings: { ...s.aiSettings, autoSmsEnabled: checked } } : null)}
+                                        />
+                                    </div>
+
+                                    <div className="flex items-center justify-between pt-2">
+                                        <div>
+                                            <Label className="text-xs font-semibold">Enable Two-Way AI Auto-Reply</Label>
+                                            <p className="text-[11px] text-muted-foreground">Auto-respond to simple FAQ SMS replies immediately</p>
+                                        </div>
+                                        <Switch
+                                            checked={settings?.aiSettings?.autoReplyEnabled ?? true}
+                                            onCheckedChange={(checked) => setSettings(s => s ? { ...s, aiSettings: { ...s.aiSettings, autoReplyEnabled: checked } } : null)}
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Stalled Lead Thresholds */}
+                                <div className="bg-muted/30 border border-border/50 rounded-xl p-4 space-y-4">
+                                    <h3 className="text-sm font-bold flex items-center gap-2 text-foreground">
+                                        <Shield size={16} className="text-amber-500" />
+                                        Stalled Lead Inactivity Thresholds (Days)
+                                    </h3>
+                                    <div className="grid grid-cols-3 gap-3">
+                                        <div>
+                                            <Label className="text-[11px] font-semibold text-red-500">🔴 Hot Leads</Label>
+                                            <Input
+                                                type="number"
+                                                className="h-8 text-xs mt-1"
+                                                value={settings?.aiSettings?.stalledThresholds?.default?.Hot ?? 3}
+                                                onChange={(e) => {
+                                                    const val = Number(e.target.value);
+                                                    setSettings(s => s ? {
+                                                        ...s,
+                                                        aiSettings: {
+                                                            ...s.aiSettings,
+                                                            stalledThresholds: {
+                                                                ...(s.aiSettings?.stalledThresholds || {}),
+                                                                default: { ...(s.aiSettings?.stalledThresholds?.default || {}), Hot: val }
+                                                            }
+                                                        }
+                                                    } : null);
+                                                }}
+                                            />
+                                        </div>
+                                        <div>
+                                            <Label className="text-[11px] font-semibold text-amber-500">🟡 Warm Leads</Label>
+                                            <Input
+                                                type="number"
+                                                className="h-8 text-xs mt-1"
+                                                value={settings?.aiSettings?.stalledThresholds?.default?.Warm ?? 5}
+                                                onChange={(e) => {
+                                                    const val = Number(e.target.value);
+                                                    setSettings(s => s ? {
+                                                        ...s,
+                                                        aiSettings: {
+                                                            ...s.aiSettings,
+                                                            stalledThresholds: {
+                                                                ...(s.aiSettings?.stalledThresholds || {}),
+                                                                default: { ...(s.aiSettings?.stalledThresholds?.default || {}), Warm: val }
+                                                            }
+                                                        }
+                                                    } : null);
+                                                }}
+                                            />
+                                        </div>
+                                        <div>
+                                            <Label className="text-[11px] font-semibold text-blue-500">🔵 Cold Leads</Label>
+                                            <Input
+                                                type="number"
+                                                className="h-8 text-xs mt-1"
+                                                value={settings?.aiSettings?.stalledThresholds?.default?.Cold ?? 7}
+                                                onChange={(e) => {
+                                                    const val = Number(e.target.value);
+                                                    setSettings(s => s ? {
+                                                        ...s,
+                                                        aiSettings: {
+                                                            ...s.aiSettings,
+                                                            stalledThresholds: {
+                                                                ...(s.aiSettings?.stalledThresholds || {}),
+                                                                default: { ...(s.aiSettings?.stalledThresholds?.default || {}), Cold: val }
+                                                            }
+                                                        }
+                                                    } : null);
+                                                }}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </TabsContent>
+
+                    {/* ══════════════════ TAB 3: GENERAL CRM PREFERENCES & PIPELINE ══════════════════ */}
                     <TabsContent value="general" className="space-y-8">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                             {/* CRM Preferences */}

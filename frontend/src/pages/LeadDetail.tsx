@@ -38,6 +38,9 @@ import {
 } from "@/components/ui/alert-dialog";
 import { DateTimePicker } from "@/components/ui/datetime-picker";
 import { toESTDate } from "../utils/timezoneHelper";
+import LeadScoreBadge from "../components/ai/LeadScoreBadge";
+import NextActionCard from "../components/ai/NextActionCard";
+import AiReplyDraftCard from "../components/ai/AiReplyDraftCard";
 
 // --- Helpers ---
 const formatTimeForInput = (timeStr?: string) => {
@@ -825,6 +828,7 @@ export default function LeadDetail() {
     setEmailAiGenerating(true);
     try {
       const contactPerson = selectedContactForEmail?.name || (lead as Lead)?.contacts?.[0]?.name || (lead as any)?.main_contact_name || "";
+      const toastId = toast.loading('Claude AI is drafting personalized email...');
       const res = await api.post('/emails/ai-generate-email', {
         leadId: lead._id || id,
         leadType: 'main_lead',
@@ -833,7 +837,7 @@ export default function LeadDetail() {
       });
 
       if (!res.data.body && !res.data.subject) {
-        toast.error('AI returned an empty email. Please try again.');
+        toast.error('AI returned an empty email. Please try again.', { id: toastId });
         return;
       }
 
@@ -845,7 +849,7 @@ export default function LeadDetail() {
       setShowEmailAiPanel(false);
       setEmailAiPrompt('');
       setEmailErrors({});
-      toast.success('AI email draft ready — review and send!');
+      toast.success('Claude AI email draft ready — review and send! ✉️', { id: toastId });
     } catch (err: any) {
       console.error('AI generate email error:', err);
       toast.error(err.response?.data?.error || err.response?.data?.message || 'Failed to generate AI email');
@@ -857,6 +861,7 @@ export default function LeadDetail() {
   const handleSmsAiGenerate = async () => {
     if (!lead || smsAiGenerating) return;
     setSmsAiGenerating(true);
+    const toastId = toast.loading('Claude AI is crafting personalized SMS text...');
     try {
       const contactPerson = selectedContactForSms?.name || (lead as Lead)?.contacts?.[0]?.name || (lead as any)?.main_contact_name || "";
       const res = await api.post('/sms/ai-generate-sms', {
@@ -868,7 +873,7 @@ export default function LeadDetail() {
 
       const draft: string = res.data.draft || '';
       if (!draft) {
-        toast.error('AI returned an empty draft. Please try again.');
+        toast.error('AI returned an empty draft. Please try again.', { id: toastId });
         return;
       }
 
@@ -876,10 +881,10 @@ export default function LeadDetail() {
       setShowSmsAiPanel(false);
       setSmsAiPrompt('');
       setSmsErrors({});
-      toast.success('AI SMS draft ready — review and send!');
+      toast.success('Claude AI SMS draft ready — review and send! 📱', { id: toastId });
     } catch (err: any) {
       console.error('AI generate SMS error:', err);
-      toast.error(err.response?.data?.error || err.response?.data?.message || 'Failed to generate AI SMS message');
+      toast.error(err.response?.data?.error || err.response?.data?.message || 'Failed to generate AI SMS message', { id: toastId });
     } finally {
       setSmsAiGenerating(false);
     }
@@ -1041,6 +1046,28 @@ export default function LeadDetail() {
                   </>
                 )}
               </div>
+            </div>
+
+            {/* AI Intelligence Layer Cards */}
+            <div className="mb-4 space-y-4">
+              <LeadScoreBadge
+                leadId={id!}
+                leadType="main_lead"
+                aiScore={(lead as any)?.aiScore}
+                onScoreUpdated={() => loadAll(true)}
+              />
+              <NextActionCard
+                leadId={id!}
+                leadType="main_lead"
+                aiNextAction={(lead as any)?.aiNextAction}
+                onActionCompleted={() => loadAll(true)}
+              />
+              <AiReplyDraftCard
+                leadId={id!}
+                leadType="main_lead"
+                aiReplyDraft={(lead as any)?.aiReplyDraft}
+                onReplyAction={() => loadAll(true)}
+              />
             </div>
 
             {/* Action Area — disabled + blurred for view_only */}
