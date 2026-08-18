@@ -37,11 +37,19 @@ interface CallItem {
   forwardedToNumber?: string | null;
   forwardedToExtensionLabel?: string | null;
   lead_id?: { _id: string; name: string } | null;
+  
+  // AI Call Fields
+  aiHandled?: boolean;
+  retellCallId?: string;
+  transcript?: string;
+  callSummary?: string;
+  userSentiment?: 'positive' | 'neutral' | 'negative' | null;
 }
 
 export default function CallHistoryPage() {
   const [calls, setCalls] = useState<CallItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedAiCall, setSelectedAiCall] = useState<CallItem | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -348,7 +356,15 @@ export default function CallHistoryPage() {
                         <td className="py-2 px-3 font-semibold whitespace-nowrap">
                           <div className="flex items-center gap-1.5 text-xs">
                             {/* Initiator */}
-                            {call.user_id ? (
+                            {call.aiHandled ? (
+                              <button
+                                onClick={() => setSelectedAiCall(call)}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/10 text-indigo-500 border border-indigo-500/20 hover:bg-indigo-500/20 transition-all shadow-sm active:scale-95"
+                                title="Click to view AI receptionist audit logs"
+                              >
+                                🤖 AI Voice
+                              </button>
+                            ) : call.user_id ? (
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <span className="text-foreground cursor-help border-b border-dotted border-muted-foreground/30 hover:text-primary transition-colors">
@@ -634,6 +650,108 @@ export default function CallHistoryPage() {
                 </div>
               </div>
             </div>
+          )}
+
+          {/* Retell AI Details Dialog */}
+          {selectedAiCall && (
+            <AlertDialog open={!!selectedAiCall} onOpenChange={(open) => { if(!open) setSelectedAiCall(null); }}>
+              <AlertDialogContent className="bg-background border border-border shadow-2xl rounded-2xl max-w-2xl p-6 overflow-hidden flex flex-col max-h-[90vh] z-[99999]">
+                <AlertDialogHeader className="flex flex-row items-center justify-between border-b border-border pb-3 shrink-0">
+                  <div className="flex items-center gap-2">
+                    <span className="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center shrink-0 border border-indigo-500/20">
+                      <span>🤖</span>
+                    </span>
+                    <div>
+                      <AlertDialogTitle className="text-base font-bold text-foreground">
+                        AI Receptionist Call Audit
+                      </AlertDialogTitle>
+                      <p className="text-[10px] text-muted-foreground mt-0.5 font-semibold">
+                        Call ID: {selectedAiCall.retellCallId || selectedAiCall.callSid}
+                      </p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => setSelectedAiCall(null)}
+                    className="p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
+                  >
+                    <X size={16} />
+                  </button>
+                </AlertDialogHeader>
+
+                <div className="overflow-y-auto py-4 space-y-4 flex-1 pr-1.5 scrollbar-thin">
+                  {/* Summary & Sentiment Card */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="p-3 rounded-xl border bg-card/60 flex flex-col justify-between h-20">
+                      <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Sentiment</span>
+                      <span className={`text-xs font-semibold mt-1 w-fit px-2.5 py-0.5 rounded-full flex items-center gap-1 ${
+                        selectedAiCall.userSentiment === 'positive' 
+                          ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
+                          : selectedAiCall.userSentiment === 'negative'
+                            ? 'bg-red-500/10 text-red-500 border border-red-500/20'
+                            : 'bg-slate-500/10 text-slate-500 border border-slate-500/20'
+                      }`}>
+                        {selectedAiCall.userSentiment === 'positive' ? '🟢 Positive' : selectedAiCall.userSentiment === 'negative' ? '🔴 Negative' : '🟡 Neutral'}
+                      </span>
+                    </div>
+                    <div className="p-3 rounded-xl border bg-card/60 flex flex-col justify-between h-20 sm:col-span-2">
+                      <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Summary</span>
+                      <p className="text-xs text-foreground font-semibold mt-1 leading-relaxed line-clamp-3">
+                        {selectedAiCall.callSummary || 'No summary generated for this call.'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Transcript Scroll */}
+                  <div className="space-y-2">
+                    <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                      <span>📄</span> Conversation Transcript
+                    </h3>
+                    <div className="bg-slate-950/90 dark:bg-slate-950/80 border border-border/80 rounded-xl p-4 max-h-[350px] overflow-y-auto space-y-3 font-mono text-[11px] leading-relaxed">
+                      {selectedAiCall.transcript ? (
+                        selectedAiCall.transcript.split('\n').map((line, idx) => {
+                          const isAi = line.toLowerCase().startsWith('agent:') || line.toLowerCase().startsWith('ai:') || line.toLowerCase().startsWith('assistant:');
+                          const isUser = line.toLowerCase().startsWith('user:') || line.toLowerCase().startsWith('caller:') || line.toLowerCase().startsWith('customer:');
+                          
+                          let cleanLine = line;
+                          if (isAi) cleanLine = line.replace(/^(agent|ai|assistant):\s*/i, '');
+                          if (isUser) cleanLine = line.replace(/^(user|caller|customer):\s*/i, '');
+
+                          return (
+                            <div key={idx} className={`flex flex-col ${isAi ? 'items-start' : isUser ? 'items-end' : 'items-start'}`}>
+                              <span className="text-[9px] text-muted-foreground/60 mb-0.5">
+                                {isAi ? '🤖 AI Receptionist' : isUser ? '📞 Caller' : 'System'}
+                              </span>
+                              <div className={`p-2.5 rounded-xl max-w-[85%] whitespace-pre-wrap ${
+                                isAi 
+                                  ? 'bg-slate-800 text-slate-100 rounded-tl-none' 
+                                  : isUser 
+                                    ? 'bg-indigo-600 text-white rounded-tr-none' 
+                                    : 'bg-slate-900 text-slate-450'
+                              }`}>
+                                {cleanLine}
+                              </div>
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <p className="text-center text-muted-foreground py-10 italic">No transcript recorded.</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <AlertDialogFooter className="border-t border-border pt-3 shrink-0 flex items-center justify-between gap-3">
+                  {selectedAiCall.recordingUrl ? (
+                    <audio src={selectedAiCall.recordingUrl} controls className="h-9 max-w-full flex-1 border border-border/40 rounded-lg p-0.5 bg-card" />
+                  ) : (
+                    <span className="text-[10px] text-muted-foreground italic">No recording audio.</span>
+                  )}
+                  <AlertDialogCancel className="bg-secondary text-secondary-foreground hover:bg-secondary/80 px-4 py-2 rounded-lg text-xs font-semibold border border-border">
+                    Close Audit
+                  </AlertDialogCancel>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           )}
         </div>
       </TooltipProvider>

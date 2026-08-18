@@ -9,6 +9,7 @@ import fs from 'fs';
 import path from 'path';
 import User from '../models/user.model.js';
 import Call from '../models/call.model.js';
+import Settings from '../models/settings.model.js';
 
 const { AccessToken } = twilio.jwt;
 const { VoiceGrant } = AccessToken;
@@ -242,6 +243,31 @@ export const handleInboundCall = async (req, res, next) => {
                 });
                 console.log(`✅ Inbound call record initialized in DB: ${parentCallSid}`);
             }
+        }
+
+        // --- RETELL AI VOICE RECEPTONIST ROUTING BLOCK ---
+        const settings = await Settings.findOne();
+        const retellPhoneNumber = process.env.RETELL_PHONE_NUMBER;
+        if (settings && settings.retellSettings && settings.retellSettings.enabled && retellPhoneNumber) {
+            const retellNum = retellPhoneNumber.trim();
+            console.log(`🤖 Retell AI Voice Receptionist is active. Dialing: ${retellNum}`);
+            const twiml = new VoiceResponse();
+            
+            // Dial Retell number, bridging the inbound caller
+            twiml.dial({
+                callerId: fromNum || process.env.TWILIO_PHONE_NUMBER
+            }).number(retellNum);
+
+            // Update call record to indicate AI will handle it
+            if (parentCallSid) {
+                await Call.findOneAndUpdate(
+                    { callSid: parentCallSid },
+                    { aiHandled: true }
+                );
+            }
+
+            res.type('text/xml');
+            return res.send(twiml.toString());
         }
 
         let config = await PhoneConfig.findOne();

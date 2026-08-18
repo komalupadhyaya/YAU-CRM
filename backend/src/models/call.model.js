@@ -15,7 +15,14 @@ const CallSchema = new mongoose.Schema({
     forwardedToUser: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true, default: null },
     forwardedToNumber: { type: String, default: null },
     forwardedToExtensionLabel: { type: String, default: null },
-    lead_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Lead', index: true, default: null }
+    lead_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Lead', index: true, default: null },
+    
+    // ── AI Received Call Fields ──────────────────────────────────────────
+    aiHandled: { type: Boolean, default: false },
+    retellCallId: { type: String, index: true },
+    transcript: { type: String },
+    callSummary: { type: String },
+    userSentiment: { type: String, enum: ['positive', 'neutral', 'negative', null], default: null }
 }, { timestamps: true });
 
 export const Call = mongoose.model('Call', CallSchema);

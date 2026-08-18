@@ -17,7 +17,8 @@ import {
     Users,
     X,
     Sparkles,
-    CheckCircle2
+    CheckCircle2,
+    PhoneCall
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -27,6 +28,7 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useCampaignStore } from "../store/campaignStore";
+import { getRetellConfig, updateRetellConfig } from "../api/retell.api";
 
 interface RepUser {
     _id: string;
@@ -80,6 +82,9 @@ export default function Settings() {
     const [repNewEmailInput, setRepNewEmailInput] = useState<Record<string, string>>({});
     // Search query for rep filter
     const [repSearchQuery, setRepSearchQuery] = useState("");
+
+    // Retell AI Voice settings state
+    const [retellEnabled, setRetellEnabled] = useState(false);
 
     const loadSettings = async () => {
         try {
@@ -136,6 +141,14 @@ export default function Settings() {
 
             setSettings(initializedSettings);
             setStatusLabels(data.statusLabels || []);
+
+            // Load Retell settings
+            try {
+                const retellConfig = await getRetellConfig();
+                setRetellEnabled(retellConfig.enabled);
+            } catch (retellErr) {
+                console.error("Failed to load Retell config:", retellErr);
+            }
         } catch (err) {
             console.error(err);
             toast.error("Failed to load settings");
@@ -172,8 +185,19 @@ export default function Settings() {
             };
 
             const res = await api.post("/settings", payload);
+            
+            // Save Retell settings
+            const retellRes = await updateRetellConfig({
+                enabled: retellEnabled
+            });
+
             setStatusLabels(settings.statusLabels);
-            toast.success("Settings saved successfully");
+            
+            if (retellRes.warning) {
+                toast.warning(retellRes.warning, { duration: 6000 });
+            } else {
+                toast.success("Settings saved successfully");
+            }
             await loadSettings();
         } catch (err) {
             console.error(err);
@@ -360,7 +384,7 @@ export default function Settings() {
 
                 {/* Tabs */}
                 <Tabs defaultValue="notifications" className="space-y-6">
-                    <TabsList className="grid grid-cols-3 max-w-lg bg-muted/60 p-1">
+                    <TabsList className="grid grid-cols-4 max-w-2xl bg-muted/60 p-1">
                         <TabsTrigger value="notifications" className="gap-2">
                             <BellRing size={16} />
                             Notifications
@@ -368,6 +392,10 @@ export default function Settings() {
                         <TabsTrigger value="ai" className="gap-2">
                             <Sparkles size={16} />
                             AI Intelligence
+                        </TabsTrigger>
+                        <TabsTrigger value="voice" className="gap-2">
+                            <PhoneCall size={16} />
+                            AI Voice Agent
                         </TabsTrigger>
                         <TabsTrigger value="general" className="gap-2">
                             <Sliders size={16} />
@@ -904,6 +932,41 @@ export default function Settings() {
                                         </p>
                                     </div>
                                 </div>
+                            </div>
+                        </div>
+                    </TabsContent>
+
+                    {/* ══════════════════ TAB 3: RETELL AI VOICE ══════════════════ */}
+                    <TabsContent value="voice" className="space-y-8">
+                        <div className="bg-card border border-border/60 rounded-xl p-6 shadow-sm space-y-6">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border/40 pb-4">
+                                <div>
+                                    <h2 className="text-lg font-bold flex items-center gap-2">
+                                        <PhoneCall size={18} className="text-indigo-500" />
+                                        Retell AI Voice Receptionist
+                                    </h2>
+                                    <p className="text-xs text-muted-foreground mt-0.5">
+                                        Configure your AI telephone agent, prompt knowledge base, and human fallback transfers.
+                                    </p>
+                                </div>
+                                <Badge variant="outline" className="w-fit text-xs px-2.5 py-1 bg-indigo-500/5 text-indigo-500 border-indigo-500/20">
+                                    Retell AI v2 Integration
+                                </Badge>
+                            </div>
+
+                            {/* Active Toggle */}
+                            <div className="p-4 rounded-lg border border-border/50 bg-background/50 flex items-center justify-between">
+                                <div className="space-y-0.5">
+                                    <Label className="text-sm font-semibold flex items-center gap-2">
+                                        <PhoneCall size={15} className="text-indigo-500" />
+                                        Enable AI Inbound Receptionist
+                                    </Label>
+                                    <p className="text-[11px] text-muted-foreground">Automatically route incoming calls to the Retell AI Voice Agent</p>
+                                </div>
+                                <Switch
+                                    checked={retellEnabled}
+                                    onCheckedChange={setRetellEnabled}
+                                />
                             </div>
                         </div>
                     </TabsContent>

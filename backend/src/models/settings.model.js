@@ -50,6 +50,9 @@ const SettingsSchema = new mongoose.Schema({
                 main_lead: { Hot: 5, Warm: 7, Cold: 10 }
             }
         }
+    },
+    retellSettings: {
+        enabled: { type: Boolean, default: false }
     }
 }, { timestamps: true });
 
