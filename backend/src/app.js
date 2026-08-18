@@ -54,7 +54,11 @@ app.use(cors({
     optionsSuccessStatus: 200
 }));
 
-app.use(express.json());
+app.use(express.json({
+    verify: (req, res, buf) => {
+        req.rawBody = buf;
+    }
+}));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));

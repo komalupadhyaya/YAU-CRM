@@ -1072,6 +1072,7 @@ const Campaigns = () => {
         contactName: contactPerson,
         userPrompt: emailAiPrompt.trim() || undefined
       });
+      toast.info("Anthropic API key is hit", { description: "Model: Claude Sonnet 4.6" });
 
       if (!res.data.body && !res.data.subject) {
         toast.error('AI returned an empty email. Please try again.');
@@ -1138,6 +1139,7 @@ const Campaigns = () => {
         contactName: contactPerson,
         userPrompt: smsAiPrompt.trim() || undefined
       });
+      toast.info("Anthropic API key is hit", { description: "Model: Claude Sonnet 4.6" });
 
       const draft: string = res.data.draft || '';
       if (!draft) {

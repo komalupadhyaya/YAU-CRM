@@ -5,8 +5,9 @@ import EALead from '../models/eaLead.model.js';
 import Contact from '../models/contact.model.js';
 import EmailCampaign from '../models/emailCampaign.model.js';
 import EmailHistory from '../models/emailHistory.model.js';
-import { sendSendGridMail } from '../services/sendgrid.service.js';
-import aiService from '../services/ai.service.js';
+import EmailQueue from '../models/emailQueue.model.js';
+import { sendSendGridMail } from '../services/email/sendgrid.service.js';
+import aiService from '../services/ai/ai.service.js';
 import dns from 'dns/promises';
 import mongoose from 'mongoose';
 import { resolveSegmentRecipients } from './segments.controller.js';
@@ -198,6 +199,7 @@ export const getCampaigns = async (req, res, next) => {
     try {
         const campaigns = await EmailCampaign.find()
             .populate('segmentId')
+            .populate('templateId', 'name category isAiGenerated subject')
             .sort({ createdAt: -1 });
         res.json(campaigns);
     } catch (err) { next(err); }
@@ -205,7 +207,9 @@ export const getCampaigns = async (req, res, next) => {
 
 export const getCampaign = async (req, res, next) => {
     try {
-        const campaign = await EmailCampaign.findById(req.params.id).populate('segmentId');
+        const campaign = await EmailCampaign.findById(req.params.id)
+            .populate('segmentId')
+            .populate('templateId', 'name category isAiGenerated subject');
         if (!campaign) {
             return res.status(404).json({ error: 'Campaign not found' });
         }
@@ -221,11 +225,14 @@ export const createCampaign = async (req, res, next) => {
             subject,
             content,
             segmentId,
-            templateId: templateId || null,
+            templateId: (templateId && mongoose.Types.ObjectId.isValid(templateId)) ? templateId : null,
             sendAt: sendAt ? new Date(sendAt) : null,
             status: sendAt ? 'scheduled' : 'draft'
         });
-        res.status(201).json(campaign);
+        const populated = await EmailCampaign.findById(campaign._id)
+            .populate('segmentId')
+            .populate('templateId', 'name category isAiGenerated subject');
+        res.status(201).json(populated || campaign);
     } catch (err) { next(err); }
 };
 
@@ -239,13 +246,24 @@ export const updateCampaign = async (req, res, next) => {
                 subject, 
                 content, 
                 segmentId, 
-                templateId,
+                templateId: (templateId && mongoose.Types.ObjectId.isValid(templateId)) ? templateId : null,
                 sendAt: sendAt ? new Date(sendAt) : null,
                 status: status || (sendAt ? 'scheduled' : 'draft')
             },
             { new: true }
-        );
+        ).populate('segmentId').populate('templateId', 'name category isAiGenerated subject');
         res.json(campaign);
+    } catch (err) { next(err); }
+};
+
+export const deleteCampaign = async (req, res, next) => {
+    try {
+        const campaign = await EmailCampaign.findByIdAndDelete(req.params.id);
+        if (!campaign) {
+            return res.status(404).json({ error: 'Campaign not found' });
+        }
+        await EmailQueue.deleteMany({ campaignId: req.params.id, status: 'pending' });
+        res.json({ message: 'Campaign deleted successfully', id: req.params.id });
     } catch (err) { next(err); }
 };
 
@@ -316,67 +334,48 @@ export const rerunCampaign = async (req, res, next) => {
     } catch (err) { next(err); }
 };
 
-// Dispatch loop
+// Dispatch loop - now queues campaign emails in the database
 export const dispatchCampaignInBackground = async (campaign, recipients) => {
-    let sentCount = 0;
-    const recipientLogs = [];
-
-    for (const rec of recipients) {
-        const personalizedHtml = campaign.content.replace(/\{\{name\}\}/gi, rec.name);
-
-        const result = await sendSendGridMail({
-            to: rec.email,
-            subject: campaign.subject,
-            html: personalizedHtml,
+    try {
+        console.log(`[Campaign Queue] Preparing queue injection for "${campaign.title}" with ${recipients.length} recipients.`);
+        
+        // Generate recipients logs with status "pending"
+        campaign.recipientLogs = recipients.map(rec => ({
             leadId: rec.leadId,
-            leadModel: rec.leadModel,
-            campaignId: campaign._id
-        });
-
-        const logStatus = result.success ? 'sent' : 'failed';
-        const msgId = result.success ? result.messageId : null;
-        const errStr = result.success ? null : result.error;
-
-        recipientLogs.push({
-            leadId: rec.leadId,
-            leadModel: rec.leadModel,
+            leadModel: rec.leadModel || 'Lead',
             name: rec.name || rec.email.split('@')[0],
             email: rec.email,
-            status: logStatus,
-            error: errStr,
-            messageId: msgId
+            status: 'pending'
+        }));
+        
+        // Save the campaign status as 'sending' with pending recipients
+        await campaign.save();
+
+        const queueItems = recipients.map(rec => {
+            const personalizedHtml = campaign.content.replace(/\{\{name\}\}/gi, rec.name);
+            return {
+                campaignId: campaign._id,
+                leadId: rec.leadId,
+                leadModel: rec.leadModel || 'Lead',
+                recipientName: rec.name,
+                email: rec.email,
+                subject: campaign.subject,
+                body: personalizedHtml,
+                status: 'pending'
+            };
         });
 
-        // Store into central EmailHistory collection!
-        await EmailHistory.create({
-            leadId: rec.leadId || null,
-            leadModel: rec.leadModel || 'Lead',
-            campaignId: campaign._id,
-            campaignTitle: campaign.title,
-            type: 'bulk',
-            direction: 'outbound',
-            recipientName: rec.name || '',
-            to: rec.email,
-            subject: campaign.subject,
-            body: personalizedHtml,
-            status: logStatus,
-            error: errStr,
-            messageId: msgId,
-            sentAt: new Date()
-        });
-
-        if (result.success) {
-            sentCount++;
+        // Insert into EmailQueue in bulk
+        if (queueItems.length > 0) {
+            await EmailQueue.insertMany(queueItems);
         }
+
+        console.log(`[Campaign Queue] Successfully queued ${queueItems.length} emails for campaign "${campaign.title}".`);
+    } catch (err) {
+        console.error(`[Campaign Queue] Failed to queue campaign "${campaign.title}":`, err);
+        campaign.status = 'failed';
+        await campaign.save();
     }
-
-    campaign.status = 'sent';
-    campaign.sentAt = new Date();
-    campaign.stats.sent = sentCount;
-    campaign.recipientLogs = recipientLogs;
-    await campaign.save();
-
-    console.log(`[SendGrid Campaign] Dispatch complete. Title: "${campaign.title}" | Sent to ${sentCount}/${recipients.length} recipients.`);
 };
 
 // ── PUBLIC UNSUBSCRIBE PORTAL ───────────────────────────────────────────────
@@ -384,7 +383,7 @@ export const dispatchCampaignInBackground = async (campaign, recipients) => {
 export const unsubscribeLead = async (req, res, next) => {
     try {
         const { leadId } = req.params;
-        const { model } = req.query; // 'Lead' or 'EALead'
+        const { model, campaignId } = req.query; // 'Lead' or 'EALead'
 
         let emailToOptOut = '';
 
@@ -410,7 +409,47 @@ export const unsubscribeLead = async (req, res, next) => {
             );
         }
 
-        // Render confirmation page directly
+        // Update Campaign recipient logs & statistics if campaignId is present
+        if (campaignId) {
+            const EmailCampaign = mongoose.model('EmailCampaign');
+            const campaign = await EmailCampaign.findById(campaignId);
+            if (campaign && campaign.recipientLogs && campaign.recipientLogs.length > 0) {
+                const logItem = campaign.recipientLogs.find(log => 
+                    (log.leadId && log.leadId.toString() === leadId) ||
+                    (log.email && emailToOptOut && log.email.toLowerCase() === emailToOptOut.toLowerCase())
+                );
+                if (logItem) {
+                    logItem.status = 'unsubscribe';
+                    
+                    // Recalculate campaign unsubscribe stats
+                    let unsubscribesCount = 0;
+                    campaign.recipientLogs.forEach(log => {
+                        if (log.status === 'unsubscribe') {
+                            unsubscribesCount++;
+                        }
+                    });
+                    campaign.stats.unsubscribes = unsubscribesCount;
+                    await campaign.save();
+                }
+            }
+
+            // Update central EmailHistory status
+            if (emailToOptOut) {
+                const EmailHistory = mongoose.model('EmailHistory');
+                await EmailHistory.updateMany(
+                    { campaignId, to: emailToOptOut.toLowerCase() },
+                    { $set: { status: 'unsubscribe' } }
+                );
+            }
+        }
+
+        // Return response based on HTTP method
+        if (req.method === 'POST') {
+            // Support Gmail native List-Unsubscribe background call
+            return res.status(200).json({ success: true, message: 'Unsubscribed successfully.' });
+        }
+
+        // Render confirmation page directly for browser GET clicks
         res.send(`
             <!DOCTYPE html>
             <html lang="en">
@@ -745,7 +784,8 @@ export const getEmailHistory = async (req, res) => {
             );
             logItems.forEach((logItem, idx) => {
                 const isAlreadyMapped = Array.from(historyMap.values()).some(h => 
-                    h.campaignTitle === camp.title && Math.abs(new Date(h.timestamp) - new Date(camp.sentAt || camp.createdAt)) < 5000
+                    (h.campaignId && h.campaignId.toString() === camp._id.toString()) ||
+                    (h.campaignTitle && camp.title && h.campaignTitle === camp.title && Math.abs(new Date(h.timestamp) - new Date(camp.sentAt || camp.createdAt)) < 5000)
                 );
 
                 if (!isAlreadyMapped) {

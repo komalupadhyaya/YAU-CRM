@@ -14,7 +14,7 @@ const EmailHistorySchema = new mongoose.Schema({
     body: { type: String, default: '' },
     status: { 
         type: String, 
-        enum: ['pending', 'sent', 'delivered', 'open', 'click', 'unsubscribe', 'bounce', 'failed'], 
+        enum: ['pending', 'processed', 'sent', 'delivered', 'open', 'click', 'unsubscribe', 'bounce', 'failed'], 
         default: 'sent',
         index: true 
     },

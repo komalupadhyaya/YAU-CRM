@@ -577,6 +577,7 @@ export default function SMSMessages() {
         leadType:  activeConversation.leadType,
         userPrompt: aiPrompt.trim() || undefined
       });
+      toast.info("Anthropic API key is hit", { description: "Model: Claude Sonnet 4.6" });
 
       const draft: string = res.data.draft || '';
       if (!draft) {

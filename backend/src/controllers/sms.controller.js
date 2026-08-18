@@ -3,7 +3,7 @@ import Lead from '../models/lead.model.js';
 import EALead from '../models/eaLead.model.js';
 import Note from '../models/note.model.js';
 import Contact from '../models/contact.model.js';
-import aiService from '../services/ai.service.js';
+import aiService from '../services/ai/ai.service.js';
 
 export const sendSms = async (req, res, next) => {
     try {

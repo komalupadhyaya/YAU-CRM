@@ -6,7 +6,7 @@ import Contact from '../models/contact.model.js';
 import Note from '../models/note.model.js';
 import Campaign from '../models/campaign.model.js';
 import { getCCAccessToken } from '../utils/constantContact.js';
-import { sendEAWelcomeEmail } from '../services/mailer.js';
+import { sendEAWelcomeEmail } from '../services/email/mailer.js';
 
 const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 

@@ -3,7 +3,7 @@ import UserAvailability from '../models/userAvailability.model.js';
 import Lead from '../models/lead.model.js';
 import Candidate from '../models/candidate.model.js';
 import User from '../models/user.model.js';
-import { sendHRMeetingEmails, sendSchoolMeetingEmails } from '../services/mailer.js';
+import { sendHRMeetingEmails, sendSchoolMeetingEmails } from '../services/email/mailer.js';
 import { google } from 'googleapis';
 
 const oAuth2Client = new google.auth.OAuth2(

@@ -7,6 +7,7 @@ import {
   getCampaign,
   createCampaign,
   updateCampaign,
+  deleteCampaign,
   sendCampaign,
   rerunCampaign,
   unsubscribeLead,
@@ -27,12 +28,14 @@ router.get('/verify-domain', auth, requireRole('admin', 'manager'), verifyEmailD
 
 // --- Public Unsubscribe (no auth) ---
 router.get('/unsubscribe/:leadId', unsubscribeLead);
+router.post('/unsubscribe/:leadId', unsubscribeLead);
 
 // --- Campaigns CRUD ---
 router.get('/campaigns', auth, requireRole(...allowedRoles), getCampaigns);
 router.get('/campaigns/:id', auth, requireRole(...allowedRoles), getCampaign);
 router.post('/campaigns', auth, requireRole(...allowedRoles), createCampaign);
 router.put('/campaigns/:id', auth, requireRole(...allowedRoles), updateCampaign);
+router.delete('/campaigns/:id', auth, requireRole(...allowedRoles), deleteCampaign);
 router.post('/campaigns/:id/send', auth, requireRole(...allowedRoles), sendCampaign);
 router.post('/campaigns/:id/rerun', auth, requireRole(...allowedRoles), rerunCampaign);
 

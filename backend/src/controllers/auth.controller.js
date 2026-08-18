@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import User from '../models/user.model.js';
-import presenceService from '../services/presence.service.js';
+import presenceService from '../services/realtime/presence.service.js';
 
 // ── Cookie config shared by login & logout ─────────────────────────────────
 const COOKIE_NAME = 'yau_crm_token';

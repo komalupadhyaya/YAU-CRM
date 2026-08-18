@@ -4,7 +4,7 @@ import Followup from '../models/followup.model.js';
 import Task from '../models/tasks.model.js';
 import { User } from '../models/user.model.js';
 import Notification from '../models/notification.model.js';
-import { sendDailySummaryEmail, sendReminderEmail } from '../services/mailer.js';
+import { sendDailySummaryEmail, sendReminderEmail } from '../services/email/mailer.js';
 import { invalidatedUsers } from './sessionCache.js';
 import EmailCampaign from '../models/emailCampaign.model.js';
 import { resolveSegmentRecipients } from '../controllers/segments.controller.js';

@@ -177,29 +177,41 @@ export const importSegmentCsv = async (req, res, next) => {
             return res.status(400).json({ error: 'No CSV file uploaded' });
         }
 
-        const csvContent = req.file.buffer.toString('utf-8');
-        const rows = csvContent.split(/\r?\n/).map(row => row.split(','));
-        if (rows.length <= 1) {
+        // Clean up BOM and standard line breaks
+        const csvContent = req.file.buffer.toString('utf-8').replace(/^\uFEFF/, '');
+        const lines = csvContent.split(/\r?\n/).filter(l => l.trim().length > 0);
+        if (lines.length <= 1) {
             return res.status(400).json({ error: 'CSV file is empty or missing data rows' });
         }
 
-        const headers = rows[0].map(h => h.trim().toLowerCase());
-        const emailIndex = headers.indexOf('email');
-        const nameIndex = headers.indexOf('name') !== -1 ? headers.indexOf('name') : headers.indexOf('first name');
+        const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/^["']|["']$/g, ''));
+        let emailIndex = headers.findIndex(h => h === 'email' || h.includes('email') || h.includes('e-mail') || h.includes('mail'));
+        let nameIndex = headers.findIndex(h => h.includes('name') || h.includes('first') || h.includes('contact'));
 
         if (emailIndex === -1) {
-            return res.status(400).json({ error: 'CSV must contain an "email" header column' });
+            // Check if first column has @
+            const sampleEmail = lines[1]?.split(',')[0]?.trim();
+            if (sampleEmail && sampleEmail.includes('@')) {
+                emailIndex = 0;
+            } else {
+                return res.status(400).json({ error: 'CSV must contain an "email" header column' });
+            }
         }
 
         const contacts = [];
-        for (let i = 1; i < rows.length; i++) {
-            const cols = rows[i];
+        const seenEmails = new Set();
+
+        for (let i = 1; i < lines.length; i++) {
+            const cols = lines[i].split(',').map(c => c.trim().replace(/^["']|["']$/g, ''));
             if (cols.length <= emailIndex) continue;
             
             const email = cols[emailIndex]?.trim().toLowerCase();
             if (!email || !email.includes('@')) continue;
 
-            const name = nameIndex !== -1 ? cols[nameIndex]?.trim() : email.split('@')[0];
+            if (seenEmails.has(email)) continue;
+            seenEmails.add(email);
+
+            const name = (nameIndex !== -1 && cols[nameIndex]) ? cols[nameIndex]?.trim() : email.split('@')[0];
             contacts.push({
                 name,
                 email,
@@ -207,11 +219,15 @@ export const importSegmentCsv = async (req, res, next) => {
             });
         }
 
+        if (contacts.length === 0) {
+            return res.status(400).json({ error: 'No valid email contacts could be found in the CSV file' });
+        }
+
         // Create Segment
         const segment = await EmailSegment.create({
             name: req.body.name || `CSV Import - ${req.file.originalname}`,
             description: `Imported via CSV upload containing ${contacts.length} contacts.`,
-            type: 'static',
+            type: 'csv',
             contacts
         });
 

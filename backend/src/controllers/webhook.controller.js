@@ -7,9 +7,9 @@ import { User } from '../models/user.model.js';
 import { Settings } from '../models/settings.model.js';
 import EALead from '../models/eaLead.model.js';
 import EmailHistory from '../models/emailHistory.model.js';
-import smsForwarderService from '../services/smsForwarder.service.js';
-import { sendSMSReplyEmailNotification } from '../services/mailer.js';
-import presenceService from '../services/presence.service.js';
+import smsForwarderService from '../services/sms/smsForwarder.service.js';
+import { sendSMSReplyEmailNotification } from '../services/email/mailer.js';
+import presenceService from '../services/realtime/presence.service.js';
 
 /**
  * Handle JotForm Webhook submissions
@@ -483,7 +483,7 @@ export const handleSendGridWebhook = async (req, res) => {
                 return res.status(401).json({ error: 'Signature headers missing' });
             }
             
-            const rawBody = JSON.stringify(req.body);
+            const rawBody = req.rawBody ? req.rawBody.toString('utf8') : JSON.stringify(req.body);
             const isValid = verifySendGridSignature(secret, rawBody, signature, timestamp);
             if (!isValid) {
                 console.error('[SendGrid Webhook] Invalid signature verification!');
@@ -511,18 +511,7 @@ export const handleSendGridWebhook = async (req, res) => {
                 continue;
             }
 
-            if (eventType === 'delivered') {
-                campaign.stats.delivered = (campaign.stats.delivered || 0) + 1;
-            } else if (eventType === 'open') {
-                campaign.stats.opens = (campaign.stats.opens || 0) + 1;
-            } else if (eventType === 'click') {
-                campaign.stats.clicks = (campaign.stats.clicks || 0) + 1;
-            } else if (['bounce', 'blocked', 'dropped'].includes(eventType)) {
-                campaign.stats.bounces = (campaign.stats.bounces || 0) + 1;
-            } else if (eventType === 'unsubscribe') {
-                campaign.stats.unsubscribes = (campaign.stats.unsubscribes || 0) + 1;
-            }
-
+            // 1. Update recipient log status first
             if (campaign.recipientLogs && campaign.recipientLogs.length > 0) {
                 const sgMsgId = event.sg_message_id ? event.sg_message_id.split('.')[0] : null;
                 const logItem = campaign.recipientLogs.find(log => 
@@ -540,6 +529,45 @@ export const handleSendGridWebhook = async (req, res) => {
                         logItem.status = eventType;
                     }
                 }
+            }
+
+            // 2. Recalculate stats dynamically from recipientLogs to prevent duplicates and retry pollution
+            if (campaign.recipientLogs && campaign.recipientLogs.length > 0) {
+                let sentCount = 0;
+                let deliveredCount = 0;
+                let opensCount = 0;
+                let clicksCount = 0;
+                let unsubscribesCount = 0;
+                let bouncesCount = 0;
+
+                campaign.recipientLogs.forEach(log => {
+                    const status = log.status;
+                    if (['sent', 'processed', 'delivered', 'open', 'click', 'unsubscribe', 'bounce', 'failed'].includes(status)) {
+                        sentCount++;
+                    }
+                    if (['delivered', 'open', 'click'].includes(status)) {
+                        deliveredCount++;
+                    }
+                    if (['open', 'click'].includes(status)) {
+                        opensCount++;
+                    }
+                    if (status === 'click') {
+                        clicksCount++;
+                    }
+                    if (status === 'unsubscribe') {
+                        unsubscribesCount++;
+                    }
+                    if (status === 'bounce') {
+                        bouncesCount++;
+                    }
+                });
+
+                campaign.stats.sent = sentCount;
+                campaign.stats.delivered = deliveredCount;
+                campaign.stats.opens = opensCount;
+                campaign.stats.clicks = clicksCount;
+                campaign.stats.unsubscribes = unsubscribesCount;
+                campaign.stats.bounces = bouncesCount;
             }
 
             await campaign.save();

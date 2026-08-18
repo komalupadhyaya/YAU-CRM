@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import api from "../api/api";
 import AppLayout from "../layout/AppLayout";
 import { useAuth } from "../context/AuthContext";
+import { useSocket } from "../context/SocketContext";
 import { can } from "../utils/permissions";
 import { 
   Mail, 
@@ -35,7 +36,20 @@ import {
   Check,
   Maximize2,
   Minimize2,
-  RotateCcw
+  RotateCcw,
+  Code2,
+  PenLine,
+  Bold,
+  Italic,
+  Underline,
+  List,
+  Link,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  Tag,
+  Highlighter,
+  Palette
 } from "lucide-react";
 import { toast } from "sonner";
 import ReactQuill from "react-quill-new";
@@ -68,6 +82,13 @@ interface Campaign {
   subject: string;
   content: string;
   segmentId: Segment | null;
+  templateId?: {
+    _id: string;
+    name: string;
+    category?: string;
+    isAiGenerated?: boolean;
+    subject?: string;
+  } | string | null;
   status: "draft" | "scheduled" | "sending" | "sent" | "failed";
   sendAt?: string;
   sentAt?: string;
@@ -125,6 +146,7 @@ export default function EmailCenter() {
   const isPrivileged = currentUser?.role === "admin" || currentUser?.role === "manager";
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const socket = useSocket();
 
   const initialWorkspace = (searchParams.get("workspace") as "campaigns" | "inbox") || "campaigns";
   const initialTab = (searchParams.get("tab") as "campaigns" | "segments" | "templates") || "campaigns";
@@ -172,6 +194,21 @@ export default function EmailCenter() {
   const [isGeneratingAiTemplate, setIsGeneratingAiTemplate] = useState(false);
   const [isSavingTemplate, setIsSavingTemplate] = useState(false);
 
+  // Manual Template Builder State
+  const [isManualTemplateModalOpen, setIsManualTemplateModalOpen] = useState(false);
+  const [manualTemplateMode, setManualTemplateMode] = useState<'editor' | 'html'>('editor');
+  const [manualTemplateName, setManualTemplateName] = useState('');
+  const [manualTemplateSubject, setManualTemplateSubject] = useState('');
+  const [manualTemplateCategory, setManualTemplateCategory] = useState('General');
+  const [manualTemplateHtml, setManualTemplateHtml] = useState('');
+  const [savingManualTemplate, setSavingManualTemplate] = useState(false);
+  const manualEditorRef = useRef<HTMLDivElement>(null);
+
+  // Direct Template Preview Modal State
+  const [selectedTemplateForPreview, setSelectedTemplateForPreview] = useState<DbTemplate | null>(null);
+  const [isTemplatePreviewModalOpen, setIsTemplatePreviewModalOpen] = useState(false);
+  const [templatePreviewMode, setTemplatePreviewMode] = useState<'visual' | 'html'>('visual');
+
   // Live AI Draft Template State
   const [aiDraftTemplate, setAiDraftTemplate] = useState<{
     name: string;
@@ -212,6 +249,35 @@ export default function EmailCenter() {
   const [isViewStatsOpen, setIsViewStatsOpen] = useState(false);
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
 
+  // Full View & Global Synchronized View Mode
+  const [isStatsModalExpanded, setIsStatsModalExpanded] = useState(false);
+  const [isSegmentModalExpanded, setIsSegmentModalExpanded] = useState(false);
+  const [marketingViewMode, setMarketingViewModeState] = useState<'grid' | 'table'>(() => {
+    try {
+      return (localStorage.getItem('yau_marketing_view_mode') as 'grid' | 'table') || 'grid';
+    } catch {
+      return 'grid';
+    }
+  });
+
+  const setMarketingViewMode = (mode: 'grid' | 'table') => {
+    setMarketingViewModeState(mode);
+    try {
+      localStorage.setItem('yau_marketing_view_mode', mode);
+    } catch {
+      // ignore
+    }
+  };
+
+  const [campaignsSearchQuery, setCampaignsSearchQuery] = useState("");
+  const [segmentsSearchQuery, setSegmentsSearchQuery] = useState("");
+  const [templatesSearchQuery, setTemplatesSearchQuery] = useState("");
+
+  // Delete Campaign Confirmation State
+  const [campaignToDelete, setCampaignToDelete] = useState<Campaign | null>(null);
+  const [isDeleteCampaignModalOpen, setIsDeleteCampaignModalOpen] = useState(false);
+  const [deletingCampaign, setDeletingCampaign] = useState(false);
+
   // Campaign Form State
   const [campaignForm, setCampaignForm] = useState({
     title: "",
@@ -222,6 +288,8 @@ export default function EmailCenter() {
     isScheduled: false,
     templateId: null as string | null
   });
+  const [campaignEditorMode, setCampaignEditorMode] = useState<'editor' | 'preview' | 'html'>('editor');
+  const [isCampaignPreviewFullscreen, setIsCampaignPreviewFullscreen] = useState(false);
 
   // Segment Form State
   const [segmentForm, setSegmentForm] = useState({
@@ -330,6 +398,34 @@ export default function EmailCenter() {
     }
   };
 
+  const handleExportCampaignData = (camp: Campaign) => {
+    if (!camp.recipientLogs || camp.recipientLogs.length === 0) {
+      toast.error("No recipient logs available to export.");
+      return;
+    }
+
+    const headers = ["Recipient Name", "Email Address", "Status", "Error Message", "SendGrid Message ID"];
+    const rows = camp.recipientLogs.map(log => [
+      log.name || "",
+      log.email || "",
+      log.status || "pending",
+      log.error || "",
+      log.messageId || ""
+    ]);
+
+    const csvContent = "data:text/csv;charset=utf-8," 
+      + [headers.join(","), ...rows.map(e => e.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))].join("\n");
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `Campaign_Export_${camp.title.replace(/\s+/g, '_')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success("Campaign data exported successfully!");
+  };
+
   const filteredCampaignPreviewContacts = React.useMemo(() => {
     if (!campaignPreviewSearch.trim()) return campaignPreviewContacts;
     const q = campaignPreviewSearch.toLowerCase().trim();
@@ -347,6 +443,37 @@ export default function EmailCenter() {
       c.email.toLowerCase().includes(q)
     );
   }, [csvParsedContacts, csvSearchQuery]);
+
+  const filteredCampaigns = React.useMemo(() => {
+    if (!campaignsSearchQuery.trim()) return campaigns;
+    const q = campaignsSearchQuery.toLowerCase().trim();
+    return campaigns.filter(c => 
+      c.title.toLowerCase().includes(q) ||
+      c.subject.toLowerCase().includes(q) ||
+      (c.segmentId?.name && c.segmentId.name.toLowerCase().includes(q))
+    );
+  }, [campaigns, campaignsSearchQuery]);
+
+  const filteredSegments = React.useMemo(() => {
+    if (!segmentsSearchQuery.trim()) return segments;
+    const q = segmentsSearchQuery.toLowerCase().trim();
+    return segments.filter(s =>
+      s.name.toLowerCase().includes(q) ||
+      (s.description && s.description.toLowerCase().includes(q)) ||
+      s.type.toLowerCase().includes(q)
+    );
+  }, [segments, segmentsSearchQuery]);
+
+  const filteredTemplates = React.useMemo(() => {
+    if (!templatesSearchQuery.trim()) return templates;
+    const q = templatesSearchQuery.toLowerCase().trim();
+    return templates.filter(t =>
+      t.name.toLowerCase().includes(q) ||
+      t.subject.toLowerCase().includes(q) ||
+      (t.category && t.category.toLowerCase().includes(q)) ||
+      (t.aiPrompt && t.aiPrompt.toLowerCase().includes(q))
+    );
+  }, [templates, templatesSearchQuery]);
 
   // Global selection breakdown calculation across all 3 sections
   const selectionBreakdown = React.useMemo(() => {
@@ -522,6 +649,72 @@ export default function EmailCenter() {
   // CSV Import State
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importSegmentName, setImportSegmentName] = useState("");
+  const [importCsvParsedContacts, setImportCsvParsedContacts] = useState<{ name: string; email: string }[]>([]);
+  const [importCsvSelectedEmails, setImportCsvSelectedEmails] = useState<string[]>([]);
+  const [importCsvSearchQuery, setImportCsvSearchQuery] = useState("");
+
+  const handleImportModalCsvSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportFile(file);
+    if (!importSegmentName) {
+      setImportSegmentName(file.name.replace(/\.[^/.]+$/, ""));
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result as string;
+      if (!text) return;
+
+      const cleanText = text.replace(/^\uFEFF/, '');
+      const lines = cleanText.split(/\r\n|\n/).filter(l => l.trim().length > 0);
+      if (lines.length === 0) return;
+
+      const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/^["']|["']$/g, ''));
+      let emailIdx = headers.findIndex(h => h === 'email' || h.includes('email') || h.includes('e-mail') || h.includes('mail'));
+      let nameIdx = headers.findIndex(h => h.includes('name') || h.includes('first') || h.includes('contact'));
+
+      if (emailIdx === -1) {
+        emailIdx = 0;
+      }
+
+      const parsed: { name: string; email: string }[] = [];
+      const seenEmails = new Set<string>();
+
+      for (let i = (headers.some(h => h.includes('@')) ? 0 : 1); i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+
+        const cols = line.split(',').map(c => c.trim().replace(/^["']|["']$/g, ''));
+        const email = cols[emailIdx]?.toLowerCase();
+        if (!email || !email.includes('@')) continue;
+
+        if (seenEmails.has(email)) continue;
+        seenEmails.add(email);
+
+        const name = (nameIdx !== -1 && cols[nameIdx]) ? cols[nameIdx] : email.split('@')[0];
+        parsed.push({ name, email });
+      }
+
+      setImportCsvParsedContacts(parsed);
+      setImportCsvSelectedEmails(parsed.map(c => c.email));
+      if (parsed.length > 0) {
+        toast.success(`Loaded ${parsed.length} contacts from CSV!`);
+      } else {
+        toast.error("No valid email addresses found in this CSV.");
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const filteredImportCsvContacts = React.useMemo(() => {
+    if (!importCsvSearchQuery.trim()) return importCsvParsedContacts;
+    const q = importCsvSearchQuery.toLowerCase().trim();
+    return importCsvParsedContacts.filter(c =>
+      c.name.toLowerCase().includes(q) ||
+      c.email.toLowerCase().includes(q)
+    );
+  }, [importCsvParsedContacts, importCsvSearchQuery]);
 
   // AI Assistant State
   const [aiPrompt, setAiPrompt] = useState("");
@@ -572,7 +765,7 @@ export default function EmailCenter() {
   const handleGenerateAiTemplate = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!aiPromptInput.trim()) {
-      toast.error("Please enter a prompt for Groq AI!");
+      toast.error("Please enter a prompt for Anthropic AI!");
       return;
     }
     setIsGeneratingAiTemplate(true);
@@ -590,7 +783,8 @@ export default function EmailCenter() {
       }
 
       const res = await api.post("/templates/ai-generate", payload);
-      toast.success(`Template layout generated with Groq AI! Click "Save to Database" when ready.`);
+      toast.info("Anthropic API key is hit", { description: "Model: Claude Sonnet 4.6" });
+      toast.success(`Template layout generated with Anthropic Claude! Click "Save to Database" when ready.`);
       
       // Auto-fill top fields
       setTemplateNameInput(res.data.name);
@@ -658,6 +852,7 @@ export default function EmailCenter() {
       subject: finalSubject,
       content: finalContent,
     }));
+    setCampaignEditorMode('preview');
     toast.success("Template applied to new campaign!");
     setIsAiTemplateModalOpen(false);
     setIsCampaignModalOpen(true);
@@ -675,6 +870,94 @@ export default function EmailCenter() {
     }
   };
 
+  // Save Manual Template to MongoDB
+  const handleSaveManualTemplate = async () => {
+    const content = manualTemplateMode === 'html'
+      ? manualTemplateHtml.trim()
+      : (manualEditorRef.current?.innerHTML || '').trim();
+
+    if (!manualTemplateName.trim()) {
+      toast.error('Please enter a template name.');
+      return;
+    }
+    if (!content || content === '<br>' || content === '<div><br></div>') {
+      toast.error('Template content cannot be empty.');
+      return;
+    }
+    setSavingManualTemplate(true);
+    try {
+      const res = await api.post('/templates', {
+        name: manualTemplateName.trim(),
+        subject: manualTemplateSubject.trim() || manualTemplateName.trim(),
+        category: manualTemplateCategory || 'General',
+        content,
+        isAiGenerated: false,
+      });
+      toast.success('Template saved successfully!');
+      setTemplates(prev => [res.data, ...prev]);
+      setIsManualTemplateModalOpen(false);
+      // Reset form
+      setManualTemplateName('');
+      setManualTemplateSubject('');
+      setManualTemplateCategory('General');
+      setManualTemplateHtml('');
+      setManualTemplateMode('editor');
+      if (manualEditorRef.current) manualEditorRef.current.innerHTML = '';
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'Failed to save template.');
+    } finally {
+      setSavingManualTemplate(false);
+    }
+  };
+
+  // Rich Text Editor active format state
+  const [editorActiveFormats, setEditorActiveFormats] = useState({
+    bold: false,
+    italic: false,
+    underline: false,
+    h1: false,
+    h2: false,
+    h3: false,
+    p: false,
+    ul: false,
+    ol: false,
+    alignLeft: false,
+    alignCenter: false,
+    alignRight: false,
+  });
+
+  const [isHighlighterOpen, setIsHighlighterOpen] = useState(false);
+  const [isColorPickerOpen, setIsColorPickerOpen] = useState(false);
+
+  const updateEditorActiveFormats = useCallback(() => {
+    try {
+      const block = (document.queryCommandValue('formatBlock') || '').toLowerCase();
+      setEditorActiveFormats({
+        bold: document.queryCommandState('bold'),
+        italic: document.queryCommandState('italic'),
+        underline: document.queryCommandState('underline'),
+        h1: block === 'h1' || block.includes('h1'),
+        h2: block === 'h2' || block.includes('h2'),
+        h3: block === 'h3' || block.includes('h3'),
+        p: block === 'p' || block.includes('p'),
+        ul: document.queryCommandState('insertUnorderedList'),
+        ol: document.queryCommandState('insertOrderedList'),
+        alignLeft: document.queryCommandState('justifyLeft'),
+        alignCenter: document.queryCommandState('justifyCenter'),
+        alignRight: document.queryCommandState('justifyRight'),
+      });
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  // Rich Text Editor exec command helper
+  const execFormat = (command: string, value?: string) => {
+    document.execCommand(command, false, value);
+    manualEditorRef.current?.focus();
+    updateEditorActiveFormats();
+  };
+
   // Inject Database Template into Campaign Form
   const injectDbTemplate = (tpl: DbTemplate) => {
     setCampaignForm(prev => ({
@@ -683,8 +966,63 @@ export default function EmailCenter() {
       content: tpl.content,
       templateId: tpl._id
     }));
+    setCampaignEditorMode('preview');
     toast.success(`Template "${tpl.name}" applied!`);
     setIsCampaignModalOpen(true);
+  };
+
+  // Direct Open Template Inspector / Preview Modal
+  const handleOpenTemplateDirectly = async (tplRef: any) => {
+    if (!tplRef) return;
+    setIsViewStatsOpen(false);
+
+    if (typeof tplRef === 'object' && tplRef.content) {
+      setSelectedTemplateForPreview(tplRef);
+      setTemplatePreviewMode('visual');
+      setIsTemplatePreviewModalOpen(true);
+      return;
+    }
+
+    const tplId = typeof tplRef === 'object' ? tplRef._id : tplRef;
+    const found = templates.find(t => t._id === tplId);
+    if (found) {
+      setSelectedTemplateForPreview(found);
+      setTemplatePreviewMode('visual');
+      setIsTemplatePreviewModalOpen(true);
+      return;
+    }
+
+    try {
+      const res = await api.get(`/templates/${tplId}`);
+      if (res.data) {
+        setSelectedTemplateForPreview(res.data);
+        setTemplatePreviewMode('visual');
+        setIsTemplatePreviewModalOpen(true);
+      }
+    } catch {
+      toast.error('Could not load template details.');
+    }
+  };
+
+  // Confirm and Execute Campaign Deletion
+  const handleConfirmDeleteCampaign = async () => {
+    if (!campaignToDelete) return;
+    setDeletingCampaign(true);
+    try {
+      await api.delete(`/campaigns/${campaignToDelete._id}`);
+      setCampaigns(prev => prev.filter(c => c._id !== campaignToDelete._id));
+      toast.success(`Campaign "${campaignToDelete.title}" deleted successfully.`);
+      setIsDeleteCampaignModalOpen(false);
+      if (selectedCampaign?._id === campaignToDelete._id) {
+        setIsViewStatsOpen(false);
+        setSelectedCampaign(null);
+      }
+      setCampaignToDelete(null);
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'Failed to delete campaign.');
+    } finally {
+      setDeletingCampaign(false);
+    }
   };
 
   // Fetch 1-to-1 conversations list
@@ -724,6 +1062,53 @@ export default function EmailCenter() {
       fetchConversations();
     }
   }, [workspace, activeTab, fetchCampaigns, fetchSegments, fetchTemplates, fetchConversations]);
+
+  // Sync selected campaign analytics modal state with campaigns array
+  useEffect(() => {
+    if (selectedCampaign) {
+      const updated = campaigns.find(c => c._id === selectedCampaign._id);
+      if (updated) {
+        setSelectedCampaign(updated);
+      }
+    }
+  }, [campaigns, selectedCampaign]);
+
+  // Auto-poll campaign status/statistics when dispatching or when stats inspector is open
+  useEffect(() => {
+    const hasSendingCampaign = campaigns.some(c => c.status === "sending");
+    const shouldPoll = hasSendingCampaign || isViewStatsOpen;
+    if (!shouldPoll) return;
+
+    const interval = setInterval(() => {
+      fetchCampaigns();
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [campaigns, fetchCampaigns, isViewStatsOpen]);
+
+  // Listen for socket events to update campaign progress in real-time
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleCampaignUpdate = (data: { campaignId: string; stats: any; status: string; recipientLogs: any[] }) => {
+      setCampaigns(prev => prev.map(c => {
+        if (c._id === data.campaignId) {
+          return {
+            ...c,
+            status: data.status as any,
+            stats: data.stats,
+            recipientLogs: data.recipientLogs
+          };
+        }
+        return c;
+      }));
+    };
+
+    socket.on("campaign:updated", handleCampaignUpdate);
+    return () => {
+      socket.off("campaign:updated", handleCampaignUpdate);
+    };
+  }, [socket]);
 
   const chatScrollRef = useRef<HTMLDivElement>(null);
 
@@ -895,24 +1280,35 @@ export default function EmailCenter() {
   // Handle CSV Contact Import
   const handleCsvImport = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!importFile) {
-      toast.error("Please select a CSV file to upload");
+    if (!importSegmentName.trim()) {
+      toast.error("Please enter a list name");
+      return;
+    }
+
+    const selectedContacts = importCsvParsedContacts
+      .filter(c => importCsvSelectedEmails.includes(c.email))
+      .map(c => ({ name: c.name, email: c.email, status: "active" }));
+
+    if (selectedContacts.length === 0) {
+      toast.error("Please upload a CSV and select at least one contact");
       return;
     }
 
     setIsSubmitting(true);
-    const formData = new FormData();
-    formData.append("file", importFile);
-    formData.append("name", importSegmentName || `Imported List - ${importFile.name}`);
-
     try {
-      const res = await api.post("/emails/segments/import", formData, {
-        headers: { "Content-Type": "multipart/form-data" }
+      await api.post("/emails/segments", {
+        name: importSegmentName.trim(),
+        description: `Imported CSV list (${selectedContacts.length} contacts)`,
+        type: "csv",
+        contacts: selectedContacts
       });
-      toast.success(res.data.message || "CSV list imported successfully!");
+      toast.success(`Successfully imported ${selectedContacts.length} contacts!`);
       setIsImportModalOpen(false);
       setImportFile(null);
       setImportSegmentName("");
+      setImportCsvParsedContacts([]);
+      setImportCsvSelectedEmails([]);
+      setImportCsvSearchQuery("");
       fetchSegments();
     } catch (err: any) {
       console.error(err);
@@ -949,6 +1345,8 @@ export default function EmailCenter() {
         userPrompt: aiPrompt.trim()
       });
       
+      toast.info("Anthropic API key is hit", { description: "Model: Claude Sonnet 4.6" });
+
       if (workspace === "campaigns") {
         setCampaignForm(prev => ({
           ...prev,
@@ -1105,33 +1503,38 @@ export default function EmailCenter() {
     });
   };
 
-  const handleAddCustomContact = (e: React.MouseEvent) => {
-    e.preventDefault();
-    if (!customContactName.trim() || !customContactEmail.trim()) {
-      toast.error("Both name and email are required for custom contacts");
+  const handleAddCustomContact = (e?: React.MouseEvent | React.KeyboardEvent | React.FormEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    const cleanEmail = customContactEmail.trim();
+    if (!cleanEmail) {
+      toast.error("Email address is required for custom contacts");
       return;
     }
-    if (!customContactEmail.includes("@")) {
+    if (!cleanEmail.includes("@")) {
       toast.error("Please enter a valid email address");
       return;
     }
     const exists = segmentForm.customContacts.some(
-      c => c.email.toLowerCase() === customContactEmail.trim().toLowerCase()
+      c => c.email.toLowerCase() === cleanEmail.toLowerCase()
     );
     if (exists) {
       toast.error("A contact with this email has already been added");
       return;
     }
+    const cleanName = customContactName.trim() || cleanEmail.split("@")[0];
     setSegmentForm(prev => ({
       ...prev,
       customContacts: [
         ...prev.customContacts,
-        { name: customContactName.trim(), email: customContactEmail.trim() }
+        { name: cleanName, email: cleanEmail }
       ]
     }));
     setCustomContactName("");
     setCustomContactEmail("");
-    toast.success("Custom contact added!");
+    toast.success(`Added "${cleanName}" to custom contacts!`);
   };
 
   const handleRemoveCustomContact = (email: string) => {
@@ -1214,23 +1617,93 @@ export default function EmailCenter() {
                 <p className="text-xs text-foreground font-semibold mt-0.5">
                   {activeTab === "campaigns" ? "Track email dispatches, open rates, click-throughs, and campaign performance." :
                    activeTab === "segments" ? "Target leads with CSV imports, static contact lists, or sales funnels." :
-                   "Manage reusable HTML email layouts and generate new templates with Groq AI."}
+                    "Manage reusable HTML email layouts and generate new templates with Anthropic Claude."}
                 </p>
               </div>
 
               {/* Contextual Action Buttons */}
               <div className="flex items-center gap-2 shrink-0">
                 {activeTab === "campaigns" && (
-                  <button
-                    onClick={() => setIsCampaignModalOpen(true)}
-                    className="btn-primary h-8.5 text-xs font-bold flex items-center gap-1.5 shadow-sm"
-                  >
-                    <Plus size={14} /> New Campaign
-                  </button>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                      <input
+                        type="text"
+                        placeholder="Search campaigns..."
+                        value={campaignsSearchQuery}
+                        onChange={e => setCampaignsSearchQuery(e.target.value)}
+                        className="h-8.5 input-field text-xs pl-8 w-40 sm:w-52 dark:bg-card rounded-xl"
+                      />
+                    </div>
+
+                    <div className="flex items-center bg-accent/60 border p-0.5 rounded-xl text-xs">
+                      <button
+                        type="button"
+                        onClick={() => setMarketingViewMode('grid')}
+                        className={`px-2.5 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                          marketingViewMode === 'grid' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                        title="Cards Grid View"
+                      >
+                        ⊞ Grid
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setMarketingViewMode('table')}
+                        className={`px-2.5 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                          marketingViewMode === 'table' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                        title="Full Data Table View"
+                      >
+                        ☰ Table
+                      </button>
+                    </div>
+
+                    <button
+                      onClick={() => setIsCampaignModalOpen(true)}
+                      className="btn-primary h-8.5 text-xs font-bold flex items-center gap-1.5 shadow-sm"
+                    >
+                      <Plus size={14} /> New Campaign
+                    </button>
+                  </div>
                 )}
 
                 {activeTab === "segments" && (
-                  <>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                      <input
+                        type="text"
+                        placeholder="Search lists & segments..."
+                        value={segmentsSearchQuery}
+                        onChange={e => setSegmentsSearchQuery(e.target.value)}
+                        className="h-8.5 input-field text-xs pl-8 w-40 sm:w-52 dark:bg-card rounded-xl"
+                      />
+                    </div>
+
+                    <div className="flex items-center bg-accent/60 border p-0.5 rounded-xl text-xs">
+                      <button
+                        type="button"
+                        onClick={() => setMarketingViewMode('grid')}
+                        className={`px-2.5 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                          marketingViewMode === 'grid' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                        title="Cards Grid View"
+                      >
+                        ⊞ Grid
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setMarketingViewMode('table')}
+                        className={`px-2.5 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                          marketingViewMode === 'table' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                        title="Full Data Table View"
+                      >
+                        ☰ Table
+                      </button>
+                    </div>
+
                     <button
                       onClick={() => setIsImportModalOpen(true)}
                       className="btn-secondary h-8.5 text-xs font-bold flex items-center gap-1.5"
@@ -1242,20 +1715,70 @@ export default function EmailCenter() {
                         fetchAvailableContacts();
                         setIsSegmentModalOpen(true);
                       }}
-                      className="btn-secondary h-8.5 text-xs font-bold flex items-center gap-1.5"
+                      className="btn-primary h-8.5 text-xs font-bold flex items-center gap-1.5 shadow-sm"
                     >
                       <Plus size={14} /> Create List & Segment
                     </button>
-                  </>
+                  </div>
                 )}
 
                 {activeTab === "templates" && (
-                  <button
-                    onClick={() => setIsAiTemplateModalOpen(true)}
-                    className="h-8.5 px-3.5 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
-                  >
-                    <Sparkles size={13} className="animate-pulse" /> Generate AI Template (Groq AI)
-                  </button>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                      <input
+                        type="text"
+                        placeholder="Search templates..."
+                        value={templatesSearchQuery}
+                        onChange={e => setTemplatesSearchQuery(e.target.value)}
+                        className="h-8.5 input-field text-xs pl-8 w-36 sm:w-44 dark:bg-card rounded-xl"
+                      />
+                    </div>
+
+                    <div className="flex items-center bg-accent/60 border p-0.5 rounded-xl text-xs shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setMarketingViewMode('grid')}
+                        className={`px-2.5 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                          marketingViewMode === 'grid' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                        title="Cards Grid View"
+                      >
+                        ⊞ Grid
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setMarketingViewMode('table')}
+                        className={`px-2.5 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                          marketingViewMode === 'table' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                        title="Full Data Table View"
+                      >
+                        ☰ Table
+                      </button>
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        setManualTemplateName('');
+                        setManualTemplateSubject('');
+                        setManualTemplateCategory('General');
+                        setManualTemplateHtml('');
+                        setManualTemplateMode('editor');
+                        setIsManualTemplateModalOpen(true);
+                      }}
+                      className="btn-secondary h-8.5 px-3 text-xs font-bold flex items-center gap-1.5 shadow-sm shrink-0"
+                    >
+                      <Plus size={13} /> Create Template
+                    </button>
+                    <button
+                      onClick={() => setIsAiTemplateModalOpen(true)}
+                      className="btn-primary h-8.5 px-3 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer border-none shrink-0"
+                      title="Generate Email Template with Anthropic Claude AI"
+                    >
+                      <Sparkles size={13} className="animate-pulse" /> Generate AI Template
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
@@ -1267,17 +1790,148 @@ export default function EmailCenter() {
                     <div className="flex items-center justify-center py-20">
                       <Loader2 className="animate-spin text-primary h-8 w-8" />
                     </div>
-                  ) : campaigns.length === 0 ? (
+                  ) : filteredCampaigns.length === 0 ? (
                     <div className="text-center py-20 border rounded-2xl bg-card">
                       <Inbox size={48} className="mx-auto text-muted-foreground mb-3 opacity-40" />
-                      <h3 className="text-base font-bold">No Campaigns Sent</h3>
+                      <h3 className="text-base font-bold">
+                        {campaigns.length === 0 ? "No Campaigns Sent" : "No Campaigns Match Search"}
+                      </h3>
                       <p className="text-sm text-muted-foreground max-w-sm mx-auto mt-1">
-                        Start communicating with your leads by composing your first email marketing campaign!
+                        {campaigns.length === 0
+                          ? "Start communicating with your leads by composing your first email marketing campaign!"
+                          : "Try clearing your search query to see all email campaigns."
+                        }
                       </p>
                     </div>
+                  ) : marketingViewMode === 'table' ? (
+                    /* FULL DATA TABLE VIEW */
+                    <div className="border rounded-2xl overflow-hidden bg-card shadow-xs">
+                      <div className="overflow-x-auto custom-scrollbar">
+                        <table className="w-full text-left text-xs">
+                          <thead>
+                            <tr className="border-b bg-muted/40 text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+                              <th className="p-3.5 pl-5">Campaign</th>
+                              <th className="p-3.5">List & Segment</th>
+                              <th className="p-3.5">Template</th>
+                              <th className="p-3.5">Status & Date</th>
+                              <th className="p-3.5 text-center">Delivered</th>
+                              <th className="p-3.5 text-center">Open Rate</th>
+                              <th className="p-3.5 text-center">Click Rate</th>
+                              <th className="p-3.5 pr-5 text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border/60">
+                            {filteredCampaigns.map(camp => {
+                              const delRate = camp.stats.sent > 0 ? Math.round((camp.stats.delivered / camp.stats.sent) * 100) : 0;
+                              const openRate = camp.stats.delivered > 0 ? Math.round((camp.stats.opens / camp.stats.delivered) * 100) : 0;
+                              const clickRate = camp.stats.delivered > 0 ? Math.round((camp.stats.clicks / camp.stats.delivered) * 100) : 0;
+                              const tplObj = (typeof camp.templateId === 'object' && camp.templateId !== null)
+                                ? camp.templateId
+                                : templates.find(t => t._id === camp.templateId);
+
+                              return (
+                                <tr
+                                  key={camp._id}
+                                  onClick={() => {
+                                    setSelectedCampaign(camp);
+                                    setCampaignRecipientSearch("");
+                                    setCampaignRecipientFilter("all");
+                                    setIsViewStatsOpen(true);
+                                  }}
+                                  className="hover:bg-accent/30 transition-colors cursor-pointer group"
+                                >
+                                  <td className="p-3.5 pl-5 max-w-[220px]">
+                                    <span className="font-bold text-foreground block truncate group-hover:text-primary transition-colors">{camp.title}</span>
+                                    <span className="text-[11px] text-muted-foreground block truncate mt-0.5">Subject: {camp.subject}</span>
+                                  </td>
+                                  <td className="p-3.5">
+                                    <span className="font-semibold text-foreground bg-accent/40 px-2 py-0.5 rounded-md text-[11px] inline-block truncate max-w-[130px]">
+                                      {camp.segmentId?.name || "None"}
+                                    </span>
+                                  </td>
+                                  <td className="p-3.5">
+                                    {tplObj ? (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleOpenTemplateDirectly(camp.templateId);
+                                        }}
+                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-violet-500/10 hover:bg-violet-500/20 text-violet-700 dark:text-violet-300 border border-violet-500/20 transition-all cursor-pointer max-w-[140px] truncate"
+                                        title="View template preview"
+                                      >
+                                        <FileText size={10} className="shrink-0" />
+                                        <span className="truncate">{tplObj.name}</span>
+                                      </button>
+                                    ) : (
+                                      <span className="text-[10px] text-muted-foreground italic">Custom</span>
+                                    )}
+                                  </td>
+                                  <td className="p-3.5">
+                                    <div className="flex flex-col gap-1">
+                                      <span className={`text-[9px] px-2 py-0.2 rounded-full font-extrabold uppercase border w-fit ${
+                                        camp.status === "sent" ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20" :
+                                        camp.status === "scheduled" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20" :
+                                        "bg-zinc-500/10 text-zinc-600 dark:text-zinc-400 border-zinc-500/20"
+                                      }`}>
+                                        {camp.status}
+                                      </span>
+                                      <span className="text-[10px] text-muted-foreground">
+                                        {camp.sentAt ? new Date(camp.sentAt).toLocaleDateString() : 
+                                         camp.sendAt ? `Sched: ${new Date(camp.sendAt).toLocaleDateString()}` : "Draft"}
+                                      </span>
+                                    </div>
+                                  </td>
+                                  <td className="p-3.5 text-center">
+                                    <span className="font-extrabold text-foreground">{delRate}%</span>
+                                    <span className="text-[10px] text-muted-foreground block font-medium">({camp.stats.delivered}/{camp.stats.sent})</span>
+                                  </td>
+                                  <td className="p-3.5 text-center">
+                                    <span className="font-extrabold text-primary">{openRate}%</span>
+                                    <span className="text-[10px] text-muted-foreground block font-medium">({camp.stats.opens})</span>
+                                  </td>
+                                  <td className="p-3.5 text-center">
+                                    <span className="font-extrabold text-emerald-600 dark:text-emerald-400">{clickRate}%</span>
+                                    <span className="text-[10px] text-muted-foreground block font-medium">({camp.stats.clicks})</span>
+                                  </td>
+                                  <td className="p-3.5 pr-5 text-right" onClick={e => e.stopPropagation()}>
+                                    <div className="flex items-center justify-end gap-1.5">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setCampaignToDelete(camp);
+                                          setIsDeleteCampaignModalOpen(true);
+                                        }}
+                                        className="h-7 w-7 text-destructive hover:bg-destructive/10 rounded-lg flex items-center justify-center transition-colors cursor-pointer"
+                                        title="Delete Campaign"
+                                      >
+                                        <Trash2 size={12} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setSelectedCampaign(camp);
+                                          setCampaignRecipientSearch("");
+                                          setCampaignRecipientFilter("all");
+                                          setIsViewStatsOpen(true);
+                                        }}
+                                        className="h-7 px-2.5 bg-primary/10 hover:bg-primary hover:text-white text-primary rounded-lg text-[11px] font-bold flex items-center gap-1 transition-all"
+                                      >
+                                        <Eye size={11} /> Analytics
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
                   ) : (
+                    /* CARDS GRID VIEW */
                     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                      {campaigns.map((camp) => {
+                      {filteredCampaigns.map((camp) => {
                         const delRate = camp.stats.sent > 0 ? Math.round((camp.stats.delivered / camp.stats.sent) * 100) : 0;
                         const openRate = camp.stats.delivered > 0 ? Math.round((camp.stats.opens / camp.stats.delivered) * 100) : 0;
                         const clickRate = camp.stats.delivered > 0 ? Math.round((camp.stats.clicks / camp.stats.delivered) * 100) : 0;
@@ -1295,13 +1949,28 @@ export default function EmailCenter() {
                           >
                             <div className="space-y-3">
                               <div className="flex items-center justify-between gap-2">
-                                <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-extrabold uppercase border ${
-                                  camp.status === "sent" ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20" :
-                                  camp.status === "scheduled" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20" :
-                                  "bg-zinc-500/10 text-zinc-600 dark:text-zinc-400 border-zinc-500/20"
-                                }`}>
-                                  {camp.status}
-                                </span>
+                                <div className="flex items-center gap-1.5">
+                                  <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-extrabold uppercase border ${
+                                    camp.status === "sent" ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20" :
+                                    camp.status === "scheduled" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20" :
+                                    "bg-zinc-500/10 text-zinc-600 dark:text-zinc-400 border-zinc-500/20"
+                                  }`}>
+                                    {camp.status}
+                                  </span>
+                                  {camp.recipientLogs && camp.recipientLogs.length > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleExportCampaignData(camp);
+                                      }}
+                                      className="h-6 px-2 bg-secondary hover:bg-secondary/80 text-foreground border rounded-lg text-[10px] font-bold flex items-center gap-1 transition-colors"
+                                      title="Export Campaign Data (CSV)"
+                                    >
+                                      <Upload size={10} /> Export CSV
+                                    </button>
+                                  )}
+                                </div>
                                 <span className="text-[10px] text-muted-foreground font-semibold">
                                   {camp.sentAt ? new Date(camp.sentAt).toLocaleDateString() : 
                                    camp.sendAt ? `Scheduled: ${new Date(camp.sendAt).toLocaleString()}` : "Draft"}
@@ -1330,25 +1999,66 @@ export default function EmailCenter() {
                                   </div>
                                 </div>
                               )}
+
+                              {/* Template Badge & Direct Preview Open */}
+                              {(() => {
+                                const tplObj = (typeof camp.templateId === 'object' && camp.templateId !== null)
+                                  ? camp.templateId
+                                  : templates.find(t => t._id === camp.templateId);
+
+                                if (!tplObj) return null;
+
+                                return (
+                                  <div className="pt-1">
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleOpenTemplateDirectly(camp.templateId);
+                                      }}
+                                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold bg-violet-500/10 hover:bg-violet-500/20 text-violet-700 dark:text-violet-300 border border-violet-500/20 transition-all cursor-pointer shadow-2xs group/btn"
+                                      title="Click to view template preview directly"
+                                    >
+                                      <FileText size={11} className="text-violet-600 dark:text-violet-400" />
+                                      <span className="truncate max-w-[170px]">Template: {tplObj.name}</span>
+                                      <Eye size={10} className="group-hover/btn:scale-110 transition-transform" />
+                                    </button>
+                                  </div>
+                                );
+                              })()}
                             </div>
 
                             <div className="flex items-center justify-between gap-2 mt-4 pt-3 border-t border-border/60">
                               <span className="text-[10px] text-muted-foreground truncate">
-                                Segment: <strong className="text-foreground font-bold">{camp.segmentId?.name || "None"}</strong>
+                                List & Segment: <strong className="text-foreground font-bold">{camp.segmentId?.name || "None"}</strong>
                               </span>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSelectedCampaign(camp);
-                                  setCampaignRecipientSearch("");
-                                  setCampaignRecipientFilter("all");
-                                  setIsViewStatsOpen(true);
-                                }}
-                                className="h-8 px-3 bg-primary/10 group-hover:bg-primary group-hover:text-white text-primary rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs shrink-0"
-                              >
-                                <Eye size={13} /> Analytics & Recipients
-                              </button>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setCampaignToDelete(camp);
+                                    setIsDeleteCampaignModalOpen(true);
+                                  }}
+                                  className="h-8 w-8 bg-destructive/10 hover:bg-destructive/20 text-destructive rounded-xl flex items-center justify-center transition-colors cursor-pointer"
+                                  title="Delete Campaign"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedCampaign(camp);
+                                    setCampaignRecipientSearch("");
+                                    setCampaignRecipientFilter("all");
+                                    setIsViewStatsOpen(true);
+                                  }}
+                                  className="h-8 px-3 bg-primary/10 group-hover:bg-primary group-hover:text-white text-primary rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs"
+                                >
+                                  <Eye size={13} /> Analytics & Recipients
+                                </button>
+                              </div>
                             </div>
                           </div>
                         );
@@ -1364,17 +2074,104 @@ export default function EmailCenter() {
                     <div className="flex items-center justify-center py-20">
                       <Loader2 className="animate-spin text-primary h-8 w-8" />
                     </div>
-                  ) : segments.length === 0 ? (
+                  ) : filteredSegments.length === 0 ? (
                     <div className="text-center py-20 border rounded-2xl bg-card">
                       <Users size={48} className="mx-auto text-muted-foreground mb-3 opacity-40" />
-                      <h3 className="text-base font-bold">No Lists & Segments Configured</h3>
+                      <h3 className="text-base font-bold">
+                        {segments.length === 0 ? "No Lists & Segments Configured" : "No Lists Match Search"}
+                      </h3>
                       <p className="text-sm text-muted-foreground max-w-sm mx-auto mt-1">
-                        Create list & segment filters or upload static mailing lists via CSV files to target your campaigns.
+                        {segments.length === 0
+                          ? "Create list & segment filters or upload static mailing lists via CSV files to target your campaigns."
+                          : "Try clearing your search query to see all segments."
+                        }
                       </p>
                     </div>
+                  ) : marketingViewMode === 'table' ? (
+                    /* FULL DATA TABLE VIEW FOR SEGMENTS */
+                    <div className="border rounded-2xl overflow-hidden bg-card shadow-xs">
+                      <div className="overflow-x-auto custom-scrollbar">
+                        <table className="w-full text-left text-xs">
+                          <thead>
+                            <tr className="border-b bg-muted/40 text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+                              <th className="p-3.5 pl-5">Segment Name</th>
+                              <th className="p-3.5">Type</th>
+                              <th className="p-3.5">Recipients</th>
+                              <th className="p-3.5">Details</th>
+                              <th className="p-3.5 pr-5 text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border/60">
+                            {filteredSegments.map(seg => (
+                              <tr
+                                key={seg._id}
+                                onClick={() => {
+                                  setSelectedSegmentForView(seg);
+                                  setViewSegmentSearchQuery("");
+                                  setIsViewSegmentModalOpen(true);
+                                }}
+                                className="hover:bg-accent/30 transition-colors cursor-pointer group"
+                              >
+                                <td className="p-3.5 pl-5 max-w-[220px]">
+                                  <span className="font-bold text-foreground block truncate group-hover:text-primary transition-colors">{seg.name}</span>
+                                  {seg.description && (
+                                    <span className="text-[11px] text-muted-foreground block truncate mt-0.5">{seg.description}</span>
+                                  )}
+                                </td>
+                                <td className="p-3.5">
+                                  <span className={`text-[9px] px-2.5 py-0.5 rounded-full font-extrabold uppercase border ${
+                                    seg.type === "csv" ? "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20" :
+                                    seg.type === "campaign" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20" :
+                                    "bg-teal-500/10 text-teal-600 dark:text-teal-400 border-teal-500/20"
+                                  }`}>
+                                    {seg.type === "csv" ? "CSV Import" : seg.type === "campaign" ? "Sales Campaign" : "Static List"}
+                                  </span>
+                                </td>
+                                <td className="p-3.5">
+                                  <span className="font-bold text-foreground text-xs flex items-center gap-1.5">
+                                    <Users size={12} className="text-primary" /> {seg.contacts?.length || 0} Contacts
+                                  </span>
+                                </td>
+                                <td className="p-3.5 text-muted-foreground text-[11px]">
+                                  {seg.type === "campaign" ? (
+                                    <span>Campaign: <strong className="text-foreground">{typeof seg.filters?.campaignId === "object" ? seg.filters.campaignId.name : "Sales Leads"}</strong></span>
+                                  ) : (
+                                    <span>Recipient List</span>
+                                  )}
+                                </td>
+                                <td className="p-3.5 pr-5 text-right" onClick={e => e.stopPropagation()}>
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteSegment(seg._id)}
+                                      className="h-7 w-7 text-destructive hover:bg-destructive/10 rounded-lg flex items-center justify-center transition-colors cursor-pointer"
+                                      title="Delete Segment"
+                                    >
+                                      <Trash2 size={12} />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedSegmentForView(seg);
+                                        setViewSegmentSearchQuery("");
+                                        setIsViewSegmentModalOpen(true);
+                                      }}
+                                      className="h-7 px-2.5 bg-primary/10 hover:bg-primary hover:text-white text-primary rounded-lg text-[11px] font-bold flex items-center gap-1 transition-all"
+                                    >
+                                      <Eye size={11} /> View ({seg.contacts?.length || 0})
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
                   ) : (
+                    /* CARDS GRID VIEW */
                     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                      {segments.map((seg) => (
+                      {filteredSegments.map((seg) => (
                         <div
                           key={seg._id}
                           onClick={() => {
@@ -1452,24 +2249,105 @@ export default function EmailCenter() {
                     <div className="flex items-center justify-center py-20">
                       <Loader2 className="animate-spin text-primary h-7 w-7" />
                     </div>
-                  ) : templates.length === 0 ? (
+                  ) : filteredTemplates.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground bg-card rounded-2xl border p-8 space-y-3">
                       <FileText className="h-10 w-10 opacity-30 text-primary" />
                       <div className="space-y-1">
-                        <p className="text-sm font-bold text-foreground">No Database Templates Found</p>
-                        <p className="text-xs text-muted-foreground">Click "Generate AI Template" above to create one using Groq AI.</p>
+                        <p className="text-sm font-bold text-foreground">
+                          {templates.length === 0 ? "No Database Templates Found" : "No Templates Match Search"}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {templates.length === 0
+                            ? 'Click "Generate AI Template" above to create one using Anthropic Claude.'
+                            : 'Try clearing your search query to see all templates.'
+                          }
+                        </p>
+                      </div>
+                    </div>
+                  ) : marketingViewMode === 'table' ? (
+                    /* FULL DATA TABLE VIEW FOR TEMPLATES */
+                    <div className="border rounded-2xl overflow-hidden bg-card shadow-xs">
+                      <div className="overflow-x-auto custom-scrollbar">
+                        <table className="w-full text-left text-xs">
+                          <thead>
+                            <tr className="border-b bg-muted/40 text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+                              <th className="p-3.5 pl-5">Template Name</th>
+                              <th className="p-3.5">Subject</th>
+                              <th className="p-3.5">Type & Category</th>
+                              <th className="p-3.5">Created Date</th>
+                              <th className="p-3.5 pr-5 text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border/60">
+                            {filteredTemplates.map(tpl => (
+                              <tr
+                                key={tpl._id}
+                                onClick={() => handleOpenTemplateDirectly(tpl)}
+                                className="hover:bg-accent/30 transition-colors cursor-pointer group"
+                              >
+                                <td className="p-3.5 pl-5 max-w-[240px]">
+                                  <span className="font-bold text-foreground block truncate group-hover:text-primary transition-colors">{tpl.name}</span>
+                                  {tpl.aiPrompt && (
+                                    <span className="text-[11px] text-muted-foreground italic block truncate mt-0.5">"{tpl.aiPrompt}"</span>
+                                  )}
+                                </td>
+                                <td className="p-3.5 max-w-[200px]">
+                                  <span className="font-medium text-foreground block truncate">{tpl.subject}</span>
+                                </td>
+                                <td className="p-3.5">
+                                  <span className={`text-[9px] px-2.5 py-0.5 rounded-full font-extrabold uppercase border ${
+                                    tpl.isAiGenerated ? "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20" : "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
+                                  }`}>
+                                    {tpl.isAiGenerated ? "✨ Anthropic AI" : tpl.category || "General"}
+                                  </span>
+                                </td>
+                                <td className="p-3.5 text-[11px] text-muted-foreground">
+                                  {tpl.createdAt ? new Date(tpl.createdAt).toLocaleDateString() : "-"}
+                                </td>
+                                <td className="p-3.5 pr-5 text-right" onClick={e => e.stopPropagation()}>
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteTemplate(tpl._id)}
+                                      className="h-7 w-7 text-destructive hover:bg-destructive/10 rounded-lg flex items-center justify-center transition-colors cursor-pointer"
+                                      title="Delete Template"
+                                    >
+                                      <Trash2 size={12} />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenTemplateDirectly(tpl)}
+                                      className="h-7 px-2.5 bg-accent/60 hover:bg-accent text-foreground rounded-lg text-[11px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                                      title="Quick Preview Template"
+                                    >
+                                      <Eye size={11} /> Preview
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => injectDbTemplate(tpl)}
+                                      className="h-7 px-2.5 bg-primary text-white hover:bg-primary/90 rounded-lg text-[11px] font-bold flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
+                                    >
+                                      Use <ChevronRight size={11} />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
                     </div>
                   ) : (
+                    /* CARDS GRID VIEW */
                     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                      {templates.map(tpl => (
+                      {filteredTemplates.map(tpl => (
                         <div key={tpl._id} className="bg-card rounded-2xl border p-5 flex flex-col justify-between shadow-xs hover:shadow-md transition-all group">
                           <div>
                             <div className="flex items-center justify-between gap-2">
                               <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
                                 tpl.isAiGenerated ? "bg-violet-500/10 text-violet-600 dark:text-violet-400 border border-violet-500/20" : "bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20"
                               }`}>
-                                {tpl.isAiGenerated ? "✨ Groq AI" : tpl.category || "General"}
+                                {tpl.isAiGenerated ? "✨ Anthropic AI" : tpl.category || "General"}
                               </span>
                               <span className="text-[10px] text-muted-foreground">
                                 {tpl.createdAt ? new Date(tpl.createdAt).toLocaleDateString() : ""}
@@ -1490,12 +2368,23 @@ export default function EmailCenter() {
                             >
                               <Trash2 size={13} />
                             </button>
-                            <button
-                              onClick={() => injectDbTemplate(tpl)}
-                              className="h-8 px-3.5 bg-primary text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm hover:bg-primary/95 transition-colors"
-                            >
-                              Use Template <ChevronRight size={13} />
-                            </button>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenTemplateDirectly(tpl)}
+                                className="h-8 px-2.5 bg-accent/60 hover:bg-accent text-foreground rounded-xl text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                                title="Quick Preview Template"
+                              >
+                                <Eye size={12} /> Preview
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => injectDbTemplate(tpl)}
+                                className="h-8 px-3 bg-primary text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow-sm hover:bg-primary/95 transition-colors cursor-pointer"
+                              >
+                                Use Template <ChevronRight size={13} />
+                              </button>
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -1892,12 +2781,12 @@ export default function EmailCenter() {
 
       {/* --- DIALOG 1: CAMPAIGN MODAL WIZARD --- */}
       <Dialog open={isCampaignModalOpen} onOpenChange={setIsCampaignModalOpen}>
-        <DialogContent className="w-[95vw] max-w-4xl max-h-[90vh] overflow-y-auto custom-scrollbar p-0 flex flex-col dark:bg-card">
-          <DialogHeader className="p-6 pb-2 border-b">
-            <DialogTitle>Create Marketing Campaign</DialogTitle>
+        <DialogContent className="w-[96vw] max-w-6xl max-h-[94vh] overflow-y-auto custom-scrollbar p-0 flex flex-col dark:bg-card">
+          <DialogHeader className="p-6 pb-3 border-b">
+            <DialogTitle className="text-lg font-bold">Create Marketing Campaign</DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleCreateCampaign} className="flex-1 flex flex-col md:flex-row gap-6 p-6 min-h-0">
-            <div className="flex-1 space-y-4 min-w-0">
+          <form onSubmit={handleCreateCampaign} className="flex-1 flex flex-col lg:flex-row gap-6 p-6 min-h-0">
+            <div className="flex-1 space-y-4 min-w-0 lg:min-w-[620px]">
               <div className="grid gap-1">
                 <label className="text-xs font-bold text-muted-foreground uppercase">Campaign Title <span className="text-destructive">*</span></label>
                 <input
@@ -1941,9 +2830,11 @@ export default function EmailCenter() {
                         subject: foundTpl.subject,
                         content: foundTpl.content
                       }));
+                      setCampaignEditorMode('preview');
                       toast.success(`Loaded template: "${foundTpl.name}"`);
                     } else {
                       setCampaignForm(prev => ({ ...prev, templateId: null }));
+                      setCampaignEditorMode('editor');
                     }
                   }}
                 >
@@ -1956,30 +2847,100 @@ export default function EmailCenter() {
                 </select>
               </div>
 
-              <div className="grid gap-1">
-                <label className="text-xs font-bold text-muted-foreground uppercase">Message Content <span className="text-destructive">*</span></label>
-                <div className="[&_.ql-editor]:min-h-[220px]">
-                  <ReactQuill
-                    theme="snow"
-                    value={campaignForm.content}
-                    placeholder="Compose email body. Supporting placeholder tags: {{name}}"
-                    onChange={val => setCampaignForm({ ...campaignForm, content: val })}
-                  />
+              <div className="grid gap-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-muted-foreground uppercase">
+                    Message Content <span className="text-destructive">*</span>
+                  </label>
+                  <div className="flex items-center gap-1.5">
+                    {campaignForm.content.trim() && (
+                      <button
+                        type="button"
+                        onClick={() => setIsCampaignPreviewFullscreen(true)}
+                        className="px-2.5 py-1 rounded-lg border text-[11px] font-bold text-primary hover:bg-primary/10 flex items-center gap-1 transition-colors cursor-pointer"
+                        title="Open full view modal"
+                      >
+                        <Maximize2 size={12} /> Full View
+                      </button>
+                    )}
+                    <div className="flex items-center bg-accent/60 p-0.5 rounded-lg border text-[11px]">
+                      <button
+                        type="button"
+                        onClick={() => setCampaignEditorMode("preview")}
+                        className={`px-2.5 py-0.5 rounded-md font-bold transition-all cursor-pointer ${
+                          campaignEditorMode === "preview" ? "bg-card text-foreground shadow-2xs" : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        👁️ Live Preview
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCampaignEditorMode("html")}
+                        className={`px-2.5 py-0.5 rounded-md font-bold transition-all cursor-pointer ${
+                          campaignEditorMode === "html" ? "bg-card text-foreground shadow-2xs" : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        ✏️ Edit HTML
+                      </button>
+                      {(!campaignForm.templateId && !campaignForm.content.includes("<table") && !campaignForm.content.includes("<!DOCTYPE")) && (
+                        <button
+                          type="button"
+                          onClick={() => setCampaignEditorMode("editor")}
+                          className={`px-2.5 py-0.5 rounded-md font-bold transition-all cursor-pointer ${
+                            campaignEditorMode === "editor" ? "bg-card text-foreground shadow-2xs" : "text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          📝 Rich Text
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
+
+                {campaignEditorMode === "preview" ? (
+                  <div className="border rounded-xl bg-slate-100 dark:bg-slate-900/60 p-4 sm:p-6 min-h-[460px] max-h-[600px] overflow-y-auto custom-scrollbar shadow-inner flex justify-center">
+                    {campaignForm.content.trim() ? (
+                      <div className="w-full max-w-[620px] bg-white text-gray-900 rounded-xl shadow-sm border border-slate-200 p-4 sm:p-6 self-start">
+                        <div dangerouslySetInnerHTML={{ __html: campaignForm.content.replace(/\{\{name\}\}/gi, "John Doe") }} />
+                      </div>
+                    ) : (
+                      <p className="text-xs text-gray-400 italic text-center py-16 self-center">No template content loaded. Select a template above or click Edit HTML to paste code.</p>
+                    )}
+                  </div>
+                ) : campaignEditorMode === "html" ? (
+                  <div className="border rounded-xl bg-slate-950 p-3 min-h-[460px] flex flex-col">
+                    <textarea
+                      value={campaignForm.content}
+                      onChange={e => setCampaignForm({ ...campaignForm, content: e.target.value })}
+                      placeholder="<!-- Paste or edit email HTML here -->"
+                      className="w-full h-[420px] bg-transparent border-none outline-none resize-none text-emerald-400 font-mono text-xs custom-scrollbar"
+                      spellCheck={false}
+                    />
+                  </div>
+                ) : (
+                  <div className="[&_.ql-editor]:min-h-[380px]">
+                    <ReactQuill
+                      theme="snow"
+                      value={campaignForm.content}
+                      placeholder="Compose email body. Supporting placeholder tags: {{name}}"
+                      onChange={val => setCampaignForm({ ...campaignForm, content: val })}
+                    />
+                  </div>
+                )}
               </div>
             </div>
 
-            <div className="w-full md:w-80 space-y-5 border-t md:border-t-0 md:border-l pt-5 md:pt-0 md:pl-6 shrink-0 flex flex-col justify-between">
+            <div className="w-full lg:w-80 space-y-5 border-t lg:border-t-0 lg:border-l pt-5 lg:pt-0 lg:pl-6 shrink-0 flex flex-col justify-between">
               <div className="space-y-4">
                 <div className="grid gap-1">
-                  <label className="text-xs font-bold text-muted-foreground uppercase">Recipient Segment <span className="text-destructive">*</span></label>
+                  <label className="text-xs font-bold text-muted-foreground uppercase">Recipient List & Segment <span className="text-destructive">*</span></label>
                   <select
                     className="input-field text-sm dark:bg-card"
                     value={campaignForm.segmentId}
                     onChange={e => setCampaignForm({ ...campaignForm, segmentId: e.target.value })}
                     required
                   >
-                    <option value="">Select Target List...</option>
+                    <option value="">Select Target List & Segment...</option>
                     {segments.map(seg => (
                       <option key={seg._id} value={seg._id}>{seg.name}</option>
                     ))}
@@ -2336,16 +3297,38 @@ export default function EmailCenter() {
                             placeholder="e.g. John Doe"
                             value={customContactName}
                             onChange={e => setCustomContactName(e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                if (customContactEmail.trim()) {
+                                  handleAddCustomContact(e);
+                                } else {
+                                  const emailInput = document.getElementById("custom-contact-email-input") as HTMLInputElement | null;
+                                  emailInput?.focus();
+                                }
+                              }
+                            }}
                             className="h-8 input-field text-xs bg-background"
                           />
                         </div>
                         <div className="grid gap-0.5">
                           <label className="text-[9px] font-bold text-muted-foreground uppercase">Email Address</label>
                           <input
+                            id="custom-contact-email-input"
                             type="email"
                             placeholder="e.g. john@example.com"
                             value={customContactEmail}
                             onChange={e => setCustomContactEmail(e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === "Enter") {
+                                if (customContactEmail.trim()) {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  handleAddCustomContact(e);
+                                }
+                              }
+                            }}
                             className="h-8 input-field text-xs bg-background"
                           />
                         </div>
@@ -2736,15 +3719,24 @@ export default function EmailCenter() {
         </DialogContent>
       </Dialog>
 
-      {/* --- DIALOG 3: CSV IMPORT DIALOG --- */}
+      {/* --- DIALOG 3: IMPORT CSV RECIPIENTS MODAL --- */}
       <Dialog open={isImportModalOpen} onOpenChange={setIsImportModalOpen}>
-        <DialogContent className="w-[90vw] max-w-sm dark:bg-card">
-          <DialogHeader>
-            <DialogTitle>Import Email List via CSV</DialogTitle>
+        <DialogContent className="w-[95vw] max-w-3xl max-h-[85vh] p-0 flex flex-col overflow-hidden dark:bg-card">
+          <DialogHeader className="p-5 pb-3 border-b shrink-0 bg-card">
+            <DialogTitle className="text-base font-extrabold text-foreground flex items-center gap-2">
+              <Upload className="text-primary h-5 w-5" />
+              <span>Import Email List via CSV</span>
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Upload a CSV file to create a recipient list. Contacts will be parsed, validated, and deduplicated automatically.
+            </DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleCsvImport} className="space-y-4">
-            <div className="grid gap-1">
-              <label className="text-xs font-bold text-muted-foreground uppercase">Segment List Name <span className="text-destructive">*</span></label>
+
+          <form onSubmit={handleCsvImport} className="p-5 flex-1 flex flex-col min-h-0 space-y-4 overflow-hidden">
+            <div className="grid gap-1 shrink-0">
+              <label className="text-xs font-bold text-muted-foreground uppercase">
+                List & Segment Name <span className="text-destructive">*</span>
+              </label>
               <input
                 type="text"
                 placeholder="e.g. High School Soccer Coach List"
@@ -2755,46 +3747,160 @@ export default function EmailCenter() {
               />
             </div>
 
-            <div className="grid gap-2 pt-2">
-              <label className="text-xs font-bold text-muted-foreground uppercase">CSV File Upload <span className="text-destructive">*</span></label>
-              <div className="border-2 border-dashed border-border rounded-xl p-6 text-center hover:border-primary/50 transition-colors bg-accent/15 cursor-pointer relative">
-                <input
-                  type="file"
-                  accept=".csv"
-                  onChange={e => {
-                    const file = e.target.files?.[0] || null;
-                    setImportFile(file);
-                    if (file && !importSegmentName) {
-                      setImportSegmentName(file.name.replace(/\.[^/.]+$/, ""));
-                    }
-                  }}
-                  className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
-                  required
-                />
-                <Upload className="mx-auto text-muted-foreground h-8 w-8 mb-2 opacity-50" />
-                <span className="text-xs font-bold block text-foreground">
-                  {importFile ? importFile.name : "Click to select CSV File"}
-                </span>
-                <span className="text-[10px] text-muted-foreground mt-1 block">
-                  Must contain headers like "email" and "name"
-                </span>
+            {/* 2-Column CSV Loader & Contact Preview */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 flex-1 min-h-0 border-t pt-4">
+              {/* Left Column: File Dropzone */}
+              <div className="space-y-3 flex flex-col justify-between">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-muted-foreground uppercase">
+                    CSV File <span className="text-destructive">*</span>
+                  </label>
+                  <div className="border-2 border-dashed border-border hover:border-primary/50 rounded-2xl p-6 text-center space-y-3 transition-colors bg-accent/5 cursor-pointer relative">
+                    <input
+                      type="file"
+                      accept=".csv"
+                      onChange={handleImportModalCsvSelect}
+                      className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+                    />
+                    <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center mx-auto">
+                      <Upload size={20} />
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-xs font-bold block text-foreground">
+                        {importFile ? importFile.name : "Click to select CSV File"}
+                      </span>
+                      <p className="text-[10px] text-muted-foreground">Headers like "Email" and "Name" are auto-detected</p>
+                    </div>
+                  </div>
+                </div>
+
+                {importCsvParsedContacts.length > 0 && (
+                  <div className="p-3 border rounded-xl bg-emerald-500/5 border-emerald-500/20 text-xs space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-emerald-600 dark:text-emerald-400 truncate">{importFile?.name}</span>
+                      <span className="text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-2 py-0.5 rounded-full font-bold">
+                        {importCsvParsedContacts.length} Contacts Found
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Right Column: Searchable Contact Checklist */}
+              <div className="space-y-2.5 flex flex-col h-full min-h-0 border-t md:border-t-0 md:border-l pt-3 md:pt-0 md:pl-5">
+                <div className="flex justify-between items-center">
+                  <h4 className="text-xs font-bold uppercase text-primary">Contacts Checklist</h4>
+                  <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-bold">
+                    {importCsvSelectedEmails.length} / {importCsvParsedContacts.length} Selected
+                  </span>
+                </div>
+
+                {/* Search */}
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                  <input
+                    type="text"
+                    placeholder="Filter parsed contacts..."
+                    value={importCsvSearchQuery}
+                    onChange={e => setImportCsvSearchQuery(e.target.value)}
+                    className="pl-8 h-8.5 input-field text-xs w-full"
+                  />
+                </div>
+
+                {/* Select All / Deselect All */}
+                <div className="flex justify-between gap-2 px-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const allFiltered = filteredImportCsvContacts.map(c => c.email);
+                      setImportCsvSelectedEmails(prev => Array.from(new Set([...prev, ...allFiltered])));
+                    }}
+                    className="text-[10px] text-primary hover:underline font-semibold cursor-pointer"
+                  >
+                    Select All Filtered
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const allFiltered = filteredImportCsvContacts.map(c => c.email);
+                      setImportCsvSelectedEmails(prev => prev.filter(email => !allFiltered.includes(email)));
+                    }}
+                    className="text-[10px] text-destructive hover:underline font-semibold cursor-pointer"
+                  >
+                    Deselect All Filtered
+                  </button>
+                </div>
+
+                {/* Scrollable list */}
+                <div className="flex-1 min-h-[160px] max-h-56 overflow-y-auto border rounded-xl p-2 space-y-1 bg-accent/5 custom-scrollbar">
+                  {importCsvParsedContacts.length === 0 ? (
+                    <p className="text-[11px] text-muted-foreground text-center py-10">Select a CSV file to preview contacts.</p>
+                  ) : filteredImportCsvContacts.length === 0 ? (
+                    <p className="text-[11px] text-muted-foreground text-center py-10">No contacts matching filter.</p>
+                  ) : (
+                    filteredImportCsvContacts.map((contact, idx) => {
+                      const isSelected = importCsvSelectedEmails.includes(contact.email);
+                      return (
+                        <div
+                          key={contact.email || idx}
+                          onClick={() => {
+                            setImportCsvSelectedEmails(prev =>
+                              prev.includes(contact.email)
+                                ? prev.filter(e => e !== contact.email)
+                                : [...prev, contact.email]
+                            );
+                          }}
+                          className={`flex items-start gap-2.5 p-2 rounded-lg cursor-pointer transition-colors border ${
+                            isSelected
+                              ? "bg-primary/5 border-primary/20 text-foreground"
+                              : "hover:bg-accent/30 border-transparent text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => {}}
+                            className="rounded mt-0.5 pointer-events-none shrink-0"
+                          />
+                          <div className="flex-1 min-w-0 text-left">
+                            <div className="flex items-center gap-1.5 justify-between">
+                              <span className="font-bold text-xs truncate text-foreground leading-tight">
+                                {contact.name}
+                              </span>
+                              <span className="text-[8px] font-extrabold uppercase px-1.5 py-0.2 rounded bg-primary/10 text-primary shrink-0">
+                                CSV
+                              </span>
+                            </div>
+                            <span className="text-[10px] text-muted-foreground block truncate mt-0.5">
+                              {contact.email}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
               </div>
             </div>
 
-            <DialogFooter className="pt-4 border-t">
+            <DialogFooter className="pt-3 border-t flex items-center justify-end gap-2 shrink-0">
               <button
                 type="button"
                 onClick={() => setIsImportModalOpen(false)}
-                className="btn-secondary text-xs h-9"
+                className="btn-secondary text-xs h-9 px-4"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                disabled={isSubmitting}
-                className="btn-primary text-xs h-9 bg-emerald-600 hover:bg-emerald-700 flex items-center justify-center gap-1 text-white shadow-sm"
+                disabled={isSubmitting || importCsvSelectedEmails.length === 0}
+                className="btn-primary text-xs h-9 px-4 bg-emerald-600 hover:bg-emerald-700 flex items-center justify-center gap-1 text-white shadow-sm disabled:opacity-50 cursor-pointer"
               >
-                {isSubmitting ? <Loader2 size={14} className="animate-spin" /> : "Start CSV Import"}
+                {isSubmitting ? (
+                  <><Loader2 size={14} className="animate-spin" /> Importing...</>
+                ) : (
+                  <>Import {importCsvSelectedEmails.length} Contacts</>
+                )}
               </button>
             </DialogFooter>
           </form>
@@ -2803,28 +3909,93 @@ export default function EmailCenter() {
 
       {/* --- DIALOG 4: CAMPAIGN PERFORMANCE & RECIPIENT TRACKING INSPECTOR --- */}
       <Dialog open={isViewStatsOpen} onOpenChange={setIsViewStatsOpen}>
-        <DialogContent className="w-[95vw] max-w-3xl max-h-[85vh] p-0 flex flex-col overflow-hidden dark:bg-card">
-          <DialogHeader className="p-5 pb-3 border-b shrink-0 flex flex-row items-center justify-between bg-card">
-            <div className="text-left space-y-0.5 min-w-0 pr-4">
-              <DialogTitle className="text-base flex items-center gap-2 text-foreground truncate">
+        <DialogContent className={`w-[96vw] ${isStatsModalExpanded ? 'max-w-6xl h-[94vh]' : 'max-w-3xl max-h-[85vh]'} p-0 flex flex-col overflow-hidden dark:bg-card transition-all duration-300`}>
+          <DialogHeader className="p-5 pb-3 pr-12 border-b shrink-0 flex flex-row items-center justify-between bg-card relative">
+            <div className="text-left space-y-1.5 min-w-0">
+              <DialogTitle className="text-base flex items-center gap-2.5 text-foreground font-extrabold tracking-tight">
                 <BarChart3 className="text-primary h-5 w-5 shrink-0" />
-                {selectedCampaign?.title || "Campaign Analytics"}
+                <span>{selectedCampaign?.title || "Campaign Analytics"}</span>
+                <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-extrabold uppercase border shrink-0 ${
+                  selectedCampaign?.status === "sent" ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20" :
+                  selectedCampaign?.status === "scheduled" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20" :
+                  "bg-zinc-500/10 text-zinc-600 dark:text-zinc-400 border-zinc-500/20"
+                }`}>
+                  {selectedCampaign?.status || "draft"}
+                </span>
               </DialogTitle>
               <p className="text-xs text-muted-foreground truncate">
                 Subject: <span className="font-semibold text-foreground">{selectedCampaign?.subject}</span>
               </p>
             </div>
-            <span className={`text-[10px] px-3 py-1 rounded-full font-extrabold uppercase shrink-0 border ${
-              selectedCampaign?.status === "sent" ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20" :
-              selectedCampaign?.status === "scheduled" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20" :
-              "bg-zinc-500/10 text-zinc-600 dark:text-zinc-400 border-zinc-500/20"
-            }`}>
-              {selectedCampaign?.status || "draft"}
-            </span>
+
+            <div className="flex items-center gap-2 shrink-0 mr-4">
+              {/* Full View Toggle */}
+              <button
+                type="button"
+                onClick={() => setIsStatsModalExpanded(!isStatsModalExpanded)}
+                className="btn-secondary text-xs h-8.5 px-3 flex items-center gap-1.5 font-bold transition-all shadow-xs border shrink-0 cursor-pointer"
+                title={isStatsModalExpanded ? "Compact View" : "Full View (Expand)"}
+              >
+                {isStatsModalExpanded ? (
+                  <><Minimize2 size={13} /> Compact View</>
+                ) : (
+                  <><Maximize2 size={13} /> Full View</>
+                )}
+              </button>
+
+              {selectedCampaign && selectedCampaign.recipientLogs && selectedCampaign.recipientLogs.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => handleExportCampaignData(selectedCampaign)}
+                  className="btn-secondary text-xs h-8.5 px-3.5 flex items-center gap-1.5 font-bold transition-all shadow-xs border shrink-0"
+                  title="Export Campaign Data (CSV)"
+                >
+                  <Upload size={14} /> Export CSV
+                </button>
+              )}
+            </div>
           </DialogHeader>
 
           {selectedCampaign && (
             <div className="p-5 flex-1 flex flex-col min-h-0 space-y-4 overflow-hidden">
+              {/* Campaign Meta & Template Banner */}
+              {(() => {
+                const tplObj = (typeof selectedCampaign.templateId === 'object' && selectedCampaign.templateId !== null)
+                  ? selectedCampaign.templateId
+                  : templates.find(t => t._id === selectedCampaign.templateId);
+
+                return (
+                  <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-card border rounded-xl shadow-2xs shrink-0">
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className="text-muted-foreground font-semibold">Target List & Segment:</span>
+                      <span className="font-bold text-foreground bg-accent/40 px-2 py-0.5 rounded-md">
+                        {selectedCampaign.segmentId?.name || "All Contacts"}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className="text-muted-foreground font-semibold">Template Used:</span>
+                      {tplObj ? (
+                        <button
+                          type="button"
+                          onClick={() => handleOpenTemplateDirectly(selectedCampaign.templateId)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold bg-violet-500/10 hover:bg-violet-500/20 text-violet-700 dark:text-violet-300 border border-violet-500/20 transition-all cursor-pointer shadow-2xs group/tpl"
+                          title="Click to view template preview directly"
+                        >
+                          <FileText size={12} className="text-violet-600 dark:text-violet-400" />
+                          <span className="font-bold">{tplObj.name}</span>
+                          <Eye size={11} className="group-hover/tpl:scale-110 transition-transform" />
+                        </button>
+                      ) : (
+                        <span className="text-muted-foreground italic bg-accent/20 px-2 py-0.5 rounded-md">
+                          Custom / Blank Email
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* Top 5 KPI Summary Cards Grid */}
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 shrink-0">
                 {[
@@ -2857,7 +4028,8 @@ export default function EmailCenter() {
                       placeholder="Filter campaign recipients by name or email..."
                       value={campaignRecipientSearch}
                       onChange={e => setCampaignRecipientSearch(e.target.value)}
-                      className="pl-8.5 h-8.5 input-field text-xs w-full dark:bg-card"
+                      className="h-8.5 input-field text-xs w-full dark:bg-card"
+                      style={{ paddingLeft: "2.25rem" }}
                     />
                   </div>
 
@@ -2887,7 +4059,7 @@ export default function EmailCenter() {
                 </div>
 
                 {/* Recipient Logs Scrollable List */}
-                <div className="flex-1 border rounded-2xl overflow-y-auto custom-scrollbar bg-accent/5 p-3 space-y-2 min-h-[220px]">
+                <div className={`flex-1 border rounded-2xl overflow-y-auto custom-scrollbar bg-accent/5 p-3 space-y-2 ${isStatsModalExpanded ? 'min-h-[420px]' : 'min-h-[220px]'}`}>
                   {!selectedCampaign.recipientLogs || selectedCampaign.recipientLogs.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-14 text-center text-muted-foreground">
                       <Mail size={36} className="opacity-40 mb-2" />
@@ -2978,23 +4150,22 @@ export default function EmailCenter() {
             </div>
           )}
 
-          <DialogFooter className="p-4 border-t bg-card shrink-0 flex items-center justify-between gap-2">
-            {selectedCampaign && (
-              <button
-                type="button"
-                onClick={() => {
-                  setCampaignToRerun(selectedCampaign);
-                  setIsConfirmRerunOpen(true);
-                }}
-                className="btn-primary text-xs h-9 px-3.5 bg-indigo-600 hover:bg-indigo-700 text-white flex items-center gap-1.5 shadow-sm"
-              >
-                <RotateCcw size={13} /> Run Again Campaign
-              </button>
-            )}
+          <DialogFooter className="p-4 px-6 border-t bg-card shrink-0 flex items-center justify-between w-full">
+            <button
+              type="button"
+              onClick={() => {
+                setCampaignToDelete(selectedCampaign);
+                setIsDeleteCampaignModalOpen(true);
+              }}
+              className="btn-secondary text-xs h-8.5 px-4 font-bold text-destructive hover:bg-destructive/10 hover:text-destructive flex items-center gap-1.5 transition-all cursor-pointer"
+              title="Delete Campaign"
+            >
+              <Trash2 size={13} /> Delete Campaign
+            </button>
             <button
               type="button"
               onClick={() => setIsViewStatsOpen(false)}
-              className="btn-secondary text-xs h-9 px-4"
+              className="btn-secondary text-xs h-8.5 px-4 font-bold"
             >
               Close Analytics
             </button>
@@ -3004,26 +4175,43 @@ export default function EmailCenter() {
 
       {/* --- DIALOG 5: VIEW SEGMENT RECIPIENTS DIALOG --- */}
       <Dialog open={isViewSegmentModalOpen} onOpenChange={setIsViewSegmentModalOpen}>
-        <DialogContent className="w-[95vw] max-w-2xl max-h-[85vh] p-0 flex flex-col overflow-hidden dark:bg-card">
-          <DialogHeader className="p-5 pb-3 border-b shrink-0 flex flex-row items-center justify-between bg-card">
-            <div className="text-left space-y-0.5 min-w-0 pr-4">
-              <DialogTitle className="text-base flex items-center gap-2 text-foreground truncate">
-                <Users className="text-primary h-5 w-5 shrink-0" />
-                {selectedSegmentForView?.name || "Segment Contacts"}
-              </DialogTitle>
+        <DialogContent className={`w-[95vw] ${isSegmentModalExpanded ? 'max-w-6xl h-[94vh]' : 'max-w-2xl max-h-[85vh]'} p-0 flex flex-col overflow-hidden dark:bg-card transition-all duration-300`}>
+          <DialogHeader className="p-5 pb-3 border-b shrink-0 flex flex-row items-center justify-between bg-card relative">
+            <div className="text-left space-y-1 min-w-0 pr-6">
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <DialogTitle className="text-base flex items-center gap-2 text-foreground font-extrabold tracking-tight">
+                  <Users className="text-primary h-5 w-5 shrink-0" />
+                  {selectedSegmentForView?.name || "Segment Contacts"}
+                </DialogTitle>
+                <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-extrabold uppercase shrink-0 border ${
+                  selectedSegmentForView?.type === "csv" ? "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20" :
+                  selectedSegmentForView?.type === "campaign" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20" :
+                  "bg-teal-500/10 text-teal-600 dark:text-teal-400 border-teal-500/20"
+                }`}>
+                  {selectedSegmentForView?.type === "csv" ? "CSV Import" :
+                   selectedSegmentForView?.type === "campaign" ? "Sales Campaign" :
+                   selectedSegmentForView?.type || "Static List"}
+                </span>
+              </div>
               {selectedSegmentForView?.description && (
                 <p className="text-xs text-muted-foreground truncate">{selectedSegmentForView.description}</p>
               )}
             </div>
-            <span className={`text-[10px] px-3 py-1 rounded-full font-extrabold uppercase shrink-0 border ${
-              selectedSegmentForView?.type === "csv" ? "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20" :
-              selectedSegmentForView?.type === "campaign" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20" :
-              "bg-teal-500/10 text-teal-600 dark:text-teal-400 border-teal-500/20"
-            }`}>
-              {selectedSegmentForView?.type === "csv" ? "CSV Import" :
-               selectedSegmentForView?.type === "campaign" ? "Sales Campaign" :
-               selectedSegmentForView?.type || "Static List"}
-            </span>
+
+            <div className="flex items-center gap-2 shrink-0 mr-6">
+              <button
+                type="button"
+                onClick={() => setIsSegmentModalExpanded(!isSegmentModalExpanded)}
+                className="btn-secondary text-xs h-8.5 px-3 flex items-center gap-1.5 font-bold transition-all shadow-xs border shrink-0 cursor-pointer"
+                title={isSegmentModalExpanded ? "Compact View" : "Full View (Expand)"}
+              >
+                {isSegmentModalExpanded ? (
+                  <><Minimize2 size={13} /> Compact View</>
+                ) : (
+                  <><Maximize2 size={13} /> Full View</>
+                )}
+              </button>
+            </div>
           </DialogHeader>
 
           <div className="p-5 flex-1 flex flex-col min-h-0 space-y-4 overflow-hidden">
@@ -3045,7 +4233,7 @@ export default function EmailCenter() {
             </div>
 
             {/* Contacts Cards Grid / Scrollable List */}
-            <div className="flex-1 border rounded-2xl overflow-y-auto custom-scrollbar bg-accent/5 p-3 space-y-2 min-h-[220px]">
+            <div className={`flex-1 border rounded-2xl overflow-y-auto custom-scrollbar bg-accent/5 p-3 space-y-2 ${isSegmentModalExpanded ? 'min-h-[460px]' : 'min-h-[220px]'}`}>
               {!selectedSegmentForView?.contacts || selectedSegmentForView.contacts.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-14 text-center text-muted-foreground">
                   <UserX size={36} className="opacity-40 mb-2" />
@@ -3168,7 +4356,7 @@ export default function EmailCenter() {
               </div>
               <div className="text-left">
                 <div className="flex items-center gap-2">
-                  <h2 className="text-base font-extrabold text-foreground">Groq AI Email Template Builder</h2>
+                  <h2 className="text-base font-extrabold text-foreground">Anthropic AI Email Template Builder</h2>
                   <span className="bg-violet-500/10 text-violet-600 dark:text-violet-400 text-[10px] px-2 py-0.5 rounded-full font-bold uppercase border border-violet-500/20">
                     Live HTML Preview
                   </span>
@@ -3296,9 +4484,9 @@ export default function EmailCenter() {
                   className="w-full h-10 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer"
                 >
                   {isGeneratingAiTemplate ? (
-                    <><Loader2 size={15} className="animate-spin" /> Generating HTML Layout with Groq AI...</>
+                    <><Loader2 size={15} className="animate-spin" /> Generating HTML Layout with Anthropic AI...</>
                   ) : (
-                    <><Sparkles size={15} /> Generate HTML Template (Groq AI)</>
+                    <><Sparkles size={15} /> Generate HTML Template (Anthropic AI)</>
                   )}
                 </button>
               </form>
@@ -3361,7 +4549,7 @@ export default function EmailCenter() {
                 {isGeneratingAiTemplate ? (
                   <div className="flex flex-col items-center justify-center py-24 space-y-3 text-center flex-1">
                     <Loader2 className="animate-spin text-violet-600 h-10 w-10" />
-                    <p className="text-xs font-bold text-foreground">Groq AI is designing your template layout...</p>
+                    <p className="text-xs font-bold text-foreground">Anthropic AI is designing your template layout...</p>
                     <p className="text-[11px] text-muted-foreground">Writing responsive HTML, CSS styles, and content.</p>
                   </div>
                 ) : !aiDraftTemplate ? (
@@ -3403,6 +4591,644 @@ export default function EmailCenter() {
           </div>
         </DialogContent>
       </Dialog>
+      {/* ─────────────────────────────────────────────────────────────
+          MANUAL TEMPLATE BUILDER MODAL
+      ───────────────────────────────────────────────────────────── */}
+      <Dialog open={isManualTemplateModalOpen} onOpenChange={(open) => { if (!open) setIsManualTemplateModalOpen(false); }}>
+        <DialogContent className="max-w-4xl w-full p-0 gap-0 overflow-hidden rounded-2xl">
+          {/* Header */}
+          <DialogHeader className="flex flex-row items-center justify-between px-6 py-4 border-b shrink-0 bg-card">
+            <div className="flex items-center gap-2.5">
+              <div className="h-8 w-8 rounded-xl bg-primary/10 flex items-center justify-center">
+                <FileText size={16} className="text-primary" />
+              </div>
+              <div>
+                <DialogTitle className="text-sm font-bold leading-tight">Create Email Template</DialogTitle>
+                <DialogDescription className="text-[11px] text-muted-foreground mt-0.5">
+                  Build a reusable email template to use in campaigns.
+                </DialogDescription>
+              </div>
+            </div>
+            {/* Mode Switcher */}
+            <div className="flex items-center bg-accent/60 border p-0.5 rounded-xl text-xs mr-8">
+              <button
+                type="button"
+                onClick={() => {
+                  setManualTemplateMode('editor');
+                  setManualTemplateHtml('');
+                  setTimeout(() => manualEditorRef.current?.focus(), 50);
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                  manualTemplateMode === 'editor' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <PenLine size={11} /> Write Content
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setManualTemplateMode('html');
+                  if (manualEditorRef.current) manualEditorRef.current.innerHTML = '';
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                  manualTemplateMode === 'html' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <Code2 size={11} /> HTML Code
+              </button>
+            </div>
+          </DialogHeader>
+
+          {/* Body */}
+          <div className="flex flex-col gap-0 overflow-hidden" style={{ height: '72vh' }}>
+            {/* Meta Fields Row */}
+            <div className="grid grid-cols-3 gap-3 p-5 pb-3 border-b shrink-0 bg-card/50">
+              <div>
+                <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide block mb-1.5">Template Name *</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Summer Camp Invite"
+                  value={manualTemplateName}
+                  onChange={e => setManualTemplateName(e.target.value)}
+                  className="input-field h-8.5 text-xs w-full"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide block mb-1.5">Email Subject *</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Join us for Summer Basketball Camp!"
+                  value={manualTemplateSubject}
+                  onChange={e => setManualTemplateSubject(e.target.value)}
+                  className="input-field h-8.5 text-xs w-full"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide block mb-1.5">Category</label>
+                <select
+                  value={manualTemplateCategory}
+                  onChange={e => setManualTemplateCategory(e.target.value)}
+                  className="input-field h-8.5 text-xs w-full"
+                >
+                  {["General", "Promotional", "Informational", "Follow-up", "Welcome", "Re-engagement", "Event"].map(c => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Editor Area */}
+            {manualTemplateMode === 'editor' ? (
+              <div className="flex flex-col flex-1 overflow-hidden">
+                {/* Formatting Toolbar */}
+                <div className="flex items-center gap-0.5 px-4 py-2 border-b bg-card shrink-0 flex-wrap relative">
+                  <button
+                    type="button"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => execFormat('bold')}
+                    title="Bold"
+                    className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
+                      editorActiveFormats.bold ? 'bg-primary/20 text-primary border border-primary/30 font-bold shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <Bold size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => execFormat('italic')}
+                    title="Italic"
+                    className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
+                      editorActiveFormats.italic ? 'bg-primary/20 text-primary border border-primary/30 font-bold shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <Italic size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => execFormat('underline')}
+                    title="Underline"
+                    className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
+                      editorActiveFormats.underline ? 'bg-primary/20 text-primary border border-primary/30 font-bold shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <Underline size={12} />
+                  </button>
+                  
+                  <div className="w-px h-5 bg-border mx-1" />
+                  
+                  {/* Highlighter Tool */}
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onMouseDown={e => e.preventDefault()}
+                      onClick={() => {
+                        setIsHighlighterOpen(!isHighlighterOpen);
+                        setIsColorPickerOpen(false);
+                      }}
+                      title="Highlight Color (Google Docs style)"
+                      className="h-7 px-2 rounded-lg hover:bg-accent flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors cursor-pointer text-xs"
+                    >
+                      <Highlighter size={12} className="text-amber-500" />
+                      <ChevronDown size={10} />
+                    </button>
+                    {isHighlighterOpen && (
+                      <div className="absolute top-full left-0 mt-1 p-2 bg-popover border rounded-xl shadow-lg z-50 flex items-center gap-1.5 backdrop-blur-md">
+                        {[
+                          { color: '#fef08a', name: 'Yellow' },
+                          { color: '#bbf7d0', name: 'Green' },
+                          { color: '#bfdbfe', name: 'Blue' },
+                          { color: '#fed7aa', name: 'Orange' },
+                          { color: '#fbcfe8', name: 'Pink' },
+                          { color: 'transparent', name: 'None' }
+                        ].map(c => (
+                          <button
+                            key={c.color}
+                            type="button"
+                            onMouseDown={e => e.preventDefault()}
+                            onClick={() => {
+                              execFormat('hiliteColor', c.color);
+                              setIsHighlighterOpen(false);
+                            }}
+                            title={c.name}
+                            className="w-5 h-5 rounded-full border border-slate-300 hover:scale-110 transition-transform cursor-pointer shadow-2xs"
+                            style={{ backgroundColor: c.color === 'transparent' ? '#ffffff' : c.color }}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Text Color Tool */}
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onMouseDown={e => e.preventDefault()}
+                      onClick={() => {
+                        setIsColorPickerOpen(!isColorPickerOpen);
+                        setIsHighlighterOpen(false);
+                      }}
+                      title="Text Color"
+                      className="h-7 px-2 rounded-lg hover:bg-accent flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors cursor-pointer text-xs"
+                    >
+                      <Palette size={12} className="text-blue-500" />
+                      <ChevronDown size={10} />
+                    </button>
+                    {isColorPickerOpen && (
+                      <div className="absolute top-full left-0 mt-1 p-2 bg-popover border rounded-xl shadow-lg z-50 flex items-center gap-1.5 backdrop-blur-md">
+                        {[
+                          { color: '#0f172a', name: 'Default Dark' },
+                          { color: '#2563eb', name: 'Blue' },
+                          { color: '#059669', name: 'Emerald' },
+                          { color: '#dc2626', name: 'Red' },
+                          { color: '#7c3aed', name: 'Purple' },
+                          { color: '#d97706', name: 'Amber' }
+                        ].map(c => (
+                          <button
+                            key={c.color}
+                            type="button"
+                            onMouseDown={e => e.preventDefault()}
+                            onClick={() => {
+                              execFormat('foreColor', c.color);
+                              setIsColorPickerOpen(false);
+                            }}
+                            title={c.name}
+                            className="w-5 h-5 rounded-full border border-slate-300 hover:scale-110 transition-transform cursor-pointer shadow-2xs"
+                            style={{ backgroundColor: c.color }}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="w-px h-5 bg-border mx-1" />
+
+                  {/* Headings */}
+                  <button
+                    type="button"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => execFormat('formatBlock', '<h1>')}
+                    title="Heading 1"
+                    className={`h-7 px-2 rounded-lg flex items-center justify-center text-[10px] font-black transition-colors cursor-pointer ${
+                      editorActiveFormats.h1 ? 'bg-primary/20 text-primary border border-primary/30 font-black shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    H1
+                  </button>
+                  <button
+                    type="button"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => execFormat('formatBlock', '<h2>')}
+                    title="Heading 2"
+                    className={`h-7 px-2 rounded-lg flex items-center justify-center text-[10px] font-black transition-colors cursor-pointer ${
+                      editorActiveFormats.h2 ? 'bg-primary/20 text-primary border border-primary/30 font-black shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    H2
+                  </button>
+                  <button
+                    type="button"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => execFormat('formatBlock', '<h3>')}
+                    title="Heading 3"
+                    className={`h-7 px-2 rounded-lg flex items-center justify-center text-[10px] font-black transition-colors cursor-pointer ${
+                      editorActiveFormats.h3 ? 'bg-primary/20 text-primary border border-primary/30 font-black shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    H3
+                  </button>
+                  <button
+                    type="button"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => execFormat('formatBlock', '<p>')}
+                    title="Paragraph"
+                    className={`h-7 px-2 rounded-lg flex items-center justify-center text-[10px] font-bold transition-colors cursor-pointer ${
+                      editorActiveFormats.p ? 'bg-primary/20 text-primary border border-primary/30 font-bold shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    P
+                  </button>
+
+                  <div className="w-px h-5 bg-border mx-1" />
+
+                  {/* Lists */}
+                  <button
+                    type="button"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => execFormat('insertUnorderedList')}
+                    title="Bullet List"
+                    className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
+                      editorActiveFormats.ul ? 'bg-primary/20 text-primary border border-primary/30 shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <List size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => execFormat('insertOrderedList')}
+                    title="Numbered List"
+                    className={`h-7 px-2 rounded-lg flex items-center justify-center text-[10px] font-bold transition-colors cursor-pointer ${
+                      editorActiveFormats.ol ? 'bg-primary/20 text-primary border border-primary/30 font-bold shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    1.
+                  </button>
+
+                  <div className="w-px h-5 bg-border mx-1" />
+
+                  {/* Alignment */}
+                  <button
+                    type="button"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => execFormat('justifyLeft')}
+                    title="Align Left"
+                    className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
+                      editorActiveFormats.alignLeft ? 'bg-primary/20 text-primary border border-primary/30 shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <AlignLeft size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => execFormat('justifyCenter')}
+                    title="Align Center"
+                    className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
+                      editorActiveFormats.alignCenter ? 'bg-primary/20 text-primary border border-primary/30 shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <AlignCenter size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => execFormat('justifyRight')}
+                    title="Align Right"
+                    className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
+                      editorActiveFormats.alignRight ? 'bg-primary/20 text-primary border border-primary/30 shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <AlignRight size={12} />
+                  </button>
+
+                  <div className="w-px h-5 bg-border mx-1" />
+
+                  <button
+                    type="button"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => {
+                      const url = prompt('Enter URL (e.g. https://example.com):');
+                      if (url) execFormat('createLink', url);
+                    }}
+                    title="Insert Link"
+                    className="h-7 w-7 rounded-lg hover:bg-accent flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                  >
+                    <Link size={12} />
+                  </button>
+
+                  <div className="w-px h-5 bg-border mx-1" />
+
+                  {/* Name tag helper */}
+                  <button
+                    type="button"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => {
+                      manualEditorRef.current?.focus();
+                      document.execCommand('insertText', false, '{{name}}');
+                      updateEditorActiveFormats();
+                    }}
+                    title="Insert {{name}} personalization tag"
+                    className="h-7 px-2.5 rounded-lg hover:bg-primary/20 flex items-center gap-1.5 text-primary text-[11px] font-bold border border-primary/30 transition-colors cursor-pointer shadow-2xs"
+                  >
+                    <Tag size={11} /> {'{{name}}'}
+                  </button>
+
+                  <div className="ml-auto text-[10px] text-muted-foreground font-medium">
+                    Use <span className="font-mono bg-accent px-1.5 py-0.5 rounded text-primary">{'{{name}}'}</span> for recipient's name
+                  </div>
+                </div>
+
+                {/* ContentEditable Writing Area */}
+                <div
+                  ref={manualEditorRef}
+                  contentEditable
+                  suppressContentEditableWarning
+                  onKeyUp={updateEditorActiveFormats}
+                  onMouseUp={updateEditorActiveFormats}
+                  onFocus={updateEditorActiveFormats}
+                  className="flex-1 overflow-y-auto p-5 text-sm text-foreground focus:outline-none custom-scrollbar leading-relaxed [&_h1]:text-2xl [&_h1]:font-extrabold [&_h1]:my-3 [&_h1]:text-foreground [&_h2]:text-xl [&_h2]:font-bold [&_h2]:my-2.5 [&_h2]:text-foreground [&_h3]:text-lg [&_h3]:font-bold [&_h3]:my-2 [&_h3]:text-foreground [&_p]:my-1.5 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-2 [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-2 [&_a]:text-primary [&_a]:underline"
+                  style={{ minHeight: 0 }}
+                  data-placeholder="Start writing your email content here... Use the toolbar above to format text, add headings, lists, and links."
+                  onInput={() => {/* triggers re-render on input if needed */}}
+                />
+              </div>
+            ) : (
+              /* HTML Code Mode - Two Panel Layout */
+              <div className="flex flex-1 min-h-0 overflow-hidden">
+                {/* Left: Code Input */}
+                <div className="flex-1 flex flex-col border-r min-h-0">
+                  <div className="flex items-center gap-2 px-4 py-2 border-b bg-slate-950 shrink-0">
+                    <Code2 size={12} className="text-emerald-400" />
+                    <span className="text-[11px] font-bold text-emerald-400">HTML Source Code</span>
+                    <button
+                      type="button"
+                      onClick={() => setManualTemplateHtml(prev => prev + '{{name}}')}
+                      className="px-2 py-0.5 rounded text-[10px] font-bold bg-primary/20 text-primary hover:bg-primary/30 flex items-center gap-1 transition-colors cursor-pointer"
+                      title="Insert {{name}} tag"
+                    >
+                      <Tag size={10} /> + {'{{name}}'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setManualTemplateHtml('')}
+                      className="ml-auto text-[10px] text-slate-500 hover:text-slate-300 transition-colors cursor-pointer"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                  <textarea
+                    value={manualTemplateHtml}
+                    onChange={e => setManualTemplateHtml(e.target.value)}
+                    placeholder={'<!-- Paste or write your HTML email here -->\n<h2>Hi {{name}},</h2>\n<p>Your email content...</p>'}
+                    className="flex-1 resize-none p-4 bg-slate-950 text-emerald-300 font-mono text-xs focus:outline-none custom-scrollbar"
+                    style={{ minHeight: 0 }}
+                    spellCheck={false}
+                  />
+                </div>
+
+                {/* Right: Live Preview */}
+                <div className="flex-1 flex flex-col min-h-0">
+                  <div className="flex items-center gap-2 px-4 py-2 border-b bg-card shrink-0">
+                    <Eye size={12} className="text-primary" />
+                    <span className="text-[11px] font-bold text-foreground">Live Preview</span>
+                    <span className="ml-auto text-[10px] text-muted-foreground">Renders in real-time</span>
+                  </div>
+                  <div className="flex-1 overflow-y-auto bg-white custom-scrollbar">
+                    {manualTemplateHtml.trim() ? (
+                      <div
+                        className="p-5 text-sm text-gray-800 leading-relaxed"
+                        dangerouslySetInnerHTML={{ __html: manualTemplateHtml.replace(/\{\{name\}\}/gi, 'John Doe') }}
+                      />
+                    ) : (
+                      <div className="flex flex-col items-center justify-center h-full text-center p-8 text-gray-400">
+                        <Eye size={32} className="mb-3 opacity-20" />
+                        <p className="text-sm font-medium opacity-50">Your HTML preview will appear here</p>
+                        <p className="text-xs opacity-40 mt-1">Paste HTML code on the left to see the live render</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="flex items-center justify-between px-5 py-3.5 border-t bg-card shrink-0">
+            <p className="text-[11px] text-muted-foreground">
+              {manualTemplateMode === 'editor'
+                ? '📝 Mode: Rich Text Editor — Type your message and use {{name}} for recipient name.'
+                : '💻 Mode: Raw HTML Code & Live Preview — Paste or write custom HTML.'
+              }
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsManualTemplateModalOpen(false)}
+                className="btn-secondary h-8.5 px-4 text-xs font-bold"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveManualTemplate}
+                disabled={savingManualTemplate}
+                className="btn-primary h-8.5 px-4 text-xs font-bold flex items-center gap-1.5 disabled:opacity-60"
+              >
+                {savingManualTemplate ? (
+                  <><Loader2 size={12} className="animate-spin" /> Saving...</>
+                ) : (
+                  <><CheckCircle size={12} /> Save Template</>
+                )}
+              </button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* --- DIALOG 1B: FULLSCREEN CAMPAIGN EMAIL PREVIEW --- */}
+      <Dialog open={isCampaignPreviewFullscreen} onOpenChange={setIsCampaignPreviewFullscreen}>
+        <DialogContent className="w-[96vw] max-w-5xl max-h-[94vh] overflow-y-auto custom-scrollbar p-6 flex flex-col dark:bg-card">
+          <DialogHeader className="pb-3 border-b flex flex-row items-center justify-between">
+            <DialogTitle className="text-base font-bold flex items-center gap-2">
+              <span>👁️ Full Email Preview:</span>
+              <span className="text-primary font-normal text-sm truncate max-w-lg">{campaignForm.subject || campaignForm.title || "Email Preview"}</span>
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 bg-slate-100 dark:bg-slate-900/80 p-4 sm:p-8 rounded-2xl flex justify-center overflow-y-auto custom-scrollbar min-h-[500px]">
+            <div className="w-full max-w-[620px] bg-white text-gray-900 rounded-xl shadow-md p-4 sm:p-6 border border-slate-200 self-start">
+              {campaignForm.content ? (
+                <div dangerouslySetInnerHTML={{ __html: campaignForm.content.replace(/\{\{name\}\}/gi, "John Doe") }} />
+              ) : (
+                <p className="text-center text-gray-400 py-16 text-xs">No template content to preview.</p>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* --- DIALOG: DIRECT TEMPLATE PREVIEW & INSPECTOR MODAL --- */}
+      <Dialog open={isTemplatePreviewModalOpen} onOpenChange={setIsTemplatePreviewModalOpen}>
+        <DialogContent className="w-[95vw] max-w-4xl max-h-[92vh] p-0 flex flex-col overflow-hidden dark:bg-card">
+          <DialogHeader className="p-4 px-6 border-b shrink-0 flex flex-row items-center justify-between bg-card relative">
+            <div className="text-left space-y-1 min-w-0 pr-8">
+              <div className="flex items-center gap-2 flex-wrap">
+                <DialogTitle className="text-base font-extrabold text-foreground tracking-tight">
+                  {selectedTemplateForPreview?.name || "Template Preview"}
+                </DialogTitle>
+                <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold uppercase ${
+                  selectedTemplateForPreview?.isAiGenerated
+                    ? "bg-violet-500/10 text-violet-600 dark:text-violet-400 border border-violet-500/20"
+                    : "bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20"
+                }`}>
+                  {selectedTemplateForPreview?.isAiGenerated ? "✨ Anthropic AI" : selectedTemplateForPreview?.category || "General"}
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground truncate">
+                Subject: <span className="font-semibold text-foreground">{selectedTemplateForPreview?.subject}</span>
+              </p>
+            </div>
+
+            {/* Mode Switcher */}
+            <div className="flex items-center bg-accent/60 border p-0.5 rounded-xl text-xs shrink-0 mr-6">
+              <button
+                type="button"
+                onClick={() => setTemplatePreviewMode('visual')}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                  templatePreviewMode === 'visual' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <Eye size={12} /> Live Preview
+              </button>
+              <button
+                type="button"
+                onClick={() => setTemplatePreviewMode('html')}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                  templatePreviewMode === 'html' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <Code2 size={12} /> HTML Code
+              </button>
+            </div>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto p-4 min-h-[400px] max-h-[60vh] bg-slate-100 dark:bg-slate-950/60 custom-scrollbar flex justify-center">
+            {templatePreviewMode === 'visual' ? (
+              <div className="w-full max-w-2xl bg-white text-gray-900 rounded-xl shadow-sm border p-6 overflow-x-auto min-h-[350px]">
+                <div
+                  dangerouslySetInnerHTML={{
+                    __html: (selectedTemplateForPreview?.content || '').replace(/\{\{name\}\}/gi, 'John Doe')
+                  }}
+                />
+              </div>
+            ) : (
+              <div className="w-full h-full min-h-[350px] flex flex-col bg-slate-950 border border-slate-800 rounded-xl overflow-hidden text-left">
+                <div className="flex items-center justify-between px-4 py-2 border-b border-slate-800 bg-slate-900/60 text-xs">
+                  <span className="font-mono text-emerald-400 font-bold text-[11px]">Raw HTML Source Code</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (selectedTemplateForPreview?.content) {
+                        navigator.clipboard.writeText(selectedTemplateForPreview.content);
+                        toast.success("HTML code copied to clipboard!");
+                      }
+                    }}
+                    className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-md text-[10px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                  >
+                    <Copy size={11} /> Copy Code
+                  </button>
+                </div>
+                <textarea
+                  readOnly
+                  value={selectedTemplateForPreview?.content || ''}
+                  className="w-full flex-1 p-4 bg-transparent text-emerald-300 font-mono text-xs outline-none resize-none custom-scrollbar min-h-[320px]"
+                />
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="p-3.5 px-6 border-t bg-card shrink-0 flex items-center justify-between gap-2">
+            <p className="text-[11px] text-muted-foreground hidden sm:block">
+              Dynamic placeholder <span className="font-mono bg-accent px-1.5 py-0.5 rounded text-primary">{'{{name}}'}</span> will be populated for each recipient.
+            </p>
+            <div className="flex items-center gap-2 ml-auto">
+              <button
+                type="button"
+                onClick={() => setIsTemplatePreviewModalOpen(false)}
+                className="btn-secondary text-xs h-9 px-4"
+              >
+                Close
+              </button>
+              {selectedTemplateForPreview && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsTemplatePreviewModalOpen(false);
+                    injectDbTemplate(selectedTemplateForPreview);
+                  }}
+                  className="btn-primary text-xs h-9 px-4 bg-primary hover:bg-primary/95 text-white flex items-center gap-1.5 shadow-sm font-bold"
+                >
+                  <Send size={13} /> Use in New Campaign
+                </button>
+              )}
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* --- DIALOG: DELETE CAMPAIGN CONFIRMATION POPUP --- */}
+      <Dialog open={isDeleteCampaignModalOpen} onOpenChange={setIsDeleteCampaignModalOpen}>
+        <DialogContent className="w-[90vw] max-w-md p-6 dark:bg-card">
+          <div className="flex items-start gap-4">
+            <div className="p-3 bg-destructive/10 text-destructive rounded-2xl shrink-0 mt-0.5">
+              <AlertCircle size={24} />
+            </div>
+            <div className="space-y-2 text-left">
+              <DialogTitle className="text-base font-bold text-foreground">
+                Delete Campaign?
+              </DialogTitle>
+              <DialogDescription className="text-xs text-muted-foreground leading-relaxed">
+                Are you sure you want to delete <strong className="text-foreground">"{campaignToDelete?.title}"</strong>? This will permanently remove the campaign, its recipient logs, and all tracking analytics. This action cannot be undone.
+              </DialogDescription>
+            </div>
+          </div>
+
+          <DialogFooter className="mt-6 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setIsDeleteCampaignModalOpen(false)}
+              className="btn-secondary text-xs h-9 px-4 font-bold"
+              disabled={deletingCampaign}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmDeleteCampaign}
+              disabled={deletingCampaign}
+              className="h-9 px-4 bg-destructive hover:bg-destructive/90 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-60 cursor-pointer shadow-sm"
+            >
+              {deletingCampaign ? (
+                <><Loader2 size={13} className="animate-spin" /> Deleting...</>
+              ) : (
+                <><Trash2 size={13} /> Yes, Delete Campaign</>
+              )}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
     </AppLayout>
   );
 }

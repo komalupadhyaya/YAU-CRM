@@ -5,7 +5,7 @@ const EmailCampaignSchema = new mongoose.Schema({
     subject: { type: String, required: true },
     content: { type: String, required: true }, // HTML rich body content
     segmentId: { type: mongoose.Schema.Types.ObjectId, ref: 'EmailSegment', required: true },
-    templateId: { type: String, default: null },
+    templateId: { type: mongoose.Schema.Types.ObjectId, ref: 'EmailTemplate', default: null },
     status: { 
         type: String, 
         enum: ['draft', 'scheduled', 'sending', 'sent', 'failed'], 
@@ -28,7 +28,7 @@ const EmailCampaignSchema = new mongoose.Schema({
         email: { type: String, required: true },
         status: { 
             type: String, 
-            enum: ['pending', 'sent', 'delivered', 'open', 'click', 'unsubscribe', 'bounce', 'failed'], 
+            enum: ['pending', 'processed', 'sent', 'delivered', 'open', 'click', 'unsubscribe', 'bounce', 'failed'], 
             default: 'pending' 
         },
         error: { type: String, default: null },

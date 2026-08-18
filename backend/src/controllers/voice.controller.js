@@ -892,7 +892,7 @@ export const handleVoicemailRecording = async (req, res, next) => {
             ) {
                 try {
                     // Dynamically import the mailer service helper to avoid circular dependencies
-                    const { sendVoicemailEmailNotification } = await import('../services/mailer.js');
+                    const { sendVoicemailEmailNotification } = await import('../services/email/mailer.js');
                     await sendVoicemailEmailNotification({
                         to: config.voicemail.emailNotification,
                         fromNumber: From,

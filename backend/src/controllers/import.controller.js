@@ -1,4 +1,4 @@
-import * as importService from '../services/import.service.js';
+import * as importService from '../services/import/import.service.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/import  –  LEGACY endpoint (untouched, still fully functional)

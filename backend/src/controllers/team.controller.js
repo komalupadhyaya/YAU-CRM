@@ -1,8 +1,8 @@
 import bcrypt from 'bcryptjs';
 import User from '../models/user.model.js';
-import { sendNewMemberEmails, sendDeactivationEmail, sendReactivationEmail, sendDeletionEmail } from '../services/mailer.js';
+import { sendNewMemberEmails, sendDeactivationEmail, sendReactivationEmail, sendDeletionEmail } from '../services/email/mailer.js';
 import { invalidatedUsers } from '../utils/sessionCache.js';
-import presenceService from '../services/presence.service.js';
+import presenceService from '../services/realtime/presence.service.js';
 
 /**
  * GET /api/team
@@ -232,7 +232,7 @@ export const inviteToZoom = async (req, res, next) => {
         const firstName = nameParts[0] || '';
         const lastName = nameParts.slice(1).join(' ') || '';
 
-        const { inviteZoomUser } = await import('../services/zoom.service.js');
+        const { inviteZoomUser } = await import('../services/zoom/zoom.service.js');
         const result = await inviteZoomUser(user.email, firstName, lastName);
 
         res.json(result);

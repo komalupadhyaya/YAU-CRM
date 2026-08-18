@@ -1,5 +1,5 @@
 import EmailTemplate from '../models/emailTemplate.model.js';
-import aiService from '../services/ai.service.js';
+import aiService from '../services/ai/ai.service.js';
 
 // GET /api/templates
 export const getTemplates = async (req, res, next) => {
@@ -60,7 +60,7 @@ export const deleteTemplate = async (req, res, next) => {
     } catch (err) { next(err); }
 };
 
-// POST /api/templates/ai-generate (Groq AI Preview Generation)
+// POST /api/templates/ai-generate (Anthropic AI Preview Generation)
 export const generateAiTemplate = async (req, res, next) => {
     try {
         const { prompt, category, existingContent } = req.body;
@@ -77,10 +77,12 @@ export const generateAiTemplate = async (req, res, next) => {
             subject: generated.subject,
             content: generated.content,
             isAiGenerated: true,
-            aiPrompt: prompt
+            aiPrompt: prompt,
+            provider: 'anthropic',
+            apiHit: true
         });
     } catch (err) {
-        console.error('Groq AI Template Generation Error:', err);
+        console.error('Anthropic AI Template Generation Error:', err);
         res.status(500).json({ error: err.message || 'Failed to generate template with AI' });
     }
 };
