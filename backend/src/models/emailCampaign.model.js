@@ -41,4 +41,4 @@ const EmailCampaignSchema = new mongoose.Schema({
     }]
 }, { timestamps: true });
 
-export default mongoose.model('EmailCampaign', EmailCampaignSchema, 'campaigns');
+export default mongoose.model('EmailCampaign', EmailCampaignSchema, 'email_campaigns');

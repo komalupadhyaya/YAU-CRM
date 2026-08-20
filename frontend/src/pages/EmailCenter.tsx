@@ -493,8 +493,8 @@ export default function EmailCenter() {
     if (!campaignsSearchQuery.trim()) return campaigns;
     const q = campaignsSearchQuery.toLowerCase().trim();
     return campaigns.filter(c =>
-      c.title.toLowerCase().includes(q) ||
-      c.subject.toLowerCase().includes(q) ||
+      (c.title && c.title.toLowerCase().includes(q)) ||
+      (c.subject && c.subject.toLowerCase().includes(q)) ||
       (c.segmentId?.name && c.segmentId.name.toLowerCase().includes(q))
     );
   }, [campaigns, campaignsSearchQuery]);
@@ -830,7 +830,10 @@ export default function EmailCenter() {
     setLoadingCampaigns(true);
     try {
       const res = await api.get("/emails/campaigns");
-      setCampaigns(res.data);
+      const list = Array.isArray(res.data) ? res.data : [];
+      // Filter out records that are not Email Campaigns (e.g. legacy lead folders that lack title or subject)
+      const valid = list.filter((c: any) => c && (c.title || c.subject || c.segmentId));
+      setCampaigns(valid);
     } catch (err) {
       console.error(err);
       toast.error("Failed to load email campaigns");
@@ -1401,7 +1404,7 @@ export default function EmailCenter() {
     if (!campaignToDelete) return;
     setDeletingCampaign(true);
     try {
-      await api.delete(`/campaigns/${campaignToDelete._id}`);
+      await api.delete(`/emails/campaigns/${campaignToDelete._id}`);
       setCampaigns(prev => prev.filter(c => c._id !== campaignToDelete._id));
       toast.success(`Campaign "${campaignToDelete.title}" deleted successfully.`);
       setIsDeleteCampaignModalOpen(false);
