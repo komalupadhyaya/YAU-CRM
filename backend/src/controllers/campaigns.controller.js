@@ -44,86 +44,71 @@ if (process.env.GOOGLE_REFRESH_TOKEN) {
   oAuth2Client.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN });
 }
 
-// --- Existing individual OAuth Gmail sender ---
+// --- 1-to-1 Individual Email Sender via SendGrid ---
 export const sendEmail = async (req, res, next) => {
     try {
-        const { lead_id, to, cc, subject, body } = req.body;
+        const { lead_id, leadModel, to, subject, body } = req.body;
 
         if (!to || !subject || !body) {
             res.status(400);
-            throw new Error('to, subject, and body are required');
+            throw new Error('Recipient email (to), subject, and body content are required');
         }
 
-        if (lead_id) {
+        if (lead_id && leadModel !== 'EALead') {
             const lead = await Lead.findById(lead_id).select('assigned_to');
-            if (!lead) {
-                res.status(404);
-                throw new Error('Lead not found');
-            }
-            if (req.currentUserRole === 'sales_rep' && (!lead.assigned_to || lead.assigned_to.toString() !== req.user.id)) {
+            if (lead && req.currentUserRole === 'sales_rep' && (!lead.assigned_to || lead.assigned_to.toString() !== req.user.id)) {
                 res.status(403);
                 throw new Error('Access denied. This lead is not assigned to you.');
             }
         }
 
-        const gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
-        console.log("Sending Email - To:", to, "Subject:", subject);
+        console.log(`[1-to-1 SendGrid Dispatch] Sending to: ${to}, Subject: ${subject}`);
 
-        const utf8Subject = `=?utf-8?B?${Buffer.from(subject).toString('base64')}?=`;
-        const messageParts = [
-            `To: ${to}`,
-            cc ? `Cc: ${cc}` : null,
-            'Content-Type: text/html; charset=utf-8',
-            'MIME-Version: 1.0',
-            `Subject: ${utf8Subject}`,
-            '',
-            `<div style="font-family: Arial, sans-serif; font-size: 14px; color: #333;">${body.replace(/\n/g, '<br/>')}</div>`,
-        ].filter(v => v !== null);
-        
-        const message = messageParts.join('\r\n');
-        const encodedMessage = Buffer.from(message)
-            .toString('base64')
-            .replace(/\+/g, '-')
-            .replace(/\//g, '_')
-            .replace(/=+$/, '');
-
-        await gmail.users.messages.send({
-            userId: 'me',
-            requestBody: { raw: encodedMessage },
+        // Send via SendGrid service
+        const result = await sendSendGridMail({
+            to,
+            subject,
+            html: body,
+            leadId: lead_id || null,
+            leadModel: leadModel || (lead_id ? 'Lead' : undefined),
+            campaignId: undefined
         });
 
-        if (lead_id) {
-            await Note.create({
-                lead_id,
-                type: 'email',
-                content: `Email Sent: ${subject}${cc ? ` (CC: ${cc})` : ''}`,
-                metadata: { to, cc, subject, body }
-            });
-        }
-
-        await EmailHistory.create({
+        // Record in central EmailHistory collection
+        const historyDoc = await EmailHistory.create({
             leadId: lead_id || null,
+            leadModel: leadModel || 'Lead',
             type: 'direct',
             direction: 'outbound',
             to: to,
-            cc: cc || '',
             subject: subject,
             body: body,
-            status: 'sent',
+            status: result.success ? 'delivered' : 'failed',
+            messageId: result.messageId || null,
             sentAt: new Date()
         });
 
-        res.json({ success: true });
-    } catch (err) {
-        console.error("Gmail Send Error:", err.message);
-        if (err.response && err.response.data) {
-            return res.status(err.response.status || 500).json({
-                success: false,
-                message: err.message,
-                details: err.response.data
-            });
+        // Record CRM Activity Note
+        if (lead_id && leadModel !== 'EALead') {
+            await Note.create({
+                lead_id,
+                type: 'email',
+                content: `1-to-1 Email Sent: ${subject}`,
+                metadata: { to, subject, body }
+            }).catch(() => {});
         }
-        next(err);
+
+        return res.json({
+            success: true,
+            message: 'Email delivered successfully via SendGrid',
+            history: historyDoc
+        });
+    } catch (err) {
+        console.error('[SendGrid 1-to-1 Email Error]:', err.message);
+        return res.status(500).json({
+            success: false,
+            message: err.message || 'Failed to deliver email through SendGrid.'
+        });
     }
 };
 
@@ -293,7 +278,7 @@ export const sendCampaign = async (req, res, next) => {
 
         res.json({ 
             success: true, 
-            message: `Dispatched campaign in background to ${recipients.length} recipients.`, 
+            message: `Campaign sent & delivered in background to ${recipients.length} recipients.`, 
             campaign 
         });
     } catch (err) { next(err); }
@@ -328,7 +313,7 @@ export const rerunCampaign = async (req, res, next) => {
 
         res.json({ 
             success: true, 
-            message: `Re-dispatched campaign in background to ${recipients.length} recipients.`, 
+            message: `Campaign re-sent & delivered in background to ${recipients.length} recipients.`, 
             campaign 
         });
     } catch (err) { next(err); }
@@ -337,10 +322,33 @@ export const rerunCampaign = async (req, res, next) => {
 // Dispatch loop - now queues campaign emails in the database
 export const dispatchCampaignInBackground = async (campaign, recipients) => {
     try {
-        console.log(`[Campaign Queue] Preparing queue injection for "${campaign.title}" with ${recipients.length} recipients.`);
+        // Special branch for AI-Personalized Campaigns: individual copy per recipient is already in recipientLogs
+        if (campaign.isAiPersonalized && campaign.recipientLogs && campaign.recipientLogs.length > 0) {
+            console.log(`[Campaign Queue] Preparing queue injection for AI-Personalized Campaign "${campaign.title}" with ${campaign.recipientLogs.length} recipients.`);
+            
+            const queueItems = campaign.recipientLogs.map(log => ({
+                campaignId: campaign._id,
+                leadId: log.leadId || null,
+                leadModel: log.leadModel || 'Lead',
+                recipientName: log.name || '',
+                email: log.email,
+                subject: log.personalizedSubject || campaign.subject,
+                body: log.personalizedContent || campaign.content,
+                status: 'pending'
+            }));
+
+            if (queueItems.length > 0) {
+                await EmailQueue.insertMany(queueItems);
+            }
+
+            console.log(`[Campaign Queue] Successfully queued ${queueItems.length} AI-personalized emails for campaign "${campaign.title}".`);
+            return;
+        }
+
+        console.log(`[Campaign Queue] Preparing queue injection for "${campaign.title}" with ${(recipients || []).length} recipients.`);
         
         // Generate recipients logs with status "pending"
-        campaign.recipientLogs = recipients.map(rec => ({
+        campaign.recipientLogs = (recipients || []).map(rec => ({
             leadId: rec.leadId,
             leadModel: rec.leadModel || 'Lead',
             name: rec.name || rec.email.split('@')[0],
@@ -351,7 +359,7 @@ export const dispatchCampaignInBackground = async (campaign, recipients) => {
         // Save the campaign status as 'sending' with pending recipients
         await campaign.save();
 
-        const queueItems = recipients.map(rec => {
+        const queueItems = (recipients || []).map(rec => {
             const personalizedHtml = campaign.content.replace(/\{\{name\}\}/gi, rec.name);
             return {
                 campaignId: campaign._id,

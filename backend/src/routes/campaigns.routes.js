@@ -14,6 +14,11 @@ import {
   getEmailConversations,
   getEmailHistory
 } from '../controllers/campaigns.controller.js';
+import {
+  generateAiCampaignPreview,
+  regenerateSingleRecipientDraft,
+  dispatchAiPersonalizedCampaign
+} from '../controllers/aiCampaign.controller.js';
 import auth from '../middleware/auth.middleware.js';
 import requireRole from '../middleware/role.middleware.js';
 
@@ -29,6 +34,11 @@ router.get('/verify-domain', auth, requireRole('admin', 'manager'), verifyEmailD
 // --- Public Unsubscribe (no auth) ---
 router.get('/unsubscribe/:leadId', unsubscribeLead);
 router.post('/unsubscribe/:leadId', unsubscribeLead);
+
+// --- AI Personalized Campaigns ---
+router.post('/campaigns/ai-personalized/preview', auth, requireRole(...allowedRoles), generateAiCampaignPreview);
+router.post('/campaigns/ai-personalized/regenerate-single', auth, requireRole(...allowedRoles), regenerateSingleRecipientDraft);
+router.post('/campaigns/ai-personalized/dispatch', auth, requireRole(...allowedRoles), dispatchAiPersonalizedCampaign);
 
 // --- Campaigns CRUD ---
 router.get('/campaigns', auth, requireRole(...allowedRoles), getCampaigns);

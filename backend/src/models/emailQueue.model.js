@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 const EmailQueueSchema = new mongoose.Schema({
     campaignId: { type: mongoose.Schema.Types.ObjectId, ref: 'EmailCampaign', required: true, index: true },
     leadId: { type: mongoose.Schema.Types.ObjectId, default: null },
-    leadModel: { type: String, enum: ['Lead', 'EALead', 'ManualContact'], default: 'Lead' },
+    leadModel: { type: String, enum: ['Lead', 'EALead', 'ManualContact', 'Contact'], default: 'Lead' },
     recipientName: { type: String, default: '' },
     email: { type: String, required: true },
     subject: { type: String, required: true },

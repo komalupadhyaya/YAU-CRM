@@ -4,20 +4,20 @@ import AppLayout from "../layout/AppLayout";
 import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
 import { can } from "../utils/permissions";
-import { 
-  Mail, 
-  Plus, 
-  Users, 
-  FileText, 
-  Send, 
-  Calendar, 
-  Trash2, 
-  BarChart3, 
-  Upload, 
-  Sparkles, 
-  Loader2, 
-  CheckCircle, 
-  AlertCircle, 
+import {
+  Mail,
+  Plus,
+  Users,
+  FileText,
+  Send,
+  Calendar,
+  Trash2,
+  BarChart3,
+  Upload,
+  Sparkles,
+  Loader2,
+  CheckCircle,
+  AlertCircle,
   Info,
   Clock,
   Eye,
@@ -32,30 +32,41 @@ import {
   ArrowRight,
   ExternalLink,
   ChevronDown,
+  ChevronUp,
+  LayoutGrid,
+  Table,
   Copy,
   Check,
   Maximize2,
   Minimize2,
   RotateCcw,
+  RotateCw,
   Code2,
   PenLine,
   Bold,
   Italic,
   Underline,
   List,
+  ListOrdered,
   Link,
   AlignLeft,
   AlignCenter,
   AlignRight,
   Tag,
   Highlighter,
-  Palette
+  Palette,
+  Type,
+  Folder,
+  X,
+  HelpCircle
 } from "lucide-react";
 import { toast } from "sonner";
 import ReactQuill from "react-quill-new";
 import "react-quill-new/dist/quill.snow.css";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import AiPersonalizedCampaignModal from "../components/email/AiPersonalizedCampaignModal";
 
 interface Segment {
   _id: string;
@@ -182,7 +193,7 @@ export default function EmailCenter() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [segments, setSegments] = useState<Segment[]>([]);
   const [templates, setTemplates] = useState<DbTemplate[]>([]);
-  
+
   // Database Template & Groq AI States
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [isAiTemplateModalOpen, setIsAiTemplateModalOpen] = useState(false);
@@ -217,7 +228,25 @@ export default function EmailCenter() {
     category: string;
   } | null>(null);
 
-  const [previewTab, setPreviewTab] = useState<"visual" | "code">("visual");
+  const [previewTab, setPreviewTab] = useState<"visual" | "editor" | "code">("visual");
+  const aiTemplateEditorRef = useRef<HTMLDivElement>(null);
+  const [isAiHighlighterOpen, setIsAiHighlighterOpen] = useState(false);
+  const [isAiColorPickerOpen, setIsAiColorPickerOpen] = useState(false);
+  const [aiEditorActiveFormats, setAiEditorActiveFormats] = useState<{ [key: string]: any }>({
+    bold: false,
+    italic: false,
+    underline: false,
+    h1: false,
+    h2: false,
+    h3: false,
+    p: false,
+    ul: false,
+    ol: false,
+    alignLeft: false,
+    alignCenter: false,
+    alignRight: false,
+    fontSize: '',
+  });
 
   // 1-to-1 Emailing States
   const [conversations, setConversations] = useState<EmailConversation[]>([]);
@@ -231,7 +260,6 @@ export default function EmailCenter() {
   // 1-to-1 Compose Form
   const [composeForm, setComposeForm] = useState({
     subject: "",
-    cc: "",
     body: ""
   });
   const [isComposeExpanded, setIsComposeExpanded] = useState(false);
@@ -244,6 +272,7 @@ export default function EmailCenter() {
 
   // Dialog States
   const [isCampaignModalOpen, setIsCampaignModalOpen] = useState(false);
+  const [isAiPersonalizedModalOpen, setIsAiPersonalizedModalOpen] = useState(false);
   const [isSegmentModalOpen, setIsSegmentModalOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isViewStatsOpen, setIsViewStatsOpen] = useState(false);
@@ -271,12 +300,23 @@ export default function EmailCenter() {
 
   const [campaignsSearchQuery, setCampaignsSearchQuery] = useState("");
   const [segmentsSearchQuery, setSegmentsSearchQuery] = useState("");
+  const [segmentTypeFilter, setSegmentTypeFilter] = useState<"all" | "csv" | "static" | "campaign">("all");
   const [templatesSearchQuery, setTemplatesSearchQuery] = useState("");
 
   // Delete Campaign Confirmation State
   const [campaignToDelete, setCampaignToDelete] = useState<Campaign | null>(null);
   const [isDeleteCampaignModalOpen, setIsDeleteCampaignModalOpen] = useState(false);
   const [deletingCampaign, setDeletingCampaign] = useState(false);
+
+  // Delete Segment / List Confirmation State
+  const [segmentToDelete, setSegmentToDelete] = useState<Segment | null>(null);
+  const [isDeleteSegmentModalOpen, setIsDeleteSegmentModalOpen] = useState(false);
+  const [deletingSegment, setDeletingSegment] = useState(false);
+
+  // Delete Template Confirmation State
+  const [templateToDelete, setTemplateToDelete] = useState<DbTemplate | null>(null);
+  const [isDeleteTemplateModalOpen, setIsDeleteTemplateModalOpen] = useState(false);
+  const [deletingTemplate, setDeletingTemplate] = useState(false);
 
   // Campaign Form State
   const [campaignForm, setCampaignForm] = useState({
@@ -288,7 +328,8 @@ export default function EmailCenter() {
     isScheduled: false,
     templateId: null as string | null
   });
-  const [campaignEditorMode, setCampaignEditorMode] = useState<'editor' | 'preview' | 'html'>('editor');
+  const [campaignEditorMode, setCampaignEditorMode] = useState<'preview' | 'editor' | 'html'>('preview');
+  const [showCampaignAiPanel, setShowCampaignAiPanel] = useState(false);
   const [isCampaignPreviewFullscreen, setIsCampaignPreviewFullscreen] = useState(false);
 
   // Segment Form State
@@ -301,7 +342,8 @@ export default function EmailCenter() {
       sport: "",
       location: "",
       status: "",
-      campaignId: ""
+      campaignId: "",
+      campaignIds: [] as string[]
     },
     leadIds: [] as string[],
     leadModel: "Lead" as "Lead" | "EALead",
@@ -309,7 +351,10 @@ export default function EmailCenter() {
   });
 
   const [availableContacts, setAvailableContacts] = useState<any[]>([]);
-  const [salesCampaigns, setSalesCampaigns] = useState<{ _id: string; name: string }[]>([]);
+  const [salesCampaigns, setSalesCampaigns] = useState<any[]>([]);
+  const [salesCampaignSearch, setSalesCampaignSearch] = useState("");
+  const [isSalesCampaignDropdownOpen, setIsSalesCampaignDropdownOpen] = useState(false);
+  const salesCampaignDropdownRef = useRef<HTMLDivElement>(null);
   const [contactCategoryFilter, setContactCategoryFilter] = useState<"all" | "main_lead" | "ea_lead" | "team_member">("all");
   const [loadingContacts, setLoadingContacts] = useState(false);
   const [contactsSearchQuery, setContactsSearchQuery] = useState("");
@@ -383,7 +428,7 @@ export default function EmailCenter() {
     try {
       setIsRerunning(true);
       const res = await api.post(`/emails/campaigns/${campaignToRerun._id}/rerun`);
-      toast.success(res.data?.message || "Campaign re-dispatched successfully!");
+      toast.success(res.data?.message || "Campaign sent & delivered successfully!");
       setIsConfirmRerunOpen(false);
       setCampaignToRerun(null);
       fetchCampaigns();
@@ -413,7 +458,7 @@ export default function EmailCenter() {
       log.messageId || ""
     ]);
 
-    const csvContent = "data:text/csv;charset=utf-8," 
+    const csvContent = "data:text/csv;charset=utf-8,"
       + [headers.join(","), ...rows.map(e => e.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))].join("\n");
 
     const encodedUri = encodeURI(csvContent);
@@ -447,7 +492,7 @@ export default function EmailCenter() {
   const filteredCampaigns = React.useMemo(() => {
     if (!campaignsSearchQuery.trim()) return campaigns;
     const q = campaignsSearchQuery.toLowerCase().trim();
-    return campaigns.filter(c => 
+    return campaigns.filter(c =>
       c.title.toLowerCase().includes(q) ||
       c.subject.toLowerCase().includes(q) ||
       (c.segmentId?.name && c.segmentId.name.toLowerCase().includes(q))
@@ -455,14 +500,20 @@ export default function EmailCenter() {
   }, [campaigns, campaignsSearchQuery]);
 
   const filteredSegments = React.useMemo(() => {
-    if (!segmentsSearchQuery.trim()) return segments;
-    const q = segmentsSearchQuery.toLowerCase().trim();
-    return segments.filter(s =>
-      s.name.toLowerCase().includes(q) ||
-      (s.description && s.description.toLowerCase().includes(q)) ||
-      s.type.toLowerCase().includes(q)
-    );
-  }, [segments, segmentsSearchQuery]);
+    let list = segments;
+    if (segmentTypeFilter !== "all") {
+      list = list.filter(s => s.type === segmentTypeFilter);
+    }
+    if (segmentsSearchQuery.trim()) {
+      const q = segmentsSearchQuery.toLowerCase().trim();
+      list = list.filter(s =>
+        s.name.toLowerCase().includes(q) ||
+        (s.description && s.description.toLowerCase().includes(q)) ||
+        s.type.toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [segments, segmentsSearchQuery, segmentTypeFilter]);
 
   const filteredTemplates = React.useMemo(() => {
     if (!templatesSearchQuery.trim()) return templates;
@@ -478,7 +529,7 @@ export default function EmailCenter() {
   // Global selection breakdown calculation across all 3 sections
   const selectionBreakdown = React.useMemo(() => {
     const csvCount = csvSelectedEmails.length;
-    
+
     let crmCount = 0;
     let eaCount = 0;
     let teamCount = 0;
@@ -583,11 +634,53 @@ export default function EmailCenter() {
     reader.readAsText(file);
   };
 
-  // Fetch campaign contact preview whenever segmentForm.filters.campaignId changes
+  const fetchSalesCampaigns = useCallback(async () => {
+    try {
+      const res = await api.get("/campaigns");
+      if (Array.isArray(res.data)) {
+        setSalesCampaigns(res.data);
+      }
+    } catch (err) {
+      console.error("Failed to load sales campaigns", err);
+    }
+  }, []);
+
+  const getSalesCampaignName = (c: any): string => {
+    if (!c) return 'Unnamed Campaign';
+    return c.name || c.title || c.campaignName || c.campaign_name || 'Unnamed Campaign';
+  };
+
+  const filteredSalesCampaigns = React.useMemo(() => {
+    if (!salesCampaignSearch.trim()) return salesCampaigns;
+    const q = salesCampaignSearch.toLowerCase().trim();
+    return salesCampaigns.filter(c => getSalesCampaignName(c).toLowerCase().includes(q));
+  }, [salesCampaigns, salesCampaignSearch]);
+
+  // Click outside listener for Sales Campaign multi-select dropdown
   useEffect(() => {
-    if (segmentForm.type === "campaign" && segmentForm.filters.campaignId) {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        salesCampaignDropdownRef.current &&
+        !salesCampaignDropdownRef.current.contains(event.target as Node)
+      ) {
+        setIsSalesCampaignDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
+  // Fetch campaign contact preview whenever segmentForm.filters.campaignIds / campaignId changes
+  useEffect(() => {
+    const rawIds = segmentForm.filters.campaignIds && segmentForm.filters.campaignIds.length > 0
+      ? segmentForm.filters.campaignIds
+      : (segmentForm.filters.campaignId ? [segmentForm.filters.campaignId] : []);
+
+    if (segmentForm.type === "campaign" && rawIds.length > 0) {
       setLoadingCampaignPreview(true);
-      api.get(`/emails/segments/preview-campaign/${segmentForm.filters.campaignId}`)
+      api.get(`/emails/segments/preview-campaign/${rawIds.join(',')}`)
         .then(res => {
           const list = res.data || [];
           setCampaignPreviewContacts(list);
@@ -606,7 +699,7 @@ export default function EmailCenter() {
       setCampaignPreviewContacts([]);
       setCampaignSelectedIds([]);
     }
-  }, [segmentForm.type, segmentForm.filters.campaignId]);
+  }, [segmentForm.type, segmentForm.filters.campaignId, segmentForm.filters.campaignIds]);
 
   const fetchAvailableContacts = useCallback(async () => {
     setLoadingContacts(true);
@@ -635,7 +728,7 @@ export default function EmailCenter() {
       }
       setAvailableContacts(combined);
 
-      if (campRes.status === "fulfilled") {
+      if (campRes.status === "fulfilled" && Array.isArray(campRes.value.data)) {
         setSalesCampaigns(campRes.value.data);
       }
     } catch (err) {
@@ -645,6 +738,18 @@ export default function EmailCenter() {
       setLoadingContacts(false);
     }
   }, []);
+
+  // Auto-fetch sales campaigns on mount and when opening segment modal
+  useEffect(() => {
+    fetchSalesCampaigns();
+  }, [fetchSalesCampaigns]);
+
+  useEffect(() => {
+    if (isSegmentModalOpen) {
+      fetchSalesCampaigns();
+      fetchAvailableContacts();
+    }
+  }, [isSegmentModalOpen, fetchSalesCampaigns, fetchAvailableContacts]);
 
   // CSV Import State
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -761,6 +866,52 @@ export default function EmailCenter() {
     }
   }, []);
 
+  // Frontend HTML Sanitizer: Cleans any raw JSON, markdown code blocks, or conversational preambles
+  const extractCleanHtml = (raw: string): string => {
+    if (!raw) return '';
+    let str = raw.trim();
+
+    // 1. Check if the string has a nested JSON object with a "content" field
+    try {
+      const jsonMatch = str.match(/\{[\s\S]*"content"\s*:\s*"([\s\S]*?)"[\s\S]*\}/);
+      if (jsonMatch && jsonMatch[1]) {
+        const extractedContent = jsonMatch[1]
+          .replace(/\\n/g, '\n')
+          .replace(/\\"/g, '"')
+          .replace(/\\t/g, '\t')
+          .replace(/\\\\/g, '\\');
+        if (extractedContent.includes('<') && extractedContent.includes('>')) {
+          str = extractedContent;
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    // 2. Extract complete HTML table layout if present anywhere in the string
+    const tableMatch = str.match(/<table[\s\S]*<\/table>/i);
+    if (tableMatch) {
+      return tableMatch[0];
+    }
+
+    // 3. Extract HTML div or section container if present
+    const containerMatch = str.match(/<(?:div|section|article)[\s\S]*<\/(?:div|section|article)>/i);
+    if (containerMatch) {
+      return containerMatch[0];
+    }
+
+    // 4. Strip markdown code fences (e.g. ```json or ```html ... ```)
+    str = str.replace(/^```(?:html|json|xml)?\s*/i, '').replace(/\s*```$/i, '').trim();
+
+    // 5. If it starts with conversational preamble before an HTML tag, trim to first HTML tag
+    const firstTagIndex = str.indexOf('<');
+    if (firstTagIndex > 0 && firstTagIndex < 200) {
+      str = str.slice(firstTagIndex);
+    }
+
+    return str;
+  };
+
   // Groq AI Template Generator Handler (Updates Live Draft Preview with Iterative Context)
   const handleGenerateAiTemplate = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -771,32 +922,40 @@ export default function EmailCenter() {
     setIsGeneratingAiTemplate(true);
     try {
       const fullPrompt = `${aiPromptInput.trim()}. Preferred Tone/Style: ${aiToneInput}.`;
-      
+
       const payload: { prompt: string; category: string; existingContent?: string } = {
         prompt: fullPrompt,
         category: aiCategoryInput || "AI Generated"
       };
 
-      // Pass existing HTML content if doing an iterative refinement/follow-up prompt
-      if (aiDraftTemplate?.content) {
-        payload.existingContent = aiDraftTemplate.content;
-      }
-
       const res = await api.post("/templates/ai-generate", payload);
       toast.info("Anthropic API key is hit", { description: "Model: Claude Sonnet 4.6" });
-      toast.success(`Template layout generated with Anthropic Claude! Click "Save to Database" when ready.`);
-      
-      // Auto-fill top fields
-      setTemplateNameInput(res.data.name);
-      setTemplateSubjectInput(res.data.subject);
-      
+      toast.success(`Template layout generated with Anthropic Claude!`);
+
+      // Clean and sanitize HTML layout
+      const cleanContent = extractCleanHtml(res.data.content || '');
+
+      // Preserve user's manual inputs if already filled; otherwise auto-fill from AI response
+      const resolvedName = templateNameInput.trim() ? templateNameInput.trim() : (res.data.name || "AI Generated Template");
+      const resolvedSubject = templateSubjectInput.trim() ? templateSubjectInput.trim() : (res.data.subject || "Email Update");
+
+      if (!templateNameInput.trim()) {
+        setTemplateNameInput(resolvedName);
+      }
+      if (!templateSubjectInput.trim()) {
+        setTemplateSubjectInput(resolvedSubject);
+      }
+
       setAiDraftTemplate({
-        name: res.data.name,
-        subject: res.data.subject,
-        content: res.data.content,
+        name: resolvedName,
+        subject: resolvedSubject,
+        content: cleanContent,
         category: res.data.category || aiCategoryInput
       });
-      // Note: Only previewed in UI, not added to templates list until user clicks "Save to Database"
+
+      if (aiTemplateEditorRef.current) {
+        aiTemplateEditorRef.current.innerHTML = cleanContent;
+      }
     } catch (err: any) {
       console.error(err);
       toast.error(err.response?.data?.error || "Failed to generate AI template");
@@ -807,9 +966,13 @@ export default function EmailCenter() {
 
   // Save Current Live AI Draft Template to MongoDB
   const handleSaveDraftTemplate = async () => {
+    const activeEditorContent = (previewTab === 'editor' && aiTemplateEditorRef.current)
+      ? aiTemplateEditorRef.current.innerHTML
+      : aiDraftTemplate?.content;
+
     const finalName = templateNameInput.trim() || aiDraftTemplate?.name;
     const finalSubject = templateSubjectInput.trim() || aiDraftTemplate?.subject;
-    const finalContent = aiDraftTemplate?.content;
+    const finalContent = activeEditorContent || aiDraftTemplate?.content;
 
     if (!finalName || !finalSubject || !finalContent) {
       toast.error("Please ensure Template Name, Subject, and Content are generated/filled!");
@@ -837,36 +1000,76 @@ export default function EmailCenter() {
     }
   };
 
-  // Use Current Live AI Draft Directly in Campaign Form
-  const handleUseDraftInCampaign = () => {
+  // Use Current Live AI Draft in Campaign: Saves to DB first, then pre-selects the saved template in Campaign Wizard
+  const handleUseDraftInCampaign = async () => {
+    const activeEditorContent = (previewTab === 'editor' && aiTemplateEditorRef.current)
+      ? aiTemplateEditorRef.current.innerHTML
+      : aiDraftTemplate?.content;
+
+    const finalName = templateNameInput.trim() || aiDraftTemplate?.name || "AI Generated Template";
     const finalSubject = templateSubjectInput.trim() || aiDraftTemplate?.subject;
-    const finalContent = aiDraftTemplate?.content;
+    const finalContent = activeEditorContent || aiDraftTemplate?.content;
 
     if (!finalSubject || !finalContent) {
       toast.error("Please generate a template first!");
       return;
     }
 
-    setCampaignForm(prev => ({
-      ...prev,
-      subject: finalSubject,
-      content: finalContent,
-    }));
-    setCampaignEditorMode('preview');
-    toast.success("Template applied to new campaign!");
-    setIsAiTemplateModalOpen(false);
-    setIsCampaignModalOpen(true);
+    setIsSavingTemplate(true);
+    try {
+      // 1. Save template to database
+      const res = await api.post("/templates", {
+        name: finalName,
+        category: aiCategoryInput || aiDraftTemplate?.category || "General",
+        subject: finalSubject,
+        content: finalContent,
+        isAiGenerated: true,
+        aiPrompt: aiPromptInput.trim()
+      });
+
+      const savedTemplate = res.data;
+      toast.success("Template saved and loaded into campaign builder!");
+
+      // 2. Add to templates list in state
+      setTemplates(prev => [savedTemplate, ...prev.filter(t => t._id !== savedTemplate._id)]);
+
+      // 3. Configure campaign form with the saved template
+      setCampaignForm(prev => ({
+        ...prev,
+        title: prev.title || finalName,
+        subject: savedTemplate.subject || finalSubject,
+        content: savedTemplate.content || finalContent,
+        templateId: savedTemplate._id
+      }));
+      setCampaignEditorMode('preview');
+
+      // 4. Close AI template modal & open Campaign wizard
+      setIsAiTemplateModalOpen(false);
+      setAiDraftTemplate(null);
+      setIsCampaignModalOpen(true);
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.response?.data?.error || err.response?.data?.message || "Failed to save template for campaign");
+    } finally {
+      setIsSavingTemplate(false);
+    }
   };
 
-  // Delete DB Template
-  const handleDeleteTemplate = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this template from the database?")) return;
+  // Confirm and Delete Email Template
+  const handleConfirmDeleteTemplate = async () => {
+    if (!templateToDelete) return;
+    setDeletingTemplate(true);
     try {
-      await api.delete(`/templates/${id}`);
-      toast.success("Template deleted");
-      setTemplates(prev => prev.filter(t => t._id !== id));
-    } catch (err) {
-      toast.error("Failed to delete template");
+      await api.delete(`/templates/${templateToDelete._id}`);
+      toast.success(`Template "${templateToDelete.name}" deleted successfully!`);
+      setTemplates(prev => prev.filter(t => t._id !== templateToDelete._id));
+      setIsDeleteTemplateModalOpen(false);
+      setTemplateToDelete(null);
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.response?.data?.error || err.response?.data?.message || "Failed to delete template");
+    } finally {
+      setDeletingTemplate(false);
     }
   };
 
@@ -924,10 +1127,34 @@ export default function EmailCenter() {
     alignLeft: false,
     alignCenter: false,
     alignRight: false,
+    fontSize: '',
   });
 
   const [isHighlighterOpen, setIsHighlighterOpen] = useState(false);
   const [isColorPickerOpen, setIsColorPickerOpen] = useState(false);
+
+  const getSelectedFontSize = (editorRef: React.RefObject<HTMLDivElement>): string => {
+    try {
+      const selection = window.getSelection();
+      if (selection && selection.rangeCount > 0 && editorRef.current) {
+        const range = selection.getRangeAt(0);
+        let node: Node | null = range.commonAncestorContainer;
+        if (node && node.nodeType === Node.TEXT_NODE) {
+          node = node.parentElement;
+        }
+        if (node && node instanceof Element && editorRef.current.contains(node)) {
+          const computedSize = window.getComputedStyle(node).fontSize;
+          const pxVal = parseInt(computedSize, 10);
+          if (!isNaN(pxVal)) {
+            return `${pxVal}px`;
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return '';
+  };
 
   const updateEditorActiveFormats = useCallback(() => {
     try {
@@ -945,18 +1172,183 @@ export default function EmailCenter() {
         alignLeft: document.queryCommandState('justifyLeft'),
         alignCenter: document.queryCommandState('justifyCenter'),
         alignRight: document.queryCommandState('justifyRight'),
+        fontSize: getSelectedFontSize(manualEditorRef),
       });
     } catch {
       // ignore
     }
   }, []);
 
+  // Selection-Targeted Heading Formatter with Native Undo/Redo (H1, H2, H3, P)
+  const applyCustomHeadingFormat = (
+    editorRef: React.RefObject<HTMLDivElement>,
+    tagValue: string,
+    updateFormatsCallback: () => void
+  ) => {
+    const rawTag = tagValue.replace(/[<>]/g, '').toLowerCase();
+    const selection = window.getSelection();
+
+    if (selection && !selection.isCollapsed && selection.rangeCount > 0 && editorRef.current) {
+      const range = selection.getRangeAt(0);
+      if (editorRef.current.contains(range.commonAncestorContainer)) {
+        const container = document.createElement('div');
+        container.appendChild(range.cloneContents());
+        const selectedHtml = container.innerHTML || selection.toString();
+
+        let formattedHtml = '';
+        if (rawTag === 'h1') {
+          formattedHtml = `<span style="font-size: 24px; font-weight: 800; display: inline-block; margin: 4px 0; line-height: 1.2;">${selectedHtml}</span>`;
+        } else if (rawTag === 'h2') {
+          formattedHtml = `<span style="font-size: 20px; font-weight: 700; display: inline-block; margin: 3px 0; line-height: 1.25;">${selectedHtml}</span>`;
+        } else if (rawTag === 'h3') {
+          formattedHtml = `<span style="font-size: 16px; font-weight: 700; display: inline-block; margin: 2px 0; line-height: 1.3;">${selectedHtml}</span>`;
+        } else if (rawTag === 'p') {
+          formattedHtml = `<span style="font-size: 14px; font-weight: normal; display: inline; line-height: 1.5;">${selectedHtml}</span>`;
+        }
+
+        // document.execCommand('insertHTML') registers directly into browser's Ctrl+Z Undo stack!
+        document.execCommand('insertHTML', false, formattedHtml);
+        editorRef.current.focus();
+        updateFormatsCallback();
+        return;
+      }
+    }
+
+    // Fallback to standard formatBlock
+    document.execCommand('formatBlock', false, tagValue);
+    editorRef.current?.focus();
+    updateFormatsCallback();
+  };
+
+  // Selection-Targeted Font Size Formatter with Native Undo/Redo
+  const applyCustomFontSize = (
+    editorRef: React.RefObject<HTMLDivElement>,
+    sizePx: string,
+    updateFormatsCallback: () => void
+  ) => {
+    if (!sizePx) return;
+    const selection = window.getSelection();
+
+    if (selection && !selection.isCollapsed && selection.rangeCount > 0 && editorRef.current) {
+      const range = selection.getRangeAt(0);
+      if (editorRef.current.contains(range.commonAncestorContainer)) {
+        const container = document.createElement('div');
+        container.appendChild(range.cloneContents());
+        const selectedHtml = container.innerHTML || selection.toString();
+        const formattedHtml = `<span style="font-size: ${sizePx}; display: inline; line-height: 1.4;">${selectedHtml}</span>`;
+        document.execCommand('insertHTML', false, formattedHtml);
+        editorRef.current.focus();
+        updateFormatsCallback();
+        return;
+      }
+    }
+  };
+
   // Rich Text Editor exec command helper
   const execFormat = (command: string, value?: string) => {
+    if (command === 'formatBlock' && value) {
+      applyCustomHeadingFormat(manualEditorRef, value, updateEditorActiveFormats);
+      return;
+    }
     document.execCommand(command, false, value);
     manualEditorRef.current?.focus();
     updateEditorActiveFormats();
   };
+
+  // Campaign Writer Ref & Formatting Tools
+  const campaignWriterRef = useRef<HTMLDivElement>(null);
+  const [campaignActiveFormats, setCampaignActiveFormats] = useState({
+    bold: false,
+    italic: false,
+    underline: false,
+    h1: false,
+    h2: false,
+    h3: false,
+    p: false,
+    ul: false,
+    ol: false,
+    alignLeft: false,
+    alignCenter: false,
+    alignRight: false,
+    fontSize: '',
+  });
+  const [isCampaignHighlighterOpen, setIsCampaignHighlighterOpen] = useState(false);
+  const [isCampaignColorPickerOpen, setIsCampaignColorPickerOpen] = useState(false);
+
+  const updateCampaignActiveFormats = useCallback(() => {
+    try {
+      const block = (document.queryCommandValue('formatBlock') || '').toLowerCase();
+      setCampaignActiveFormats({
+        bold: document.queryCommandState('bold'),
+        italic: document.queryCommandState('italic'),
+        underline: document.queryCommandState('underline'),
+        h1: block === 'h1' || block.includes('h1'),
+        h2: block === 'h2' || block.includes('h2'),
+        h3: block === 'h3' || block.includes('h3'),
+        p: block === 'p' || block.includes('p'),
+        ul: document.queryCommandState('insertUnorderedList'),
+        ol: document.queryCommandState('insertOrderedList'),
+        alignLeft: document.queryCommandState('justifyLeft'),
+        alignCenter: document.queryCommandState('justifyCenter'),
+        alignRight: document.queryCommandState('justifyRight'),
+        fontSize: getSelectedFontSize(campaignWriterRef),
+      });
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const execCampaignFormat = (command: string, value?: string) => {
+    if (command === 'formatBlock' && value) {
+      applyCustomHeadingFormat(campaignWriterRef, value, updateCampaignActiveFormats);
+      return;
+    }
+    document.execCommand(command, false, value);
+    campaignWriterRef.current?.focus();
+    updateCampaignActiveFormats();
+  };
+
+  const updateAiEditorActiveFormats = useCallback(() => {
+    try {
+      const block = (document.queryCommandValue('formatBlock') || '').toLowerCase();
+      setAiEditorActiveFormats({
+        bold: document.queryCommandState('bold'),
+        italic: document.queryCommandState('italic'),
+        underline: document.queryCommandState('underline'),
+        h1: block === 'h1' || block.includes('h1'),
+        h2: block === 'h2' || block.includes('h2'),
+        h3: block === 'h3' || block.includes('h3'),
+        p: block === 'p' || block.includes('p'),
+        ul: document.queryCommandState('insertUnorderedList'),
+        ol: document.queryCommandState('insertOrderedList'),
+        alignLeft: document.queryCommandState('justifyLeft'),
+        alignCenter: document.queryCommandState('justifyCenter'),
+        alignRight: document.queryCommandState('justifyRight'),
+        fontSize: getSelectedFontSize(aiTemplateEditorRef),
+      });
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const execAiEditorFormat = (command: string, value?: string) => {
+    if (command === 'formatBlock' && value) {
+      applyCustomHeadingFormat(aiTemplateEditorRef, value, updateAiEditorActiveFormats);
+      return;
+    }
+    document.execCommand(command, false, value);
+    aiTemplateEditorRef.current?.focus();
+    updateAiEditorActiveFormats();
+  };
+
+  // Sync Campaign Writer Ref on Mode Switch or Template Injection
+  useEffect(() => {
+    if (isCampaignModalOpen && campaignEditorMode === 'editor' && campaignWriterRef.current) {
+      if (campaignWriterRef.current.innerHTML !== campaignForm.content) {
+        campaignWriterRef.current.innerHTML = campaignForm.content || '';
+      }
+    }
+  }, [isCampaignModalOpen, campaignEditorMode]);
 
   // Inject Database Template into Campaign Form
   const injectDbTemplate = (tpl: DbTemplate) => {
@@ -1124,10 +1516,96 @@ export default function EmailCenter() {
     }
   }, [emailHistory, selectedConversation]);
 
+  // --- MODAL STATE RESET FUNCTIONS (Wipes uncommitted draft state on close/cancel) ---
+  const resetCampaignModalState = useCallback(() => {
+    setCampaignForm({
+      title: "",
+      subject: "",
+      content: "",
+      segmentId: "",
+      sendAt: "",
+      isScheduled: false,
+      templateId: null
+    });
+    setCampaignEditorMode('preview');
+    setAiPrompt('');
+    setShowCampaignAiPanel(false);
+    if (campaignWriterRef.current) {
+      campaignWriterRef.current.innerHTML = '';
+    }
+  }, []);
+
+  const resetAiTemplateModalState = useCallback(() => {
+    setTemplateNameInput('');
+    setTemplateSubjectInput('');
+    setAiPromptInput('');
+    setAiCategoryInput('General');
+    setAiToneInput('Professional & Warm');
+    setAiDraftTemplate(null);
+    setPreviewTab('visual');
+    if (aiTemplateEditorRef.current) {
+      aiTemplateEditorRef.current.innerHTML = '';
+    }
+  }, []);
+
+  const resetManualTemplateModalState = useCallback(() => {
+    setManualTemplateName('');
+    setManualTemplateSubject('');
+    setManualTemplateCategory('General');
+    setManualTemplateHtml('');
+    setManualTemplateMode('editor');
+    if (manualEditorRef.current) {
+      manualEditorRef.current.innerHTML = '';
+    }
+  }, []);
+
+  const resetSegmentModalState = useCallback(() => {
+    setSegmentForm({
+      name: "",
+      description: "",
+      type: "csv",
+      filters: {
+        source: "",
+        sport: "",
+        location: "",
+        status: "",
+        campaignId: "",
+        campaignIds: []
+      },
+      leadIds: [],
+      leadModel: "Lead",
+      customContacts: []
+    });
+    setContactCategoryFilter("all");
+    setContactsSearchQuery("");
+    setSalesCampaignSearch("");
+    setCustomContactName("");
+    setCustomContactEmail("");
+    setCsvParsedContacts([]);
+    setCsvFileName("");
+    setCsvSearchQuery("");
+    setCsvSelectedEmails([]);
+    setCampaignPreviewContacts([]);
+    setCampaignPreviewSearch("");
+    setCampaignSelectedIds([]);
+  }, []);
+
+  const resetImportModalState = useCallback(() => {
+    setImportFile(null);
+    setImportSegmentName("");
+    setImportCsvParsedContacts([]);
+    setImportCsvSelectedEmails([]);
+    setImportCsvSearchQuery("");
+  }, []);
+
   // Handle Campaign Creation
   const handleCreateCampaign = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!campaignForm.title || !campaignForm.subject || !campaignForm.content || !campaignForm.segmentId) {
+    const finalContent = (campaignEditorMode === 'editor' && campaignWriterRef.current)
+      ? (campaignWriterRef.current.innerHTML || campaignForm.content)
+      : campaignForm.content;
+
+    if (!campaignForm.title || !campaignForm.subject || !finalContent || !campaignForm.segmentId) {
       toast.error("Please fill in all required fields");
       return;
     }
@@ -1137,7 +1615,7 @@ export default function EmailCenter() {
       const payload = {
         title: campaignForm.title,
         subject: campaignForm.subject,
-        content: campaignForm.content,
+        content: finalContent,
         segmentId: campaignForm.segmentId,
         sendAt: campaignForm.isScheduled && campaignForm.sendAt ? campaignForm.sendAt : null,
         templateId: campaignForm.templateId
@@ -1145,10 +1623,10 @@ export default function EmailCenter() {
 
       const res = await api.post("/emails/campaigns", payload);
       toast.success(campaignForm.isScheduled ? "Campaign scheduled!" : "Campaign draft created!");
-      
+
       if (!campaignForm.isScheduled) {
         await api.post(`/emails/campaigns/${res.data._id}/send`);
-        toast.success("Campaign dispatch started!");
+        toast.success("Campaign sent & delivered successfully!");
       }
 
       setIsCampaignModalOpen(false);
@@ -1180,8 +1658,12 @@ export default function EmailCenter() {
       return;
     }
 
-    if (segmentForm.type === "campaign" && !segmentForm.filters.campaignId) {
-      toast.error("Please select a target Sales Campaign");
+    const activeCampaignIds = segmentForm.filters.campaignIds && segmentForm.filters.campaignIds.length > 0
+      ? segmentForm.filters.campaignIds
+      : (segmentForm.filters.campaignId ? [segmentForm.filters.campaignId] : []);
+
+    if (segmentForm.type === "campaign" && activeCampaignIds.length === 0) {
+      toast.error("Please select at least one target Sales Campaign");
       return;
     }
 
@@ -1242,30 +1724,15 @@ export default function EmailCenter() {
         description: segmentForm.description,
         type: segmentForm.type,
         filters: segmentForm.type === "dynamic" ? segmentForm.filters :
-                 segmentForm.type === "campaign" ? { campaignId: segmentForm.filters.campaignId } :
-                 undefined,
+          segmentForm.type === "campaign" ? { campaignId: activeCampaignIds[0] || "", campaignIds: activeCampaignIds } :
+            undefined,
         contacts: (segmentForm.type === "static" || segmentForm.type === "campaign" || segmentForm.type === "csv") ? contacts : undefined
       };
 
       await api.post("/emails/segments", payload);
       toast.success("Segment created successfully!");
       setIsSegmentModalOpen(false);
-      setSegmentForm({
-        name: "",
-        description: "",
-        type: "csv",
-        filters: { source: "", sport: "", location: "", status: "", campaignId: "" },
-        leadIds: [],
-        leadModel: "Lead",
-        customContacts: []
-      });
-      setContactCategoryFilter("all");
-      setContactsSearchQuery("");
-      setCustomContactName("");
-      setCustomContactEmail("");
-      setCsvParsedContacts([]);
-      setCsvFileName("");
-      setCsvSearchQuery("");
+      resetSegmentModalState();
       setCsvSelectedEmails([]);
       setCampaignSelectedIds([]);
       fetchSegments();
@@ -1318,16 +1785,27 @@ export default function EmailCenter() {
     }
   };
 
-  // Delete Segment
-  const handleDeleteSegment = async (id: string) => {
-    if (!window.confirm("Are you sure you want to delete this segment?")) return;
+  // Prompt Delete Segment Modal
+  const handlePromptDeleteSegment = (seg: Segment) => {
+    setSegmentToDelete(seg);
+    setIsDeleteSegmentModalOpen(true);
+  };
+
+  // Confirm and Execute Delete Segment
+  const handleConfirmDeleteSegment = async () => {
+    if (!segmentToDelete) return;
     try {
-      await api.delete(`/emails/segments/${id}`);
-      toast.success("Segment deleted successfully");
+      setDeletingSegment(true);
+      await api.delete(`/emails/segments/${segmentToDelete._id}`);
+      toast.success(`Segment "${segmentToDelete.name}" deleted successfully`);
+      setIsDeleteSegmentModalOpen(false);
+      setSegmentToDelete(null);
       fetchSegments();
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      toast.error("Failed to delete segment");
+      toast.error(err.response?.data?.message || err.response?.data?.error || "Failed to delete segment");
+    } finally {
+      setDeletingSegment(false);
     }
   };
 
@@ -1339,32 +1817,53 @@ export default function EmailCenter() {
     }
     setAiGenerating(true);
     try {
-      const res = await api.post("/emails/ai-generate-email", {
-        leadId: selectedConversation?._id || segments[0]?.contacts?.[0]?.email || "64cb20790d96d741a4bc5171",
-        leadType: selectedConversation?.leadType || "main_lead",
-        userPrompt: aiPrompt.trim()
-      });
-      
-      toast.info("Anthropic API key is hit", { description: "Model: Claude Sonnet 4.6" });
+      if (workspace === "campaigns" || isCampaignModalOpen) {
+        // Use /templates/ai-generate to preserve exact HTML template styles and formatting
+        const existingHtml = campaignForm.content || (campaignWriterRef.current ? campaignWriterRef.current.innerHTML : '');
+        const res = await api.post("/templates/ai-generate", {
+          prompt: aiPrompt.trim(),
+          existingContent: existingHtml
+        });
 
-      if (workspace === "campaigns") {
+        toast.info("Anthropic API key is hit", { description: "Model: Claude Sonnet 4.6" });
+
+        const updatedSubject = res.data.subject || campaignForm.subject;
+        const updatedContent = res.data.content || campaignForm.content;
+
         setCampaignForm(prev => ({
           ...prev,
-          subject: res.data.subject || prev.subject,
-          content: res.data.body || prev.content
+          subject: updatedSubject,
+          content: updatedContent
         }));
+
+        if (campaignWriterRef.current) {
+          campaignWriterRef.current.innerHTML = updatedContent;
+        }
+
+        const isPreservedTemplate = campaignEditorMode === 'preview' || !!campaignForm.templateId || (existingHtml && existingHtml.includes('<table'));
+        toast.success(isPreservedTemplate ? "AI copy generated! Template style & design preserved." : "AI draft generated in campaign editor!");
+        setAiPrompt("");
       } else {
+        const res = await api.post("/emails/ai-generate-email", {
+          leadId: selectedConversation?._id || "64cb20790d96d741a4bc5171",
+          leadType: selectedConversation?.leadType || "main_lead",
+          userPrompt: aiPrompt.trim()
+        });
+
+        toast.info("Anthropic API key is hit", { description: "Model: Claude Sonnet 4.6" });
+
         setComposeForm(prev => ({
           ...prev,
           subject: res.data.subject || prev.subject,
           body: res.data.body || prev.body
         }));
+        toast.success("AI draft generated successfully!");
+        setShowComposeAiPanel(false);
+        setAiPrompt("");
       }
-      toast.success("AI draft generated successfully!");
-      setShowComposeAiPanel(false);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      toast.error("Failed to generate AI email template");
+      toast.error(err.response?.data?.error || "Failed to generate AI copy");
     } finally {
       setAiGenerating(false);
     }
@@ -1412,35 +1911,35 @@ export default function EmailCenter() {
     toast.success("Template injected!");
   };
 
-  // Send 1-to-1 Email via OAuth Gmail connection
+  // Send 1-to-1 Email via SendGrid
   const handleSendOneToOneEmail = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedConversation) return;
-    if (!composeForm.subject || !composeForm.body) {
-      toast.error("Subject and body message content are required!");
+    if (!composeForm.subject.trim() || !composeForm.body.trim()) {
+      toast.error("Subject and message body content are required!");
       return;
     }
 
     setIsSubmitting(true);
     try {
       const payload = {
-        lead_id: selectedConversation.leadType === "main_lead" ? selectedConversation._id : undefined,
+        lead_id: selectedConversation._id,
+        leadModel: selectedConversation.leadType === "ea_lead" ? "EALead" : "Lead",
         to: selectedConversation.email,
-        cc: composeForm.cc || undefined,
-        subject: composeForm.subject,
-        body: composeForm.body
+        subject: composeForm.subject.trim(),
+        body: composeForm.body.trim()
       };
 
       await api.post("/emails/send", payload);
-      toast.success("1-to-1 Email successfully sent!");
-      
-      // Update Notes log Locally
-      setComposeForm({ subject: "", cc: "", body: "" });
+      toast.success("1-to-1 Email sent successfully via SendGrid!");
+
+      // Update UI & history in real-time
+      setComposeForm({ subject: "", body: "" });
       fetchHistory(selectedConversation._id);
       fetchConversations();
     } catch (err: any) {
       console.error(err);
-      toast.error(err.response?.data?.message || "Failed to deliver email. Check OAuth token credentials.");
+      toast.error(err.response?.data?.message || "Failed to deliver email through SendGrid.");
     } finally {
       setIsSubmitting(false);
     }
@@ -1458,8 +1957,8 @@ export default function EmailCenter() {
 
     if (conversationsSearch.trim()) {
       const q = conversationsSearch.toLowerCase().trim();
-      result = result.filter(conv => 
-        conv.name.toLowerCase().includes(q) || 
+      result = result.filter(conv =>
+        conv.name.toLowerCase().includes(q) ||
         conv.email.toLowerCase().includes(q)
       );
     }
@@ -1480,8 +1979,8 @@ export default function EmailCenter() {
     }
     if (!contactsSearchQuery.trim()) return list;
     const q = contactsSearchQuery.toLowerCase().trim();
-    return list.filter(c => 
-      c.name.toLowerCase().includes(q) || 
+    return list.filter(c =>
+      c.name.toLowerCase().includes(q) ||
       c.email.toLowerCase().includes(q)
     );
   }, [availableContacts, contactsSearchQuery, contactCategoryFilter]);
@@ -1566,11 +2065,10 @@ export default function EmailCenter() {
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
-                  className={`px-3.5 py-1.5 rounded-lg transition-all cursor-pointer ${
-                    activeTab === tab
+                  className={`px-3.5 py-1.5 rounded-lg transition-all cursor-pointer ${activeTab === tab
                       ? "bg-card text-foreground shadow-2xs font-extrabold"
                       : "text-muted-foreground hover:text-foreground"
-                  }`}
+                    }`}
                 >
                   {tab === "segments" ? "Lists & Segments" : tab === "campaigns" ? "Campaigns" : "Templates"}
                 </button>
@@ -1582,21 +2080,19 @@ export default function EmailCenter() {
           <div className="flex items-center bg-accent/40 border p-1 rounded-xl shrink-0">
             <button
               onClick={() => setWorkspace("campaigns")}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                workspace === "campaigns" 
-                  ? "bg-primary text-white shadow-sm" 
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${workspace === "campaigns"
+                  ? "bg-primary text-white shadow-sm"
                   : "text-muted-foreground hover:text-foreground"
-              }`}
+                }`}
             >
               Marketing Workspace
             </button>
             <button
               onClick={() => setWorkspace("inbox")}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                workspace === "inbox" 
-                  ? "bg-primary text-white shadow-sm" 
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${workspace === "inbox"
+                  ? "bg-primary text-white shadow-sm"
                   : "text-muted-foreground hover:text-foreground"
-              }`}
+                }`}
             >
               1-to-1 Inbox
             </button>
@@ -1607,106 +2103,160 @@ export default function EmailCenter() {
         {workspace === "campaigns" && (
           <div className="space-y-4 flex-1 flex flex-col min-h-0">
             {/* Tier 2: Dynamic Contextual Action Bar */}
-            <div className="flex flex-wrap items-center justify-between gap-3 bg-card p-3 px-4 rounded-2xl border shadow-2xs shrink-0">
-              <div>
-                <h3 className="text-xs font-extrabold uppercase tracking-wider text-muted-foreground">
-                  {activeTab === "campaigns" ? "Email Marketing Campaigns" :
-                   activeTab === "segments" ? "Recipient Lists & Segments" :
-                   "Database Email Templates"}
-                </h3>
-                <p className="text-xs text-foreground font-semibold mt-0.5">
-                  {activeTab === "campaigns" ? "Track email dispatches, open rates, click-throughs, and campaign performance." :
-                   activeTab === "segments" ? "Target leads with CSV imports, static contact lists, or sales funnels." :
-                    "Manage reusable HTML email layouts and generate new templates with Anthropic Claude."}
-                </p>
-              </div>
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-card p-3 px-4 rounded-2xl border shadow-2xs shrink-0 relative">
+              {(() => {
+                const titleText = activeTab === "campaigns" ? "Email Marketing Campaigns" :
+                  activeTab === "segments" ? "Recipient Lists & Segments" :
+                    "Database Email Templates";
+                const subtitleText = activeTab === "campaigns" ? "Track email dispatches, open rates, click-throughs, and campaign performance." :
+                  activeTab === "segments" ? "Target leads with CSV imports, static contact lists, or sales funnels." :
+                    "Manage reusable HTML email layouts and generate new templates with Anthropic Claude.";
+
+                return (
+                  <div className="min-w-0 pr-2 relative group cursor-default">
+                    <h3 className="text-xs font-extrabold uppercase tracking-wider text-muted-foreground truncate">
+                      {titleText}
+                    </h3>
+                    <p
+                      className="text-xs text-foreground font-semibold mt-0.5 truncate hover:text-primary transition-colors"
+                      title={subtitleText}
+                    >
+                      {subtitleText}
+                    </p>
+
+                    {/* Floating Hover Tooltip: Shows full text on hover without altering layout structure */}
+                    <div className="absolute top-full left-0 mt-2 z-50 px-3.5 py-2.5 bg-popover/95 text-popover-foreground rounded-xl shadow-xl border border-border/80 whitespace-normal max-w-sm pointer-events-none opacity-0 group-hover:opacity-100 transition-all duration-200 scale-95 group-hover:scale-100 origin-top-left backdrop-blur-md">
+                      <p className="font-extrabold text-foreground text-[11px] uppercase tracking-wider mb-1 text-primary">
+                        {titleText}
+                      </p>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        {subtitleText}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Contextual Action Buttons */}
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap shrink-0">
                 {activeTab === "campaigns" && (
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <div className="relative">
-                      <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                  <>
+                    <div className="relative shrink-0 flex items-center">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
                       <input
                         type="text"
                         placeholder="Search campaigns..."
                         value={campaignsSearchQuery}
                         onChange={e => setCampaignsSearchQuery(e.target.value)}
-                        className="h-8.5 input-field text-xs pl-8 w-40 sm:w-52 dark:bg-card rounded-xl"
+                        className="h-9 input-field text-xs !pl-9 pr-3 w-36 sm:w-44 lg:w-48 dark:bg-card rounded-xl"
                       />
                     </div>
 
-                    <div className="flex items-center bg-accent/60 border p-0.5 rounded-xl text-xs">
+                    <div className="flex items-center bg-accent/60 dark:bg-accent/20 border border-border/80 p-1 rounded-xl text-xs shrink-0 h-9 w-[150px] gap-1 shadow-2xs">
                       <button
                         type="button"
                         onClick={() => setMarketingViewMode('grid')}
-                        className={`px-2.5 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
-                          marketingViewMode === 'grid' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                        className={`flex-1 h-full rounded-lg text-xs transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5 ${
+                          marketingViewMode === 'grid'
+                            ? 'bg-card text-foreground shadow-sm border border-border/50 font-bold'
+                            : 'text-muted-foreground hover:text-foreground hover:bg-card/40 font-medium'
                         }`}
                         title="Cards Grid View"
                       >
-                        ⊞ Grid
+                        <LayoutGrid size={13} className={marketingViewMode === 'grid' ? 'text-primary' : 'text-muted-foreground'} />
+                        <span>Grid</span>
                       </button>
                       <button
                         type="button"
                         onClick={() => setMarketingViewMode('table')}
-                        className={`px-2.5 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
-                          marketingViewMode === 'table' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                        className={`flex-1 h-full rounded-lg text-xs transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5 ${
+                          marketingViewMode === 'table'
+                            ? 'bg-card text-foreground shadow-sm border border-border/50 font-bold'
+                            : 'text-muted-foreground hover:text-foreground hover:bg-card/40 font-medium'
                         }`}
                         title="Full Data Table View"
                       >
-                        ☰ Table
+                        <Table size={13} className={marketingViewMode === 'table' ? 'text-primary' : 'text-muted-foreground'} />
+                        <span>Table</span>
                       </button>
                     </div>
 
                     <button
-                      onClick={() => setIsCampaignModalOpen(true)}
-                      className="btn-primary h-8.5 text-xs font-bold flex items-center gap-1.5 shadow-sm"
+                      type="button"
+                      onClick={() => setIsAiPersonalizedModalOpen(true)}
+                      className="h-9 btn-primary !bg-gradient-to-r !from-purple-600 !via-indigo-600 !to-blue-600 hover:!from-purple-500 hover:!via-indigo-500 hover:!to-blue-500 !text-white flex items-center gap-2 shadow-md shadow-purple-500/25 shrink-0 cursor-pointer rounded-xl"
+                      title="AI Personalized Campaign: Generates individual personalized email copy per lead based on their past SMS, emails, and notes"
                     >
-                      <Plus size={14} /> New Campaign
+                      <Sparkles size={15} className="text-amber-300 shrink-0" />
+                      <span>AI Personalized Campaign</span>
                     </button>
-                  </div>
+
+                    <button
+                      onClick={() => setIsCampaignModalOpen(true)}
+                      className="h-9 btn-primary flex items-center gap-1.5 shadow-md shrink-0 cursor-pointer rounded-xl"
+                    >
+                      <Plus size={15} /> New Campaign
+                    </button>
+                  </>
                 )}
 
                 {activeTab === "segments" && (
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <div className="relative">
-                      <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                  <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap shrink-0">
+                    <div className="relative shrink-0 flex items-center">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
                       <input
                         type="text"
                         placeholder="Search lists & segments..."
                         value={segmentsSearchQuery}
                         onChange={e => setSegmentsSearchQuery(e.target.value)}
-                        className="h-8.5 input-field text-xs pl-8 w-40 sm:w-52 dark:bg-card rounded-xl"
+                        className="h-9 input-field text-xs !pl-9 pr-3 w-36 sm:w-48 dark:bg-card rounded-xl"
                       />
                     </div>
 
-                    <div className="flex items-center bg-accent/60 border p-0.5 rounded-xl text-xs">
+                    <select
+                      value={segmentTypeFilter}
+                      onChange={e => setSegmentTypeFilter(e.target.value as any)}
+                      className="h-9 px-3 text-xs rounded-xl border border-border/80 bg-background dark:bg-card text-foreground font-medium focus:outline-none focus:ring-1 focus:ring-primary shadow-2xs cursor-pointer shrink-0"
+                      title="Filter lists and segments by Type"
+                    >
+                      <option value="all">All Types</option>
+                      <option value="csv">CSV Import</option>
+                      <option value="static">Manual / Static List</option>
+                      <option value="campaign">Sales Campaign</option>
+                    </select>
+
+                    <div className="flex items-center bg-accent/60 dark:bg-accent/20 border border-border/80 p-1 rounded-xl text-xs shrink-0 h-9 w-[150px] gap-1 shadow-2xs">
                       <button
                         type="button"
                         onClick={() => setMarketingViewMode('grid')}
-                        className={`px-2.5 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
-                          marketingViewMode === 'grid' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                        className={`flex-1 h-full rounded-lg text-xs transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5 ${
+                          marketingViewMode === 'grid'
+                            ? 'bg-card text-foreground shadow-sm border border-border/50 font-bold'
+                            : 'text-muted-foreground hover:text-foreground hover:bg-card/40 font-medium'
                         }`}
                         title="Cards Grid View"
                       >
-                        ⊞ Grid
+                        <LayoutGrid size={13} className={marketingViewMode === 'grid' ? 'text-primary' : 'text-muted-foreground'} />
+                        <span>Grid</span>
                       </button>
                       <button
                         type="button"
                         onClick={() => setMarketingViewMode('table')}
-                        className={`px-2.5 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
-                          marketingViewMode === 'table' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                        className={`flex-1 h-full rounded-lg text-xs transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5 ${
+                          marketingViewMode === 'table'
+                            ? 'bg-card text-foreground shadow-sm border border-border/50 font-bold'
+                            : 'text-muted-foreground hover:text-foreground hover:bg-card/40 font-medium'
                         }`}
                         title="Full Data Table View"
                       >
-                        ☰ Table
+                        <Table size={13} className={marketingViewMode === 'table' ? 'text-primary' : 'text-muted-foreground'} />
+                        <span>Table</span>
                       </button>
                     </div>
 
                     <button
                       onClick={() => setIsImportModalOpen(true)}
-                      className="btn-secondary h-8.5 text-xs font-bold flex items-center gap-1.5"
+                      className="btn-secondary h-9 text-xs font-bold flex items-center gap-1.5 rounded-xl shrink-0"
                     >
                       <Upload size={14} /> Import List (CSV)
                     </button>
@@ -1715,7 +2265,7 @@ export default function EmailCenter() {
                         fetchAvailableContacts();
                         setIsSegmentModalOpen(true);
                       }}
-                      className="btn-primary h-8.5 text-xs font-bold flex items-center gap-1.5 shadow-sm"
+                      className="btn-primary h-9 text-xs font-bold flex items-center gap-1.5 shadow-sm rounded-xl shrink-0"
                     >
                       <Plus size={14} /> Create List & Segment
                     </button>
@@ -1723,38 +2273,44 @@ export default function EmailCenter() {
                 )}
 
                 {activeTab === "templates" && (
-                  <div className="flex items-center gap-2 shrink-0">
-                    <div className="relative">
-                      <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                  <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap shrink-0">
+                    <div className="relative shrink-0 flex items-center">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
                       <input
                         type="text"
                         placeholder="Search templates..."
                         value={templatesSearchQuery}
                         onChange={e => setTemplatesSearchQuery(e.target.value)}
-                        className="h-8.5 input-field text-xs pl-8 w-36 sm:w-44 dark:bg-card rounded-xl"
+                        className="h-9 input-field text-xs !pl-9 pr-3 w-36 sm:w-44 dark:bg-card rounded-xl"
                       />
                     </div>
 
-                    <div className="flex items-center bg-accent/60 border p-0.5 rounded-xl text-xs shrink-0">
+                    <div className="flex items-center bg-accent/60 dark:bg-accent/20 border border-border/80 p-1 rounded-xl text-xs shrink-0 h-9 w-[150px] gap-1 shadow-2xs">
                       <button
                         type="button"
                         onClick={() => setMarketingViewMode('grid')}
-                        className={`px-2.5 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
-                          marketingViewMode === 'grid' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                        className={`flex-1 h-full rounded-lg text-xs transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5 ${
+                          marketingViewMode === 'grid'
+                            ? 'bg-card text-foreground shadow-sm border border-border/50 font-bold'
+                            : 'text-muted-foreground hover:text-foreground hover:bg-card/40 font-medium'
                         }`}
                         title="Cards Grid View"
                       >
-                        ⊞ Grid
+                        <LayoutGrid size={13} className={marketingViewMode === 'grid' ? 'text-primary' : 'text-muted-foreground'} />
+                        <span>Grid</span>
                       </button>
                       <button
                         type="button"
                         onClick={() => setMarketingViewMode('table')}
-                        className={`px-2.5 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
-                          marketingViewMode === 'table' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                        className={`flex-1 h-full rounded-lg text-xs transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5 ${
+                          marketingViewMode === 'table'
+                            ? 'bg-card text-foreground shadow-sm border border-border/50 font-bold'
+                            : 'text-muted-foreground hover:text-foreground hover:bg-card/40 font-medium'
                         }`}
                         title="Full Data Table View"
                       >
-                        ☰ Table
+                        <Table size={13} className={marketingViewMode === 'table' ? 'text-primary' : 'text-muted-foreground'} />
+                        <span>Table</span>
                       </button>
                     </div>
 
@@ -1767,16 +2323,16 @@ export default function EmailCenter() {
                         setManualTemplateMode('editor');
                         setIsManualTemplateModalOpen(true);
                       }}
-                      className="btn-secondary h-8.5 px-3 text-xs font-bold flex items-center gap-1.5 shadow-sm shrink-0"
+                      className="btn-secondary h-9 px-3 text-xs font-bold flex items-center gap-1.5 shadow-sm shrink-0 rounded-xl"
                     >
                       <Plus size={13} /> Create Template
                     </button>
                     <button
                       onClick={() => setIsAiTemplateModalOpen(true)}
-                      className="btn-primary h-8.5 px-3 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer border-none shrink-0"
+                      className="btn-primary h-9 px-3.5 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer border-none shrink-0 rounded-xl"
                       title="Generate Email Template with Anthropic Claude AI"
                     >
-                      <Sparkles size={13} className="animate-pulse" /> Generate AI Template
+                      <Sparkles size={13} className="animate-pulse text-amber-300" /> Generate AI Template
                     </button>
                   </div>
                 )}
@@ -1807,17 +2363,17 @@ export default function EmailCenter() {
                     /* FULL DATA TABLE VIEW */
                     <div className="border rounded-2xl overflow-hidden bg-card shadow-xs">
                       <div className="overflow-x-auto custom-scrollbar">
-                        <table className="w-full text-left text-xs">
+                        <table className="w-full text-left text-xs border-collapse">
                           <thead>
                             <tr className="border-b bg-muted/40 text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
-                              <th className="p-3.5 pl-5">Campaign</th>
-                              <th className="p-3.5">List & Segment</th>
-                              <th className="p-3.5">Template</th>
-                              <th className="p-3.5">Status & Date</th>
-                              <th className="p-3.5 text-center">Delivered</th>
-                              <th className="p-3.5 text-center">Open Rate</th>
-                              <th className="p-3.5 text-center">Click Rate</th>
-                              <th className="p-3.5 pr-5 text-right">Actions</th>
+                              <th className="p-3.5 pl-5 align-middle">Campaign</th>
+                              <th className="p-3.5 align-middle">List & Segment</th>
+                              <th className="p-3.5 align-middle">Template</th>
+                              <th className="p-3.5 align-middle">Status & Date</th>
+                              <th className="p-3.5 align-middle text-center">Delivered</th>
+                              <th className="p-3.5 align-middle text-center">Open Rate</th>
+                              <th className="p-3.5 align-middle text-center">Click Rate</th>
+                              <th className="p-3.5 pr-5 align-middle text-right">Actions</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-border/60">
@@ -1840,16 +2396,16 @@ export default function EmailCenter() {
                                   }}
                                   className="hover:bg-accent/30 transition-colors cursor-pointer group"
                                 >
-                                  <td className="p-3.5 pl-5 max-w-[220px]">
+                                  <td className="p-3.5 pl-5 max-w-[220px] align-middle">
                                     <span className="font-bold text-foreground block truncate group-hover:text-primary transition-colors">{camp.title}</span>
                                     <span className="text-[11px] text-muted-foreground block truncate mt-0.5">Subject: {camp.subject}</span>
                                   </td>
-                                  <td className="p-3.5">
-                                    <span className="font-semibold text-foreground bg-accent/40 px-2 py-0.5 rounded-md text-[11px] inline-block truncate max-w-[130px]">
+                                  <td className="p-3.5 align-middle">
+                                    <span className="font-semibold text-foreground bg-accent/40 px-2.5 py-1 rounded-lg text-[11px] inline-flex items-center truncate max-w-[130px]">
                                       {camp.segmentId?.name || "None"}
                                     </span>
                                   </td>
-                                  <td className="p-3.5">
+                                  <td className="p-3.5 align-middle">
                                     {tplObj ? (
                                       <button
                                         type="button"
@@ -1857,44 +2413,43 @@ export default function EmailCenter() {
                                           e.stopPropagation();
                                           handleOpenTemplateDirectly(camp.templateId);
                                         }}
-                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-violet-500/10 hover:bg-violet-500/20 text-violet-700 dark:text-violet-300 border border-violet-500/20 transition-all cursor-pointer max-w-[140px] truncate"
+                                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold bg-violet-500/10 hover:bg-violet-500/20 text-violet-700 dark:text-violet-300 border border-violet-500/20 transition-all cursor-pointer max-w-[140px] truncate shadow-2xs"
                                         title="View template preview"
                                       >
-                                        <FileText size={10} className="shrink-0" />
+                                        <FileText size={11} className="shrink-0" />
                                         <span className="truncate">{tplObj.name}</span>
                                       </button>
                                     ) : (
                                       <span className="text-[10px] text-muted-foreground italic">Custom</span>
                                     )}
                                   </td>
-                                  <td className="p-3.5">
-                                    <div className="flex flex-col gap-1">
-                                      <span className={`text-[9px] px-2 py-0.2 rounded-full font-extrabold uppercase border w-fit ${
-                                        camp.status === "sent" ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20" :
-                                        camp.status === "scheduled" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20" :
-                                        "bg-zinc-500/10 text-zinc-600 dark:text-zinc-400 border-zinc-500/20"
-                                      }`}>
+                                  <td className="p-3.5 align-middle">
+                                    <div className="flex flex-col gap-1 justify-center">
+                                      <span className={`text-[9px] px-2.5 py-0.5 rounded-full font-extrabold uppercase border w-fit ${camp.status === "sent" ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20" :
+                                          camp.status === "scheduled" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20" :
+                                            "bg-zinc-500/10 text-zinc-600 dark:text-zinc-400 border-zinc-500/20"
+                                        }`}>
                                         {camp.status}
                                       </span>
                                       <span className="text-[10px] text-muted-foreground">
-                                        {camp.sentAt ? new Date(camp.sentAt).toLocaleDateString() : 
-                                         camp.sendAt ? `Sched: ${new Date(camp.sendAt).toLocaleDateString()}` : "Draft"}
+                                        {camp.sentAt ? new Date(camp.sentAt).toLocaleDateString() :
+                                          camp.sendAt ? `Sched: ${new Date(camp.sendAt).toLocaleDateString()}` : "Draft"}
                                       </span>
                                     </div>
                                   </td>
-                                  <td className="p-3.5 text-center">
+                                  <td className="p-3.5 text-center align-middle">
                                     <span className="font-extrabold text-foreground">{delRate}%</span>
                                     <span className="text-[10px] text-muted-foreground block font-medium">({camp.stats.delivered}/{camp.stats.sent})</span>
                                   </td>
-                                  <td className="p-3.5 text-center">
+                                  <td className="p-3.5 text-center align-middle">
                                     <span className="font-extrabold text-primary">{openRate}%</span>
                                     <span className="text-[10px] text-muted-foreground block font-medium">({camp.stats.opens})</span>
                                   </td>
-                                  <td className="p-3.5 text-center">
+                                  <td className="p-3.5 text-center align-middle">
                                     <span className="font-extrabold text-emerald-600 dark:text-emerald-400">{clickRate}%</span>
                                     <span className="text-[10px] text-muted-foreground block font-medium">({camp.stats.clicks})</span>
                                   </td>
-                                  <td className="p-3.5 pr-5 text-right" onClick={e => e.stopPropagation()}>
+                                  <td className="p-3.5 pr-5 text-right align-middle" onClick={e => e.stopPropagation()}>
                                     <div className="flex items-center justify-end gap-1.5">
                                       <button
                                         type="button"
@@ -1902,10 +2457,10 @@ export default function EmailCenter() {
                                           setCampaignToDelete(camp);
                                           setIsDeleteCampaignModalOpen(true);
                                         }}
-                                        className="h-7 w-7 text-destructive hover:bg-destructive/10 rounded-lg flex items-center justify-center transition-colors cursor-pointer"
+                                        className="h-8 w-8 text-destructive hover:bg-destructive/10 rounded-xl flex items-center justify-center transition-colors cursor-pointer"
                                         title="Delete Campaign"
                                       >
-                                        <Trash2 size={12} />
+                                        <Trash2 size={13} />
                                       </button>
                                       <button
                                         type="button"
@@ -1915,9 +2470,9 @@ export default function EmailCenter() {
                                           setCampaignRecipientFilter("all");
                                           setIsViewStatsOpen(true);
                                         }}
-                                        className="h-7 px-2.5 bg-primary/10 hover:bg-primary hover:text-white text-primary rounded-lg text-[11px] font-bold flex items-center gap-1 transition-all"
+                                        className="h-8 px-3 bg-primary/10 hover:bg-primary hover:text-white text-primary rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs"
                                       >
-                                        <Eye size={11} /> Analytics
+                                        <Eye size={12} /> Analytics
                                       </button>
                                     </div>
                                   </td>
@@ -1950,11 +2505,10 @@ export default function EmailCenter() {
                             <div className="space-y-3">
                               <div className="flex items-center justify-between gap-2">
                                 <div className="flex items-center gap-1.5">
-                                  <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-extrabold uppercase border ${
-                                    camp.status === "sent" ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20" :
-                                    camp.status === "scheduled" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20" :
-                                    "bg-zinc-500/10 text-zinc-600 dark:text-zinc-400 border-zinc-500/20"
-                                  }`}>
+                                  <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-extrabold uppercase border ${camp.status === "sent" ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20" :
+                                      camp.status === "scheduled" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20" :
+                                        "bg-zinc-500/10 text-zinc-600 dark:text-zinc-400 border-zinc-500/20"
+                                    }`}>
                                     {camp.status}
                                   </span>
                                   {camp.recipientLogs && camp.recipientLogs.length > 0 && (
@@ -1972,15 +2526,15 @@ export default function EmailCenter() {
                                   )}
                                 </div>
                                 <span className="text-[10px] text-muted-foreground font-semibold">
-                                  {camp.sentAt ? new Date(camp.sentAt).toLocaleDateString() : 
-                                   camp.sendAt ? `Scheduled: ${new Date(camp.sendAt).toLocaleString()}` : "Draft"}
+                                  {camp.sentAt ? new Date(camp.sentAt).toLocaleDateString() :
+                                    camp.sendAt ? `Scheduled: ${new Date(camp.sendAt).toLocaleString()}` : "Draft"}
                                 </span>
                               </div>
                               <div>
                                 <h3 className="font-bold text-sm text-foreground line-clamp-1 group-hover:text-primary transition-colors tracking-tight">{camp.title}</h3>
                                 <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">Subject: {camp.subject}</p>
                               </div>
-                              
+
                               {camp.status === "sent" && (
                                 <div className="space-y-2 pt-2 border-t border-border/60">
                                   <div className="grid grid-cols-3 text-center gap-1 bg-accent/20 p-2 rounded-xl border border-border/50">
@@ -2056,7 +2610,7 @@ export default function EmailCenter() {
                                   }}
                                   className="h-8 px-3 bg-primary/10 group-hover:bg-primary group-hover:text-white text-primary rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs"
                                 >
-                                  <Eye size={13} /> Analytics & Recipients
+                                  <Eye size={13} /> Analytics
                                 </button>
                               </div>
                             </div>
@@ -2078,12 +2632,12 @@ export default function EmailCenter() {
                     <div className="text-center py-20 border rounded-2xl bg-card">
                       <Users size={48} className="mx-auto text-muted-foreground mb-3 opacity-40" />
                       <h3 className="text-base font-bold">
-                        {segments.length === 0 ? "No Lists & Segments Configured" : "No Lists Match Search"}
+                        {segments.length === 0 ? "No Segments or Lists" : "No Segments Match Filters"}
                       </h3>
                       <p className="text-sm text-muted-foreground max-w-sm mx-auto mt-1">
                         {segments.length === 0
                           ? "Create list & segment filters or upload static mailing lists via CSV files to target your campaigns."
-                          : "Try clearing your search query to see all segments."
+                          : "Try clearing your search query or type filter to see all segments."
                         }
                       </p>
                     </div>
@@ -2091,14 +2645,14 @@ export default function EmailCenter() {
                     /* FULL DATA TABLE VIEW FOR SEGMENTS */
                     <div className="border rounded-2xl overflow-hidden bg-card shadow-xs">
                       <div className="overflow-x-auto custom-scrollbar">
-                        <table className="w-full text-left text-xs">
+                        <table className="w-full text-left text-xs border-collapse">
                           <thead>
                             <tr className="border-b bg-muted/40 text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
-                              <th className="p-3.5 pl-5">Segment Name</th>
-                              <th className="p-3.5">Type</th>
-                              <th className="p-3.5">Recipients</th>
-                              <th className="p-3.5">Details</th>
-                              <th className="p-3.5 pr-5 text-right">Actions</th>
+                              <th className="p-3.5 pl-5 align-middle">Segment Name</th>
+                              <th className="p-3.5 align-middle">Type</th>
+                              <th className="p-3.5 align-middle">Recipients</th>
+                              <th className="p-3.5 align-middle">Details</th>
+                              <th className="p-3.5 pr-5 align-middle text-right">Actions</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-border/60">
@@ -2112,42 +2666,41 @@ export default function EmailCenter() {
                                 }}
                                 className="hover:bg-accent/30 transition-colors cursor-pointer group"
                               >
-                                <td className="p-3.5 pl-5 max-w-[220px]">
+                                <td className="p-3.5 pl-5 max-w-[220px] align-middle">
                                   <span className="font-bold text-foreground block truncate group-hover:text-primary transition-colors">{seg.name}</span>
                                   {seg.description && (
                                     <span className="text-[11px] text-muted-foreground block truncate mt-0.5">{seg.description}</span>
                                   )}
                                 </td>
-                                <td className="p-3.5">
-                                  <span className={`text-[9px] px-2.5 py-0.5 rounded-full font-extrabold uppercase border ${
-                                    seg.type === "csv" ? "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20" :
-                                    seg.type === "campaign" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20" :
-                                    "bg-teal-500/10 text-teal-600 dark:text-teal-400 border-teal-500/20"
-                                  }`}>
+                                <td className="p-3.5 align-middle">
+                                  <span className={`text-[9px] px-2.5 py-0.5 rounded-full font-extrabold uppercase border ${seg.type === "csv" ? "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20" :
+                                      seg.type === "campaign" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20" :
+                                        "bg-teal-500/10 text-teal-600 dark:text-teal-400 border-teal-500/20"
+                                    }`}>
                                     {seg.type === "csv" ? "CSV Import" : seg.type === "campaign" ? "Sales Campaign" : "Static List"}
                                   </span>
                                 </td>
-                                <td className="p-3.5">
+                                <td className="p-3.5 align-middle">
                                   <span className="font-bold text-foreground text-xs flex items-center gap-1.5">
                                     <Users size={12} className="text-primary" /> {seg.contacts?.length || 0} Contacts
                                   </span>
                                 </td>
-                                <td className="p-3.5 text-muted-foreground text-[11px]">
+                                <td className="p-3.5 align-middle text-muted-foreground text-[11px]">
                                   {seg.type === "campaign" ? (
                                     <span>Campaign: <strong className="text-foreground">{typeof seg.filters?.campaignId === "object" ? seg.filters.campaignId.name : "Sales Leads"}</strong></span>
                                   ) : (
                                     <span>Recipient List</span>
                                   )}
                                 </td>
-                                <td className="p-3.5 pr-5 text-right" onClick={e => e.stopPropagation()}>
+                                <td className="p-3.5 pr-5 align-middle text-right" onClick={e => e.stopPropagation()}>
                                   <div className="flex items-center justify-end gap-1.5">
                                     <button
                                       type="button"
-                                      onClick={() => handleDeleteSegment(seg._id)}
-                                      className="h-7 w-7 text-destructive hover:bg-destructive/10 rounded-lg flex items-center justify-center transition-colors cursor-pointer"
+                                      onClick={() => handlePromptDeleteSegment(seg)}
+                                      className="h-8 w-8 text-destructive hover:bg-destructive/10 rounded-xl flex items-center justify-center transition-colors cursor-pointer"
                                       title="Delete Segment"
                                     >
-                                      <Trash2 size={12} />
+                                      <Trash2 size={13} />
                                     </button>
                                     <button
                                       type="button"
@@ -2156,9 +2709,9 @@ export default function EmailCenter() {
                                         setViewSegmentSearchQuery("");
                                         setIsViewSegmentModalOpen(true);
                                       }}
-                                      className="h-7 px-2.5 bg-primary/10 hover:bg-primary hover:text-white text-primary rounded-lg text-[11px] font-bold flex items-center gap-1 transition-all"
+                                      className="h-8 px-3 bg-primary/10 hover:bg-primary hover:text-white text-primary rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs"
                                     >
-                                      <Eye size={11} /> View ({seg.contacts?.length || 0})
+                                      <Eye size={12} /> View ({seg.contacts?.length || 0})
                                     </button>
                                   </div>
                                 </td>
@@ -2183,15 +2736,14 @@ export default function EmailCenter() {
                         >
                           <div>
                             <div className="flex items-center justify-between gap-2">
-                              <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-extrabold uppercase border ${
-                                seg.type === "csv" ? "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20" :
-                                seg.type === "campaign" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20" :
-                                "bg-teal-500/10 text-teal-600 dark:text-teal-400 border-teal-500/20"
-                              }`}>
+                              <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-extrabold uppercase border ${seg.type === "csv" ? "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20" :
+                                  seg.type === "campaign" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20" :
+                                    "bg-teal-500/10 text-teal-600 dark:text-teal-400 border-teal-500/20"
+                                }`}>
                                 {seg.type === "csv" ? "CSV Import" : seg.type === "campaign" ? "Sales Campaign" : "Static List"}
                               </span>
-                              <span className="text-[11px] font-bold text-muted-foreground flex items-center gap-1 bg-accent/30 px-2 py-0.5 rounded-full">
-                                <Users size={11} className="text-primary" /> {seg.contacts?.length || 0} Recipients
+                              <span className="text-[11px] font-bold text-muted-foreground flex items-center gap-1 bg-accent/30 px-2.5 py-1 rounded-full">
+                                <Users size={12} className="text-primary" /> {seg.contacts?.length || 0} Recipients
                               </span>
                             </div>
 
@@ -2228,9 +2780,9 @@ export default function EmailCenter() {
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleDeleteSegment(seg._id);
+                                handlePromptDeleteSegment(seg);
                               }}
-                              className="h-8 w-8 p-0 bg-destructive/10 hover:bg-destructive/20 text-destructive rounded-xl flex items-center justify-center transition-colors shrink-0"
+                              className="h-8 w-8 p-0 bg-destructive/10 hover:bg-destructive/20 text-destructive rounded-xl flex items-center justify-center transition-colors shrink-0 cursor-pointer"
                               title="Delete Segment"
                             >
                               <Trash2 size={13} />
@@ -2268,14 +2820,14 @@ export default function EmailCenter() {
                     /* FULL DATA TABLE VIEW FOR TEMPLATES */
                     <div className="border rounded-2xl overflow-hidden bg-card shadow-xs">
                       <div className="overflow-x-auto custom-scrollbar">
-                        <table className="w-full text-left text-xs">
+                        <table className="w-full text-left text-xs border-collapse">
                           <thead>
                             <tr className="border-b bg-muted/40 text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
-                              <th className="p-3.5 pl-5">Template Name</th>
-                              <th className="p-3.5">Subject</th>
-                              <th className="p-3.5">Type & Category</th>
-                              <th className="p-3.5">Created Date</th>
-                              <th className="p-3.5 pr-5 text-right">Actions</th>
+                              <th className="p-3.5 pl-5 align-middle">Template Name</th>
+                              <th className="p-3.5 align-middle">Subject</th>
+                              <th className="p-3.5 align-middle">Type & Category</th>
+                              <th className="p-3.5 align-middle">Created Date</th>
+                              <th className="p-3.5 pr-5 align-middle text-right">Actions</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-border/60">
@@ -2285,49 +2837,51 @@ export default function EmailCenter() {
                                 onClick={() => handleOpenTemplateDirectly(tpl)}
                                 className="hover:bg-accent/30 transition-colors cursor-pointer group"
                               >
-                                <td className="p-3.5 pl-5 max-w-[240px]">
+                                <td className="p-3.5 pl-5 max-w-[240px] align-middle">
                                   <span className="font-bold text-foreground block truncate group-hover:text-primary transition-colors">{tpl.name}</span>
                                   {tpl.aiPrompt && (
                                     <span className="text-[11px] text-muted-foreground italic block truncate mt-0.5">"{tpl.aiPrompt}"</span>
                                   )}
                                 </td>
-                                <td className="p-3.5 max-w-[200px]">
+                                <td className="p-3.5 max-w-[200px] align-middle">
                                   <span className="font-medium text-foreground block truncate">{tpl.subject}</span>
                                 </td>
-                                <td className="p-3.5">
-                                  <span className={`text-[9px] px-2.5 py-0.5 rounded-full font-extrabold uppercase border ${
-                                    tpl.isAiGenerated ? "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20" : "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
-                                  }`}>
+                                <td className="p-3.5 align-middle">
+                                  <span className={`text-[9px] px-2.5 py-0.5 rounded-full font-extrabold uppercase border ${tpl.isAiGenerated ? "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20" : "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
+                                    }`}>
                                     {tpl.isAiGenerated ? "✨ Anthropic AI" : tpl.category || "General"}
                                   </span>
                                 </td>
-                                <td className="p-3.5 text-[11px] text-muted-foreground">
+                                <td className="p-3.5 text-[11px] text-muted-foreground align-middle">
                                   {tpl.createdAt ? new Date(tpl.createdAt).toLocaleDateString() : "-"}
                                 </td>
-                                <td className="p-3.5 pr-5 text-right" onClick={e => e.stopPropagation()}>
+                                <td className="p-3.5 pr-5 align-middle text-right" onClick={e => e.stopPropagation()}>
                                   <div className="flex items-center justify-end gap-1.5">
                                     <button
                                       type="button"
-                                      onClick={() => handleDeleteTemplate(tpl._id)}
-                                      className="h-7 w-7 text-destructive hover:bg-destructive/10 rounded-lg flex items-center justify-center transition-colors cursor-pointer"
+                                      onClick={() => {
+                                        setTemplateToDelete(tpl);
+                                        setIsDeleteTemplateModalOpen(true);
+                                      }}
+                                      className="h-8 w-8 text-destructive hover:bg-destructive/10 rounded-xl flex items-center justify-center transition-colors cursor-pointer"
                                       title="Delete Template"
                                     >
-                                      <Trash2 size={12} />
+                                      <Trash2 size={13} />
                                     </button>
                                     <button
                                       type="button"
                                       onClick={() => handleOpenTemplateDirectly(tpl)}
-                                      className="h-7 px-2.5 bg-accent/60 hover:bg-accent text-foreground rounded-lg text-[11px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                                      className="h-8 px-3 bg-accent/60 hover:bg-accent text-foreground rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
                                       title="Quick Preview Template"
                                     >
-                                      <Eye size={11} /> Preview
+                                      <Eye size={12} /> Preview
                                     </button>
                                     <button
                                       type="button"
                                       onClick={() => injectDbTemplate(tpl)}
-                                      className="h-7 px-2.5 bg-primary text-white hover:bg-primary/90 rounded-lg text-[11px] font-bold flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
+                                      className="h-8 px-3 bg-primary text-white hover:bg-primary/90 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
                                     >
-                                      Use <ChevronRight size={11} />
+                                      Use <ChevronRight size={12} />
                                     </button>
                                   </div>
                                 </td>
@@ -2344,9 +2898,8 @@ export default function EmailCenter() {
                         <div key={tpl._id} className="bg-card rounded-2xl border p-5 flex flex-col justify-between shadow-xs hover:shadow-md transition-all group">
                           <div>
                             <div className="flex items-center justify-between gap-2">
-                              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
-                                tpl.isAiGenerated ? "bg-violet-500/10 text-violet-600 dark:text-violet-400 border border-violet-500/20" : "bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20"
-                              }`}>
+                              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${tpl.isAiGenerated ? "bg-violet-500/10 text-violet-600 dark:text-violet-400 border border-violet-500/20" : "bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20"
+                                }`}>
                                 {tpl.isAiGenerated ? "✨ Anthropic AI" : tpl.category || "General"}
                               </span>
                               <span className="text-[10px] text-muted-foreground">
@@ -2362,8 +2915,12 @@ export default function EmailCenter() {
 
                           <div className="flex items-center justify-between gap-2 mt-4 pt-3 border-t">
                             <button
-                              onClick={() => handleDeleteTemplate(tpl._id)}
-                              className="h-8 w-8 text-destructive hover:bg-destructive/10 rounded-xl flex items-center justify-center transition-colors"
+                              type="button"
+                              onClick={() => {
+                                setTemplateToDelete(tpl);
+                                setIsDeleteTemplateModalOpen(true);
+                              }}
+                              className="h-8 w-8 text-destructive hover:bg-destructive/10 rounded-xl flex items-center justify-center transition-colors cursor-pointer"
                               title="Delete Template"
                             >
                               <Trash2 size={13} />
@@ -2404,20 +2961,20 @@ export default function EmailCenter() {
               {/* Search & Sort dropdown header */}
               <div className="p-3.5 border-b space-y-2.5 shrink-0 bg-card">
                 <div className="flex items-center gap-2">
-                  <div className="relative flex-1">
-                    <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                  <div className="relative flex-1 flex items-center">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
                     <input
                       type="text"
                       placeholder="Search inbox..."
                       value={conversationsSearch}
                       onChange={e => setConversationsSearch(e.target.value)}
-                      className="pl-8 h-8.5 input-field text-xs rounded-xl"
+                      className="!pl-9 pr-3 h-9 input-field text-xs rounded-xl w-full"
                     />
                   </div>
                   <select
                     value={conversationsSort}
                     onChange={e => setConversationsSort(e.target.value as "recent" | "name")}
-                    className="h-8.5 input-field text-[11px] w-20 dark:bg-card shrink-0 px-2 rounded-xl"
+                    className="h-9 input-field text-[11px] w-20 dark:bg-card shrink-0 px-2 rounded-xl"
                   >
                     <option value="recent">Recent</option>
                     <option value="name">Name</option>
@@ -2436,11 +2993,10 @@ export default function EmailCenter() {
                       key={tab.id}
                       type="button"
                       onClick={() => setConversationsFilter(tab.id as any)}
-                      className={`flex-1 py-1 rounded-lg text-[10px] font-bold border transition-colors ${
-                        conversationsFilter === tab.id
+                      className={`flex-1 py-1 rounded-lg text-[10px] font-bold border transition-colors ${conversationsFilter === tab.id
                           ? "bg-primary text-white border-primary shadow-2xs"
                           : "bg-accent/15 hover:bg-accent/40 text-muted-foreground"
-                      }`}
+                        }`}
                     >
                       {tab.label}
                     </button>
@@ -2471,11 +3027,10 @@ export default function EmailCenter() {
                       <div
                         key={conv._id}
                         onClick={() => setSelectedConversation(conv)}
-                        className={`flex items-start gap-3 p-3 rounded-xl cursor-pointer transition-all ${
-                          isSelected 
-                            ? "bg-primary/10 border border-primary/20 text-foreground shadow-2xs" 
+                        className={`flex items-start gap-3 p-3 rounded-xl cursor-pointer transition-all ${isSelected
+                            ? "bg-primary/10 border border-primary/20 text-foreground shadow-2xs"
                             : "hover:bg-accent/30 text-muted-foreground hover:text-foreground"
-                        }`}
+                          }`}
                       >
                         <div className="h-9 w-9 rounded-full bg-primary/15 text-primary font-extrabold text-xs flex items-center justify-center shrink-0 border border-primary/20">
                           {initials}
@@ -2558,22 +3113,56 @@ export default function EmailCenter() {
                         const isBouncedOrBlocked = email.status === "bounce" || email.status === "blocked" || email.status === "failed";
 
                         return (
-                          <div 
-                            key={email._id} 
+                          <div
+                            key={email._id}
                             className="flex flex-col items-end w-full space-y-1"
                           >
                             {/* WhatsApp / SMS Style Outbound Chat Bubble */}
-                            <div className="max-w-[85%] sm:max-w-[75%] bg-card border border-primary/20 rounded-2xl rounded-tr-xs p-4 shadow-2xs space-y-2.5 text-left transition-all">
+                            <div
+                              onClick={() => {
+                                setSelectedTemplateForPreview({
+                                  _id: email._id,
+                                  name: email.subject || '1-to-1 Email Message',
+                                  category: email.type === 'bulk' ? (email.campaignTitle || 'Campaign Email') : '1-to-1 Inbox Message',
+                                  subject: email.subject || 'Subject',
+                                  content: email.body || ''
+                                });
+                                setTemplatePreviewMode('visual');
+                                setIsTemplatePreviewModalOpen(true);
+                              }}
+                              className="max-w-[85%] sm:max-w-[75%] bg-card border border-primary/20 hover:border-primary/50 hover:shadow-md rounded-2xl rounded-tr-xs p-4 shadow-2xs space-y-2.5 text-left transition-all cursor-pointer group"
+                              title="Click anywhere to open full view & template inspector"
+                            >
                               {/* Bubble Header */}
                               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2">
-                                <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase flex items-center gap-1.5 ${
-                                  email.type === "bulk" ? "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20" : "bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20"
-                                }`}>
-                                  📌 {email.type === "bulk" ? `Campaign: ${email.campaignTitle || "Bulk Mail"}` : `Direct Gmail`}
+                                <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase flex items-center gap-1.5 ${email.type === "bulk" ? "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20" : "bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20"
+                                  }`}>
+                                  📌 {email.type === "bulk" ? `Campaign: ${email.campaignTitle || "Bulk Mail"}` : `1-to-1 Email`}
                                 </span>
-                                <span className="text-[10px] text-muted-foreground font-medium">
-                                  {new Date(email.timestamp).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
-                                </span>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSelectedTemplateForPreview({
+                                        _id: email._id,
+                                        name: email.subject || '1-to-1 Email Message',
+                                        category: email.type === 'bulk' ? (email.campaignTitle || 'Campaign Email') : '1-to-1 Inbox Message',
+                                        subject: email.subject || 'Subject',
+                                        content: email.body || ''
+                                      });
+                                      setTemplatePreviewMode('visual');
+                                      setIsTemplatePreviewModalOpen(true);
+                                    }}
+                                    className="px-2 py-0.5 rounded-lg text-[10px] font-bold text-primary group-hover:bg-primary/10 border border-primary/20 flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
+                                    title="Open in Full Screen Flow Preview"
+                                  >
+                                    <Maximize2 size={10} /> Full View / Flow
+                                  </button>
+                                  <span className="text-[10px] text-muted-foreground font-medium">
+                                    {new Date(email.timestamp).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+                                  </span>
+                                </div>
                               </div>
 
                               {/* Subject */}
@@ -2583,8 +3172,8 @@ export default function EmailCenter() {
                               </div>
 
                               {/* HTML Body / Content */}
-                              <div 
-                                className="text-xs text-foreground/90 leading-relaxed border-t border-border/60 pt-2.5 max-h-72 overflow-y-auto custom-scrollbar bg-accent/10 rounded-xl p-3" 
+                              <div
+                                className="text-xs text-foreground/90 leading-relaxed border-t border-border/60 pt-2.5 max-h-72 overflow-y-auto custom-scrollbar bg-accent/10 rounded-xl p-3"
                                 dangerouslySetInnerHTML={{ __html: email.body }}
                               />
 
@@ -2607,8 +3196,8 @@ export default function EmailCenter() {
                                     ✓✓ Delivered
                                   </span>
                                 ) : (
-                                  <span className="text-[10px] font-semibold text-muted-foreground flex items-center gap-1" title="Dispatched">
-                                    ✓ Dispatched
+                                  <span className="text-[10px] font-semibold text-emerald-500 flex items-center gap-1" title="Delivered">
+                                    ✓ Delivered
                                   </span>
                                 )}
                               </div>
@@ -2633,7 +3222,7 @@ export default function EmailCenter() {
                       </div>
                     ) : !isComposeExpanded ? (
                       /* Collapsed Compact Single-Line Input Bar */
-                      <div 
+                      <div
                         onClick={() => setIsComposeExpanded(true)}
                         className="flex items-center gap-2 p-2 px-3 bg-accent/20 hover:bg-accent/40 border border-border/80 rounded-2xl cursor-pointer transition-all group shadow-2xs"
                       >
@@ -2650,9 +3239,10 @@ export default function EmailCenter() {
                             setIsComposeExpanded(true);
                             setShowComposeAiPanel(true);
                           }}
-                          className="h-8 px-3 rounded-full border border-violet-500/30 bg-violet-500/10 text-violet-600 dark:text-violet-400 text-xs font-bold flex items-center gap-1.5 shrink-0 shadow-2xs hover:bg-violet-500/20 transition-all"
+                          className="h-9 px-4 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white text-xs font-bold flex items-center gap-1.5 shrink-0 shadow-sm hover:shadow transition-all cursor-pointer active:scale-[0.98]"
                         >
-                          <Sparkles size={12} /> AI Composer
+                          <Sparkles size={13} className="text-amber-300" />
+                          <span>AI Composer</span>
                         </button>
                         <button
                           type="button"
@@ -2660,30 +3250,23 @@ export default function EmailCenter() {
                             e.stopPropagation();
                             setIsComposeExpanded(true);
                           }}
-                          className="h-8 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-full text-xs font-bold flex items-center gap-1.5 shadow-sm shrink-0 transition-all"
+                          className="h-9 px-5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl text-xs font-extrabold flex items-center gap-1.5 shadow-sm shrink-0 transition-all cursor-pointer active:scale-[0.98]"
                         >
-                          <Send size={12} /> Reply
+                          <Send size={13} /> Reply
                         </button>
                       </div>
                     ) : (
                       /* Expanded Full Rich Compose Form */
                       <form onSubmit={handleSendOneToOneEmail} className="space-y-2.5">
-                        {/* Top Input Row: Subject Line & CC */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {/* Top Input Row: Full-width Subject Line */}
+                        <div>
                           <input
                             type="text"
-                            placeholder="Subject line..."
+                            placeholder="Email Subject Line..."
                             value={composeForm.subject}
                             onChange={e => setComposeForm({ ...composeForm, subject: e.target.value })}
-                            className="h-9 input-field text-xs rounded-xl bg-accent/20 border-border/80 focus:bg-background transition-all"
+                            className="w-full h-9.5 input-field text-xs rounded-xl bg-accent/20 border-border/80 focus:bg-background transition-all font-medium"
                             required
-                          />
-                          <input
-                            type="text"
-                            placeholder="Cc (optional, separate with commas)..."
-                            value={composeForm.cc}
-                            onChange={e => setComposeForm({ ...composeForm, cc: e.target.value })}
-                            className="h-9 input-field text-xs rounded-xl bg-accent/20 border-border/80 focus:bg-background transition-all"
                           />
                         </div>
 
@@ -2703,32 +3286,39 @@ export default function EmailCenter() {
                             <button
                               type="button"
                               onClick={() => setShowComposeAiPanel(prev => !prev)}
-                              className={`h-8 px-3 rounded-full border text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs ${
-                                showComposeAiPanel
-                                  ? "bg-violet-500/20 border-violet-500/40 text-violet-600 dark:text-violet-400"
-                                  : "bg-violet-500/10 hover:bg-violet-500/20 border-violet-500/20 text-violet-600 dark:text-violet-400"
-                              }`}
+                              className="h-10 px-5 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white text-xs font-extrabold transition-all flex items-center gap-2 cursor-pointer shadow-md hover:shadow-lg active:scale-[0.98]"
                             >
-                              <Sparkles size={13} /> AI Composer
+                              <Sparkles size={14} className="text-amber-300" />
+                              <span>AI Composer</span>
                             </button>
                             <button
                               type="button"
-                              onClick={() => setIsComposeExpanded(false)}
-                              className="h-8 px-3 rounded-full border border-border/80 text-xs font-bold text-muted-foreground hover:text-foreground hover:bg-accent/40 flex items-center gap-1 cursor-pointer transition-colors"
+                              onClick={() => {
+                                setIsComposeExpanded(false);
+                                setShowComposeAiPanel(false);
+                              }}
+                              className="h-10 px-4 rounded-xl border border-border/80 bg-card hover:bg-accent/60 text-xs font-bold text-muted-foreground hover:text-foreground flex items-center gap-1.5 cursor-pointer shadow-xs transition-all active:scale-[0.98]"
                             >
-                              <Minimize2 size={12} /> Minimize
+                              <Minimize2 size={13} />
+                              <span>Minimize</span>
                             </button>
                           </div>
 
                           <button
                             type="submit"
-                            disabled={isSubmitting || !composeForm.subject || !composeForm.body}
-                            className="h-8.5 px-5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-full text-xs font-bold flex items-center gap-1.5 shadow-md transition-all cursor-pointer disabled:opacity-50"
+                            disabled={isSubmitting || !composeForm.subject.trim() || !composeForm.body.trim()}
+                            className="h-10 px-6 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl text-xs font-extrabold flex items-center gap-2 shadow-md hover:shadow-lg transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"
                           >
                             {isSubmitting ? (
-                              <Loader2 size={13} className="animate-spin" />
+                              <>
+                                <Loader2 size={14} className="animate-spin" />
+                                <span>Sending Email...</span>
+                              </>
                             ) : (
-                              <><Send size={13} /> Send Email</>
+                              <>
+                                <Send size={14} />
+                                <span>Send Email</span>
+                              </>
                             )}
                           </button>
                         </div>
@@ -2740,8 +3330,8 @@ export default function EmailCenter() {
                       <div className="p-3.5 rounded-xl border border-violet-500/30 bg-violet-500/5 mt-2 space-y-2 animate-in slide-in-from-bottom-2 duration-200">
                         <div className="flex items-center justify-between">
                           <span className="text-[10px] font-bold text-violet-600 dark:text-violet-400">Describe email goals</span>
-                          <button 
-                            type="button" 
+                          <button
+                            type="button"
                             onClick={() => { setShowComposeAiPanel(false); setAiPrompt(""); }}
                             className="text-muted-foreground hover:text-foreground text-xs"
                           >
@@ -2780,13 +3370,13 @@ export default function EmailCenter() {
       </div>
 
       {/* --- DIALOG 1: CAMPAIGN MODAL WIZARD --- */}
-      <Dialog open={isCampaignModalOpen} onOpenChange={setIsCampaignModalOpen}>
+      <Dialog open={isCampaignModalOpen} onOpenChange={(open) => { if (!open) resetCampaignModalState(); setIsCampaignModalOpen(open); }}>
         <DialogContent className="w-[96vw] max-w-6xl max-h-[94vh] overflow-y-auto custom-scrollbar p-0 flex flex-col dark:bg-card">
           <DialogHeader className="p-6 pb-3 border-b">
             <DialogTitle className="text-lg font-bold">Create Marketing Campaign</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleCreateCampaign} className="flex-1 flex flex-col lg:flex-row gap-6 p-6 min-h-0">
-            <div className="flex-1 space-y-4 min-w-0 lg:min-w-[620px]">
+            <div className="flex-1 space-y-4 min-w-0 w-full">
               <div className="grid gap-1">
                 <label className="text-xs font-bold text-muted-foreground uppercase">Campaign Title <span className="text-destructive">*</span></label>
                 <input
@@ -2812,10 +3402,12 @@ export default function EmailCenter() {
               </div>
 
               {/* Select Reusable Template Dropdown */}
-              <div className="grid gap-1">
+              <div className="grid gap-1.5 p-3.5 rounded-xl bg-purple-500/5 border border-purple-500/20">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-muted-foreground uppercase">Select Reusable Template (Optional)</label>
-                  <span className="text-[10px] text-violet-600 dark:text-violet-400 font-semibold">MongoDB Collection</span>
+                  <label className="text-xs font-bold text-purple-600 dark:text-purple-400 uppercase flex items-center gap-1.5">
+                    <FileText size={13} /> Select Reusable Template
+                  </label>
+                  <span className="text-[10px] text-muted-foreground font-semibold">Loads layout, colors & placeholders</span>
                 </div>
                 <select
                   className="w-full h-10 px-3 py-2 text-xs bg-background text-foreground border border-input rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary font-medium cursor-pointer shadow-2xs leading-normal"
@@ -2827,18 +3419,20 @@ export default function EmailCenter() {
                       setCampaignForm(prev => ({
                         ...prev,
                         templateId: foundTpl._id,
-                        subject: foundTpl.subject,
+                        subject: foundTpl.subject || prev.subject,
                         content: foundTpl.content
                       }));
+                      if (campaignWriterRef.current) {
+                        campaignWriterRef.current.innerHTML = foundTpl.content;
+                      }
                       setCampaignEditorMode('preview');
                       toast.success(`Loaded template: "${foundTpl.name}"`);
                     } else {
                       setCampaignForm(prev => ({ ...prev, templateId: null }));
-                      setCampaignEditorMode('editor');
                     }
                   }}
                 >
-                  <option value="">-- Custom Blank Template --</option>
+                  <option value="">-- Choose a Saved Template (or write custom message) --</option>
                   {templates.map(tpl => (
                     <option key={tpl._id} value={tpl._id}>
                       {tpl.isAiGenerated ? "✨ " : ""}{tpl.name} ({tpl.category})
@@ -2847,10 +3441,11 @@ export default function EmailCenter() {
                 </select>
               </div>
 
+              {/* Template Design, Layout & Content Services */}
               <div className="grid gap-1.5">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-bold text-muted-foreground uppercase">
-                    Message Content <span className="text-destructive">*</span>
+                    Message Content & Design Services
                   </label>
                   <div className="flex items-center gap-1.5">
                     {campaignForm.content.trim() && (
@@ -2858,72 +3453,458 @@ export default function EmailCenter() {
                         type="button"
                         onClick={() => setIsCampaignPreviewFullscreen(true)}
                         className="px-2.5 py-1 rounded-lg border text-[11px] font-bold text-primary hover:bg-primary/10 flex items-center gap-1 transition-colors cursor-pointer"
-                        title="Open full view modal"
+                        title="Open full view flow modal"
                       >
-                        <Maximize2 size={12} /> Full View
+                        <Maximize2 size={12} /> Full View / Flow
                       </button>
                     )}
-                    <div className="flex items-center bg-accent/60 p-0.5 rounded-lg border text-[11px]">
+                    <div className="flex items-center bg-accent/60 p-0.5 rounded-lg border text-[11px] gap-0.5">
                       <button
                         type="button"
-                        onClick={() => setCampaignEditorMode("preview")}
-                        className={`px-2.5 py-0.5 rounded-md font-bold transition-all cursor-pointer ${
-                          campaignEditorMode === "preview" ? "bg-card text-foreground shadow-2xs" : "text-muted-foreground hover:text-foreground"
+                        onClick={() => {
+                          if (campaignEditorMode === 'editor' && campaignWriterRef.current) {
+                            setCampaignForm(prev => ({ ...prev, content: campaignWriterRef.current?.innerHTML || prev.content }));
+                          }
+                          setCampaignEditorMode("preview");
+                        }}
+                        className={`px-2.5 py-0.5 rounded-md font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                          campaignEditorMode === "preview"
+                            ? "bg-card text-foreground shadow-2xs"
+                            : "text-muted-foreground hover:text-foreground"
                         }`}
                       >
-                        👁️ Live Preview
+                        <Eye size={12} className={campaignEditorMode === "preview" ? "text-primary" : "text-muted-foreground"} />
+                        <span>Live Preview</span>
                       </button>
                       <button
                         type="button"
-                        onClick={() => setCampaignEditorMode("html")}
-                        className={`px-2.5 py-0.5 rounded-md font-bold transition-all cursor-pointer ${
-                          campaignEditorMode === "html" ? "bg-card text-foreground shadow-2xs" : "text-muted-foreground hover:text-foreground"
+                        onClick={() => {
+                          setCampaignEditorMode("editor");
+                          setTimeout(() => {
+                            if (campaignWriterRef.current) {
+                              if (campaignWriterRef.current.innerHTML !== campaignForm.content) {
+                                campaignWriterRef.current.innerHTML = campaignForm.content || '';
+                              }
+                              campaignWriterRef.current.focus();
+                            }
+                          }, 0);
+                        }}
+                        className={`px-2.5 py-0.5 rounded-md font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                          campaignEditorMode === "editor"
+                            ? "bg-card text-foreground shadow-2xs"
+                            : "text-muted-foreground hover:text-foreground"
                         }`}
                       >
-                        ✏️ Edit HTML
+                        <PenLine size={12} className={campaignEditorMode === "editor" ? "text-primary" : "text-muted-foreground"} />
+                        <span>Write Content</span>
                       </button>
-                      {(!campaignForm.templateId && !campaignForm.content.includes("<table") && !campaignForm.content.includes("<!DOCTYPE")) && (
-                        <button
-                          type="button"
-                          onClick={() => setCampaignEditorMode("editor")}
-                          className={`px-2.5 py-0.5 rounded-md font-bold transition-all cursor-pointer ${
-                            campaignEditorMode === "editor" ? "bg-card text-foreground shadow-2xs" : "text-muted-foreground hover:text-foreground"
-                          }`}
-                        >
-                          📝 Rich Text
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (campaignEditorMode === 'editor' && campaignWriterRef.current) {
+                            setCampaignForm(prev => ({ ...prev, content: campaignWriterRef.current?.innerHTML || prev.content }));
+                          }
+                          setCampaignEditorMode("html");
+                        }}
+                        className={`px-2.5 py-0.5 rounded-md font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                          campaignEditorMode === "html"
+                            ? "bg-card text-foreground shadow-2xs"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        <Code2 size={12} className={campaignEditorMode === "html" ? "text-primary" : "text-muted-foreground"} />
+                        <span>HTML Code</span>
+                      </button>
                     </div>
                   </div>
                 </div>
 
-                {campaignEditorMode === "preview" ? (
-                  <div className="border rounded-xl bg-slate-100 dark:bg-slate-900/60 p-4 sm:p-6 min-h-[460px] max-h-[600px] overflow-y-auto custom-scrollbar shadow-inner flex justify-center">
+                {/* Mode 1: Live Preview */}
+                {campaignEditorMode === "preview" && (
+                  <div className="border rounded-2xl bg-slate-100/90 dark:bg-slate-900/60 p-4 sm:p-6 min-h-[420px] max-h-[560px] overflow-y-auto overflow-x-auto custom-scrollbar shadow-inner flex justify-center items-start">
                     {campaignForm.content.trim() ? (
-                      <div className="w-full max-w-[620px] bg-white text-gray-900 rounded-xl shadow-sm border border-slate-200 p-4 sm:p-6 self-start">
-                        <div dangerouslySetInnerHTML={{ __html: campaignForm.content.replace(/\{\{name\}\}/gi, "John Doe") }} />
+                      <div className="w-full max-w-[600px] overflow-hidden rounded-xl bg-white shadow-sm border border-slate-200">
+                        <div
+                          className="text-gray-900 leading-relaxed [&_table]:max-w-[600px] [&_table]:w-full [&_table]:mx-auto [&_table]:border-collapse"
+                          dangerouslySetInnerHTML={{ __html: campaignForm.content.replace(/\{\{name\}\}/gi, "John Doe") }}
+                        />
                       </div>
                     ) : (
-                      <p className="text-xs text-gray-400 italic text-center py-16 self-center">No template content loaded. Select a template above or click Edit HTML to paste code.</p>
+                      <div className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground self-center">
+                        <Eye size={36} className="opacity-30 mb-2" />
+                        <p className="text-xs font-semibold">No message content loaded</p>
+                        <p className="text-[11px] text-muted-foreground/70 mt-1">
+                          Select a template above or switch to Write Content to start composing.
+                        </p>
+                      </div>
                     )}
                   </div>
-                ) : campaignEditorMode === "html" ? (
-                  <div className="border rounded-xl bg-slate-950 p-3 min-h-[460px] flex flex-col">
-                    <textarea
-                      value={campaignForm.content}
-                      onChange={e => setCampaignForm({ ...campaignForm, content: e.target.value })}
-                      placeholder="<!-- Paste or edit email HTML here -->"
-                      className="w-full h-[420px] bg-transparent border-none outline-none resize-none text-emerald-400 font-mono text-xs custom-scrollbar"
-                      spellCheck={false}
+                )}
+
+                {/* Mode 2: Write Content (Rich Visual Canvas) */}
+                {campaignEditorMode === "editor" && (
+                  <div className="border rounded-2xl bg-card overflow-hidden shadow-sm flex flex-col">
+                    {/* Visual Rich Formatting Toolbar */}
+                    <div className="flex items-center gap-0.5 px-3 py-2 border-b bg-muted/40 shrink-0 flex-wrap relative">
+                      <button
+                        type="button"
+                        onMouseDown={e => e.preventDefault()}
+                        onClick={() => execCampaignFormat('undo')}
+                        title="Undo (Ctrl+Z)"
+                        className="h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer hover:bg-accent text-muted-foreground hover:text-foreground"
+                      >
+                        <RotateCcw size={12} />
+                      </button>
+                      <button
+                        type="button"
+                        onMouseDown={e => e.preventDefault()}
+                        onClick={() => execCampaignFormat('redo')}
+                        title="Redo (Ctrl+Y)"
+                        className="h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer hover:bg-accent text-muted-foreground hover:text-foreground"
+                      >
+                        <RotateCw size={12} />
+                      </button>
+
+                      <div className="w-px h-5 bg-border mx-1" />
+
+                      <button
+                        type="button"
+                        onMouseDown={e => e.preventDefault()}
+                        onClick={() => execCampaignFormat('bold')}
+                        title="Bold"
+                        className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${campaignActiveFormats.bold ? 'bg-primary/20 text-primary border border-primary/30 font-bold' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                          }`}
+                      >
+                        <Bold size={12} />
+                      </button>
+                      <button
+                        type="button"
+                        onMouseDown={e => e.preventDefault()}
+                        onClick={() => execCampaignFormat('italic')}
+                        title="Italic"
+                        className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${campaignActiveFormats.italic ? 'bg-primary/20 text-primary border border-primary/30 font-bold' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                          }`}
+                      >
+                        <Italic size={12} />
+                      </button>
+                      <button
+                        type="button"
+                        onMouseDown={e => e.preventDefault()}
+                        onClick={() => execCampaignFormat('underline')}
+                        title="Underline"
+                        className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${campaignActiveFormats.underline ? 'bg-primary/20 text-primary border border-primary/30 font-bold' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                          }`}
+                      >
+                        <Underline size={12} />
+                      </button>
+
+                      <div className="w-px h-5 bg-border mx-1" />
+
+                      {/* Font Size Selector */}
+                      <div className="flex items-center gap-1 bg-accent/40 px-2 py-0.5 rounded-lg border border-border/60">
+                        <Type size={11} className="text-muted-foreground shrink-0" />
+                        <select
+                          value={campaignActiveFormats.fontSize || ''}
+                          onChange={e => {
+                            if (e.target.value) {
+                              applyCustomFontSize(campaignWriterRef, e.target.value, updateCampaignActiveFormats);
+                            }
+                          }}
+                          title="Change Font Size"
+                          className="h-6 text-[11px] bg-transparent font-bold text-foreground focus:outline-none cursor-pointer"
+                        >
+                          <option value="">{campaignActiveFormats.fontSize ? campaignActiveFormats.fontSize : 'Size'}</option>
+                          <option value="12px">12px (Small)</option>
+                          <option value="14px">14px (Normal)</option>
+                          <option value="16px">16px (Medium)</option>
+                          <option value="18px">18px (Large)</option>
+                          <option value="20px">20px (XL)</option>
+                          <option value="24px">24px (2XL)</option>
+                          <option value="28px">28px (3XL)</option>
+                          <option value="32px">32px (Huge)</option>
+                        </select>
+                      </div>
+
+                      <div className="w-px h-5 bg-border mx-1" />
+
+                      {/* Highlighter Tool */}
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onMouseDown={e => e.preventDefault()}
+                          onClick={() => {
+                            setIsCampaignHighlighterOpen(!isCampaignHighlighterOpen);
+                            setIsCampaignColorPickerOpen(false);
+                          }}
+                          title="Highlight Color"
+                          className="h-7 px-2 rounded-lg hover:bg-accent flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors cursor-pointer text-xs"
+                        >
+                          <Highlighter size={12} className="text-amber-500" />
+                          <ChevronDown size={10} />
+                        </button>
+                        {isCampaignHighlighterOpen && (
+                          <div className="absolute top-full left-0 mt-1 p-2 bg-popover border rounded-xl shadow-lg z-50 flex items-center gap-1.5 backdrop-blur-md">
+                            {[
+                              { color: '#fef08a', name: 'Yellow' },
+                              { color: '#bbf7d0', name: 'Green' },
+                              { color: '#bfdbfe', name: 'Blue' },
+                              { color: '#fed7aa', name: 'Orange' },
+                              { color: '#fbcfe8', name: 'Pink' },
+                              { color: 'transparent', name: 'None' }
+                            ].map(c => (
+                              <button
+                                key={c.color}
+                                type="button"
+                                onMouseDown={e => e.preventDefault()}
+                                onClick={() => {
+                                  execCampaignFormat('hiliteColor', c.color);
+                                  setIsCampaignHighlighterOpen(false);
+                                }}
+                                title={c.name}
+                                className="w-5 h-5 rounded-full border border-slate-300 hover:scale-110 transition-transform cursor-pointer shadow-2xs"
+                                style={{ backgroundColor: c.color === 'transparent' ? '#ffffff' : c.color }}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Text Color Tool */}
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onMouseDown={e => e.preventDefault()}
+                          onClick={() => {
+                            setIsCampaignColorPickerOpen(!isCampaignColorPickerOpen);
+                            setIsCampaignHighlighterOpen(false);
+                          }}
+                          title="Text Color"
+                          className="h-7 px-2 rounded-lg hover:bg-accent flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors cursor-pointer text-xs"
+                        >
+                          <Palette size={12} className="text-blue-500" />
+                          <ChevronDown size={10} />
+                        </button>
+                        {isCampaignColorPickerOpen && (
+                          <div className="absolute top-full left-0 mt-1 p-2 bg-popover border rounded-xl shadow-lg z-50 flex items-center gap-1.5 backdrop-blur-md">
+                            {[
+                              { color: '#0f172a', name: 'Default Dark' },
+                              { color: '#2563eb', name: 'Blue' },
+                              { color: '#059669', name: 'Emerald' },
+                              { color: '#dc2626', name: 'Red' },
+                              { color: '#7c3aed', name: 'Purple' },
+                              { color: '#d97706', name: 'Amber' }
+                            ].map(c => (
+                              <button
+                                key={c.color}
+                                type="button"
+                                onMouseDown={e => e.preventDefault()}
+                                onClick={() => {
+                                  execCampaignFormat('foreColor', c.color);
+                                  setIsCampaignColorPickerOpen(false);
+                                }}
+                                title={c.name}
+                                className="w-5 h-5 rounded-full border border-slate-300 hover:scale-110 transition-transform cursor-pointer shadow-2xs"
+                                style={{ backgroundColor: c.color }}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="w-px h-5 bg-border mx-1" />
+
+                      {/* Headings */}
+                      <button
+                        type="button"
+                        onMouseDown={e => e.preventDefault()}
+                        onClick={() => execCampaignFormat('formatBlock', '<h1>')}
+                        title="Heading 1"
+                        className={`h-7 px-2 rounded-lg flex items-center justify-center text-[10px] font-black transition-colors cursor-pointer ${campaignActiveFormats.h1 ? 'bg-primary/20 text-primary border border-primary/30 font-black' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                          }`}
+                      >
+                        H1
+                      </button>
+                      <button
+                        type="button"
+                        onMouseDown={e => e.preventDefault()}
+                        onClick={() => execCampaignFormat('formatBlock', '<h2>')}
+                        title="Heading 2"
+                        className={`h-7 px-2 rounded-lg flex items-center justify-center text-[10px] font-black transition-colors cursor-pointer ${campaignActiveFormats.h2 ? 'bg-primary/20 text-primary border border-primary/30 font-black' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                          }`}
+                      >
+                        H2
+                      </button>
+                      <button
+                        type="button"
+                        onMouseDown={e => e.preventDefault()}
+                        onClick={() => execCampaignFormat('formatBlock', '<h3>')}
+                        title="Heading 3"
+                        className={`h-7 px-2 rounded-lg flex items-center justify-center text-[10px] font-black transition-colors cursor-pointer ${campaignActiveFormats.h3 ? 'bg-primary/20 text-primary border border-primary/30 font-black' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                          }`}
+                      >
+                        H3
+                      </button>
+                      <button
+                        type="button"
+                        onMouseDown={e => e.preventDefault()}
+                        onClick={() => execCampaignFormat('formatBlock', '<p>')}
+                        title="Paragraph"
+                        className={`h-7 px-2 rounded-lg flex items-center justify-center text-[10px] font-bold transition-colors cursor-pointer ${campaignActiveFormats.p ? 'bg-primary/20 text-primary border border-primary/30 font-bold' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                          }`}
+                      >
+                        P
+                      </button>
+
+                      <div className="w-px h-5 bg-border mx-1" />
+
+                      {/* Lists */}
+                      <button
+                        type="button"
+                        onMouseDown={e => e.preventDefault()}
+                        onClick={() => execCampaignFormat('insertUnorderedList')}
+                        title="Bullet List"
+                        className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${campaignActiveFormats.ul ? 'bg-primary/20 text-primary border border-primary/30' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                          }`}
+                      >
+                        <List size={12} />
+                      </button>
+                      <button
+                        type="button"
+                        onMouseDown={e => e.preventDefault()}
+                        onClick={() => execCampaignFormat('insertOrderedList')}
+                        title="Numbered List"
+                        className={`h-7 px-2 rounded-lg flex items-center justify-center text-[10px] font-bold transition-colors cursor-pointer ${campaignActiveFormats.ol ? 'bg-primary/20 text-primary border border-primary/30 font-bold' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                          }`}
+                      >
+                        1.
+                      </button>
+
+                      <div className="w-px h-5 bg-border mx-1" />
+
+                      {/* Alignment */}
+                      <button
+                        type="button"
+                        onMouseDown={e => e.preventDefault()}
+                        onClick={() => execCampaignFormat('justifyLeft')}
+                        title="Align Left"
+                        className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${campaignActiveFormats.alignLeft ? 'bg-primary/20 text-primary border border-primary/30' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                          }`}
+                      >
+                        <AlignLeft size={12} />
+                      </button>
+                      <button
+                        type="button"
+                        onMouseDown={e => e.preventDefault()}
+                        onClick={() => execCampaignFormat('justifyCenter')}
+                        title="Align Center"
+                        className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${campaignActiveFormats.alignCenter ? 'bg-primary/20 text-primary border border-primary/30' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                          }`}
+                      >
+                        <AlignCenter size={12} />
+                      </button>
+                      <button
+                        type="button"
+                        onMouseDown={e => e.preventDefault()}
+                        onClick={() => execCampaignFormat('justifyRight')}
+                        title="Align Right"
+                        className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${campaignActiveFormats.alignRight ? 'bg-primary/20 text-primary border border-primary/30' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                          }`}
+                      >
+                        <AlignRight size={12} />
+                      </button>
+
+                      <div className="w-px h-5 bg-border mx-1" />
+
+                      <button
+                        type="button"
+                        onMouseDown={e => e.preventDefault()}
+                        onClick={() => {
+                          const url = prompt('Enter URL (e.g. https://example.com):');
+                          if (url) execCampaignFormat('createLink', url);
+                        }}
+                        title="Insert Link"
+                        className="h-7 w-7 rounded-lg hover:bg-accent flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                      >
+                        <Link size={12} />
+                      </button>
+
+                      <div className="w-px h-5 bg-border mx-1" />
+
+                      {/* Name tag helper */}
+                      <button
+                        type="button"
+                        onMouseDown={e => e.preventDefault()}
+                        onClick={() => {
+                          campaignWriterRef.current?.focus();
+                          document.execCommand('insertText', false, '{{name}}');
+                          updateCampaignActiveFormats();
+                          if (campaignWriterRef.current) {
+                            setCampaignForm(prev => ({ ...prev, content: campaignWriterRef.current?.innerHTML || '' }));
+                          }
+                        }}
+                        title="Insert {{name}} personalization tag"
+                        className="h-7 px-2.5 rounded-lg hover:bg-primary/20 flex items-center gap-1.5 text-primary text-[11px] font-bold border border-primary/30 transition-colors cursor-pointer shadow-2xs"
+                      >
+                        <Tag size={11} /> {'{{name}}'}
+                      </button>
+
+                      <div className="ml-auto text-[10px] text-muted-foreground font-medium hidden sm:block">
+                        Use <span className="font-mono bg-accent px-1.5 py-0.5 rounded text-primary">{'{{name}}'}</span> for recipient's name
+                      </div>
+                    </div>
+
+                    {/* ContentEditable Writing Canvas */}
+                    <div
+                      ref={campaignWriterRef}
+                      contentEditable
+                      suppressContentEditableWarning
+                      onInput={() => {
+                        if (campaignWriterRef.current) {
+                          setCampaignForm(prev => ({ ...prev, content: campaignWriterRef.current?.innerHTML || '' }));
+                        }
+                      }}
+                      onKeyUp={updateCampaignActiveFormats}
+                      onMouseUp={updateCampaignActiveFormats}
+                      onFocus={updateCampaignActiveFormats}
+                      className="p-6 focus:outline-none min-h-[380px] max-h-[500px] overflow-y-auto custom-scrollbar text-foreground leading-relaxed text-sm bg-white dark:bg-card prose prose-sm dark:prose-invert max-w-none [&_table]:max-w-[600px] [&_table]:w-full [&_table]:mx-auto [&_table]:border-collapse"
+                      style={{ minHeight: '380px' }}
                     />
                   </div>
-                ) : (
-                  <div className="[&_.ql-editor]:min-h-[380px]">
-                    <ReactQuill
-                      theme="snow"
+                )}
+
+                {/* Mode 3: HTML Code */}
+                {campaignEditorMode === "html" && (
+                  <div className="border rounded-2xl bg-slate-950 p-4 min-h-[420px] max-h-[560px] flex flex-col shadow-inner">
+                    <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800 text-[10px] text-slate-400 font-mono">
+                      <div className="flex items-center gap-2">
+                        <Code2 size={12} className="text-emerald-400" />
+                        <span className="text-emerald-400 font-bold">HTML Source Code Editor</span>
+                        <button
+                          type="button"
+                          onClick={() => setCampaignForm(prev => ({ ...prev, content: prev.content + '{{name}}' }))}
+                          className="px-2 py-0.5 rounded text-[10px] font-bold bg-primary/20 text-primary hover:bg-primary/30 flex items-center gap-1 transition-colors cursor-pointer"
+                          title="Insert {{name}} tag"
+                        >
+                          <Tag size={10} /> + {'{{name}}'}
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setCampaignForm(prev => ({ ...prev, content: '' }))}
+                          className="text-slate-500 hover:text-slate-300 transition-colors cursor-pointer"
+                        >
+                          Clear
+                        </button>
+                        <span>{campaignForm.content.length} characters</span>
+                      </div>
+                    </div>
+                    <textarea
                       value={campaignForm.content}
-                      placeholder="Compose email body. Supporting placeholder tags: {{name}}"
-                      onChange={val => setCampaignForm({ ...campaignForm, content: val })}
+                      onChange={e => setCampaignForm(prev => ({ ...prev, content: e.target.value }))}
+                      placeholder="<!-- Paste or edit email HTML here -->"
+                      className="w-full h-[380px] bg-transparent border-none outline-none resize-none text-emerald-400 font-mono text-xs custom-scrollbar leading-relaxed"
+                      spellCheck={false}
                     />
                   </div>
                 )}
@@ -2973,34 +3954,100 @@ export default function EmailCenter() {
                   )}
                 </div>
 
-                <div className="rounded-xl border border-violet-500/30 bg-violet-500/5 p-4 space-y-2 mt-4">
-                  <div className="flex items-center gap-1.5">
-                    <Sparkles size={14} className="text-violet-500 animate-pulse" />
-                    <span className="text-xs font-bold text-violet-600 dark:text-violet-400">AI Copywriter Assistant</span>
-                  </div>
-                  <textarea
-                    placeholder="Describe email goals (e.g. 'Invite parents to soccer training consultation')"
-                    className="input-field text-xs bg-background border-border min-h-[50px] resize-none"
-                    value={aiPrompt}
-                    onChange={e => setAiPrompt(e.target.value)}
-                  />
+                {/* AI Copywriter Assistant: On-demand Expandable Button & Panel */}
+                {!showCampaignAiPanel ? (
                   <button
                     type="button"
-                    onClick={handleAiDraftGenerate}
-                    disabled={aiGenerating}
-                    className="w-full btn-primary h-7 text-[10px] font-semibold gap-1 bg-violet-600 hover:bg-violet-700 text-white flex items-center justify-center shadow-sm"
+                    onClick={() => setShowCampaignAiPanel(true)}
+                    className="w-full p-2.5 rounded-2xl border border-violet-500/30 bg-gradient-to-r from-violet-500/10 via-indigo-500/10 to-transparent hover:from-violet-500/20 hover:via-indigo-500/15 hover:to-transparent flex items-center justify-between text-left transition-all group cursor-pointer shadow-xs mt-3"
                   >
-                    {aiGenerating ? (
-                      <><Loader2 size={12} className="animate-spin" /> Generating Draft...</>
-                    ) : "Compose with Claude"}
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-7 h-7 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 flex items-center justify-center text-white shadow-sm shrink-0 group-hover:scale-105 transition-transform">
+                        <Sparkles size={14} className="animate-pulse" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold text-foreground">
+                          AI Copywriter Assistant
+                        </div>
+                        <p className="text-[10px] text-muted-foreground truncate">
+                          Click to compose or update copy with AI
+                        </p>
+                      </div>
+                    </div>
+                    <ChevronDown size={14} className="text-muted-foreground group-hover:text-foreground transition-colors shrink-0 ml-1" />
                   </button>
-                </div>
+                ) : (
+                  <div className="rounded-2xl border border-violet-500/30 bg-gradient-to-br from-violet-500/10 via-indigo-500/5 to-transparent p-3 space-y-2 mt-3 shadow-sm animate-in fade-in zoom-in-95 duration-200">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-5 h-5 rounded-lg bg-gradient-to-r from-violet-600 to-indigo-600 flex items-center justify-center text-white shadow-2xs">
+                          <Sparkles size={11} className="animate-pulse" />
+                        </div>
+                        <span className="text-xs font-bold text-foreground">AI Copywriter</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowCampaignAiPanel(false)}
+                        className="w-5 h-5 rounded-full hover:bg-accent flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                        title="Close AI panel"
+                      >
+                        <ChevronUp size={13} />
+                      </button>
+                    </div>
+
+                    <textarea
+                      placeholder={
+                        !!campaignForm.templateId || (campaignForm.content && campaignForm.content.includes('<table'))
+                          ? "Prompt AI to update or personalize this template..."
+                          : "Prompt AI to draft campaign message..."
+                      }
+                      className="w-full bg-background/90 text-foreground border border-violet-500/25 rounded-xl p-2.5 text-xs placeholder:text-muted-foreground/70 focus:outline-none focus:ring-1 focus:ring-violet-500 resize-none overflow-hidden h-[68px]"
+                      value={aiPrompt}
+                      onChange={e => setAiPrompt(e.target.value)}
+                      autoFocus
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                          e.preventDefault();
+                          handleAiDraftGenerate();
+                        }
+                      }}
+                    />
+
+                    <div className="flex items-center gap-2 pt-0.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowCampaignAiPanel(false);
+                          setAiPrompt("");
+                        }}
+                        className="px-2.5 h-7 rounded-xl border text-[11px] font-semibold text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleAiDraftGenerate}
+                        disabled={aiGenerating || !aiPrompt.trim()}
+                        className="flex-1 btn-primary h-7 text-xs font-bold gap-1.5 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white flex items-center justify-center shadow-md shadow-violet-500/20 rounded-xl transition-all cursor-pointer disabled:opacity-50"
+                      >
+                        {aiGenerating ? (
+                          <><Loader2 size={11} className="animate-spin" /> Composing...</>
+                        ) : (
+                          <><Sparkles size={11} /> Compose with AI</>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="flex gap-2 pt-4 border-t shrink-0">
                 <button
                   type="button"
-                  onClick={() => setIsCampaignModalOpen(false)}
+                  onClick={() => {
+                    resetCampaignModalState();
+                    setIsCampaignModalOpen(false);
+                  }}
                   className="btn-secondary flex-1 text-xs h-9"
                 >
                   Cancel
@@ -3023,9 +4070,9 @@ export default function EmailCenter() {
           </form>
         </DialogContent>
       </Dialog>
-      
+
       {/* --- DIALOG 2: SEGMENT BUILDER DIALOG --- */}
-      <Dialog open={isSegmentModalOpen} onOpenChange={setIsSegmentModalOpen}>
+      <Dialog open={isSegmentModalOpen} onOpenChange={(open) => { if (!open) resetSegmentModalState(); setIsSegmentModalOpen(open); }}>
         <DialogContent className={`w-[95vw] transition-all duration-300 ${segmentForm.type === "dynamic" ? "max-w-lg" : "max-w-3xl"} max-h-[85vh] p-0 flex flex-col overflow-hidden dark:bg-card`}>
           <DialogHeader className="p-5 pb-3 border-b shrink-0">
             <DialogTitle>Create List & Segment</DialogTitle>
@@ -3060,33 +4107,112 @@ export default function EmailCenter() {
               </div>
 
               {/* Segment Selection Method Toggle Pills */}
-              <div className="grid gap-1">
-                <label className="text-xs font-bold text-muted-foreground uppercase">Segment Selection Method</label>
+              <div className="grid gap-1.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <label className="text-xs font-bold text-muted-foreground uppercase">Segment Selection Method</label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          className="inline-flex items-center justify-center p-1 rounded-full text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors focus:outline-none focus:ring-1 focus:ring-primary/40 cursor-pointer"
+                          title="Click to learn about Segment Selection Methods"
+                          aria-label="Learn about segment selection methods"
+                        >
+                          <HelpCircle size={14} className="stroke-[2.2]" />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent 
+                        className="w-[92vw] max-w-[430px] p-4 text-xs space-y-3 z-[100] shadow-2xl border-border bg-card/95 backdrop-blur-md rounded-xl" 
+                        side="bottom" 
+                        align="start"
+                      >
+                        <div className="flex items-start gap-2.5 pb-2.5 border-b">
+                          <div className="p-1.5 rounded-lg bg-primary/10 text-primary shrink-0 mt-0.5">
+                            <Info size={16} />
+                          </div>
+                          <div>
+                            <h4 className="font-bold text-sm text-foreground">Segment Selection Methods</h4>
+                            <p className="text-[11px] text-muted-foreground leading-relaxed mt-0.5">
+                              Segments define the recipient audience for your email campaigns. Choose how you want to curate contacts:
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="space-y-2.5 pt-0.5">
+                          {/* CSV Import */}
+                          <div className="p-2.5 rounded-lg bg-accent/30 border border-border/60 space-y-1">
+                            <div className="flex items-center gap-1.5 font-bold text-violet-600 dark:text-violet-400">
+                              <span className="w-2 h-2 rounded-full bg-violet-500 shrink-0"></span>
+                              <span>1. Import CSV File</span>
+                            </div>
+                            <p className="text-[11px] text-foreground/90 font-medium">
+                              Upload an external spreadsheet (CSV) with contact names and emails.
+                            </p>
+                            <p className="text-[10px] text-muted-foreground">
+                              <strong className="text-foreground/80">How to use:</strong> Upload any <code className="text-primary font-semibold">.csv</code> file, search and pick specific rows, or click "Select All" to bulk import external leads.
+                            </p>
+                          </div>
+
+                          {/* Manual CRM Contacts */}
+                          <div className="p-2.5 rounded-lg bg-accent/30 border border-border/60 space-y-1">
+                            <div className="flex items-center gap-1.5 font-bold text-blue-600 dark:text-blue-400">
+                              <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0"></span>
+                              <span>2. Manual Contacts (CRM & Custom)</span>
+                            </div>
+                            <p className="text-[11px] text-foreground/90 font-medium">
+                              Handpick existing contacts from your CRM database or type ad-hoc emails.
+                            </p>
+                            <p className="text-[10px] text-muted-foreground">
+                              <strong className="text-foreground/80">How to use:</strong> Filter by categories (Main Leads, EA Leads, Team Members), select contacts individually or in bulk, and optionally add custom name/email pairs.
+                            </p>
+                          </div>
+
+                          {/* Sales Campaign */}
+                          <div className="p-2.5 rounded-lg bg-accent/30 border border-border/60 space-y-1">
+                            <div className="flex items-center gap-1.5 font-bold text-amber-600 dark:text-amber-400">
+                              <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0"></span>
+                              <span>3. Sales Campaign</span>
+                            </div>
+                            <p className="text-[11px] text-foreground/90 font-medium">
+                              Target audiences that engaged in previous or active sales campaigns.
+                            </p>
+                            <p className="text-[10px] text-muted-foreground">
+                              <strong className="text-foreground/80">How to use:</strong> Select one or more sales campaigns from the dropdown, preview all linked leads, and select specific leads or all campaign recipients.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="pt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground border-t">
+                          <Sparkles size={12} className="text-primary shrink-0" />
+                          <span>Audience count updates dynamically in the summary strip below.</span>
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                </div>
                 <div className="flex bg-accent/40 border p-1 rounded-xl w-full gap-1">
                   <button
                     type="button"
                     onClick={() => setSegmentForm({ ...segmentForm, type: "csv" })}
-                    className={`flex-1 py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all ${
-                      segmentForm.type === "csv" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
-                    }`}
+                    className={`flex-1 py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all ${segmentForm.type === "csv" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                      }`}
                   >
                     Import CSV File
                   </button>
                   <button
                     type="button"
                     onClick={() => setSegmentForm({ ...segmentForm, type: "static" })}
-                    className={`flex-1 py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all ${
-                      segmentForm.type === "static" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
-                    }`}
+                    className={`flex-1 py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all ${segmentForm.type === "static" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                      }`}
                   >
                     Manual Contacts
                   </button>
                   <button
                     type="button"
                     onClick={() => setSegmentForm({ ...segmentForm, type: "campaign" })}
-                    className={`flex-1 py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all ${
-                      segmentForm.type === "campaign" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
-                    }`}
+                    className={`flex-1 py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all ${segmentForm.type === "campaign" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                      }`}
                   >
                     Sales Campaign
                   </button>
@@ -3150,23 +4276,48 @@ export default function EmailCenter() {
                       </p>
                     </div>
 
-                    <div className="p-4 border-2 border-dashed border-border hover:border-primary/50 rounded-2xl bg-accent/5 text-center space-y-3 transition-colors">
-                      <div className="w-10 h-10 rounded-full bg-violet-500/10 text-violet-500 flex items-center justify-center mx-auto">
+                    <label 
+                      className="group relative block p-5 border-2 border-dashed border-primary/50 hover:border-primary rounded-2xl bg-accent/5 hover:bg-primary/5 text-center space-y-2.5 transition-all duration-200 cursor-pointer shadow-sm"
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const file = e.dataTransfer.files?.[0];
+                        if (file) {
+                          const fakeEvent = {
+                            target: { files: [file] }
+                          } as unknown as React.ChangeEvent<HTMLInputElement>;
+                          handleInlineCsvSelect(fakeEvent);
+                        }
+                      }}
+                    >
+                      <input
+                        type="file"
+                        accept=".csv"
+                        className="hidden"
+                        onChange={handleInlineCsvSelect}
+                      />
+                      <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center mx-auto transition-transform group-hover:scale-110">
                         <Upload size={20} />
                       </div>
-                      <div className="space-y-1">
-                        <label className="btn-secondary text-xs cursor-pointer inline-block py-1.5 px-3">
-                          <span>Browse CSV File</span>
-                          <input
-                            type="file"
-                            accept=".csv"
-                            className="hidden"
-                            onChange={handleInlineCsvSelect}
-                          />
-                        </label>
-                        <p className="text-[10px] text-muted-foreground">Supported format: .csv</p>
+                      <div className="space-y-1.5">
+                        <div className="text-xs font-bold text-foreground group-hover:text-primary transition-colors">
+                          Click anywhere to upload CSV file
+                        </div>
+                        <p className="text-[11px] text-muted-foreground">
+                          or drag and drop your file here
+                        </p>
+                        <div className="inline-block mt-1">
+                          <span className="btn-secondary text-xs py-1 px-3 pointer-events-none group-hover:border-primary/40 inline-flex items-center gap-1.5">
+                            <Upload size={12} /> Browse CSV File
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground pt-0.5">Supported format: .csv</p>
                       </div>
-                    </div>
+                    </label>
 
                     {csvFileName && (
                       <div className="p-3 border rounded-xl bg-violet-500/5 border-violet-500/20 text-xs space-y-1">
@@ -3190,14 +4341,14 @@ export default function EmailCenter() {
                     </div>
 
                     {/* Search Filter */}
-                    <div className="relative">
-                      <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                    <div className="relative flex items-center">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
                       <input
                         type="text"
                         placeholder="Filter CSV contacts..."
                         value={csvSearchQuery}
                         onChange={e => setCsvSearchQuery(e.target.value)}
-                        className="pl-8 h-8.5 input-field text-xs"
+                        className="!pl-9 pr-3 h-8.5 input-field text-xs w-full"
                       />
                     </div>
 
@@ -3244,16 +4395,15 @@ export default function EmailCenter() {
                                     : [...prev, contact.email]
                                 );
                               }}
-                              className={`flex items-start gap-2.5 p-2 rounded-lg cursor-pointer transition-colors border ${
-                                isSelected
+                              className={`flex items-start gap-2.5 p-2 rounded-lg cursor-pointer transition-colors border ${isSelected
                                   ? "bg-violet-500/5 border-violet-500/20 text-foreground"
                                   : "hover:bg-accent/30 border-transparent text-muted-foreground hover:text-foreground"
-                              }`}
+                                }`}
                             >
                               <input
                                 type="checkbox"
                                 checked={isSelected}
-                                onChange={() => {}}
+                                onChange={() => { }}
                                 className="rounded mt-0.5 pointer-events-none shrink-0"
                               />
                               <div className="flex-1 min-w-0 text-left">
@@ -3385,11 +4535,10 @@ export default function EmailCenter() {
                           key={cat.id}
                           type="button"
                           onClick={() => setContactCategoryFilter(cat.id as any)}
-                          className={`flex-1 py-1 text-[10px] font-bold rounded-md transition-colors ${
-                            contactCategoryFilter === cat.id
+                          className={`flex-1 py-1 text-[10px] font-bold rounded-md transition-colors ${contactCategoryFilter === cat.id
                               ? "bg-primary text-white shadow-xs"
                               : "text-muted-foreground hover:text-foreground"
-                          }`}
+                            }`}
                         >
                           {cat.label}
                         </button>
@@ -3397,14 +4546,14 @@ export default function EmailCenter() {
                     </div>
 
                     {/* Search box */}
-                    <div className="relative">
-                      <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                    <div className="relative flex items-center">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
                       <input
                         type="text"
                         placeholder="Search by name or email..."
                         value={contactsSearchQuery}
                         onChange={e => setContactsSearchQuery(e.target.value)}
-                        className="pl-8 h-8.5 input-field text-xs"
+                        className="!pl-9 pr-3 h-8.5 input-field text-xs w-full"
                       />
                     </div>
 
@@ -3453,16 +4602,15 @@ export default function EmailCenter() {
                             <div
                               key={contact._id}
                               onClick={() => toggleContactSelection(contact._id, contact.leadType)}
-                              className={`flex items-start gap-2.5 p-2 rounded-lg cursor-pointer transition-colors border ${
-                                isSelected
+                              className={`flex items-start gap-2.5 p-2 rounded-lg cursor-pointer transition-colors border ${isSelected
                                   ? "bg-primary/5 border-primary/20 text-foreground"
                                   : "hover:bg-accent/30 border-transparent text-muted-foreground hover:text-foreground"
-                              }`}
+                                }`}
                             >
                               <input
                                 type="checkbox"
                                 checked={isSelected}
-                                onChange={() => {}}
+                                onChange={() => { }}
                                 className="rounded mt-0.5 pointer-events-none shrink-0"
                               />
                               <div className="flex-1 min-w-0 text-left">
@@ -3470,11 +4618,10 @@ export default function EmailCenter() {
                                   <span className="font-bold text-xs truncate text-foreground leading-tight">
                                     {contact.name}
                                   </span>
-                                  <span className={`text-[8px] font-extrabold uppercase px-1.5 py-0.2 rounded ${
-                                    contact.leadType === "ea_lead" ? "bg-violet-500/10 text-violet-500" :
-                                    contact.leadType === "team_member" ? "bg-emerald-500/10 text-emerald-500" :
-                                    "bg-blue-500/10 text-blue-500"
-                                  }`}>
+                                  <span className={`text-[8px] font-extrabold uppercase px-1.5 py-0.2 rounded ${contact.leadType === "ea_lead" ? "bg-violet-500/10 text-violet-500" :
+                                      contact.leadType === "team_member" ? "bg-emerald-500/10 text-emerald-500" :
+                                        "bg-blue-500/10 text-blue-500"
+                                    }`}>
                                     {contact.leadType === "ea_lead" ? "EA" : contact.leadType === "team_member" ? "Team" : "CRM"}
                                   </span>
                                 </div>
@@ -3492,41 +4639,181 @@ export default function EmailCenter() {
               ) : segmentForm.type === "campaign" ? (
                 /* Target Sales Campaign 2-Column Grid */
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 border-t pt-4 animate-in fade-in duration-200">
-                  {/* Left Column: Target Sales Campaign Selector */}
-                  <div className="space-y-4">
+                  {/* Left Column: Target Sales Campaign Dropdown with Checkboxes */}
+                  <div className="space-y-3 flex flex-col h-full min-h-0 text-left">
                     <div className="space-y-1 text-left">
-                      <h4 className="text-xs font-bold uppercase text-primary">Target CRM Sales Campaign</h4>
+                      <h4 className="text-xs font-bold uppercase text-primary">Target CRM Sales Campaigns</h4>
                       <p className="text-xs text-muted-foreground leading-relaxed">
-                        Select a Sales Campaign from your sales funnel. All contacts attached to leads inside this campaign will be automatically targeted.
+                        Select one or more Sales Campaigns from your sales funnel. All contacts attached to leads inside selected campaigns will be automatically aggregated.
                       </p>
                     </div>
 
-                    <div className="grid gap-1">
-                      <label className="text-[10px] font-bold text-muted-foreground uppercase">Select Sales Campaign <span className="text-destructive">*</span></label>
-                      <select
-                        className="input-field text-xs dark:bg-card"
-                        value={segmentForm.filters.campaignId}
-                        onChange={e => setSegmentForm({
-                          ...segmentForm,
-                          filters: { ...segmentForm.filters, campaignId: e.target.value }
-                        })}
-                        required={segmentForm.type === "campaign"}
-                      >
-                        <option value="">Select Sales Campaign...</option>
-                        {salesCampaigns.map(camp => (
-                          <option key={camp._id} value={camp._id}>{camp.name}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {segmentForm.filters.campaignId && (
-                      <div className="p-3 border rounded-xl bg-amber-500/5 border-amber-500/20 text-xs space-y-1 text-left">
-                        <span className="font-bold text-amber-600 dark:text-amber-400 block">Campaign Target Selected</span>
-                        <p className="text-[11px] text-muted-foreground">
-                          Contacts matching this sales campaign will be resolved automatically upon campaign delivery.
-                        </p>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[10px] font-bold text-muted-foreground uppercase">
+                          Select Sales Campaigns <span className="text-destructive">*</span>
+                        </label>
+                        <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-bold">
+                          {(segmentForm.filters.campaignIds?.length || (segmentForm.filters.campaignId ? 1 : 0))} Selected
+                        </span>
                       </div>
-                    )}
+
+                      {/* Dropdown Trigger Button */}
+                      <div className="relative" ref={salesCampaignDropdownRef}>
+                        <button
+                          type="button"
+                          onClick={() => setIsSalesCampaignDropdownOpen(prev => !prev)}
+                          className="w-full h-10 px-3 py-2 text-xs bg-background text-foreground border border-input rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/20 flex items-center justify-between shadow-2xs font-medium cursor-pointer"
+                        >
+                          <div className="flex items-center gap-2 truncate text-left">
+                            <Folder size={14} className="text-primary shrink-0" />
+                            <span className={`truncate ${(segmentForm.filters.campaignIds?.length || (segmentForm.filters.campaignId ? 1 : 0)) === 0 ? "text-muted-foreground" : "text-foreground font-bold"}`}>
+                              {(segmentForm.filters.campaignIds?.length || (segmentForm.filters.campaignId ? 1 : 0)) === 0
+                                ? "Select Sales Campaigns..."
+                                : (segmentForm.filters.campaignIds?.length || 1) === 1
+                                  ? getSalesCampaignName(salesCampaigns.find(c => (segmentForm.filters.campaignIds || []).includes(c._id) || segmentForm.filters.campaignId === c._id))
+                                  : `${segmentForm.filters.campaignIds?.length || 1} Campaigns Selected`}
+                            </span>
+                          </div>
+                          <ChevronDown size={14} className={`text-muted-foreground transition-transform duration-200 ${isSalesCampaignDropdownOpen ? "rotate-180" : ""}`} />
+                        </button>
+
+                        {/* Dropdown Popover Panel */}
+                        {isSalesCampaignDropdownOpen && (
+                          <div className="absolute z-50 left-0 right-0 mt-1 p-2 bg-card border rounded-2xl shadow-xl space-y-2 animate-in fade-in zoom-in-95 duration-150">
+                            {/* Search & Actions inside Dropdown */}
+                            <div className="flex items-center gap-2">
+                              <div className="relative flex-1">
+                                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                                <input
+                                  type="text"
+                                  placeholder="Search campaigns..."
+                                  value={salesCampaignSearch}
+                                  onChange={e => setSalesCampaignSearch(e.target.value)}
+                                  className="!pl-8 pr-2 h-7.5 input-field text-xs w-full bg-background"
+                                  autoFocus
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const allFilteredIds = filteredSalesCampaigns.map(c => c._id);
+                                  setSegmentForm(prev => ({
+                                    ...prev,
+                                    filters: {
+                                      ...prev.filters,
+                                      campaignIds: Array.from(new Set([...(prev.filters.campaignIds || []), ...allFilteredIds])),
+                                      campaignId: allFilteredIds[0] || prev.filters.campaignId
+                                    }
+                                  }));
+                                }}
+                                className="text-[10px] text-primary hover:underline font-semibold shrink-0 cursor-pointer"
+                              >
+                                Select All
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSegmentForm(prev => ({
+                                    ...prev,
+                                    filters: {
+                                      ...prev.filters,
+                                      campaignIds: [],
+                                      campaignId: ""
+                                    }
+                                  }));
+                                }}
+                                className="text-[10px] text-destructive hover:underline font-semibold shrink-0 cursor-pointer"
+                              >
+                                Clear
+                              </button>
+                            </div>
+
+                            {/* Checkbox List */}
+                            <div className="max-h-48 overflow-y-auto space-y-1 custom-scrollbar pr-1">
+                              {salesCampaigns.length === 0 ? (
+                                <p className="text-center py-4 text-xs text-muted-foreground">No campaigns found.</p>
+                              ) : filteredSalesCampaigns.length === 0 ? (
+                                <p className="text-center py-4 text-xs text-muted-foreground">No matching campaigns.</p>
+                              ) : (
+                                filteredSalesCampaigns.map(camp => {
+                                  const isChecked = (segmentForm.filters.campaignIds || []).includes(camp._id) || segmentForm.filters.campaignId === camp._id;
+                                  const campName = getSalesCampaignName(camp);
+                                  return (
+                                    <label
+                                      key={camp._id}
+                                      className={`flex items-center gap-2.5 p-2 rounded-lg border text-xs cursor-pointer transition-all ${
+                                        isChecked
+                                          ? "bg-primary/10 border-primary/40 font-bold text-foreground shadow-2xs"
+                                          : "border-transparent hover:bg-accent/40 text-muted-foreground hover:text-foreground"
+                                      }`}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={isChecked}
+                                        onChange={() => {
+                                          const current = segmentForm.filters.campaignIds || (segmentForm.filters.campaignId ? [segmentForm.filters.campaignId] : []);
+                                          const updated = isChecked ? current.filter(id => id !== camp._id) : [...current, camp._id];
+                                          setSegmentForm({
+                                            ...segmentForm,
+                                            filters: {
+                                              ...segmentForm.filters,
+                                              campaignIds: updated,
+                                              campaignId: updated[0] || ""
+                                            }
+                                          });
+                                        }}
+                                        className="rounded border-input text-primary focus:ring-primary h-4 w-4 shrink-0 cursor-pointer"
+                                      />
+                                      <Folder className={`h-3.5 w-3.5 shrink-0 ${isChecked ? "text-primary" : "text-muted-foreground"}`} />
+                                      <span className="truncate flex-1 text-left">{campName}</span>
+                                    </label>
+                                  );
+                                })
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Selected Campaign Removable Chips */}
+                      {(segmentForm.filters.campaignIds?.length || (segmentForm.filters.campaignId ? 1 : 0)) > 0 && (
+                        <div className="flex flex-wrap gap-1.5 pt-1">
+                          {salesCampaigns
+                            .filter(c => (segmentForm.filters.campaignIds || []).includes(c._id) || segmentForm.filters.campaignId === c._id)
+                            .map(c => {
+                              const cName = getSalesCampaignName(c);
+                              return (
+                                <span
+                                  key={c._id}
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-primary/10 border border-primary/20 text-primary text-[11px] font-bold shadow-2xs"
+                                >
+                                  <Folder size={10} />
+                                  <span className="max-w-[140px] truncate">{cName}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const current = segmentForm.filters.campaignIds || (segmentForm.filters.campaignId ? [segmentForm.filters.campaignId] : []);
+                                      const updated = current.filter(id => id !== c._id);
+                                      setSegmentForm({
+                                        ...segmentForm,
+                                        filters: {
+                                          ...segmentForm.filters,
+                                          campaignIds: updated,
+                                          campaignId: updated[0] || ""
+                                        }
+                                      });
+                                    }}
+                                    className="hover:text-destructive transition-colors ml-0.5 cursor-pointer"
+                                  >
+                                    <X size={11} />
+                                  </button>
+                                </span>
+                              );
+                            })}
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   {/* Right Column: Live Searchable Campaign Contacts Checklist with Checkboxes */}
@@ -3539,14 +4826,14 @@ export default function EmailCenter() {
                     </div>
 
                     {/* Search Box for Preview Contacts */}
-                    <div className="relative">
-                      <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                    <div className="relative flex items-center">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
                       <input
                         type="text"
                         placeholder="Filter contacts by name or email..."
                         value={campaignPreviewSearch}
                         onChange={e => setCampaignPreviewSearch(e.target.value)}
-                        className="pl-8 h-8.5 input-field text-xs"
+                        className="!pl-9 pr-3 h-8.5 input-field text-xs w-full"
                       />
                     </div>
 
@@ -3598,16 +4885,15 @@ export default function EmailCenter() {
                                     : [...prev, contactId]
                                 );
                               }}
-                              className={`flex items-start gap-2.5 p-2 rounded-lg cursor-pointer transition-colors border ${
-                                isSelected
+                              className={`flex items-start gap-2.5 p-2 rounded-lg cursor-pointer transition-colors border ${isSelected
                                   ? "bg-amber-500/5 border-amber-500/20 text-foreground"
                                   : "hover:bg-accent/30 border-transparent text-muted-foreground hover:text-foreground"
-                              }`}
+                                }`}
                             >
                               <input
                                 type="checkbox"
                                 checked={isSelected}
-                                onChange={() => {}}
+                                onChange={() => { }}
                                 className="rounded mt-0.5 pointer-events-none shrink-0"
                               />
                               <div className="flex-1 min-w-0 text-left">
@@ -3634,7 +4920,7 @@ export default function EmailCenter() {
                 /* Dynamic Rule Filters Single Column */
                 <div className="space-y-3 pt-2 border-t animate-in fade-in duration-200">
                   <h4 className="text-xs font-bold uppercase text-primary">Dynamic Rule Filters</h4>
-                  
+
                   <div className="grid gap-1">
                     <label className="text-[10px] font-bold text-muted-foreground uppercase">Source Filter</label>
                     <input
@@ -3697,7 +4983,10 @@ export default function EmailCenter() {
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setIsSegmentModalOpen(false)}
+                  onClick={() => {
+                    resetSegmentModalState();
+                    setIsSegmentModalOpen(false);
+                  }}
                   className="btn-secondary text-xs h-9"
                 >
                   Cancel
@@ -3720,7 +5009,7 @@ export default function EmailCenter() {
       </Dialog>
 
       {/* --- DIALOG 3: IMPORT CSV RECIPIENTS MODAL --- */}
-      <Dialog open={isImportModalOpen} onOpenChange={setIsImportModalOpen}>
+      <Dialog open={isImportModalOpen} onOpenChange={(open) => { if (!open) resetImportModalState(); setIsImportModalOpen(open); }}>
         <DialogContent className="w-[95vw] max-w-3xl max-h-[85vh] p-0 flex flex-col overflow-hidden dark:bg-card">
           <DialogHeader className="p-5 pb-3 border-b shrink-0 bg-card">
             <DialogTitle className="text-base font-extrabold text-foreground flex items-center gap-2">
@@ -3796,14 +5085,14 @@ export default function EmailCenter() {
                 </div>
 
                 {/* Search */}
-                <div className="relative">
-                  <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                <div className="relative flex items-center">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
                   <input
                     type="text"
                     placeholder="Filter parsed contacts..."
                     value={importCsvSearchQuery}
                     onChange={e => setImportCsvSearchQuery(e.target.value)}
-                    className="pl-8 h-8.5 input-field text-xs w-full"
+                    className="!pl-9 pr-3 h-8.5 input-field text-xs w-full"
                   />
                 </div>
 
@@ -3850,16 +5139,15 @@ export default function EmailCenter() {
                                 : [...prev, contact.email]
                             );
                           }}
-                          className={`flex items-start gap-2.5 p-2 rounded-lg cursor-pointer transition-colors border ${
-                            isSelected
+                          className={`flex items-start gap-2.5 p-2 rounded-lg cursor-pointer transition-colors border ${isSelected
                               ? "bg-primary/5 border-primary/20 text-foreground"
                               : "hover:bg-accent/30 border-transparent text-muted-foreground hover:text-foreground"
-                          }`}
+                            }`}
                         >
                           <input
                             type="checkbox"
                             checked={isSelected}
-                            onChange={() => {}}
+                            onChange={() => { }}
                             className="rounded mt-0.5 pointer-events-none shrink-0"
                           />
                           <div className="flex-1 min-w-0 text-left">
@@ -3886,7 +5174,10 @@ export default function EmailCenter() {
             <DialogFooter className="pt-3 border-t flex items-center justify-end gap-2 shrink-0">
               <button
                 type="button"
-                onClick={() => setIsImportModalOpen(false)}
+                onClick={() => {
+                  resetImportModalState();
+                  setIsImportModalOpen(false);
+                }}
                 className="btn-secondary text-xs h-9 px-4"
               >
                 Cancel
@@ -3915,11 +5206,10 @@ export default function EmailCenter() {
               <DialogTitle className="text-base flex items-center gap-2.5 text-foreground font-extrabold tracking-tight">
                 <BarChart3 className="text-primary h-5 w-5 shrink-0" />
                 <span>{selectedCampaign?.title || "Campaign Analytics"}</span>
-                <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-extrabold uppercase border shrink-0 ${
-                  selectedCampaign?.status === "sent" ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20" :
-                  selectedCampaign?.status === "scheduled" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20" :
-                  "bg-zinc-500/10 text-zinc-600 dark:text-zinc-400 border-zinc-500/20"
-                }`}>
+                <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-extrabold uppercase border shrink-0 ${selectedCampaign?.status === "sent" ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20" :
+                    selectedCampaign?.status === "scheduled" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20" :
+                      "bg-zinc-500/10 text-zinc-600 dark:text-zinc-400 border-zinc-500/20"
+                  }`}>
                   {selectedCampaign?.status || "draft"}
                 </span>
               </DialogTitle>
@@ -4046,11 +5336,10 @@ export default function EmailCenter() {
                         key={tab.id}
                         type="button"
                         onClick={() => setCampaignRecipientFilter(tab.id as any)}
-                        className={`px-2.5 py-1 rounded-lg font-bold border transition-colors ${
-                          campaignRecipientFilter === tab.id
+                        className={`px-2.5 py-1 rounded-lg font-bold border transition-colors ${campaignRecipientFilter === tab.id
                             ? "bg-primary text-white border-primary"
                             : "bg-accent/20 hover:bg-accent/40 text-muted-foreground border-border/60"
-                        }`}
+                          }`}
                       >
                         {tab.label}
                       </button>
@@ -4063,8 +5352,8 @@ export default function EmailCenter() {
                   {!selectedCampaign.recipientLogs || selectedCampaign.recipientLogs.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-14 text-center text-muted-foreground">
                       <Mail size={36} className="opacity-40 mb-2" />
-                      <p className="text-xs font-semibold">No recipient dispatch logs found for this campaign.</p>
-                      <p className="text-[11px] text-muted-foreground mt-0.5">Logs will populate automatically when the campaign is dispatched.</p>
+                      <p className="text-xs font-semibold">No recipient logs found for this campaign.</p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">Logs will populate automatically when the campaign is sent.</p>
                     </div>
                   ) : filteredCampaignRecipients.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-14 text-center text-muted-foreground">
@@ -4112,18 +5401,16 @@ export default function EmailCenter() {
                           {/* Right: Event Badges Stack */}
                           <div className="flex flex-wrap items-center gap-1.5 shrink-0 justify-start sm:justify-end">
                             {/* Delivery / Blocked Badge */}
-                            <span className={`text-[9px] font-extrabold uppercase px-2.5 py-0.5 rounded-full border ${
-                              isDelivered ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" :
-                              isBouncedOrBlocked ? "bg-rose-500/10 text-rose-500 border-rose-500/20" :
-                              "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
-                            }`}>
-                              {isDelivered ? "Delivered" : isBouncedOrBlocked ? "Blocked / Bounced" : "Dispatched (Pending Webhook)"}
+                            <span className={`text-[9px] font-extrabold uppercase px-2.5 py-0.5 rounded-full border ${isDelivered ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" :
+                                isBouncedOrBlocked ? "bg-rose-500/10 text-rose-500 border-rose-500/20" :
+                                  "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
+                              }`}>
+                              {isDelivered ? "Delivered" : isBouncedOrBlocked ? "Blocked / Bounced" : "Delivered"}
                             </span>
 
                             {/* Open Badge */}
-                            <span className={`text-[9px] font-extrabold uppercase px-2.5 py-0.5 rounded-full border ${
-                              isOpened ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20" : "bg-accent/40 text-muted-foreground border-border/50"
-                            }`}>
+                            <span className={`text-[9px] font-extrabold uppercase px-2.5 py-0.5 rounded-full border ${isOpened ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20" : "bg-accent/40 text-muted-foreground border-border/50"
+                              }`}>
                               {isOpened ? "Opened" : "Not Opened"}
                             </span>
 
@@ -4183,14 +5470,13 @@ export default function EmailCenter() {
                   <Users className="text-primary h-5 w-5 shrink-0" />
                   {selectedSegmentForView?.name || "Segment Contacts"}
                 </DialogTitle>
-                <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-extrabold uppercase shrink-0 border ${
-                  selectedSegmentForView?.type === "csv" ? "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20" :
-                  selectedSegmentForView?.type === "campaign" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20" :
-                  "bg-teal-500/10 text-teal-600 dark:text-teal-400 border-teal-500/20"
-                }`}>
+                <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-extrabold uppercase shrink-0 border ${selectedSegmentForView?.type === "csv" ? "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20" :
+                    selectedSegmentForView?.type === "campaign" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20" :
+                      "bg-teal-500/10 text-teal-600 dark:text-teal-400 border-teal-500/20"
+                  }`}>
                   {selectedSegmentForView?.type === "csv" ? "CSV Import" :
-                   selectedSegmentForView?.type === "campaign" ? "Sales Campaign" :
-                   selectedSegmentForView?.type || "Static List"}
+                    selectedSegmentForView?.type === "campaign" ? "Sales Campaign" :
+                      selectedSegmentForView?.type || "Static List"}
                 </span>
               </div>
               {selectedSegmentForView?.description && (
@@ -4271,9 +5557,8 @@ export default function EmailCenter() {
                         >
                           {isCopied ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
                         </button>
-                        <span className={`text-[9px] font-extrabold uppercase px-2.5 py-0.5 rounded-full shrink-0 border flex items-center gap-1 ${
-                          contact.status === "active" ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" : "bg-destructive/10 text-destructive border-destructive/20"
-                        }`}>
+                        <span className={`text-[9px] font-extrabold uppercase px-2.5 py-0.5 rounded-full shrink-0 border flex items-center gap-1 ${contact.status === "active" ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" : "bg-destructive/10 text-destructive border-destructive/20"
+                          }`}>
                           <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
                           {contact.status || "active"}
                         </span>
@@ -4346,7 +5631,7 @@ export default function EmailCenter() {
       </Dialog>
 
       {/* --- GROQ AI TEMPLATE GENERATOR & LIVE PREVIEW WORKSPACE MODAL --- */}
-      <Dialog open={isAiTemplateModalOpen} onOpenChange={setIsAiTemplateModalOpen}>
+      <Dialog open={isAiTemplateModalOpen} onOpenChange={(open) => { if (!open) resetAiTemplateModalState(); setIsAiTemplateModalOpen(open); }}>
         <DialogContent className="sm:max-w-[1150px] w-[95vw] max-h-[90vh] p-0 rounded-3xl border shadow-2xl overflow-hidden bg-card flex flex-col">
           {/* Modal Header */}
           <div className="p-5 border-b bg-card flex items-center justify-between shrink-0">
@@ -4481,10 +5766,10 @@ export default function EmailCenter() {
                 <button
                   type="submit"
                   disabled={isGeneratingAiTemplate || !aiPromptInput.trim()}
-                  className="w-full h-10 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer"
+                  className="w-full h-10 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer disabled:opacity-50"
                 >
                   {isGeneratingAiTemplate ? (
-                    <><Loader2 size={15} className="animate-spin" /> Generating HTML Layout with Anthropic AI...</>
+                    <><Loader2 size={14} className="animate-spin text-white" /> AI is generating the template, please wait...</>
                   ) : (
                     <><Sparkles size={15} /> Generate HTML Template (Anthropic AI)</>
                   )}
@@ -4499,15 +5784,19 @@ export default function EmailCenter() {
                   disabled={isSavingTemplate || !aiDraftTemplate}
                   className="flex-1 h-9 bg-primary text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm hover:bg-primary/95 transition-all cursor-pointer disabled:opacity-50"
                 >
-                  {isSavingTemplate ? <Loader2 size={13} className="animate-spin" /> : <><Check size={13} /> Save to Database</>}
+                  {isSavingTemplate ? <Loader2 size={13} className="animate-spin" /> : <><Check size={13} /> Save Template</>}
                 </button>
                 <button
                   type="button"
                   onClick={handleUseDraftInCampaign}
-                  disabled={!aiDraftTemplate}
+                  disabled={isSavingTemplate || !aiDraftTemplate}
                   className="flex-1 h-9 bg-indigo-600 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm hover:bg-indigo-700 transition-all cursor-pointer disabled:opacity-50"
                 >
-                  Use in Campaign <ChevronRight size={13} />
+                  {isSavingTemplate ? (
+                    <><Loader2 size={13} className="animate-spin" /> Saving & Loading...</>
+                  ) : (
+                    <>Use in Campaign <ChevronRight size={13} /></>
+                  )}
                 </button>
               </div>
             </div>
@@ -4515,31 +5804,94 @@ export default function EmailCenter() {
             {/* RIGHT COLUMN: Live Visual Preview & Editor Canvas (7 Cols) */}
             <div className="lg:col-span-7 bg-accent/10 p-5 flex flex-col min-h-0 space-y-3 overflow-hidden text-left">
               {/* Header Bar with View Switcher */}
-              <div className="flex items-center justify-between shrink-0 bg-card p-2 px-3 rounded-xl border">
+              <div className="flex items-center justify-between shrink-0 bg-card p-2 px-3 rounded-xl border flex-wrap gap-2">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
-                    <Eye size={14} className="text-primary" /> Email Preview Window
+                    <Eye size={14} className="text-primary" /> Template Workspace
                   </span>
+                  {aiDraftTemplate && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const currentContent = (previewTab === 'editor' && aiTemplateEditorRef.current)
+                          ? aiTemplateEditorRef.current.innerHTML
+                          : (aiDraftTemplate.content || '');
+                        setSelectedTemplateForPreview({
+                          _id: 'ai-temp-preview',
+                          name: templateNameInput || aiDraftTemplate.name || 'AI Template Preview',
+                          category: aiCategoryInput || aiDraftTemplate.category || 'General',
+                          subject: templateSubjectInput || aiDraftTemplate.subject || 'Subject Preview',
+                          content: currentContent
+                        });
+                        setTemplatePreviewMode('visual');
+                        setIsTemplatePreviewModalOpen(true);
+                      }}
+                      className="px-2 py-1 rounded-lg border text-[11px] font-bold text-primary hover:bg-primary/10 flex items-center gap-1 transition-colors cursor-pointer"
+                      title="Open in Full Screen Flow Preview"
+                    >
+                      <Maximize2 size={11} /> Full View / Flow
+                    </button>
+                  )}
                 </div>
 
-                <div className="flex items-center bg-accent/60 p-0.5 rounded-lg border text-[11px]">
+                <div className="flex items-center bg-muted/60 dark:bg-muted/30 border border-border/80 p-0.5 rounded-xl text-xs gap-0.5 shadow-2xs">
                   <button
                     type="button"
-                    onClick={() => setPreviewTab("visual")}
-                    className={`px-3 py-1 rounded-md font-bold transition-all cursor-pointer ${
-                      previewTab === "visual" ? "bg-card text-foreground shadow-2xs" : "text-muted-foreground hover:text-foreground"
+                    onClick={() => {
+                      if (previewTab === 'editor' && aiTemplateEditorRef.current && aiDraftTemplate) {
+                        setAiDraftTemplate(prev => prev ? ({ ...prev, content: aiTemplateEditorRef.current?.innerHTML || prev.content }) : null);
+                      }
+                      setPreviewTab("visual");
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      previewTab === "visual"
+                        ? "bg-card text-foreground shadow-xs border border-border/60 font-bold"
+                        : "text-muted-foreground hover:text-foreground hover:bg-card/40"
                     }`}
                   >
-                    👁️ Visual Live
+                    <Eye size={12} className={previewTab === "visual" ? "text-primary" : "text-muted-foreground"} />
+                    <span>Live Preview</span>
                   </button>
+
                   <button
                     type="button"
-                    onClick={() => setPreviewTab("code")}
-                    className={`px-3 py-1 rounded-md font-bold transition-all cursor-pointer ${
-                      previewTab === "code" ? "bg-card text-foreground shadow-2xs" : "text-muted-foreground hover:text-foreground"
+                    onClick={() => {
+                      setPreviewTab("editor");
+                      setTimeout(() => {
+                        if (aiTemplateEditorRef.current && aiDraftTemplate?.content) {
+                          if (aiTemplateEditorRef.current.innerHTML !== aiDraftTemplate.content) {
+                            aiTemplateEditorRef.current.innerHTML = aiDraftTemplate.content;
+                          }
+                          aiTemplateEditorRef.current.focus();
+                        }
+                      }, 0);
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      previewTab === "editor"
+                        ? "bg-card text-foreground shadow-xs border border-border/60 font-bold"
+                        : "text-muted-foreground hover:text-foreground hover:bg-card/40"
                     }`}
                   >
-                    ✏️ HTML Source
+                    <PenLine size={12} className={previewTab === "editor" ? "text-primary" : "text-muted-foreground"} />
+                    <span>Write Content</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (previewTab === 'editor' && aiTemplateEditorRef.current && aiDraftTemplate) {
+                        setAiDraftTemplate(prev => prev ? ({ ...prev, content: aiTemplateEditorRef.current?.innerHTML || prev.content }) : null);
+                      }
+                      setPreviewTab("code");
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      previewTab === "code"
+                        ? "bg-card text-foreground shadow-xs border border-border/60 font-bold"
+                        : "text-muted-foreground hover:text-foreground hover:bg-card/40"
+                    }`}
+                  >
+                    <Code2 size={12} className={previewTab === "code" ? "text-primary" : "text-muted-foreground"} />
+                    <span>HTML Code</span>
                   </button>
                 </div>
               </div>
@@ -4547,10 +5899,38 @@ export default function EmailCenter() {
               {/* Rendered Canvas / Frame */}
               <div className="flex-1 border rounded-2xl overflow-y-auto custom-scrollbar bg-card shadow-inner flex flex-col min-h-0">
                 {isGeneratingAiTemplate ? (
-                  <div className="flex flex-col items-center justify-center py-24 space-y-3 text-center flex-1">
-                    <Loader2 className="animate-spin text-violet-600 h-10 w-10" />
-                    <p className="text-xs font-bold text-foreground">Anthropic AI is designing your template layout...</p>
-                    <p className="text-[11px] text-muted-foreground">Writing responsive HTML, CSS styles, and content.</p>
+                  <div className="flex flex-col items-center justify-center py-16 px-6 space-y-4 text-center flex-1 animate-in fade-in zoom-in-95 duration-300">
+                    <div className="relative">
+                      <div className="absolute -inset-4 rounded-full bg-gradient-to-r from-violet-600/30 to-indigo-600/30 blur-lg animate-pulse" />
+                      <div className="relative h-14 w-14 rounded-2xl bg-gradient-to-tr from-violet-600 to-indigo-600 flex items-center justify-center text-white shadow-xl shadow-violet-500/25">
+                        <Sparkles size={24} className="animate-pulse text-amber-300" />
+                        <Loader2 size={32} className="absolute animate-spin text-white/40" />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5 max-w-md">
+                      <h4 className="text-sm font-black text-foreground tracking-tight">
+                        AI is generating the template, please wait...
+                      </h4>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        Anthropic Claude is writing responsive email HTML, copy, and button layouts.
+                      </p>
+                    </div>
+
+                    {/* Animated Wireframe Skeleton */}
+                    <div className="w-full max-w-sm rounded-2xl border border-violet-500/20 bg-background/80 p-4 space-y-2.5 shadow-sm text-left animate-pulse mt-2">
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-lg bg-violet-500/20 shrink-0" />
+                        <div className="h-3.5 bg-violet-500/20 rounded-md w-28" />
+                      </div>
+                      <div className="h-14 bg-gradient-to-r from-violet-500/15 via-indigo-500/10 to-transparent rounded-xl" />
+                      <div className="space-y-1.5">
+                        <div className="h-2.5 bg-muted rounded-md w-full" />
+                        <div className="h-2.5 bg-muted rounded-md w-4/5" />
+                        <div className="h-2.5 bg-muted rounded-md w-2/3" />
+                      </div>
+                      <div className="h-7 bg-violet-600/30 rounded-xl w-28 mx-auto" />
+                    </div>
                   </div>
                 ) : !aiDraftTemplate ? (
                   <div className="flex flex-col items-center justify-center py-24 space-y-3 text-center flex-1 p-6">
@@ -4565,16 +5945,210 @@ export default function EmailCenter() {
                     </div>
                   </div>
                 ) : (
-                  <div className="flex flex-col min-h-full">
-                    {/* Content View */}
-                    {previewTab === "visual" ? (
-                      <div 
-                        className="p-6 flex-1 text-foreground text-sm space-y-3 prose dark:prose-invert max-w-none custom-scrollbar overflow-y-auto"
-                        dangerouslySetInnerHTML={{ 
-                          __html: aiDraftTemplate.content.replace(/\{\{name\}\}/gi, "John Doe") 
+                  <div className="flex flex-col min-h-full flex-1">
+                    {/* Mode 1: Visual Live Preview */}
+                    {previewTab === "visual" && (
+                      <div
+                        className="p-6 flex-1 text-foreground text-sm space-y-3 prose dark:prose-invert max-w-none custom-scrollbar overflow-y-auto [&_table]:max-w-[600px] [&_table]:w-full [&_table]:mx-auto [&_table]:border-collapse"
+                        dangerouslySetInnerHTML={{
+                          __html: aiDraftTemplate.content.replace(/\{\{name\}\}/gi, "John Doe")
                         }}
                       />
-                    ) : (
+                    )}
+
+                    {/* Mode 2: Write Content (Rich WYSIWYG Editor) */}
+                    {previewTab === "editor" && (
+                      <div className="flex flex-col flex-1 overflow-hidden min-h-0">
+                        {/* Formatting Toolbar */}
+                        <div className="flex items-center gap-0.5 px-3 py-1.5 border-b bg-card shrink-0 flex-wrap relative">
+                          <button
+                            type="button"
+                            onMouseDown={e => e.preventDefault()}
+                            onClick={() => execAiEditorFormat('undo')}
+                            title="Undo (Ctrl+Z)"
+                            className="h-6.5 w-6.5 rounded-lg flex items-center justify-center transition-colors cursor-pointer hover:bg-accent text-muted-foreground hover:text-foreground"
+                          >
+                            <RotateCcw size={11} />
+                          </button>
+                          <button
+                            type="button"
+                            onMouseDown={e => e.preventDefault()}
+                            onClick={() => execAiEditorFormat('redo')}
+                            title="Redo (Ctrl+Y)"
+                            className="h-6.5 w-6.5 rounded-lg flex items-center justify-center transition-colors cursor-pointer hover:bg-accent text-muted-foreground hover:text-foreground"
+                          >
+                            <RotateCw size={11} />
+                          </button>
+
+                          <div className="w-px h-4 bg-border mx-1" />
+
+                          <button
+                            type="button"
+                            onMouseDown={e => e.preventDefault()}
+                            onClick={() => execAiEditorFormat('bold')}
+                            title="Bold"
+                            className={`h-6.5 w-6.5 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${aiEditorActiveFormats.bold ? 'bg-primary/20 text-primary border border-primary/30 font-bold shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'}`}
+                          >
+                            <Bold size={11} />
+                          </button>
+                          <button
+                            type="button"
+                            onMouseDown={e => e.preventDefault()}
+                            onClick={() => execAiEditorFormat('italic')}
+                            title="Italic"
+                            className={`h-6.5 w-6.5 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${aiEditorActiveFormats.italic ? 'bg-primary/20 text-primary border border-primary/30 font-bold shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'}`}
+                          >
+                            <Italic size={11} />
+                          </button>
+                          <button
+                            type="button"
+                            onMouseDown={e => e.preventDefault()}
+                            onClick={() => execAiEditorFormat('underline')}
+                            title="Underline"
+                            className={`h-6.5 w-6.5 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${aiEditorActiveFormats.underline ? 'bg-primary/20 text-primary border border-primary/30 font-bold shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'}`}
+                          >
+                            <Underline size={11} />
+                          </button>
+
+                          <div className="w-px h-4 bg-border mx-1" />
+
+                          {/* Font Size Selector */}
+                          <div className="flex items-center gap-1 bg-accent/40 px-1.5 py-0.5 rounded-lg border border-border/60">
+                            <Type size={10} className="text-muted-foreground shrink-0" />
+                            <select
+                              value={aiEditorActiveFormats.fontSize || ''}
+                              onChange={e => {
+                                if (e.target.value) {
+                                  applyCustomFontSize(aiTemplateEditorRef, e.target.value, updateAiEditorActiveFormats);
+                                }
+                              }}
+                              title="Change Font Size"
+                              className="h-5 text-[10px] bg-transparent font-bold text-foreground focus:outline-none cursor-pointer"
+                            >
+                              <option value="">{aiEditorActiveFormats.fontSize ? aiEditorActiveFormats.fontSize : 'Size'}</option>
+                              <option value="12px">12px (Small)</option>
+                              <option value="14px">14px (Normal)</option>
+                              <option value="16px">16px (Medium)</option>
+                              <option value="18px">18px (Large)</option>
+                              <option value="20px">20px (XL)</option>
+                              <option value="24px">24px (2XL)</option>
+                              <option value="28px">28px (3XL)</option>
+                            </select>
+                          </div>
+
+                          <div className="w-px h-4 bg-border mx-1" />
+
+                          {/* Headings */}
+                          <button
+                            type="button"
+                            onMouseDown={e => e.preventDefault()}
+                            onClick={() => execAiEditorFormat('formatBlock', '<h1>')}
+                            title="Heading 1"
+                            className={`h-6.5 px-1.5 rounded-lg text-[10px] font-black flex items-center justify-center transition-colors cursor-pointer ${aiEditorActiveFormats.h1 ? 'bg-primary/20 text-primary border border-primary/30 shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'}`}
+                          >
+                            H1
+                          </button>
+                          <button
+                            type="button"
+                            onMouseDown={e => e.preventDefault()}
+                            onClick={() => execAiEditorFormat('formatBlock', '<h2>')}
+                            title="Heading 2"
+                            className={`h-6.5 px-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center transition-colors cursor-pointer ${aiEditorActiveFormats.h2 ? 'bg-primary/20 text-primary border border-primary/30 shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'}`}
+                          >
+                            H2
+                          </button>
+                          <button
+                            type="button"
+                            onMouseDown={e => e.preventDefault()}
+                            onClick={() => execAiEditorFormat('formatBlock', '<p>')}
+                            title="Paragraph"
+                            className={`h-6.5 px-1.5 rounded-lg text-[10px] font-medium flex items-center justify-center transition-colors cursor-pointer ${aiEditorActiveFormats.p ? 'bg-primary/20 text-primary border border-primary/30 shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'}`}
+                          >
+                            P
+                          </button>
+
+                          <div className="w-px h-4 bg-border mx-1" />
+
+                          {/* Lists */}
+                          <button
+                            type="button"
+                            onMouseDown={e => e.preventDefault()}
+                            onClick={() => execAiEditorFormat('insertUnorderedList')}
+                            title="Bullet List"
+                            className={`h-6.5 w-6.5 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${aiEditorActiveFormats.ul ? 'bg-primary/20 text-primary border border-primary/30 shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'}`}
+                          >
+                            <List size={11} />
+                          </button>
+                          <button
+                            type="button"
+                            onMouseDown={e => e.preventDefault()}
+                            onClick={() => execAiEditorFormat('insertOrderedList')}
+                            title="Numbered List"
+                            className={`h-6.5 w-6.5 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${aiEditorActiveFormats.ol ? 'bg-primary/20 text-primary border border-primary/30 shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'}`}
+                          >
+                            <ListOrdered size={11} />
+                          </button>
+
+                          <div className="w-px h-4 bg-border mx-1" />
+
+                          {/* Alignment */}
+                          <button
+                            type="button"
+                            onMouseDown={e => e.preventDefault()}
+                            onClick={() => execAiEditorFormat('justifyLeft')}
+                            title="Align Left"
+                            className={`h-6.5 w-6.5 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${aiEditorActiveFormats.alignLeft ? 'bg-primary/20 text-primary border border-primary/30 shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'}`}
+                          >
+                            <AlignLeft size={11} />
+                          </button>
+                          <button
+                            type="button"
+                            onMouseDown={e => e.preventDefault()}
+                            onClick={() => execAiEditorFormat('justifyCenter')}
+                            title="Align Center"
+                            className={`h-6.5 w-6.5 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${aiEditorActiveFormats.alignCenter ? 'bg-primary/20 text-primary border border-primary/30 shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'}`}
+                          >
+                            <AlignCenter size={11} />
+                          </button>
+
+                          <div className="w-px h-4 bg-border mx-1" />
+
+                          {/* Personalization Tag Insert */}
+                          <button
+                            type="button"
+                            onMouseDown={e => e.preventDefault()}
+                            onClick={() => {
+                              document.execCommand('insertText', false, '{{name}}');
+                              aiTemplateEditorRef.current?.focus();
+                            }}
+                            title="Insert {{name}} placeholder"
+                            className="h-6.5 px-2 rounded-lg text-[10px] font-bold bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 flex items-center gap-1 cursor-pointer transition-colors"
+                          >
+                            <Tag size={10} /> + {'{{name}}'}
+                          </button>
+                        </div>
+
+                        {/* Visual Canvas */}
+                        <div
+                          ref={aiTemplateEditorRef}
+                          contentEditable
+                          suppressContentEditableWarning
+                          onInput={() => {
+                            if (aiTemplateEditorRef.current && aiDraftTemplate) {
+                              setAiDraftTemplate(prev => prev ? ({ ...prev, content: aiTemplateEditorRef.current?.innerHTML || '' }) : null);
+                            }
+                          }}
+                          onKeyUp={updateAiEditorActiveFormats}
+                          onMouseUp={updateAiEditorActiveFormats}
+                          onFocus={updateAiEditorActiveFormats}
+                          className="p-6 focus:outline-none flex-1 overflow-y-auto custom-scrollbar text-foreground leading-relaxed text-sm bg-white dark:bg-card [&_table]:max-w-[600px] [&_table]:w-full [&_table]:mx-auto [&_table]:border-collapse"
+                          style={{ minHeight: '350px' }}
+                        />
+                      </div>
+                    )}
+
+                    {/* Mode 3: HTML Source Code */}
+                    {previewTab === "code" && (
                       <div className="p-4 flex-1 bg-slate-950 text-emerald-400 font-mono text-xs overflow-y-auto custom-scrollbar">
                         <textarea
                           value={aiDraftTemplate.content}
@@ -4594,8 +6168,8 @@ export default function EmailCenter() {
       {/* ─────────────────────────────────────────────────────────────
           MANUAL TEMPLATE BUILDER MODAL
       ───────────────────────────────────────────────────────────── */}
-      <Dialog open={isManualTemplateModalOpen} onOpenChange={(open) => { if (!open) setIsManualTemplateModalOpen(false); }}>
-        <DialogContent className="max-w-4xl w-full p-0 gap-0 overflow-hidden rounded-2xl">
+      <Dialog open={isManualTemplateModalOpen} onOpenChange={(open) => { if (!open) resetManualTemplateModalState(); setIsManualTemplateModalOpen(open); }}>
+        <DialogContent className="w-[96vw] max-w-6xl max-h-[94vh] p-0 gap-0 overflow-hidden rounded-3xl border shadow-2xl bg-card">
           {/* Header */}
           <DialogHeader className="flex flex-row items-center justify-between px-6 py-4 border-b shrink-0 bg-card">
             <div className="flex items-center gap-2.5">
@@ -4609,38 +6183,68 @@ export default function EmailCenter() {
                 </DialogDescription>
               </div>
             </div>
-            {/* Mode Switcher */}
-            <div className="flex items-center bg-accent/60 border p-0.5 rounded-xl text-xs mr-8">
+            {/* Actions & Mode Switcher */}
+            <div className="flex items-center gap-2 mr-8">
               <button
                 type="button"
                 onClick={() => {
-                  setManualTemplateMode('editor');
-                  setManualTemplateHtml('');
-                  setTimeout(() => manualEditorRef.current?.focus(), 50);
+                  const currentContent = manualTemplateMode === 'html'
+                    ? manualTemplateHtml
+                    : (manualEditorRef.current?.innerHTML || '');
+                  setSelectedTemplateForPreview({
+                    _id: 'temp-preview',
+                    name: manualTemplateName || 'Template Preview',
+                    category: manualTemplateCategory || 'General',
+                    subject: manualTemplateSubject || 'Subject Preview',
+                    content: currentContent
+                  });
+                  setTemplatePreviewMode('visual');
+                  setIsTemplatePreviewModalOpen(true);
                 }}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
-                  manualTemplateMode === 'editor' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-                }`}
+                className="px-2.5 py-1.5 rounded-xl border text-xs font-bold text-primary hover:bg-primary/10 flex items-center gap-1.5 transition-colors cursor-pointer"
+                title="Open in Full Screen Flow Preview"
               >
-                <PenLine size={11} /> Write Content
+                <Maximize2 size={12} /> Full View / Flow
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setManualTemplateMode('html');
-                  if (manualEditorRef.current) manualEditorRef.current.innerHTML = '';
-                }}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
-                  manualTemplateMode === 'html' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                <Code2 size={11} /> HTML Code
-              </button>
+
+              <div className="flex items-center bg-accent/60 border p-0.5 rounded-xl text-xs">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setManualTemplateMode('editor');
+                    setTimeout(() => {
+                      if (manualEditorRef.current) {
+                        if (manualTemplateHtml && manualEditorRef.current.innerHTML !== manualTemplateHtml) {
+                          manualEditorRef.current.innerHTML = manualTemplateHtml;
+                        }
+                        manualEditorRef.current.focus();
+                      }
+                    }, 0);
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${manualTemplateMode === 'editor' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                >
+                  <PenLine size={11} /> Write Content
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (manualEditorRef.current) {
+                      setManualTemplateHtml(manualEditorRef.current.innerHTML || '');
+                    }
+                    setManualTemplateMode('html');
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${manualTemplateMode === 'html' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                >
+                  <Code2 size={11} /> HTML Code
+                </button>
+              </div>
             </div>
           </DialogHeader>
 
           {/* Body */}
-          <div className="flex flex-col gap-0 overflow-hidden" style={{ height: '72vh' }}>
+          <div className="flex flex-col gap-0 overflow-hidden" style={{ height: '76vh' }}>
             {/* Meta Fields Row */}
             <div className="grid grid-cols-3 gap-3 p-5 pb-3 border-b shrink-0 bg-card/50">
               <div>
@@ -4685,11 +6289,31 @@ export default function EmailCenter() {
                   <button
                     type="button"
                     onMouseDown={e => e.preventDefault()}
+                    onClick={() => execFormat('undo')}
+                    title="Undo (Ctrl+Z)"
+                    className="h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer hover:bg-accent text-muted-foreground hover:text-foreground"
+                  >
+                    <RotateCcw size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => execFormat('redo')}
+                    title="Redo (Ctrl+Y)"
+                    className="h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer hover:bg-accent text-muted-foreground hover:text-foreground"
+                  >
+                    <RotateCw size={12} />
+                  </button>
+
+                  <div className="w-px h-5 bg-border mx-1" />
+
+                  <button
+                    type="button"
+                    onMouseDown={e => e.preventDefault()}
                     onClick={() => execFormat('bold')}
                     title="Bold"
-                    className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
-                      editorActiveFormats.bold ? 'bg-primary/20 text-primary border border-primary/30 font-bold shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
-                    }`}
+                    className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${editorActiveFormats.bold ? 'bg-primary/20 text-primary border border-primary/30 font-bold shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                      }`}
                   >
                     <Bold size={12} />
                   </button>
@@ -4698,9 +6322,8 @@ export default function EmailCenter() {
                     onMouseDown={e => e.preventDefault()}
                     onClick={() => execFormat('italic')}
                     title="Italic"
-                    className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
-                      editorActiveFormats.italic ? 'bg-primary/20 text-primary border border-primary/30 font-bold shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
-                    }`}
+                    className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${editorActiveFormats.italic ? 'bg-primary/20 text-primary border border-primary/30 font-bold shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                      }`}
                   >
                     <Italic size={12} />
                   </button>
@@ -4709,110 +6332,49 @@ export default function EmailCenter() {
                     onMouseDown={e => e.preventDefault()}
                     onClick={() => execFormat('underline')}
                     title="Underline"
-                    className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
-                      editorActiveFormats.underline ? 'bg-primary/20 text-primary border border-primary/30 font-bold shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
-                    }`}
+                    className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${editorActiveFormats.underline ? 'bg-primary/20 text-primary border border-primary/30 font-bold shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                      }`}
                   >
                     <Underline size={12} />
                   </button>
-                  
-                  <div className="w-px h-5 bg-border mx-1" />
-                  
-                  {/* Highlighter Tool */}
-                  <div className="relative">
-                    <button
-                      type="button"
-                      onMouseDown={e => e.preventDefault()}
-                      onClick={() => {
-                        setIsHighlighterOpen(!isHighlighterOpen);
-                        setIsColorPickerOpen(false);
-                      }}
-                      title="Highlight Color (Google Docs style)"
-                      className="h-7 px-2 rounded-lg hover:bg-accent flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors cursor-pointer text-xs"
-                    >
-                      <Highlighter size={12} className="text-amber-500" />
-                      <ChevronDown size={10} />
-                    </button>
-                    {isHighlighterOpen && (
-                      <div className="absolute top-full left-0 mt-1 p-2 bg-popover border rounded-xl shadow-lg z-50 flex items-center gap-1.5 backdrop-blur-md">
-                        {[
-                          { color: '#fef08a', name: 'Yellow' },
-                          { color: '#bbf7d0', name: 'Green' },
-                          { color: '#bfdbfe', name: 'Blue' },
-                          { color: '#fed7aa', name: 'Orange' },
-                          { color: '#fbcfe8', name: 'Pink' },
-                          { color: 'transparent', name: 'None' }
-                        ].map(c => (
-                          <button
-                            key={c.color}
-                            type="button"
-                            onMouseDown={e => e.preventDefault()}
-                            onClick={() => {
-                              execFormat('hiliteColor', c.color);
-                              setIsHighlighterOpen(false);
-                            }}
-                            title={c.name}
-                            className="w-5 h-5 rounded-full border border-slate-300 hover:scale-110 transition-transform cursor-pointer shadow-2xs"
-                            style={{ backgroundColor: c.color === 'transparent' ? '#ffffff' : c.color }}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
 
-                  {/* Text Color Tool */}
-                  <div className="relative">
-                    <button
-                      type="button"
-                      onMouseDown={e => e.preventDefault()}
-                      onClick={() => {
-                        setIsColorPickerOpen(!isColorPickerOpen);
-                        setIsHighlighterOpen(false);
+                  <div className="w-px h-5 bg-border mx-1" />
+
+                  {/* Font Size Selector */}
+                  <div className="flex items-center gap-1 bg-accent/40 px-2 py-0.5 rounded-lg border border-border/60">
+                    <Type size={11} className="text-muted-foreground shrink-0" />
+                    <select
+                      value={editorActiveFormats.fontSize || ''}
+                      onChange={e => {
+                        if (e.target.value) {
+                          applyCustomFontSize(manualEditorRef, e.target.value, updateEditorActiveFormats);
+                        }
                       }}
-                      title="Text Color"
-                      className="h-7 px-2 rounded-lg hover:bg-accent flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors cursor-pointer text-xs"
+                      title="Change Font Size"
+                      className="h-6 text-[11px] bg-transparent font-bold text-foreground focus:outline-none cursor-pointer"
                     >
-                      <Palette size={12} className="text-blue-500" />
-                      <ChevronDown size={10} />
-                    </button>
-                    {isColorPickerOpen && (
-                      <div className="absolute top-full left-0 mt-1 p-2 bg-popover border rounded-xl shadow-lg z-50 flex items-center gap-1.5 backdrop-blur-md">
-                        {[
-                          { color: '#0f172a', name: 'Default Dark' },
-                          { color: '#2563eb', name: 'Blue' },
-                          { color: '#059669', name: 'Emerald' },
-                          { color: '#dc2626', name: 'Red' },
-                          { color: '#7c3aed', name: 'Purple' },
-                          { color: '#d97706', name: 'Amber' }
-                        ].map(c => (
-                          <button
-                            key={c.color}
-                            type="button"
-                            onMouseDown={e => e.preventDefault()}
-                            onClick={() => {
-                              execFormat('foreColor', c.color);
-                              setIsColorPickerOpen(false);
-                            }}
-                            title={c.name}
-                            className="w-5 h-5 rounded-full border border-slate-300 hover:scale-110 transition-transform cursor-pointer shadow-2xs"
-                            style={{ backgroundColor: c.color }}
-                          />
-                        ))}
-                      </div>
-                    )}
+                      <option value="">{editorActiveFormats.fontSize ? editorActiveFormats.fontSize : 'Size'}</option>
+                      <option value="12px">12px (Small)</option>
+                      <option value="14px">14px (Normal)</option>
+                      <option value="16px">16px (Medium)</option>
+                      <option value="18px">18px (Large)</option>
+                      <option value="20px">20px (XL)</option>
+                      <option value="24px">24px (2XL)</option>
+                      <option value="28px">28px (3XL)</option>
+                      <option value="32px">32px (Huge)</option>
+                    </select>
                   </div>
 
                   <div className="w-px h-5 bg-border mx-1" />
 
-                  {/* Headings */}
+                  {/* Heading Selectors */}
                   <button
                     type="button"
                     onMouseDown={e => e.preventDefault()}
                     onClick={() => execFormat('formatBlock', '<h1>')}
                     title="Heading 1"
-                    className={`h-7 px-2 rounded-lg flex items-center justify-center text-[10px] font-black transition-colors cursor-pointer ${
-                      editorActiveFormats.h1 ? 'bg-primary/20 text-primary border border-primary/30 font-black shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
-                    }`}
+                    className={`h-7 px-2 rounded-lg text-xs font-black flex items-center justify-center transition-colors cursor-pointer ${editorActiveFormats.h1 ? 'bg-primary/20 text-primary border border-primary/30 shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                      }`}
                   >
                     H1
                   </button>
@@ -4821,9 +6383,8 @@ export default function EmailCenter() {
                     onMouseDown={e => e.preventDefault()}
                     onClick={() => execFormat('formatBlock', '<h2>')}
                     title="Heading 2"
-                    className={`h-7 px-2 rounded-lg flex items-center justify-center text-[10px] font-black transition-colors cursor-pointer ${
-                      editorActiveFormats.h2 ? 'bg-primary/20 text-primary border border-primary/30 font-black shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
-                    }`}
+                    className={`h-7 px-2 rounded-lg text-xs font-bold flex items-center justify-center transition-colors cursor-pointer ${editorActiveFormats.h2 ? 'bg-primary/20 text-primary border border-primary/30 shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                      }`}
                   >
                     H2
                   </button>
@@ -4832,9 +6393,8 @@ export default function EmailCenter() {
                     onMouseDown={e => e.preventDefault()}
                     onClick={() => execFormat('formatBlock', '<h3>')}
                     title="Heading 3"
-                    className={`h-7 px-2 rounded-lg flex items-center justify-center text-[10px] font-black transition-colors cursor-pointer ${
-                      editorActiveFormats.h3 ? 'bg-primary/20 text-primary border border-primary/30 font-black shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
-                    }`}
+                    className={`h-7 px-2 rounded-lg text-xs font-semibold flex items-center justify-center transition-colors cursor-pointer ${editorActiveFormats.h3 ? 'bg-primary/20 text-primary border border-primary/30 shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                      }`}
                   >
                     H3
                   </button>
@@ -4843,12 +6403,84 @@ export default function EmailCenter() {
                     onMouseDown={e => e.preventDefault()}
                     onClick={() => execFormat('formatBlock', '<p>')}
                     title="Paragraph"
-                    className={`h-7 px-2 rounded-lg flex items-center justify-center text-[10px] font-bold transition-colors cursor-pointer ${
-                      editorActiveFormats.p ? 'bg-primary/20 text-primary border border-primary/30 font-bold shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
-                    }`}
+                    className={`h-7 px-2 rounded-lg text-xs font-medium flex items-center justify-center transition-colors cursor-pointer ${editorActiveFormats.p ? 'bg-primary/20 text-primary border border-primary/30 shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                      }`}
                   >
                     P
                   </button>
+
+                  <div className="w-px h-5 bg-border mx-1" />
+
+                  {/* Highlighter dropdown */}
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onMouseDown={e => e.preventDefault()}
+                      onClick={() => setIsHighlighterOpen(!isHighlighterOpen)}
+                      title="Highlight Color"
+                      className="h-7 w-7 rounded-lg hover:bg-accent flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                    >
+                      <Highlighter size={12} />
+                    </button>
+                    {isHighlighterOpen && (
+                      <div className="absolute top-8 left-0 z-50 bg-card border rounded-xl shadow-lg p-2 flex gap-1.5">
+                        {['#fef08a', '#bbf7d0', '#bfdbfe', '#fbcfe8', '#fed7aa'].map(color => (
+                          <button
+                            key={color}
+                            type="button"
+                            onMouseDown={e => e.preventDefault()}
+                            onClick={() => {
+                              execFormat('hiliteColor', color);
+                              setIsHighlighterOpen(false);
+                            }}
+                            className="h-5 w-5 rounded-full border border-border/40 hover:scale-110 transition-transform cursor-pointer"
+                            style={{ backgroundColor: color }}
+                          />
+                        ))}
+                        <button
+                          type="button"
+                          onMouseDown={e => e.preventDefault()}
+                          onClick={() => {
+                            execFormat('hiliteColor', 'transparent');
+                            setIsHighlighterOpen(false);
+                          }}
+                          className="h-5 px-1.5 text-[10px] rounded border hover:bg-accent cursor-pointer"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Text Color dropdown */}
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onMouseDown={e => e.preventDefault()}
+                      onClick={() => setIsColorPickerOpen(!isColorPickerOpen)}
+                      title="Text Color"
+                      className="h-7 w-7 rounded-lg hover:bg-accent flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                    >
+                      <Palette size={12} />
+                    </button>
+                    {isColorPickerOpen && (
+                      <div className="absolute top-8 left-0 z-50 bg-card border rounded-xl shadow-lg p-2 flex gap-1.5">
+                        {['#1e293b', '#dc2626', '#16a34a', '#2563eb', '#9333ea', '#ea580c'].map(color => (
+                          <button
+                            key={color}
+                            type="button"
+                            onMouseDown={e => e.preventDefault()}
+                            onClick={() => {
+                              execFormat('foreColor', color);
+                              setIsColorPickerOpen(false);
+                            }}
+                            className="h-5 w-5 rounded-full border border-border/40 hover:scale-110 transition-transform cursor-pointer"
+                            style={{ backgroundColor: color }}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
 
                   <div className="w-px h-5 bg-border mx-1" />
 
@@ -4858,9 +6490,8 @@ export default function EmailCenter() {
                     onMouseDown={e => e.preventDefault()}
                     onClick={() => execFormat('insertUnorderedList')}
                     title="Bullet List"
-                    className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
-                      editorActiveFormats.ul ? 'bg-primary/20 text-primary border border-primary/30 shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
-                    }`}
+                    className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${editorActiveFormats.ul ? 'bg-primary/20 text-primary border border-primary/30 shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                      }`}
                   >
                     <List size={12} />
                   </button>
@@ -4869,11 +6500,10 @@ export default function EmailCenter() {
                     onMouseDown={e => e.preventDefault()}
                     onClick={() => execFormat('insertOrderedList')}
                     title="Numbered List"
-                    className={`h-7 px-2 rounded-lg flex items-center justify-center text-[10px] font-bold transition-colors cursor-pointer ${
-                      editorActiveFormats.ol ? 'bg-primary/20 text-primary border border-primary/30 font-bold shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
-                    }`}
+                    className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${editorActiveFormats.ol ? 'bg-primary/20 text-primary border border-primary/30 shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                      }`}
                   >
-                    1.
+                    <ListOrdered size={12} />
                   </button>
 
                   <div className="w-px h-5 bg-border mx-1" />
@@ -4884,9 +6514,8 @@ export default function EmailCenter() {
                     onMouseDown={e => e.preventDefault()}
                     onClick={() => execFormat('justifyLeft')}
                     title="Align Left"
-                    className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
-                      editorActiveFormats.alignLeft ? 'bg-primary/20 text-primary border border-primary/30 shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
-                    }`}
+                    className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${editorActiveFormats.alignLeft ? 'bg-primary/20 text-primary border border-primary/30 shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                      }`}
                   >
                     <AlignLeft size={12} />
                   </button>
@@ -4895,9 +6524,8 @@ export default function EmailCenter() {
                     onMouseDown={e => e.preventDefault()}
                     onClick={() => execFormat('justifyCenter')}
                     title="Align Center"
-                    className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
-                      editorActiveFormats.alignCenter ? 'bg-primary/20 text-primary border border-primary/30 shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
-                    }`}
+                    className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${editorActiveFormats.alignCenter ? 'bg-primary/20 text-primary border border-primary/30 shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                      }`}
                   >
                     <AlignCenter size={12} />
                   </button>
@@ -4906,9 +6534,8 @@ export default function EmailCenter() {
                     onMouseDown={e => e.preventDefault()}
                     onClick={() => execFormat('justifyRight')}
                     title="Align Right"
-                    className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
-                      editorActiveFormats.alignRight ? 'bg-primary/20 text-primary border border-primary/30 shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
-                    }`}
+                    className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${editorActiveFormats.alignRight ? 'bg-primary/20 text-primary border border-primary/30 shadow-2xs' : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                      }`}
                   >
                     <AlignRight size={12} />
                   </button>
@@ -4961,14 +6588,14 @@ export default function EmailCenter() {
                   className="flex-1 overflow-y-auto p-5 text-sm text-foreground focus:outline-none custom-scrollbar leading-relaxed [&_h1]:text-2xl [&_h1]:font-extrabold [&_h1]:my-3 [&_h1]:text-foreground [&_h2]:text-xl [&_h2]:font-bold [&_h2]:my-2.5 [&_h2]:text-foreground [&_h3]:text-lg [&_h3]:font-bold [&_h3]:my-2 [&_h3]:text-foreground [&_p]:my-1.5 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-2 [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-2 [&_a]:text-primary [&_a]:underline"
                   style={{ minHeight: 0 }}
                   data-placeholder="Start writing your email content here... Use the toolbar above to format text, add headings, lists, and links."
-                  onInput={() => {/* triggers re-render on input if needed */}}
+                  onInput={() => {/* triggers re-render on input if needed */ }}
                 />
               </div>
             ) : (
-              /* HTML Code Mode - Two Panel Layout */
-              <div className="flex flex-1 min-h-0 overflow-hidden">
-                {/* Left: Code Input */}
-                <div className="flex-1 flex flex-col border-r min-h-0">
+              /* HTML Code Mode - Optimized Split Layout */
+              <div className="flex flex-1 min-h-0 h-full overflow-hidden">
+                {/* Left: Code Input (w-5/12) */}
+                <div className="w-5/12 flex flex-col border-r min-h-0 h-full overflow-hidden">
                   <div className="flex items-center gap-2 px-4 py-2 border-b bg-slate-950 shrink-0">
                     <Code2 size={12} className="text-emerald-400" />
                     <span className="text-[11px] font-bold text-emerald-400">HTML Source Code</span>
@@ -4992,27 +6619,51 @@ export default function EmailCenter() {
                     value={manualTemplateHtml}
                     onChange={e => setManualTemplateHtml(e.target.value)}
                     placeholder={'<!-- Paste or write your HTML email here -->\n<h2>Hi {{name}},</h2>\n<p>Your email content...</p>'}
-                    className="flex-1 resize-none p-4 bg-slate-950 text-emerald-300 font-mono text-xs focus:outline-none custom-scrollbar"
+                    className="flex-1 h-full resize-none p-4 bg-slate-950 text-emerald-300 font-mono text-xs focus:outline-none custom-scrollbar overflow-y-auto"
                     style={{ minHeight: 0 }}
                     spellCheck={false}
                   />
                 </div>
 
-                {/* Right: Live Preview */}
-                <div className="flex-1 flex flex-col min-h-0">
+                {/* Right: Live Preview (w-7/12) */}
+                <div className="w-7/12 flex flex-col min-h-0 h-full overflow-hidden bg-slate-100/70 dark:bg-slate-900/40">
                   <div className="flex items-center gap-2 px-4 py-2 border-b bg-card shrink-0">
                     <Eye size={12} className="text-primary" />
                     <span className="text-[11px] font-bold text-foreground">Live Preview</span>
-                    <span className="ml-auto text-[10px] text-muted-foreground">Renders in real-time</span>
+                    <div className="ml-auto flex items-center gap-2">
+                      {manualTemplateHtml.trim() && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedTemplateForPreview({
+                              _id: 'temp-preview',
+                              name: manualTemplateName || 'Template Preview',
+                              category: manualTemplateCategory || 'General',
+                              subject: manualTemplateSubject || 'Subject Preview',
+                              content: manualTemplateHtml
+                            });
+                            setTemplatePreviewMode('visual');
+                            setIsTemplatePreviewModalOpen(true);
+                          }}
+                          className="px-2.5 py-0.5 rounded-lg text-[10px] font-bold text-primary hover:bg-primary/10 border border-primary/20 flex items-center gap-1 transition-colors cursor-pointer"
+                          title="Open in Full Screen Flow Preview"
+                        >
+                          <Maximize2 size={10} /> Full View / Flow
+                        </button>
+                      )}
+                      <span className="text-[10px] text-muted-foreground hidden sm:inline">Renders in real-time</span>
+                    </div>
                   </div>
-                  <div className="flex-1 overflow-y-auto bg-white custom-scrollbar">
+                  <div className="flex-1 min-h-0 h-full p-3 overflow-hidden flex flex-col">
                     {manualTemplateHtml.trim() ? (
-                      <div
-                        className="p-5 text-sm text-gray-800 leading-relaxed"
-                        dangerouslySetInnerHTML={{ __html: manualTemplateHtml.replace(/\{\{name\}\}/gi, 'John Doe') }}
+                      <iframe
+                        srcDoc={`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><style>html,body{margin:0;padding:12px;background:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#1e293b;overflow-y:auto;}::-webkit-scrollbar{width:8px;height:8px;}::-webkit-scrollbar-track{background:#f1f5f9;}::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:4px;}::-webkit-scrollbar-thumb:hover{background:#94a3b8;}</style></head><body>${manualTemplateHtml.replace(/\{\{name\}\}/gi, 'John Doe')}</body></html>`}
+                        className="w-full h-full border rounded-2xl bg-white shadow-sm"
+                        title="HTML Email Live Preview"
+                        sandbox="allow-same-origin"
                       />
                     ) : (
-                      <div className="flex flex-col items-center justify-center h-full text-center p-8 text-gray-400">
+                      <div className="flex flex-col items-center justify-center h-full text-center p-8 text-gray-400 bg-card rounded-2xl border border-dashed">
                         <Eye size={32} className="mb-3 opacity-20" />
                         <p className="text-sm font-medium opacity-50">Your HTML preview will appear here</p>
                         <p className="text-xs opacity-40 mt-1">Paste HTML code on the left to see the live render</p>
@@ -5035,7 +6686,10 @@ export default function EmailCenter() {
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => setIsManualTemplateModalOpen(false)}
+                onClick={() => {
+                  resetManualTemplateModalState();
+                  setIsManualTemplateModalOpen(false);
+                }}
                 className="btn-secondary h-8.5 px-4 text-xs font-bold"
               >
                 Cancel
@@ -5080,18 +6734,17 @@ export default function EmailCenter() {
 
       {/* --- DIALOG: DIRECT TEMPLATE PREVIEW & INSPECTOR MODAL --- */}
       <Dialog open={isTemplatePreviewModalOpen} onOpenChange={setIsTemplatePreviewModalOpen}>
-        <DialogContent className="w-[95vw] max-w-4xl max-h-[92vh] p-0 flex flex-col overflow-hidden dark:bg-card">
+        <DialogContent className="w-[96vw] max-w-6xl max-h-[94vh] p-0 flex flex-col overflow-hidden dark:bg-card rounded-3xl shadow-2xl">
           <DialogHeader className="p-4 px-6 border-b shrink-0 flex flex-row items-center justify-between bg-card relative">
             <div className="text-left space-y-1 min-w-0 pr-8">
               <div className="flex items-center gap-2 flex-wrap">
                 <DialogTitle className="text-base font-extrabold text-foreground tracking-tight">
                   {selectedTemplateForPreview?.name || "Template Preview"}
                 </DialogTitle>
-                <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold uppercase ${
-                  selectedTemplateForPreview?.isAiGenerated
+                <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold uppercase ${selectedTemplateForPreview?.isAiGenerated
                     ? "bg-violet-500/10 text-violet-600 dark:text-violet-400 border border-violet-500/20"
                     : "bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20"
-                }`}>
+                  }`}>
                   {selectedTemplateForPreview?.isAiGenerated ? "✨ Anthropic AI" : selectedTemplateForPreview?.category || "General"}
                 </span>
               </div>
@@ -5105,27 +6758,25 @@ export default function EmailCenter() {
               <button
                 type="button"
                 onClick={() => setTemplatePreviewMode('visual')}
-                className={`flex items-center gap-1 px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
-                  templatePreviewMode === 'visual' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-                }`}
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${templatePreviewMode === 'visual' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                  }`}
               >
-                <Eye size={12} /> Live Preview
+                <Eye size={13} /> Live Preview
               </button>
               <button
                 type="button"
                 onClick={() => setTemplatePreviewMode('html')}
-                className={`flex items-center gap-1 px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
-                  templatePreviewMode === 'html' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-                }`}
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${templatePreviewMode === 'html' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                  }`}
               >
-                <Code2 size={12} /> HTML Code
+                <Code2 size={13} /> HTML Code
               </button>
             </div>
           </DialogHeader>
 
-          <div className="flex-1 overflow-y-auto p-4 min-h-[400px] max-h-[60vh] bg-slate-100 dark:bg-slate-950/60 custom-scrollbar flex justify-center">
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-100/80 dark:bg-slate-950/60 custom-scrollbar" style={{ height: '78vh', minHeight: '520px' }}>
             {templatePreviewMode === 'visual' ? (
-              <div className="w-full max-w-2xl bg-white text-gray-900 rounded-xl shadow-sm border p-6 overflow-x-auto min-h-[350px]">
+              <div className="w-full max-w-[680px] mx-auto bg-white text-gray-900 rounded-2xl shadow-md border border-slate-200/80 p-6 sm:p-8 overflow-hidden leading-relaxed text-sm">
                 <div
                   dangerouslySetInnerHTML={{
                     __html: (selectedTemplateForPreview?.content || '').replace(/\{\{name\}\}/gi, 'John Doe')
@@ -5133,8 +6784,8 @@ export default function EmailCenter() {
                 />
               </div>
             ) : (
-              <div className="w-full h-full min-h-[350px] flex flex-col bg-slate-950 border border-slate-800 rounded-xl overflow-hidden text-left">
-                <div className="flex items-center justify-between px-4 py-2 border-b border-slate-800 bg-slate-900/60 text-xs">
+              <div className="w-full h-full min-h-[500px] flex flex-col bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden text-left shadow-md">
+                <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-800 bg-slate-900/80 text-xs">
                   <span className="font-mono text-emerald-400 font-bold text-[11px]">Raw HTML Source Code</span>
                   <button
                     type="button"
@@ -5144,7 +6795,7 @@ export default function EmailCenter() {
                         toast.success("HTML code copied to clipboard!");
                       }
                     }}
-                    className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-md text-[10px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                    className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-[10px] font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
                   >
                     <Copy size={11} /> Copy Code
                   </button>
@@ -5152,7 +6803,7 @@ export default function EmailCenter() {
                 <textarea
                   readOnly
                   value={selectedTemplateForPreview?.content || ''}
-                  className="w-full flex-1 p-4 bg-transparent text-emerald-300 font-mono text-xs outline-none resize-none custom-scrollbar min-h-[320px]"
+                  className="w-full flex-1 p-5 bg-transparent text-emerald-300 font-mono text-xs outline-none resize-none custom-scrollbar min-h-[440px]"
                 />
               </div>
             )}
@@ -5228,6 +6879,112 @@ export default function EmailCenter() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* --- DIALOG: DELETE SEGMENT / LIST CONFIRMATION POPUP --- */}
+      <Dialog open={isDeleteSegmentModalOpen} onOpenChange={setIsDeleteSegmentModalOpen}>
+        <DialogContent className="w-[90vw] max-w-md p-6 dark:bg-card">
+          <div className="flex items-start gap-4">
+            <div className="p-3 bg-destructive/10 text-destructive rounded-2xl shrink-0 mt-0.5">
+              <AlertCircle size={24} />
+            </div>
+            <div className="space-y-2 text-left">
+              <DialogTitle className="text-base font-bold text-foreground">
+                Delete List / Segment?
+              </DialogTitle>
+              <DialogDescription className="text-xs text-muted-foreground leading-relaxed">
+                Are you sure you want to delete <strong className="text-foreground">"{segmentToDelete?.name}"</strong>? This will remove this recipient audience list ({segmentToDelete?.contacts?.length || 0} contacts) from your CRM. Existing email campaigns referencing past dispatches will not be lost.
+              </DialogDescription>
+            </div>
+          </div>
+
+          <DialogFooter className="mt-6 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setIsDeleteSegmentModalOpen(false);
+                setSegmentToDelete(null);
+              }}
+              className="btn-secondary text-xs h-9 px-4 font-bold cursor-pointer"
+              disabled={deletingSegment}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmDeleteSegment}
+              disabled={deletingSegment}
+              className="h-9 px-4 bg-destructive hover:bg-destructive/90 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-60 cursor-pointer shadow-sm"
+            >
+              {deletingSegment ? (
+                <><Loader2 size={13} className="animate-spin" /> Deleting...</>
+              ) : (
+                <><Trash2 size={13} /> Yes, Delete List / Segment</>
+              )}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* --- DIALOG: CONFIRM DELETE EMAIL TEMPLATE --- */}
+      <Dialog open={isDeleteTemplateModalOpen} onOpenChange={(open) => {
+        if (!open) {
+          setIsDeleteTemplateModalOpen(false);
+          setTemplateToDelete(null);
+        }
+      }}>
+        <DialogContent className="w-[90vw] max-w-md p-6 dark:bg-card">
+          <div className="flex items-start gap-4">
+            <div className="p-3 bg-destructive/10 text-destructive rounded-2xl shrink-0 mt-0.5">
+              <AlertCircle size={24} />
+            </div>
+            <div className="space-y-2 text-left">
+              <DialogTitle className="text-base font-bold text-foreground">
+                Delete Email Template?
+              </DialogTitle>
+              <DialogDescription className="text-xs text-muted-foreground leading-relaxed">
+                Are you sure you want to delete <strong className="text-foreground">"{templateToDelete?.name}"</strong> ({templateToDelete?.category || 'General'})? This will permanently remove this reusable email template from your database. Past campaigns created with this template will not be affected.
+              </DialogDescription>
+            </div>
+          </div>
+
+          <DialogFooter className="mt-6 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setIsDeleteTemplateModalOpen(false);
+                setTemplateToDelete(null);
+              }}
+              className="btn-secondary text-xs h-9 px-4 font-bold cursor-pointer"
+              disabled={deletingTemplate}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmDeleteTemplate}
+              disabled={deletingTemplate}
+              className="h-9 px-4 bg-destructive hover:bg-destructive/90 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-60 cursor-pointer shadow-sm"
+            >
+              {deletingTemplate ? (
+                <><Loader2 size={13} className="animate-spin" /> Deleting...</>
+              ) : (
+                <><Trash2 size={13} /> Yes, Delete Template</>
+              )}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* --- DIALOG 9: AI PERSONALIZED CAMPAIGN WIZARD --- */}
+      <AiPersonalizedCampaignModal
+        isOpen={isAiPersonalizedModalOpen}
+        onClose={() => setIsAiPersonalizedModalOpen(false)}
+        segments={segments}
+        templates={templates}
+        onCampaignCreated={() => {
+          fetchCampaigns();
+        }}
+      />
 
     </AppLayout>
   );

@@ -275,7 +275,7 @@ EMAIL DESIGN & HTML RULES (follow strictly):
    - Use clean, modern colors: Navy/Blue (#1e3a8a, #2563eb), Slate (#0f172a, #334155), Emerald (#059669).
    - Clear visual hierarchy: Header banner, greeting, body sections with bullet points, high-contrast call-to-action button, and professional sign-off.
 3. PERSONALIZATION: Use {{name}} as the dynamic placeholder for the recipient's name (e.g. "Hi {{name}},").
-4. REFINEMENT: If existing HTML template code is provided, PRESERVE its overall layout and structure while modifying, adding, or styling sections according to the user's new instructions.
+4. STRICT TEMPLATE & DESIGN PRESERVATION: If existing HTML template code is provided, you MUST STRICTLY PRESERVE the entire surrounding HTML table layout, inline CSS styles, containers, background colors, header banners, borders, and CTA button structure/styling. Do NOT discard or alter the visual design or formatting. ONLY replace or insert the textual content (headlines, greeting, body paragraphs, bullet points, button text) according to the user's prompt.
 5. RESPONSE FORMAT: Return strictly JSON format with keys "name", "subject", "content", and "category".
 
 Example output format:
@@ -283,7 +283,7 @@ Example output format:
   "name": "Summer Basketball Camp Invitation",
   "subject": "Registration Open for Summer Basketball Camp! 🏀",
   "category": "Promotional",
-  "content": "<table width=\\"100%\\" cellpadding=\\"0\\" cellspacing=\\"0\\" style=\\"max-width:600px;margin:0 auto;font-family:Arial,sans-serif;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e2e8f0;\\"><tr><td style=\\"background:linear-gradient(135deg,#1e3a8a,#2563eb);padding:28px 24px;text-align:center;color:#ffffff;\\"><h1 style=\\"margin:0;font-size:22px;font-weight:800;letter-spacing:-0.5px;\\">Youth Athlete University</h1><p style=\\"margin:6px 0 0 0;font-size:13px;opacity:0.9;\\">Summer Basketball Skill Camp 2025</p></td></tr><tr><td style=\\"padding:28px 24px;color:#334155;line-height:1.6;font-size:14px;\\"><p style=\\"margin-top:0;\\">Hi {{name}},</p><p>We are excited to invite your young athlete to our premier summer development clinic...</p><div style=\\"text-align:center;margin:28px 0;\\"><a href=\\"https://youthathleteuniversity.org\\" style=\\"background:#2563eb;color:#ffffff;padding:12px 28px;text-decoration:none;border-radius:8px;font-weight:bold;display:inline-block;font-size:14px;\\">Register Today &rarr;</a></div><p style=\\"margin-bottom:0;color:#64748b;font-size:13px;\\">Best regards,<br/><strong style=\\"color:#0f172a;\\">The YAU Sports Team</strong></p></td></tr></table>"
+  "content": "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"max-width:600px;margin:0 auto;font-family:Arial,sans-serif;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e2e8f0;\"><tr><td style=\"background:linear-gradient(135deg,#1e3a8a,#2563eb);padding:28px 24px;text-align:center;color:#ffffff;\"><h1 style=\"margin:0;font-size:22px;font-weight:800;letter-spacing:-0.5px;\">Youth Athlete University</h1><p style=\"margin:6px 0 0 0;font-size:13px;opacity:0.9;\">Summer Basketball Skill Camp 2025</p></td></tr><tr><td style=\"padding:28px 24px;color:#334155;line-height:1.6;font-size:14px;\"><p style=\"margin-top:0;\">Hi {{name}},</p><p>We are excited to invite your young athlete to our premier summer development clinic...</p><div style=\"text-align:center;margin:28px 0;\"><a href=\"https://youthathleteuniversity.org\" style=\"background:#2563eb;color:#ffffff;padding:12px 28px;text-decoration:none;border-radius:8px;font-weight:bold;display:inline-block;font-size:14px;\">Register Today &rarr;</a></div><p style=\"margin-bottom:0;color:#64748b;font-size:13px;\">Best regards,<br/><strong style=\"color:#0f172a;\">The YAU Sports Team</strong></p></td></tr></table>"
 }`;
 }
 
@@ -342,5 +342,190 @@ async function generateEmailTemplate({ prompt, category, existingContent }) {
     };
 }
 
-export { generateSmsMessage, generateEmailMessage, generateEmailTemplate };
-export default { generateSmsMessage, generateEmailMessage, generateEmailTemplate };
+// ── System prompt builder for Personalized Campaigns ─────────────────
+function buildPersonalizedCampaignSystemPrompt(hasTemplate = false) {
+    return `You are a world-class AI sales and partnership strategist for YAU Sports (Youth Athlete University) — a premier provider of youth athletic programs, school sports clinics, PE enrichment, and tournament coaching.
+
+Your task is to write a highly customized, natural, 1-to-1 email for a specific school or organization contact as part of an email campaign.
+
+CRITICAL RULES:
+${hasTemplate ? `1. STRICT TEMPLATE & DESIGN PRESERVATION:
+   - A BASE HTML TEMPLATE is provided in the prompt.
+   - You MUST STRICTLY PRESERVE the exact HTML layout, tables, containers (e.g. max-width 600px), header banners, background colors, inline CSS styling, fonts, borders, and CTA button structure/styles.
+   - Do NOT discard or change the visual layout, shape, or colors of the template.
+   - PERSONALIZE ONLY THE INNER TEXT: Replace the greeting (address the contact by name), the body paragraphs, bullet points, and CTA button text with personalized content tailored to this specific contact.` : `1. EMAIL STRUCTURE:
+   - Return clean HTML for the body with appropriate <p>, <br/>, and <strong> tags or clean styled tables.`}
+
+2. DEEP CONTEXT INTEGRATION:
+   - Carefully review all prior interactions provided: SMS text conversations, previous email exchanges, phone call logs, sales notes, and CRM pipeline status.
+   - If there were prior conversations, naturally acknowledge the previous discussion, unanswered questions, or past interest (e.g., "Following up on our SMS exchange regarding gym availability..." or "Circling back to our discussion last month about the after-school basketball clinic...").
+   - If there are no past communications logged, craft a compelling, tailored introduction highlighting programs most relevant to their organization type (e.g. elementary PE, middle school after-school athletics, high school training).
+
+3. TONE & SIGN-OFF:
+   - Professional, warm, consultative, and concise. Never sound like a generic robotic mass blast.
+   - Include a clear, low-friction call-to-action.
+   - Sign off professionally from "The YAU Sports Team".
+
+4. STRICT JSON OUTPUT:
+   Return ONLY a valid JSON object with the following schema:
+   {
+     "subject": "Clear, engaging, personalized email subject line",
+     "body": "${hasTemplate ? 'Complete updated HTML code preserving all original styling, tables, colors, and layout, with inner text personalized' : '<p>HTML formatted email body...</p>'}",
+     "contextReasoning": "1 short sentence explaining what specific previous history or profile detail was leveraged to personalize this email."
+   }`;
+}
+
+// ── User content builder for Personalized Campaigns ──────────────────
+function buildPersonalizedCampaignUserContent({
+    recipient = {},
+    smsHistory = [],
+    emailHistory = [],
+    notesHistory = [],
+    campaignGoal = '',
+    tone = 'Professional & Warm',
+    customInstruction = '',
+    baseTemplateHtml = '',
+    templateSubject = ''
+}) {
+    const formatSms = (smsHistory && smsHistory.length > 0)
+        ? smsHistory.slice(-6).map((m, i) => {
+            const dir = m.direction === 'inbound' ? '[THEM]' : '[YOU]';
+            const ts = m.timestamp ? new Date(m.timestamp).toLocaleDateString() : '';
+            return `  ${i + 1}. ${dir} (${ts}): ${m.message}`;
+          }).join('\n')
+        : '  (No prior SMS messages)';
+
+    const formatEmails = (emailHistory && emailHistory.length > 0)
+        ? emailHistory.slice(-5).map((e, i) => {
+            const dir = e.direction === 'inbound' ? '[THEM]' : '[YOU]';
+            const ts = e.sentAt || e.timestamp ? new Date(e.sentAt || e.timestamp).toLocaleDateString() : '';
+            const preview = (e.body || '').replace(/<[^>]*>/g, ' ').slice(0, 140);
+            return `  ${i + 1}. ${dir} (${ts}) Subject: "${e.subject || ''}" | Content: ${preview}`;
+          }).join('\n')
+        : '  (No prior emails logged)';
+
+    const formatNotes = (notesHistory && notesHistory.length > 0)
+        ? notesHistory.slice(-5).map((n, i) => {
+            const ts = n.createdAt ? new Date(n.createdAt).toLocaleDateString() : '';
+            return `  ${i + 1}. [${(n.type || 'NOTE').toUpperCase()}] (${ts}): ${n.content}`;
+          }).join('\n')
+        : '  (No prior activity notes logged)';
+
+    let prompt = `### RECIPIENT PROFILE
+- Organization / School Name: ${recipient.leadName || recipient.organization || 'Unknown'}
+- Contact Person: ${recipient.contactName || 'Primary Contact'}
+- Contact Title: ${recipient.contactTitle || 'Decision Maker'}
+- Email: ${recipient.email || 'N/A'}
+- CRM Status: ${recipient.leadStatus || 'Active'}
+- Category / Type: ${recipient.leadCategory || 'Educational Institution'}
+
+### HISTORICAL COMMUNICATION CONTEXT
+
+[PAST SMS MESSAGES]
+${formatSms}
+
+[PAST EMAIL EXCHANGES]
+${formatEmails}
+
+[PAST ACTIVITY NOTES & CALL LOGS]
+${formatNotes}
+
+### CAMPAIGN INSTRUCTIONS
+- Campaign Goal / Key Message: ${campaignGoal || 'Re-connect and explore youth athletic programming opportunities'}
+- Desired Tone: ${tone || 'Professional & Warm'}
+${customInstruction ? `- Specific Rep Override Instruction: ${customInstruction}` : ''}`;
+
+    if (baseTemplateHtml && baseTemplateHtml.trim()) {
+        prompt += `\n\n### [MANDATORY BASE TEMPLATE TO PRESERVE]
+\`\`\`html
+${baseTemplateHtml.trim()}
+\`\`\`
+${templateSubject ? `Base Template Subject Idea: "${templateSubject}"` : ''}
+
+INSTRUCTION: Keep the exact HTML layout, tables, header banners, background colors, CSS inline styling, and buttons from the base template above. Replace and personalize ONLY the text copy inside (greetings, paragraphs, bullet points, CTA button text) specifically for this recipient based on their profile and past communication history.`;
+    }
+
+    prompt += `\n\nGenerate the personalized email JSON now:`;
+    return prompt;
+}
+
+/**
+ * Generate a hyper-personalized email for an individual recipient in a campaign
+ * based on all historical SMS, email, notes, and CRM status.
+ */
+async function generatePersonalizedEmailMessage({
+    recipient,
+    smsHistory,
+    emailHistory,
+    notesHistory,
+    campaignGoal,
+    tone,
+    customInstruction,
+    baseTemplateHtml,
+    templateSubject
+}) {
+    const hasTemplate = !!(baseTemplateHtml && baseTemplateHtml.trim());
+    const systemPrompt = buildPersonalizedCampaignSystemPrompt(hasTemplate);
+    const userContent = buildPersonalizedCampaignUserContent({
+        recipient,
+        smsHistory,
+        emailHistory,
+        notesHistory,
+        campaignGoal,
+        tone,
+        customInstruction,
+        baseTemplateHtml,
+        templateSubject
+    });
+
+    const maxTokens = hasTemplate ? 3500 : 1400;
+
+    let raw = '';
+    if (PROVIDER === 'claude' || PROVIDER === 'anthropic') {
+        raw = await callClaude(systemPrompt, userContent, maxTokens);
+    } else if (PROVIDER === 'groq') {
+        raw = await callGroq(systemPrompt, userContent, true);
+    } else {
+        raw = await callClaude(systemPrompt, userContent, maxTokens);
+    }
+
+    try {
+        let cleanRaw = raw.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
+        const jsonMatch = cleanRaw.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]);
+            return {
+                subject: parsed.subject || templateSubject || `Youth Athletic Programs for ${recipient.leadName || recipient.organization || ''}`,
+                body: parsed.body || baseTemplateHtml || `<p>${raw.replace(/\n/g, '<br/>')}</p>`,
+                contextReasoning: parsed.contextReasoning || 'Personalized based on past communication history and organization profile.',
+                provider: 'anthropic',
+                apiHit: true
+            };
+        }
+    } catch (e) {
+        console.warn('Failed to parse AI personalized email JSON, falling back to text:', e);
+    }
+
+    return {
+        subject: templateSubject || `Youth Athletic Programs for ${recipient.leadName || recipient.organization || ''}`,
+        body: baseTemplateHtml ? baseTemplateHtml.replace(/\{\{\s*name\s*\}\}/gi, recipient.contactName || recipient.leadName || 'there') : `<p>${raw.replace(/\n/g, '<br/>')}</p>`,
+        contextReasoning: 'Personalized based on organization profile.',
+        provider: 'anthropic',
+        apiHit: true
+    };
+}
+
+export {
+    generateSmsMessage,
+    generateEmailMessage,
+    generateEmailTemplate,
+    generatePersonalizedEmailMessage
+};
+
+export default {
+    generateSmsMessage,
+    generateEmailMessage,
+    generateEmailTemplate,
+    generatePersonalizedEmailMessage
+};
+

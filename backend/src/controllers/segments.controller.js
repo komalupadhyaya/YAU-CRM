@@ -36,10 +36,19 @@ export const resolveSegmentRecipients = async (segment) => {
                 }
             }
         }
-    } else if (segment.type === 'campaign' || segment.filters?.campaignId) {
-        if (segment.filters?.campaignId) {
+    } else if (segment.type === 'campaign' || segment.filters?.campaignId || (segment.filters?.campaignIds && segment.filters?.campaignIds.length > 0)) {
+        let rawIds = [];
+        if (Array.isArray(segment.filters?.campaignIds) && segment.filters.campaignIds.length > 0) {
+            rawIds = segment.filters.campaignIds;
+        } else if (segment.filters?.campaignId) {
+            rawIds = typeof segment.filters.campaignId === 'string'
+                ? segment.filters.campaignId.split(',').map(id => id.trim()).filter(Boolean)
+                : [segment.filters.campaignId];
+        }
+
+        if (rawIds.length > 0) {
             const mainLeads = await Lead.find({ 
-                campaign_id: segment.filters.campaignId,
+                campaign_id: { $in: rawIds },
                 isEmailConsent: { $ne: false } 
             }).lean();
             
@@ -242,9 +251,10 @@ export const importSegmentCsv = async (req, res, next) => {
 export const previewCampaignRecipients = async (req, res, next) => {
     try {
         const { campaignId } = req.params;
+        const ids = campaignId.split(',').map(id => id.trim()).filter(Boolean);
         const recipients = await resolveSegmentRecipients({
             type: 'campaign',
-            filters: { campaignId }
+            filters: { campaignIds: ids, campaignId: ids[0] }
         });
         res.json(recipients);
     } catch (err) {

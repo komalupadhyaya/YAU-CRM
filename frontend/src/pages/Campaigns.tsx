@@ -562,7 +562,7 @@ const Campaigns = () => {
       return;
     }
 
-    if (campaigns.some(c => c.name.toLowerCase() === trimmedName.toLowerCase())) {
+    if (campaigns.some(c => (c?.name || (c as any)?.title || '').toLowerCase() === trimmedName.toLowerCase())) {
       setCampaignError("A campaign with this name already exists");
       return;
     }
@@ -690,7 +690,7 @@ const Campaigns = () => {
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `leads_${selectedCampaign.name.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+      link.setAttribute('download', `leads_${(selectedCampaign?.name || (selectedCampaign as any)?.title || 'campaign').replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.xlsx`);
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -1208,8 +1208,8 @@ const Campaigns = () => {
     }
     finally { setIsSubmitting(false); }
   };
-  const filteredCampaigns = campaigns.filter(c =>
-    c.name.toLowerCase().includes(campaignSearch.toLowerCase())
+  const filteredCampaigns = (campaigns || []).filter(c =>
+    (c?.name || (c as any)?.title || '').toLowerCase().includes((campaignSearch || '').toLowerCase())
   );
 
   const [campaignToDelete, setCampaignToDelete] = useState<Campaign | null>(null);
@@ -1218,7 +1218,7 @@ const Campaigns = () => {
     if (!campaignToDelete) return;
     try {
       await api.delete(`/campaigns/${campaignToDelete._id}`);
-      toast.success(`"${campaignToDelete.name}" deleted successfully`);
+      toast.success(`"${campaignToDelete?.name || (campaignToDelete as any)?.title || 'Campaign'}" deleted successfully`);
       if (selectedCampaign?._id === campaignToDelete._id) {
         setSelectedCampaign(null);
         setSelectedLead(null);
@@ -1232,9 +1232,10 @@ const Campaigns = () => {
     }
   };
 
-  const filteredLeads = leads.filter(s => {
-    const matchesSearch = s.name.toLowerCase().includes(leadSearch.toLowerCase()) ||
-      s.city?.toLowerCase().includes(leadSearch.toLowerCase());
+  const filteredLeads = (leads || []).filter(s => {
+    if (!s) return false;
+    const matchesSearch = (s?.name || '').toLowerCase().includes((leadSearch || '').toLowerCase()) ||
+      (s?.city || '').toLowerCase().includes((leadSearch || '').toLowerCase());
     const matchesStatus = statusFilter === "all" || s.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
@@ -1247,7 +1248,7 @@ const Campaigns = () => {
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
             <div className="bg-card p-6 rounded-xl shadow-xl w-full max-w-sm">
               <h3 className="font-bold text-lg mb-2">Delete Campaign</h3>
-              <p className="text-sm text-muted-foreground mb-6">Are you sure you want to delete "{campaignToDelete.name}"? This action cannot be undone.</p>
+              <p className="text-sm text-muted-foreground mb-6">Are you sure you want to delete "{campaignToDelete?.name || (campaignToDelete as any)?.title || 'Campaign'}"? This action cannot be undone.</p>
               <div className="flex gap-3 justify-end">
                 <button onClick={() => setCampaignToDelete(null)} className="px-4 py-2 text-sm font-medium hover:bg-accent rounded-lg">Cancel</button>
                 <button onClick={handleDeleteCampaign} className="px-4 py-2 text-sm font-medium bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-lg">Delete</button>
@@ -1310,7 +1311,7 @@ const Campaigns = () => {
                   className="flex-1 text-left p-3 flex items-center gap-3 min-w-0"
                 >
                   <Folder size={16} className={`flex-shrink-0 ${selectedCampaign?._id === c._id ? "text-primary-foreground" : "text-primary"}`} />
-                  <span className="text-xs font-medium truncate">{c.name}</span>
+                  <span className="text-xs font-medium truncate">{c?.name || (c as any)?.title || 'Untitled Campaign'}</span>
                 </button>
                 <button
                   onClick={(e) => { e.stopPropagation(); if (!permissions.manageCampaigns) return; setCampaignToDelete(c); }}
@@ -1340,7 +1341,7 @@ const Campaigns = () => {
             <>
               <div className="p-4 border-b space-y-3">
                 <div className="flex items-center justify-between gap-2 min-w-0">
-                  <h2 className="font-bold text-sm truncate max-w-[150px] sm:max-w-[200px]">{selectedCampaign.name}</h2>
+                  <h2 className="font-bold text-sm truncate max-w-[150px] sm:max-w-[200px]">{selectedCampaign?.name || (selectedCampaign as any)?.title || 'Untitled'}</h2>
                   <div className="flex items-center justify-center gap-2">
                     <span className="text-[10px] bg-accent px-1.5 py-0.5 rounded-full font-bold text-muted-foreground">{filteredLeads.length}</span>
                     {permissions.manageCampaigns && (

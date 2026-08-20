@@ -194,10 +194,13 @@ export const initCronJobs = () => {
 
             for (const campaign of pendingCampaigns) {
                 campaign.status = 'sending';
+                campaign.sentAt = new Date();
                 await campaign.save();
 
-                // Resolve recipients
-                const recipients = await resolveSegmentRecipients(campaign.segmentId);
+                // For standard campaigns, resolve segment recipients; for AI campaigns, recipientLogs are used
+                const recipients = campaign.isAiPersonalized 
+                    ? [] 
+                    : await resolveSegmentRecipients(campaign.segmentId);
                 
                 // Dispatch in background
                 dispatchCampaignInBackground(campaign, recipients);

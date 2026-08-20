@@ -26,10 +26,17 @@ export const sendSendGridMail = async ({ to, subject, html, leadId, leadModel, c
         throw new Error('SENDGRID_FROM_EMAIL is not defined in environment variables');
     }
 
-    // Build the unsubscribe link with campaignId for stats tracking
-    const unsubscribeLink = `${backendUrl}/api/emails/unsubscribe/${leadId}?model=${leadModel}&campaignId=${campaignId}`;
+    // Build the unsubscribe link with full context for CRM opt-out tracking
+    const cleanLeadId = (leadId && leadId !== 'null' && leadId !== 'undefined') ? leadId : 'direct';
+    const cleanEmail = encodeURIComponent(to || '');
+    const unsubscribeLink = `${backendUrl}/api/emails/unsubscribe/${cleanLeadId}?model=${leadModel || 'Lead'}&campaignId=${campaignId || ''}&email=${cleanEmail}`;
     
-    // Inject legal unsubscribe block in the footer styled as a normal text link
+    // Replace any placeholder unsubscribe links in custom or AI templates
+    let processedHtml = (html || '')
+        .replace(/\{\{\s*unsubscribe(?:_url)?\s*\}\}/gi, unsubscribeLink)
+        .replace(/href=["'](?:https?:\/\/[^\s"'<>]*unsubscribe[^\s"'<>]*|#unsubscribe)["']/gi, `href="${unsubscribeLink}"`);
+
+    // Inject legal unsubscribe block in the footer styled as a clean text link
     const footerHtml = `
         <br/><br/>
         <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;"/>
@@ -39,7 +46,7 @@ export const sendSendGridMail = async ({ to, subject, html, leadId, leadModel, c
             <a href="${unsubscribeLink}" style="color: #0066cc; text-decoration: underline;" target="_blank">Unsubscribe</a> from future marketing emails.
         </p>
     `;
-    const finalHtml = html + footerHtml;
+    const finalHtml = processedHtml + footerHtml;
 
     try {
         const response = await axios.post(
