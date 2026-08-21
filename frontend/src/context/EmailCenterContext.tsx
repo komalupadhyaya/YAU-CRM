@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useRef, useCallback, useEffect, ReactNode } from 'react';
 import api from '../api/api';
 import { useSocket } from './SocketContext';
+import { useAuth } from './AuthContext';
 import { toast } from 'sonner';
 
 export interface Segment {
@@ -126,6 +127,8 @@ const EmailCenterContext = createContext<EmailCenterContextType | null>(null);
 
 export const EmailCenterProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const socket = useSocket();
+  const { currentUser } = useAuth();
+  const isAdmin = currentUser?.role === 'admin';
 
   // Marketing Data States
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -148,6 +151,9 @@ export const EmailCenterProvider: React.FC<{ children: ReactNode }> = ({ childre
   const [isMarketingDataLoaded, setIsMarketingDataLoaded] = useState(false);
   const [isConversationsLoaded, setIsConversationsLoaded] = useState(false);
 
+  // Active lead ID tracking to strictly prevent out-of-order race conditions
+  const activeLeadIdRef = useRef<string | null>(null);
+
   // Active in-flight promises map to share requests and strictly prevent double/duplicate calls
   const activePromisesRef = useRef<{
     campaigns: Promise<void> | null;
@@ -167,8 +173,12 @@ export const EmailCenterProvider: React.FC<{ children: ReactNode }> = ({ childre
 
   const lastFetchTimeRef = useRef<{ [key: string]: number }>({});
 
-  // Fetch campaigns with active promise sharing & invalid doc filtering
+  // Fetch campaigns with active promise sharing & invalid doc filtering (Admin only)
   const fetchCampaigns = useCallback((force = false) => {
+    if (!currentUser || currentUser.role !== 'admin') {
+      return Promise.resolve();
+    }
+
     if (activePromisesRef.current.campaigns) {
       return activePromisesRef.current.campaigns;
     }
@@ -200,10 +210,14 @@ export const EmailCenterProvider: React.FC<{ children: ReactNode }> = ({ childre
 
     activePromisesRef.current.campaigns = promise;
     return promise;
-  }, []);
+  }, [currentUser]);
 
-  // Fetch segments with active promise sharing
+  // Fetch segments with active promise sharing (Admin only)
   const fetchSegments = useCallback((force = false) => {
+    if (!currentUser || currentUser.role !== 'admin') {
+      return Promise.resolve();
+    }
+
     if (activePromisesRef.current.segments) {
       return activePromisesRef.current.segments;
     }
@@ -233,10 +247,14 @@ export const EmailCenterProvider: React.FC<{ children: ReactNode }> = ({ childre
 
     activePromisesRef.current.segments = promise;
     return promise;
-  }, []);
+  }, [currentUser]);
 
-  // Fetch templates with active promise sharing
+  // Fetch templates with active promise sharing (Admin only)
   const fetchTemplates = useCallback((force = false) => {
+    if (!currentUser || currentUser.role !== 'admin') {
+      return Promise.resolve();
+    }
+
     if (activePromisesRef.current.templates) {
       return activePromisesRef.current.templates;
     }
@@ -266,10 +284,14 @@ export const EmailCenterProvider: React.FC<{ children: ReactNode }> = ({ childre
 
     activePromisesRef.current.templates = promise;
     return promise;
-  }, []);
+  }, [currentUser]);
 
-  // Fetch 1-to-1 conversations with active promise sharing
+  // Fetch 1-to-1 conversations with active promise sharing (Admin only)
   const fetchConversations = useCallback((force = false) => {
+    if (!currentUser || currentUser.role !== 'admin') {
+      return Promise.resolve();
+    }
+
     if (activePromisesRef.current.conversations) {
       return activePromisesRef.current.conversations;
     }
@@ -300,14 +322,19 @@ export const EmailCenterProvider: React.FC<{ children: ReactNode }> = ({ childre
 
     activePromisesRef.current.conversations = promise;
     return promise;
-  }, []);
+  }, [currentUser]);
 
   // In-memory cache for contact message threads
   const historyCacheRef = useRef<{ [leadId: string]: EmailHistoryItem[] }>({});
 
-  // Fetch individual conversation message history with instant cache retrieval
+  // Fetch individual conversation message history with instant cache retrieval and race condition protection
   const fetchHistory = useCallback((leadId: string, force = false) => {
     if (!leadId) return Promise.resolve();
+    if (!currentUser || currentUser.role !== 'admin') {
+      return Promise.resolve();
+    }
+
+    activeLeadIdRef.current = leadId;
 
     // If cached in memory, immediately populate state with zero delay
     if (historyCacheRef.current[leadId]) {
@@ -334,24 +361,35 @@ export const EmailCenterProvider: React.FC<{ children: ReactNode }> = ({ childre
         const res = await api.get(`/emails/conversations/${leadId}`);
         const data = Array.isArray(res.data) ? res.data : [];
         historyCacheRef.current[leadId] = data;
-        setEmailHistory(data);
+
+        // STRICT RACE CONDITION GUARD: Only apply to UI if user is still on this contact!
+        if (activeLeadIdRef.current === leadId) {
+          setEmailHistory(data);
+          setLoadingHistory(false);
+        }
         lastFetchTimeRef.current[cacheKey] = Date.now();
       } catch (err) {
         console.error("Failed to load email history thread:", err);
-        toast.error("Failed to load email history thread");
+        if (activeLeadIdRef.current === leadId) {
+          toast.error("Failed to load email history thread");
+        }
       } finally {
-        setLoadingHistory(false);
+        if (activeLeadIdRef.current === leadId) {
+          setLoadingHistory(false);
+        }
         delete activePromisesRef.current.history[leadId];
       }
     })();
 
     activePromisesRef.current.history[leadId] = promise;
     return promise;
-  }, []);
+  }, [currentUser]);
 
   // Admin action to restore email consent / resubscribe contact
   const resubscribeContact = useCallback(async (conv: EmailConversation) => {
     if (!conv) return;
+    if (!currentUser || currentUser.role !== 'admin') return;
+
     setResubscribing(true);
     try {
       await api.post("/emails/resubscribe", {
@@ -368,10 +406,14 @@ export const EmailCenterProvider: React.FC<{ children: ReactNode }> = ({ childre
     } finally {
       setResubscribing(false);
     }
-  }, []);
+  }, [currentUser]);
 
-  // Concurrent parallel loader powered by Promise.all with active promise sharing
+  // Concurrent parallel loader powered by Promise.all with active promise sharing (Admin only)
   const loadInitialMarketingData = useCallback((force = false) => {
+    if (!currentUser || currentUser.role !== 'admin') {
+      return Promise.resolve();
+    }
+
     if (activePromisesRef.current.all) {
       return activePromisesRef.current.all;
     }
@@ -381,7 +423,8 @@ export const EmailCenterProvider: React.FC<{ children: ReactNode }> = ({ childre
         await Promise.all([
           fetchCampaigns(force),
           fetchSegments(force),
-          fetchTemplates(force)
+          fetchTemplates(force),
+          fetchConversations(force)
         ]);
         setIsMarketingDataLoaded(true);
       } finally {
@@ -391,7 +434,7 @@ export const EmailCenterProvider: React.FC<{ children: ReactNode }> = ({ childre
 
     activePromisesRef.current.all = promise;
     return promise;
-  }, [fetchCampaigns, fetchSegments, fetchTemplates]);
+  }, [currentUser, fetchCampaigns, fetchSegments, fetchTemplates, fetchConversations]);
 
   // Real-time socket sync for campaign stats
   useEffect(() => {
