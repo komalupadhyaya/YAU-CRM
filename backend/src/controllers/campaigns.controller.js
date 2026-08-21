@@ -524,27 +524,16 @@ export const unsubscribeLead = async (req, res, next) => {
                         background: linear-gradient(90deg, #dc2626 0%, #2563eb 50%, #dc2626 100%);
                     }
                     .logo-wrapper {
-                        margin-bottom: 24px;
+                        margin-bottom: 20px;
                         display: inline-flex;
                         align-items: center;
                         justify-content: center;
                     }
                     .yau-crest {
-                        width: 88px;
+                        max-width: 140px;
                         height: auto;
+                        object-fit: contain;
                         filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.4));
-                    }
-                    .icon-badge {
-                        width: 56px;
-                        height: 56px;
-                        background: rgba(16, 185, 129, 0.12);
-                        border: 1.5px solid rgba(16, 185, 129, 0.35);
-                        border-radius: 18px;
-                        display: inline-flex;
-                        align-items: center;
-                        justify-content: center;
-                        margin-bottom: 20px;
-                        box-shadow: 0 10px 20px -5px rgba(16, 185, 129, 0.25);
                     }
                     .brand-pill {
                         display: inline-block;
@@ -611,40 +600,7 @@ export const unsubscribeLead = async (req, res, next) => {
             <body>
                 <div class="card">
                     <div class="logo-wrapper">
-                        <!-- YAU Official Diamond Shield SVG Crest -->
-                        <svg class="yau-crest" viewBox="0 0 160 180" fill="none" xmlns="http://www.w3.org/2000/svg">
-                            <!-- Diamond Outer Border -->
-                            <polygon points="80,6 154,58 126,168 80,174 34,168 6,58" fill="#ffffff" stroke="#0f3b7d" stroke-width="4"/>
-                            <!-- Diamond Red Border -->
-                            <polygon points="80,12 148,60 122,162 80,168 38,162 12,60" fill="#dc2626"/>
-                            <!-- Diamond Inner Navy Shield -->
-                            <polygon points="80,18 142,62 118,156 80,162 42,156 18,62" fill="#0f2b5c"/>
-                            
-                            <!-- White & Red Diagonal Team Stripes in Center -->
-                            <path d="M52 75 L108 75 L104 87 L48 87 Z" fill="#ffffff"/>
-                            <path d="M50 89 L110 89 L106 101 L46 101 Z" fill="#dc2626"/>
-                            
-                            <!-- Bold Athletic YAU Letters -->
-                            <text x="80" y="78" font-family="'Outfit', 'Arial Black', sans-serif" font-weight="900" font-size="34" fill="#ffffff" text-anchor="middle" letter-spacing="1">YAU</text>
-                            
-                            <!-- Ribbon Banner -->
-                            <rect x="26" y="106" width="108" height="20" rx="3" fill="#dc2626"/>
-                            <text x="80" y="120" font-family="'Plus Jakarta Sans', sans-serif" font-weight="800" font-size="8.5" fill="#ffffff" text-anchor="middle" letter-spacing="0.5">YOUTH ATHLETE</text>
-                            
-                            <!-- University Subtext -->
-                            <rect x="36" y="128" width="88" height="15" rx="2" fill="#ffffff"/>
-                            <text x="80" y="139" font-family="'Plus Jakarta Sans', sans-serif" font-weight="800" font-size="8" fill="#0f2b5c" text-anchor="middle" letter-spacing="0.5">UNIVERSITY</text>
-                            
-                            <!-- Bottom Chevron Stripes -->
-                            <polygon points="76,146 80,158 84,146" fill="#dc2626"/>
-                        </svg>
-                    </div>
-
-                    <div class="icon-badge">
-                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
-                            <polyline points="22 4 12 14.01 9 11.01"></polyline>
-                        </svg>
+                        <img src="http://youthathleteuniversity.org/wp-content/uploads/2025/06/cropped-Screenshot_2025-06-17_at_6.48.29_PM-removebg-preview.png" alt="Youth Athlete University" class="yau-crest" />
                     </div>
 
                     <div>

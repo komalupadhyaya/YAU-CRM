@@ -95,6 +95,7 @@ RULES (follow strictly):
 - If a user goal/prompt is provided, address it directly (e.g. follow-up after call, introducing athletic programs, scheduling a meeting, sharing information).
 - If no goal is provided, craft an effective introductory or follow-up email tailored to the lead's status and organization.
 - Sign off professionally from "The YAU Sports Team".
+- NEVER generate or include any "Unsubscribe" text, link, or opt-out footer in the email body.
 - Return your response strictly as a JSON object with keys "subject" and "body".
 Example output format:
 {
@@ -276,9 +277,11 @@ EMAIL DESIGN & HTML RULES (follow strictly):
    - Clear visual hierarchy: Header banner, greeting, body sections with bullet points, high-contrast call-to-action button, and professional sign-off.
 3. LINKS & CTAS OPEN IN NEW TAB:
    - Every link (<a ...>) and CTA button in the template MUST include target="_blank" rel="noopener noreferrer" so clicking any link opens in a new browser tab.
-4. PERSONALIZATION: Use {{name}} as the dynamic placeholder for the recipient's name (e.g. "Hi {{name}},").
-5. STRICT TEMPLATE & DESIGN PRESERVATION: If existing HTML template code is provided, you MUST STRICTLY PRESERVE the entire surrounding HTML table layout, inline CSS styles, containers, background colors, header banners, borders, and CTA button structure/styling. Do NOT discard or alter the visual design or formatting. ONLY replace or insert the textual content (headlines, greeting, body paragraphs, bullet points, button text) according to the user's prompt.
-6. RESPONSE FORMAT: Return strictly JSON format with keys "name", "subject", "content", and "category".
+4. NO UNSUBSCRIBE LINK OR FOOTER:
+   - NEVER generate any "Unsubscribe" button, opt-out link, or footer disclaimer (such as "You are receiving this email because you opted in... Unsubscribe") inside the template HTML. The delivery system automatically appends the official legal unsubscribe footer.
+5. PERSONALIZATION: Use {{name}} as the dynamic placeholder for the recipient's name (e.g. "Hi {{name}},").
+6. STRICT TEMPLATE & DESIGN PRESERVATION: If existing HTML template code is provided, you MUST STRICTLY PRESERVE the entire surrounding HTML table layout, inline CSS styles, containers, background colors, header banners, borders, and CTA button structure/styling. Do NOT discard or alter the visual design or formatting. ONLY replace or insert the textual content (headlines, greeting, body paragraphs, bullet points, button text) according to the user's prompt.
+7. RESPONSE FORMAT: Return strictly JSON format with keys "name", "subject", "content", and "category".
 
 Example output format:
 {
@@ -385,6 +388,7 @@ ${hasTemplate ? `1. STRICT TEMPLATE & DESIGN PRESERVATION:
    - Professional, warm, consultative, and concise. Never sound like a generic robotic mass blast.
    - Include a clear, low-friction call-to-action.
    - Sign off professionally from "The YAU Sports Team".
+   - NEVER generate or include any "Unsubscribe" button, link, or opt-out disclaimer in the body/template. The platform automatically attaches the legal footer.
 
 4. STRICT JSON OUTPUT:
    Return ONLY a valid JSON object with the following schema:

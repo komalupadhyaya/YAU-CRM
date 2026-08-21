@@ -1689,6 +1689,62 @@ export default function EmailCenter() {
     return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
   };
 
+  // Helper to compute unified recipient funnel KPIs for any campaign
+  const getCampaignFunnelStats = (camp: Campaign) => {
+    const logs = camp.recipientLogs || [];
+    const allCount = logs.length;
+
+    if (allCount > 0) {
+      const bounceCount = logs.filter(l => l.status === "bounce" || l.status === "bounced" || l.status === "blocked" || l.status === "failed").length;
+      const unsubCount = logs.filter(l => l.status === "unsubscribe" || l.status === "unsubscribed").length;
+      const clickCount = logs.filter(l => l.status === "click" || l.status === "clicked" || l.status === "unsubscribe" || l.status === "unsubscribed").length;
+      const openCount = logs.filter(l => l.status === "open" || l.status === "opened" || l.status === "click" || l.status === "clicked" || l.status === "unsubscribe" || l.status === "unsubscribed").length;
+
+      const sentCount = allCount;
+      const delCount = Math.max(0, sentCount - bounceCount);
+
+      const delRate = sentCount > 0 ? Math.round((delCount / sentCount) * 100) : 0;
+      const openRate = delCount > 0 ? Math.round((openCount / delCount) * 100) : 0;
+      const clickRate = delCount > 0 ? Math.round((clickCount / delCount) * 100) : 0;
+
+      return {
+        sentCount,
+        delCount,
+        openCount,
+        clickCount,
+        unsubCount,
+        bounceCount,
+        delRate,
+        openRate,
+        clickRate
+      };
+    }
+
+    // Fallback if no recipientLogs populated yet
+    const sentCount = camp.stats?.sent || 0;
+    const delCount = camp.stats?.delivered || 0;
+    const openCount = camp.stats?.opens || 0;
+    const clickCount = camp.stats?.clicks || 0;
+    const unsubCount = camp.stats?.unsubscribes || 0;
+    const bounceCount = camp.stats?.bounces || 0;
+
+    const delRate = sentCount > 0 ? Math.round((delCount / sentCount) * 100) : 0;
+    const openRate = delCount > 0 ? Math.round((openCount / delCount) * 100) : 0;
+    const clickRate = delCount > 0 ? Math.round((clickCount / delCount) * 100) : 0;
+
+    return {
+      sentCount,
+      delCount,
+      openCount,
+      clickCount,
+      unsubCount,
+      bounceCount,
+      delRate,
+      openRate,
+      clickRate
+    };
+  };
+
   // Handle Campaign Creation
   const handleCreateCampaign = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1746,18 +1802,62 @@ export default function EmailCenter() {
   // Handle Segment Creation
   const handleCreateSegment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!segmentForm.name) {
+    if (!segmentForm.name.trim()) {
       toast.error("Segment name is required");
       return;
     }
 
-    if (segmentForm.type === "csv" && csvParsedContacts.length === 0) {
-      toast.error("Please upload a valid CSV file with contacts");
-      return;
+    // 1. Selected CSV contacts
+    const selectedCsvContacts = csvParsedContacts
+      .filter(c => csvSelectedEmails.includes(c.email))
+      .map(c => ({ name: c.name, email: c.email, status: "active" }));
+
+    // 2. Selected Manual CRM/EA/Team contacts
+    const selectedCRMContacts = segmentForm.leadIds.map(id => {
+      const found = availableContacts.find(c => c._id === id);
+      return found ? { name: found.name, email: found.email, status: "active" } : null;
+    }).filter(Boolean) as { name: string; email: string; status: string }[];
+
+    // 3. Custom contacts
+    const selectedCustomContacts = segmentForm.customContacts.map(c => ({
+      name: c.name,
+      email: c.email,
+      status: "active"
+    }));
+
+    // 4. Selected Sales Campaign contacts
+    const selectedCampaignContacts = campaignPreviewContacts
+      .filter((c: any) => campaignSelectedIds.includes(c.leadId || c.email))
+      .map((c: any) => ({ name: c.name, email: c.email, status: "active" }));
+
+    let contacts = [
+      ...selectedCsvContacts,
+      ...selectedCRMContacts,
+      ...selectedCustomContacts,
+      ...selectedCampaignContacts
+    ];
+
+    // Deduplicate contacts list by email (case-insensitive)
+    if (contacts.length > 0) {
+      const uniqueMap = new Map<string, { name: string; email: string; status: string }>();
+      const originalLength = contacts.length;
+      contacts.forEach(c => {
+        if (c.email) {
+          const normalized = c.email.toLowerCase().trim();
+          if (!uniqueMap.has(normalized)) {
+            uniqueMap.set(normalized, { ...c, email: normalized });
+          }
+        }
+      });
+      contacts = Array.from(uniqueMap.values());
+      const removedDuplicates = originalLength - contacts.length;
+      if (removedDuplicates > 0) {
+        toast.info(`Removed ${removedDuplicates} duplicate email(s)`);
+      }
     }
 
-    if (segmentForm.type === "static" && segmentForm.leadIds.length === 0 && segmentForm.customContacts.length === 0) {
-      toast.error("Please select at least one contact or add a custom contact");
+    if (contacts.length === 0) {
+      toast.error("Please add at least 1 contact (via CSV upload, Manual contacts, or Sales Campaign) to create this list");
       return;
     }
 
@@ -1765,71 +1865,23 @@ export default function EmailCenter() {
       ? segmentForm.filters.campaignIds
       : (segmentForm.filters.campaignId ? [segmentForm.filters.campaignId] : []);
 
-    if (segmentForm.type === "campaign" && activeCampaignIds.length === 0) {
-      toast.error("Please select at least one target Sales Campaign");
-      return;
+    let finalType = segmentForm.type;
+    if (selectedCsvContacts.length > 0 && selectedCRMContacts.length === 0 && selectedCustomContacts.length === 0 && selectedCampaignContacts.length === 0) {
+      finalType = "csv";
+    } else if (selectedCampaignContacts.length > 0 && selectedCsvContacts.length === 0 && selectedCRMContacts.length === 0 && selectedCustomContacts.length === 0) {
+      finalType = "campaign";
+    } else {
+      finalType = "static";
     }
 
     setIsSubmitting(true);
     try {
-      let contacts: { name: string; email: string; status: string }[] = [];
-      // 1. Selected CSV contacts
-      const selectedCsvContacts = csvParsedContacts
-        .filter(c => csvSelectedEmails.includes(c.email))
-        .map(c => ({ name: c.name, email: c.email, status: "active" }));
-
-      // 2. Selected Manual CRM/EA/Team contacts
-      const selectedCRMContacts = segmentForm.leadIds.map(id => {
-        const found = availableContacts.find(c => c._id === id);
-        return found ? { name: found.name, email: found.email, status: "active" } : null;
-      }).filter(Boolean) as { name: string; email: string; status: string }[];
-
-      // 3. Custom contacts
-      const selectedCustomContacts = segmentForm.customContacts.map(c => ({
-        name: c.name,
-        email: c.email,
-        status: "active"
-      }));
-
-      // 4. Selected Sales Campaign contacts
-      const selectedCampaignContacts = campaignPreviewContacts
-        .filter((c: any) => campaignSelectedIds.includes(c.leadId || c.email))
-        .map((c: any) => ({ name: c.name, email: c.email, status: "active" }));
-
-      contacts = [
-        ...selectedCsvContacts,
-        ...selectedCRMContacts,
-        ...selectedCustomContacts,
-        ...selectedCampaignContacts
-      ];
-
-      // Deduplicate contacts list by email (case-insensitive)
-      if (contacts.length > 0) {
-        const uniqueMap = new Map<string, { name: string; email: string; status: string }>();
-        const originalLength = contacts.length;
-        contacts.forEach(c => {
-          if (c.email) {
-            const normalized = c.email.toLowerCase().trim();
-            if (!uniqueMap.has(normalized)) {
-              uniqueMap.set(normalized, { ...c, email: normalized });
-            }
-          }
-        });
-        contacts = Array.from(uniqueMap.values());
-        const removedDuplicates = originalLength - contacts.length;
-        if (removedDuplicates > 0) {
-          toast.info(`Removed ${removedDuplicates} duplicate email(s)`);
-        }
-      }
-
       const payload = {
-        name: segmentForm.name,
+        name: segmentForm.name.trim(),
         description: segmentForm.description,
-        type: segmentForm.type,
-        filters: segmentForm.type === "dynamic" ? segmentForm.filters :
-          segmentForm.type === "campaign" ? { campaignId: activeCampaignIds[0] || "", campaignIds: activeCampaignIds } :
-            undefined,
-        contacts: (segmentForm.type === "static" || segmentForm.type === "campaign" || segmentForm.type === "csv") ? contacts : undefined
+        type: finalType,
+        filters: finalType === "campaign" ? { campaignId: activeCampaignIds[0] || "", campaignIds: activeCampaignIds } : undefined,
+        contacts: contacts
       };
 
       await api.post("/emails/segments", payload);
@@ -2493,9 +2545,7 @@ export default function EmailCenter() {
                           </thead>
                           <tbody className="divide-y divide-border/60">
                             {filteredCampaigns.map(camp => {
-                              const delRate = camp.stats.sent > 0 ? Math.round((camp.stats.delivered / camp.stats.sent) * 100) : 0;
-                              const openRate = camp.stats.delivered > 0 ? Math.round((camp.stats.opens / camp.stats.delivered) * 100) : 0;
-                              const clickRate = camp.stats.delivered > 0 ? Math.round((camp.stats.clicks / camp.stats.delivered) * 100) : 0;
+                              const stats = getCampaignFunnelStats(camp);
                               const tplObj = (typeof camp.templateId === 'object' && camp.templateId !== null)
                                 ? camp.templateId
                                 : templates.find(t => t._id === camp.templateId);
@@ -2553,16 +2603,16 @@ export default function EmailCenter() {
                                     </div>
                                   </td>
                                   <td className="p-3.5 text-center align-middle">
-                                    <span className="font-extrabold text-foreground">{delRate}%</span>
-                                    <span className="text-[10px] text-muted-foreground block font-medium">({camp.stats.delivered}/{camp.stats.sent})</span>
+                                    <span className="font-extrabold text-foreground">{stats.delRate}%</span>
+                                    <span className="text-[10px] text-muted-foreground block font-medium">({stats.delCount}/{stats.sentCount})</span>
                                   </td>
                                   <td className="p-3.5 text-center align-middle">
-                                    <span className="font-extrabold text-primary">{openRate}%</span>
-                                    <span className="text-[10px] text-muted-foreground block font-medium">({camp.stats.opens})</span>
+                                    <span className="font-extrabold text-primary">{stats.openRate}%</span>
+                                    <span className="text-[10px] text-muted-foreground block font-medium">({stats.openCount})</span>
                                   </td>
                                   <td className="p-3.5 text-center align-middle">
-                                    <span className="font-extrabold text-emerald-600 dark:text-emerald-400">{clickRate}%</span>
-                                    <span className="text-[10px] text-muted-foreground block font-medium">({camp.stats.clicks})</span>
+                                    <span className="font-extrabold text-emerald-600 dark:text-emerald-400">{stats.clickRate}%</span>
+                                    <span className="text-[10px] text-muted-foreground block font-medium">({stats.clickCount})</span>
                                   </td>
                                   <td className="p-3.5 pr-5 text-right align-middle" onClick={e => e.stopPropagation()}>
                                     <div className="flex items-center justify-end gap-1.5">
@@ -2602,9 +2652,7 @@ export default function EmailCenter() {
                     /* CARDS GRID VIEW */
                     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                       {filteredCampaigns.map((camp) => {
-                        const delRate = camp.stats.sent > 0 ? Math.round((camp.stats.delivered / camp.stats.sent) * 100) : 0;
-                        const openRate = camp.stats.delivered > 0 ? Math.round((camp.stats.opens / camp.stats.delivered) * 100) : 0;
-                        const clickRate = camp.stats.delivered > 0 ? Math.round((camp.stats.clicks / camp.stats.delivered) * 100) : 0;
+                        const stats = getCampaignFunnelStats(camp);
 
                         return (
                           <div
@@ -2654,15 +2702,15 @@ export default function EmailCenter() {
                                 <div className="space-y-2 pt-2 border-t border-border/60">
                                   <div className="grid grid-cols-3 text-center gap-1 bg-accent/20 p-2 rounded-xl border border-border/50">
                                     <div>
-                                      <div className="text-xs font-extrabold text-foreground">{delRate}%</div>
+                                      <div className="text-xs font-extrabold text-foreground">{stats.delRate}%</div>
                                       <div className="text-[9px] text-muted-foreground uppercase font-bold">Delivered</div>
                                     </div>
                                     <div>
-                                      <div className="text-xs font-extrabold text-primary">{openRate}%</div>
+                                      <div className="text-xs font-extrabold text-primary">{stats.openRate}%</div>
                                       <div className="text-[9px] text-muted-foreground uppercase font-bold">Open Rate</div>
                                     </div>
                                     <div>
-                                      <div className="text-xs font-extrabold text-emerald-600 dark:text-emerald-400">{clickRate}%</div>
+                                      <div className="text-xs font-extrabold text-emerald-600 dark:text-emerald-400">{stats.clickRate}%</div>
                                       <div className="text-[9px] text-muted-foreground uppercase font-bold">Click Rate</div>
                                     </div>
                                   </div>
@@ -5437,14 +5485,14 @@ export default function EmailCenter() {
 
               {/* Top 5 KPI Summary Cards Grid, Filter Pills & Recipient Logs (Computed with Email Funnel Hierarchy) */}
               {(() => {
-                const logs = selectedCampaign.recipientLogs || [];
-                const allCount = logs.length;
-                const bounceCount = logs.filter(l => l.status === "bounce" || l.status === "bounced" || l.status === "blocked" || l.status === "failed").length;
-                const unsubCount = logs.filter(l => l.status === "unsubscribe" || l.status === "unsubscribed").length;
-                const clickCount = logs.filter(l => l.status === "click" || l.status === "clicked" || l.status === "unsubscribe" || l.status === "unsubscribed").length;
-                const openCount = logs.filter(l => l.status === "open" || l.status === "opened" || l.status === "click" || l.status === "clicked" || l.status === "unsubscribe" || l.status === "unsubscribed").length;
-                const delCount = Math.max(selectedCampaign.stats?.delivered || 0, allCount - bounceCount);
-                const sentCount = Math.max(selectedCampaign.stats?.sent || 0, allCount);
+                const stats = getCampaignFunnelStats(selectedCampaign);
+                const allCount = stats.sentCount;
+                const bounceCount = stats.bounceCount;
+                const unsubCount = stats.unsubCount;
+                const clickCount = stats.clickCount;
+                const openCount = stats.openCount;
+                const delCount = stats.delCount;
+                const sentCount = stats.sentCount;
 
                 return (
                   <>
@@ -5452,9 +5500,9 @@ export default function EmailCenter() {
                       {[
                         { label: "Sent", val: sentCount, icon: Mail, color: "text-zinc-500", bg: "bg-zinc-500/10" },
                         { label: "Delivered", val: delCount, icon: CheckCircle, color: "text-emerald-500", bg: "bg-emerald-500/10" },
-                        { label: "Opens", val: Math.max(selectedCampaign.stats?.opens || 0, openCount), icon: Eye, color: "text-blue-500", bg: "bg-blue-500/10" },
-                        { label: "Clicks", val: Math.max(selectedCampaign.stats?.clicks || 0, clickCount), icon: MousePointerClick, color: "text-indigo-500", bg: "bg-indigo-500/10" },
-                        { label: "Unsubscribed", val: Math.max(selectedCampaign.stats?.unsubscribes || 0, unsubCount), icon: UserX, color: "text-amber-500", bg: "bg-amber-500/10" }
+                        { label: "Opens", val: openCount, icon: Eye, color: "text-blue-500", bg: "bg-blue-500/10" },
+                        { label: "Clicks", val: clickCount, icon: MousePointerClick, color: "text-indigo-500", bg: "bg-indigo-500/10" },
+                        { label: "Unsubscribed", val: unsubCount, icon: UserX, color: "text-amber-500", bg: "bg-amber-500/10" }
                       ].map(stat => (
                         <div key={stat.label} className="border border-border/80 rounded-xl p-3 bg-card text-left flex flex-col justify-between shadow-2xs">
                           <div className="flex items-center justify-between">
