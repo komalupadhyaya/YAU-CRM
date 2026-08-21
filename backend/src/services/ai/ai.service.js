@@ -286,7 +286,7 @@ EMAIL DESIGN & HTML RULES (follow strictly):
    - The current calendar year is ${currentYear}. Always reference the current year (${currentYear}) for any program dates, seasonal titles (e.g. "Summer Skills Camp ${currentYear}"), or copyright disclaimers (e.g. "© ${currentYear} Youth Athlete University"). Never reference past years.
 6. PERSONALIZATION: Use {{name}} as the dynamic placeholder for the recipient's name (e.g. "Hi {{name}},").
 7. STRICT TEMPLATE & DESIGN PRESERVATION: If existing HTML template code is provided, you MUST STRICTLY PRESERVE the entire surrounding HTML table layout, inline CSS styles, containers, background colors, header banners, borders, and CTA button structure/styling. Do NOT discard or alter the visual design or formatting. ONLY replace or insert the textual content (headlines, greeting, body paragraphs, bullet points, button text) according to the user's prompt.
-8. RESPONSE FORMAT: Return strictly JSON format with keys "name", "subject", "content", and "category".
+8. RESPONSE FORMAT: Return strictly JSON format with keys "name", "subject", "content", and "category". All double quotes inside "content" must be escaped with \\". Do NOT use raw unescaped linebreaks inside strings.
 
 Example output format:
 {
@@ -335,12 +335,44 @@ async function generateEmailTemplate({ prompt, category, existingContent }) {
             throw new Error(cleanRaw.length < 350 ? cleanRaw : 'AI is unable to generate content for this prompt due to safety policy guidelines. Please refine your prompt.');
         }
 
+        let parsed = null;
         const jsonMatch = cleanRaw.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
-            const parsed = JSON.parse(jsonMatch[0]);
-            if (!parsed.content || typeof parsed.content !== 'string' || !parsed.content.trim()) {
-                throw new Error('AI returned an empty email template body. Please try again.');
+            try {
+                parsed = JSON.parse(jsonMatch[0]);
+            } catch (jsonErr) {
+                console.warn('[AI Template] Standard JSON.parse failed, recovering via robust regex parser...', jsonErr.message);
+                const nameMatch = cleanRaw.match(/"name"\s*:\s*"([^"\r\n]+)"/i);
+                const subjectMatch = cleanRaw.match(/"subject"\s*:\s*"([^"\r\n]+)"/i);
+                const categoryMatch = cleanRaw.match(/"category"\s*:\s*"([^"\r\n]+)"/i);
+                
+                // Extract HTML content cleanly
+                let extractedHtml = '';
+                const contentMatch = cleanRaw.match(/"content"\s*:\s*"([\s\S]*?)"\s*[\},]/i);
+                if (contentMatch) {
+                    extractedHtml = contentMatch[1]
+                        .replace(/\\"/g, '"')
+                        .replace(/\\n/g, '\n')
+                        .replace(/\\t/g, '\t');
+                } else {
+                    const tableMatch = cleanRaw.match(/<table[\s\S]*<\/table>/i) || cleanRaw.match(/<div[\s\S]*<\/div>/i);
+                    if (tableMatch) {
+                        extractedHtml = tableMatch[0];
+                    }
+                }
+
+                if (extractedHtml && extractedHtml.trim()) {
+                    parsed = {
+                        name: nameMatch ? nameMatch[1] : 'AI Generated Template',
+                        subject: subjectMatch ? subjectMatch[1] : 'Special Announcement from YAU Sports',
+                        category: categoryMatch ? categoryMatch[1] : category || 'AI Generated',
+                        content: extractedHtml
+                    };
+                }
             }
+        }
+
+        if (parsed && parsed.content && typeof parsed.content === 'string' && parsed.content.trim()) {
             return {
                 name: parsed.name || 'AI Generated Template',
                 subject: parsed.subject || 'Special Announcement from YAU Sports',
@@ -353,11 +385,12 @@ async function generateEmailTemplate({ prompt, category, existingContent }) {
 
         // If raw contains HTML structure directly
         if (cleanRaw.includes('<table') || cleanRaw.includes('<div') || cleanRaw.includes('<p>')) {
+            const tableMatch = cleanRaw.match(/<table[\s\S]*<\/table>/i) || cleanRaw.match(/<div[\s\S]*<\/div>/i);
             return {
                 name: 'AI Generated Template',
                 subject: 'Special Announcement from YAU Sports',
                 category: category || 'AI Generated',
-                content: cleanRaw,
+                content: tableMatch ? tableMatch[0] : cleanRaw,
                 provider: 'anthropic',
                 apiHit: true
             };

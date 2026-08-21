@@ -204,17 +204,25 @@ export default function EmailCenter() {
     setTemplates,
     conversations,
     setConversations,
+    selectedConversation,
+    setSelectedConversation,
+    emailHistory,
+    setEmailHistory,
     loadingCampaigns,
     loadingSegments,
     loadingTemplates,
     loadingConversations,
+    loadingHistory,
+    resubscribing,
     isMarketingDataLoaded,
     isConversationsLoaded,
     loadInitialMarketingData,
     fetchCampaigns,
     fetchSegments,
     fetchTemplates,
-    fetchConversations
+    fetchConversations,
+    fetchHistory,
+    resubscribeContact
   } = useEmailCenter();
 
   // Database Template & Groq AI States
@@ -270,10 +278,7 @@ export default function EmailCenter() {
     fontSize: '',
   });
 
-  // 1-to-1 Emailing States
-  const [selectedConversation, setSelectedConversation] = useState<EmailConversation | null>(null);
-  const [emailHistory, setEmailHistory] = useState<EmailHistoryItem[]>([]);
-  const [loadingHistory, setLoadingHistory] = useState(false);
+  // 1-to-1 Emailing Filter & Search States
   const [conversationsSearch, setConversationsSearch] = useState("");
   const [conversationsFilter, setConversationsFilter] = useState<"all" | "ea_lead" | "main_lead" | "opted_out">("all");
   const [conversationsSort, setConversationsSort] = useState<"recent" | "name">("recent");
@@ -1521,29 +1526,15 @@ export default function EmailCenter() {
     }
   };
 
-  // Fetch individual 1-to-1 conversation history
-  const fetchHistory = useCallback(async (leadId: string) => {
-    setLoadingHistory(true);
-    try {
-      const res = await api.get(`/emails/conversations/${leadId}`);
-      setEmailHistory(res.data);
-    } catch (err) {
-      console.error(err);
-      toast.error("Failed to load email history thread");
-    } finally {
-      setLoadingHistory(false);
-    }
-  }, []);
-
   const prevTabRef = useRef(activeTab);
   const prevWorkspaceRef = useRef(workspace);
 
   // SWR Pattern: On workspace switch or initial entry, revalidate the active workspace in background
   useEffect(() => {
     if (workspace === "campaigns") {
-      loadInitialMarketingData(true);
+      loadInitialMarketingData();
     } else {
-      fetchConversations(true);
+      fetchConversations();
     }
     prevWorkspaceRef.current = workspace;
   }, [workspace, loadInitialMarketingData, fetchConversations]);
@@ -1588,6 +1579,15 @@ export default function EmailCenter() {
   }, [campaigns, fetchCampaigns, isViewStatsOpen]);
 
   const chatScrollRef = useRef<HTMLDivElement>(null);
+  const chatBottomAnchorRef = useRef<HTMLDivElement>(null);
+
+  const scrollToBottom = useCallback((behavior: 'auto' | 'smooth' = 'auto') => {
+    if (chatBottomAnchorRef.current) {
+      chatBottomAnchorRef.current.scrollIntoView({ behavior, block: 'end' });
+    } else if (chatScrollRef.current) {
+      chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+    }
+  }, []);
 
   useEffect(() => {
     if (selectedConversation) {
@@ -1595,11 +1595,20 @@ export default function EmailCenter() {
     }
   }, [selectedConversation, fetchHistory]);
 
+  // Robust multi-phase auto-scroll to the latest message whenever entering inbox, switching contact, or loading history
   useEffect(() => {
-    if (chatScrollRef.current) {
-      chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+    if (workspace === "inbox" && selectedConversation) {
+      scrollToBottom('auto');
+      const t1 = setTimeout(() => scrollToBottom('auto'), 50);
+      const t2 = setTimeout(() => scrollToBottom('auto'), 150);
+      const t3 = setTimeout(() => scrollToBottom('smooth'), 300);
+      return () => {
+        clearTimeout(t1);
+        clearTimeout(t2);
+        clearTimeout(t3);
+      };
     }
-  }, [emailHistory, selectedConversation]);
+  }, [workspace, selectedConversation?._id, emailHistory.length, loadingHistory, scrollToBottom]);
 
   // --- MODAL STATE RESET FUNCTIONS (Wipes uncommitted draft state on close/cancel) ---
   const resetCampaignModalState = useCallback(() => {
@@ -2081,8 +2090,6 @@ export default function EmailCenter() {
     toast.success("Template injected!");
   };
 
-  const [resubscribing, setResubscribing] = useState(false);
-
   // Helper to switch conversation and cleanly reset composer
   const handleSelectConversation = (conv: EmailConversation) => {
     if (selectedConversation?._id !== conv._id) {
@@ -2094,25 +2101,8 @@ export default function EmailCenter() {
     setSelectedConversation(conv);
   };
 
-  // Admin action to restore email consent / remove unsubscribe
-  const handleResubscribeLead = async (conv: EmailConversation) => {
-    if (!conv) return;
-    setResubscribing(true);
-    try {
-      await api.post("/emails/resubscribe", {
-        leadId: conv._id,
-        email: conv.email,
-        leadModel: conv.leadType === "ea_lead" ? "EALead" : "Lead"
-      });
-      toast.success(`Email consent restored for ${conv.name}!`);
-      setSelectedConversation(prev => prev ? { ...prev, isConsent: true } : null);
-      fetchConversations();
-    } catch (err: any) {
-      console.error(err);
-      toast.error(err.response?.data?.error || "Failed to restore email consent");
-    } finally {
-      setResubscribing(false);
-    }
+  const handleResubscribeLead = (conv: EmailConversation) => {
+    return resubscribeContact(conv);
   };
 
   // Send 1-to-1 Email via SendGrid
@@ -3312,13 +3302,14 @@ export default function EmailCenter() {
                   </div>
 
                   {/* Scrollable Email WhatsApp-style Chat Stream (Auto Scrolls to Bottom) */}
-                  <div ref={chatScrollRef} className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-4 min-h-0 bg-accent/5">
-                    {loadingHistory ? (
-                      <div className="flex items-center justify-center py-20">
+                  <div ref={chatScrollRef} className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-4 min-h-0 bg-accent/5 transition-opacity duration-150 ease-out">
+                    {loadingHistory && emailHistory.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-20 space-y-2 text-muted-foreground animate-in fade-in duration-150">
                         <Loader2 className="animate-spin text-primary h-6 w-6" />
+                        <span className="text-xs font-semibold">Loading conversation...</span>
                       </div>
                     ) : emailHistory.length === 0 ? (
-                      <div className="flex flex-col items-center justify-center py-20 text-center text-muted-foreground space-y-1">
+                      <div className="flex flex-col items-center justify-center py-20 text-center text-muted-foreground space-y-1 animate-in fade-in duration-150">
                         <Mail className="opacity-40 h-8 w-8" />
                         <p className="text-xs font-semibold">No message history available for this contact.</p>
                       </div>
@@ -3419,6 +3410,8 @@ export default function EmailCenter() {
                         );
                       })
                     )}
+                    {/* Dedicated Anchor to auto-scroll to the latest message */}
+                    <div ref={chatBottomAnchorRef} className="h-0 w-full" />
                   </div>
 
                   {/* Bottom Docked Rich Compose Block (Matching Screenshot 3) */}

@@ -61,6 +61,22 @@ export interface EmailConversation {
   lastMessageTimestamp: string;
 }
 
+export interface EmailHistoryItem {
+  _id: string;
+  direction: "inbound" | "outbound";
+  subject: string;
+  body: string;
+  cc?: string;
+  to: string;
+  timestamp: string;
+  sentAt?: string;
+  createdAt?: string;
+  type: "direct" | "bulk";
+  status?: string;
+  campaignTitle?: string;
+  error?: string | null;
+}
+
 export interface DbTemplate {
   _id: string;
   name: string;
@@ -82,10 +98,18 @@ interface EmailCenterContextType {
   conversations: EmailConversation[];
   setConversations: React.Dispatch<React.SetStateAction<EmailConversation[]>>;
   
+  selectedConversation: EmailConversation | null;
+  setSelectedConversation: React.Dispatch<React.SetStateAction<EmailConversation | null>>;
+  emailHistory: EmailHistoryItem[];
+  setEmailHistory: React.Dispatch<React.SetStateAction<EmailHistoryItem[]>>;
+  
   loadingCampaigns: boolean;
   loadingSegments: boolean;
   loadingTemplates: boolean;
   loadingConversations: boolean;
+  loadingHistory: boolean;
+  resubscribing: boolean;
+  
   isMarketingDataLoaded: boolean;
   isConversationsLoaded: boolean;
 
@@ -94,6 +118,8 @@ interface EmailCenterContextType {
   fetchSegments: (force?: boolean) => Promise<void>;
   fetchTemplates: (force?: boolean) => Promise<void>;
   fetchConversations: (force?: boolean) => Promise<void>;
+  fetchHistory: (leadId: string, force?: boolean) => Promise<void>;
+  resubscribeContact: (conv: EmailConversation) => Promise<void>;
 }
 
 const EmailCenterContext = createContext<EmailCenterContextType | null>(null);
@@ -101,139 +127,270 @@ const EmailCenterContext = createContext<EmailCenterContextType | null>(null);
 export const EmailCenterProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const socket = useSocket();
 
+  // Marketing Data States
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [segments, setSegments] = useState<Segment[]>([]);
   const [templates, setTemplates] = useState<DbTemplate[]>([]);
+  
+  // 1-to-1 Inbox States
   const [conversations, setConversations] = useState<EmailConversation[]>([]);
+  const [selectedConversation, setSelectedConversation] = useState<EmailConversation | null>(null);
+  const [emailHistory, setEmailHistory] = useState<EmailHistoryItem[]>([]);
 
+  // Loaders
   const [loadingCampaigns, setLoadingCampaigns] = useState(false);
   const [loadingSegments, setLoadingSegments] = useState(false);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [loadingConversations, setLoadingConversations] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [resubscribing, setResubscribing] = useState(false);
 
   const [isMarketingDataLoaded, setIsMarketingDataLoaded] = useState(false);
   const [isConversationsLoaded, setIsConversationsLoaded] = useState(false);
 
-  // In-flight locks to prevent double requests on rapid clicks
-  const inFlightRef = useRef<{
-    all: boolean;
-    campaigns: boolean;
-    segments: boolean;
-    templates: boolean;
-    conversations: boolean;
+  // Active in-flight promises map to share requests and strictly prevent double/duplicate calls
+  const activePromisesRef = useRef<{
+    campaigns: Promise<void> | null;
+    segments: Promise<void> | null;
+    templates: Promise<void> | null;
+    conversations: Promise<void> | null;
+    all: Promise<void> | null;
+    history: { [leadId: string]: Promise<void> | null };
   }>({
-    all: false,
-    campaigns: false,
-    segments: false,
-    templates: false,
-    conversations: false
+    campaigns: null,
+    segments: null,
+    templates: null,
+    conversations: null,
+    all: null,
+    history: {}
   });
 
-  // Fetch campaigns with in-flight lock, SWR non-blocking background sync, and invalid doc filtering
-  const fetchCampaigns = useCallback(async (force = false) => {
-    if (inFlightRef.current.campaigns && !force) return;
-    inFlightRef.current.campaigns = true;
-    
-    // Only show blocking loader on initial cold load (when no data exists)
+  const lastFetchTimeRef = useRef<{ [key: string]: number }>({});
+
+  // Fetch campaigns with active promise sharing & invalid doc filtering
+  const fetchCampaigns = useCallback((force = false) => {
+    if (activePromisesRef.current.campaigns) {
+      return activePromisesRef.current.campaigns;
+    }
+
+    const now = Date.now();
+    if (!force && lastFetchTimeRef.current.campaigns && now - lastFetchTimeRef.current.campaigns < 2500) {
+      return Promise.resolve();
+    }
+
     setCampaigns(prev => {
       if (prev.length === 0) setLoadingCampaigns(true);
       return prev;
     });
 
-    try {
-      const res = await api.get("/emails/campaigns");
-      const list = Array.isArray(res.data) ? res.data : [];
-      const valid = list.filter((c: any) => c && (c.title || c.subject || c.segmentId));
-      setCampaigns(valid);
-    } catch (err) {
-      console.error("Failed to load email campaigns:", err);
-    } finally {
-      setLoadingCampaigns(false);
-      inFlightRef.current.campaigns = false;
-    }
+    const promise = (async () => {
+      try {
+        const res = await api.get("/emails/campaigns");
+        const list = Array.isArray(res.data) ? res.data : [];
+        const valid = list.filter((c: any) => c && (c.title || c.subject || c.segmentId));
+        setCampaigns(valid);
+        lastFetchTimeRef.current.campaigns = Date.now();
+      } catch (err) {
+        console.error("Failed to load email campaigns:", err);
+      } finally {
+        setLoadingCampaigns(false);
+        activePromisesRef.current.campaigns = null;
+      }
+    })();
+
+    activePromisesRef.current.campaigns = promise;
+    return promise;
   }, []);
 
-  // Fetch segments with in-flight lock and SWR non-blocking background sync
-  const fetchSegments = useCallback(async (force = false) => {
-    if (inFlightRef.current.segments && !force) return;
-    inFlightRef.current.segments = true;
+  // Fetch segments with active promise sharing
+  const fetchSegments = useCallback((force = false) => {
+    if (activePromisesRef.current.segments) {
+      return activePromisesRef.current.segments;
+    }
 
-    // Only show blocking loader on initial cold load
+    const now = Date.now();
+    if (!force && lastFetchTimeRef.current.segments && now - lastFetchTimeRef.current.segments < 2500) {
+      return Promise.resolve();
+    }
+
     setSegments(prev => {
       if (prev.length === 0) setLoadingSegments(true);
       return prev;
     });
 
-    try {
-      const res = await api.get("/emails/segments");
-      setSegments(Array.isArray(res.data) ? res.data : []);
-    } catch (err) {
-      console.error("Failed to load segments:", err);
-    } finally {
-      setLoadingSegments(false);
-      inFlightRef.current.segments = false;
-    }
+    const promise = (async () => {
+      try {
+        const res = await api.get("/emails/segments");
+        setSegments(Array.isArray(res.data) ? res.data : []);
+        lastFetchTimeRef.current.segments = Date.now();
+      } catch (err) {
+        console.error("Failed to load segments:", err);
+      } finally {
+        setLoadingSegments(false);
+        activePromisesRef.current.segments = null;
+      }
+    })();
+
+    activePromisesRef.current.segments = promise;
+    return promise;
   }, []);
 
-  // Fetch templates with in-flight lock and SWR non-blocking background sync
-  const fetchTemplates = useCallback(async (force = false) => {
-    if (inFlightRef.current.templates && !force) return;
-    inFlightRef.current.templates = true;
+  // Fetch templates with active promise sharing
+  const fetchTemplates = useCallback((force = false) => {
+    if (activePromisesRef.current.templates) {
+      return activePromisesRef.current.templates;
+    }
 
-    // Only show blocking loader on initial cold load
+    const now = Date.now();
+    if (!force && lastFetchTimeRef.current.templates && now - lastFetchTimeRef.current.templates < 2500) {
+      return Promise.resolve();
+    }
+
     setTemplates(prev => {
       if (prev.length === 0) setLoadingTemplates(true);
       return prev;
     });
 
-    try {
-      const res = await api.get("/templates");
-      setTemplates(Array.isArray(res.data) ? res.data : []);
-    } catch (err) {
-      console.error("Failed to load templates:", err);
-    } finally {
-      setLoadingTemplates(false);
-      inFlightRef.current.templates = false;
-    }
+    const promise = (async () => {
+      try {
+        const res = await api.get("/templates");
+        setTemplates(Array.isArray(res.data) ? res.data : []);
+        lastFetchTimeRef.current.templates = Date.now();
+      } catch (err) {
+        console.error("Failed to load templates:", err);
+      } finally {
+        setLoadingTemplates(false);
+        activePromisesRef.current.templates = null;
+      }
+    })();
+
+    activePromisesRef.current.templates = promise;
+    return promise;
   }, []);
 
-  // Fetch 1-to-1 conversations with in-flight lock and SWR non-blocking background sync
-  const fetchConversations = useCallback(async (force = false) => {
-    if (inFlightRef.current.conversations && !force) return;
-    inFlightRef.current.conversations = true;
+  // Fetch 1-to-1 conversations with active promise sharing
+  const fetchConversations = useCallback((force = false) => {
+    if (activePromisesRef.current.conversations) {
+      return activePromisesRef.current.conversations;
+    }
+
+    const now = Date.now();
+    if (!force && lastFetchTimeRef.current.conversations && now - lastFetchTimeRef.current.conversations < 2500) {
+      return Promise.resolve();
+    }
 
     setConversations(prev => {
       if (prev.length === 0) setLoadingConversations(true);
       return prev;
     });
 
+    const promise = (async () => {
+      try {
+        const res = await api.get("/emails/conversations");
+        setConversations(Array.isArray(res.data) ? res.data : []);
+        setIsConversationsLoaded(true);
+        lastFetchTimeRef.current.conversations = Date.now();
+      } catch (err) {
+        console.error("Failed to load conversations:", err);
+      } finally {
+        setLoadingConversations(false);
+        activePromisesRef.current.conversations = null;
+      }
+    })();
+
+    activePromisesRef.current.conversations = promise;
+    return promise;
+  }, []);
+
+  // In-memory cache for contact message threads
+  const historyCacheRef = useRef<{ [leadId: string]: EmailHistoryItem[] }>({});
+
+  // Fetch individual conversation message history with instant cache retrieval
+  const fetchHistory = useCallback((leadId: string, force = false) => {
+    if (!leadId) return Promise.resolve();
+
+    // If cached in memory, immediately populate state with zero delay
+    if (historyCacheRef.current[leadId]) {
+      setEmailHistory(historyCacheRef.current[leadId]);
+      setLoadingHistory(false);
+    } else {
+      // First time load: show loader without flashing old lead's thread
+      setEmailHistory([]);
+      setLoadingHistory(true);
+    }
+
+    if (activePromisesRef.current.history[leadId]) {
+      return activePromisesRef.current.history[leadId]!;
+    }
+
+    const now = Date.now();
+    const cacheKey = `hist_${leadId}`;
+    if (!force && lastFetchTimeRef.current[cacheKey] && now - lastFetchTimeRef.current[cacheKey] < 2000) {
+      return Promise.resolve();
+    }
+
+    const promise = (async () => {
+      try {
+        const res = await api.get(`/emails/conversations/${leadId}`);
+        const data = Array.isArray(res.data) ? res.data : [];
+        historyCacheRef.current[leadId] = data;
+        setEmailHistory(data);
+        lastFetchTimeRef.current[cacheKey] = Date.now();
+      } catch (err) {
+        console.error("Failed to load email history thread:", err);
+        toast.error("Failed to load email history thread");
+      } finally {
+        setLoadingHistory(false);
+        delete activePromisesRef.current.history[leadId];
+      }
+    })();
+
+    activePromisesRef.current.history[leadId] = promise;
+    return promise;
+  }, []);
+
+  // Admin action to restore email consent / resubscribe contact
+  const resubscribeContact = useCallback(async (conv: EmailConversation) => {
+    if (!conv) return;
+    setResubscribing(true);
     try {
-      const res = await api.get("/emails/conversations");
-      setConversations(Array.isArray(res.data) ? res.data : []);
-      setIsConversationsLoaded(true);
-    } catch (err) {
-      console.error("Failed to load conversations:", err);
+      await api.post("/emails/resubscribe", {
+        leadId: conv._id,
+        email: conv.email,
+        leadModel: conv.leadType === "ea_lead" ? "EALead" : "Lead"
+      });
+      toast.success(`Email consent restored for ${conv.name}!`);
+      setSelectedConversation(prev => prev && prev._id === conv._id ? { ...prev, isConsent: true } : prev);
+      setConversations(prev => prev.map(c => c.email.toLowerCase() === conv.email.toLowerCase() ? { ...c, isConsent: true } : c));
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.response?.data?.error || "Failed to restore email consent");
     } finally {
-      setLoadingConversations(false);
-      inFlightRef.current.conversations = false;
+      setResubscribing(false);
     }
   }, []);
 
-  // Concurrent parallel loader powered by Promise.all
-  const loadInitialMarketingData = useCallback(async (force = false) => {
-    if (inFlightRef.current.all && !force) return;
-    inFlightRef.current.all = true;
-
-    try {
-      await Promise.all([
-        fetchCampaigns(force),
-        fetchSegments(force),
-        fetchTemplates(force)
-      ]);
-      setIsMarketingDataLoaded(true);
-    } finally {
-      inFlightRef.current.all = false;
+  // Concurrent parallel loader powered by Promise.all with active promise sharing
+  const loadInitialMarketingData = useCallback((force = false) => {
+    if (activePromisesRef.current.all) {
+      return activePromisesRef.current.all;
     }
+
+    const promise = (async () => {
+      try {
+        await Promise.all([
+          fetchCampaigns(force),
+          fetchSegments(force),
+          fetchTemplates(force)
+        ]);
+        setIsMarketingDataLoaded(true);
+      } finally {
+        activePromisesRef.current.all = null;
+      }
+    })();
+
+    activePromisesRef.current.all = promise;
+    return promise;
   }, [fetchCampaigns, fetchSegments, fetchTemplates]);
 
   // Real-time socket sync for campaign stats
@@ -271,17 +428,25 @@ export const EmailCenterProvider: React.FC<{ children: ReactNode }> = ({ childre
         setTemplates,
         conversations,
         setConversations,
+        selectedConversation,
+        setSelectedConversation,
+        emailHistory,
+        setEmailHistory,
         loadingCampaigns,
         loadingSegments,
         loadingTemplates,
         loadingConversations,
+        loadingHistory,
+        resubscribing,
         isMarketingDataLoaded,
         isConversationsLoaded,
         loadInitialMarketingData,
         fetchCampaigns,
         fetchSegments,
         fetchTemplates,
-        fetchConversations
+        fetchConversations,
+        fetchHistory,
+        resubscribeContact
       }}
     >
       {children}
