@@ -24,12 +24,12 @@ import requireRole from '../middleware/role.middleware.js';
 
 const router = express.Router();
 
-const allowedRoles = ['admin', 'manager', 'sales_rep'];
+const allowedRoles = ['admin'];
 
 // --- Transactional / Individual Gmail routing ---
 router.post('/send', auth, requireRole(...allowedRoles), sendEmail);
 router.post('/ai-generate-email', auth, requireRole(...allowedRoles), generateEmailMessage);
-router.get('/verify-domain', auth, requireRole('admin', 'manager'), verifyEmailDomain);
+router.get('/verify-domain', auth, requireRole('admin'), verifyEmailDomain);
 
 // --- Public Unsubscribe (no auth) ---
 router.get('/unsubscribe/:leadId', unsubscribeLead);

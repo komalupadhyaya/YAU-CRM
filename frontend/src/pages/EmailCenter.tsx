@@ -67,6 +67,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import AiPersonalizedCampaignModal from "../components/email/AiPersonalizedCampaignModal";
+import { useEmailCenter } from "../context/EmailCenterContext";
 
 interface Segment {
   _id: string;
@@ -190,12 +191,30 @@ export default function EmailCenter() {
     }, { replace: true });
   };
 
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [segments, setSegments] = useState<Segment[]>([]);
-  const [templates, setTemplates] = useState<DbTemplate[]>([]);
+  // Consume Global EmailCenterContext (Promise.all concurrent loading & memory cache)
+  const {
+    campaigns,
+    setCampaigns,
+    segments,
+    setSegments,
+    templates,
+    setTemplates,
+    conversations,
+    setConversations,
+    loadingCampaigns,
+    loadingSegments,
+    loadingTemplates,
+    loadingConversations,
+    isMarketingDataLoaded,
+    isConversationsLoaded,
+    loadInitialMarketingData,
+    fetchCampaigns,
+    fetchSegments,
+    fetchTemplates,
+    fetchConversations
+  } = useEmailCenter();
 
   // Database Template & Groq AI States
-  const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [isAiTemplateModalOpen, setIsAiTemplateModalOpen] = useState(false);
   const [templateNameInput, setTemplateNameInput] = useState("");
   const [templateSubjectInput, setTemplateSubjectInput] = useState("");
@@ -249,7 +268,6 @@ export default function EmailCenter() {
   });
 
   // 1-to-1 Emailing States
-  const [conversations, setConversations] = useState<EmailConversation[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<EmailConversation | null>(null);
   const [emailHistory, setEmailHistory] = useState<EmailHistoryItem[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
@@ -265,9 +283,6 @@ export default function EmailCenter() {
   const [isComposeExpanded, setIsComposeExpanded] = useState(false);
 
   // Loader States
-  const [loadingCampaigns, setLoadingCampaigns] = useState(false);
-  const [loadingSegments, setLoadingSegments] = useState(false);
-  const [loadingConversations, setLoadingConversations] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Dialog States
@@ -332,6 +347,10 @@ export default function EmailCenter() {
   const [showCampaignAiPanel, setShowCampaignAiPanel] = useState(false);
   const [isCampaignPreviewFullscreen, setIsCampaignPreviewFullscreen] = useState(false);
 
+  // Campaign State History Stack (Undo / Redo / Ctrl+Z support)
+  const [campaignHistory, setCampaignHistory] = useState<{ content: string; subject: string }[]>([]);
+  const [campaignHistoryIndex, setCampaignHistoryIndex] = useState<number>(-1);
+
   // Segment Form State
   const [segmentForm, setSegmentForm] = useState({
     name: "",
@@ -365,6 +384,7 @@ export default function EmailCenter() {
   const [loadingCampaignPreview, setLoadingCampaignPreview] = useState(false);
   const [campaignPreviewSearch, setCampaignPreviewSearch] = useState("");
   const [campaignSelectedIds, setCampaignSelectedIds] = useState<string[]>([]);
+  const loadedCampaignIdsRef = useRef<string>("");
 
   // Inline CSV Import State inside Segment Builder
   const [csvParsedContacts, setCsvParsedContacts] = useState<{ name: string; email: string }[]>([]);
@@ -403,8 +423,14 @@ export default function EmailCenter() {
     if (!selectedCampaign?.recipientLogs) return [];
     let list = selectedCampaign.recipientLogs;
 
-    if (campaignRecipientFilter !== "all") {
-      list = list.filter(log => log.status === campaignRecipientFilter);
+    if (campaignRecipientFilter === "open" || campaignRecipientFilter === "opened") {
+      list = list.filter(log => log.status === "open" || log.status === "opened" || log.status === "click" || log.status === "clicked" || log.status === "unsubscribe");
+    } else if (campaignRecipientFilter === "click" || campaignRecipientFilter === "clicked") {
+      list = list.filter(log => log.status === "click" || log.status === "clicked" || log.status === "unsubscribe");
+    } else if (campaignRecipientFilter === "unsubscribe" || campaignRecipientFilter === "unsubscribed") {
+      list = list.filter(log => log.status === "unsubscribe" || log.status === "unsubscribed");
+    } else if (campaignRecipientFilter === "bounce" || campaignRecipientFilter === "bounced") {
+      list = list.filter(log => log.status === "bounce" || log.status === "bounced" || log.status === "blocked" || log.status === "failed");
     }
 
     if (campaignRecipientSearch.trim()) {
@@ -678,28 +704,37 @@ export default function EmailCenter() {
       ? segmentForm.filters.campaignIds
       : (segmentForm.filters.campaignId ? [segmentForm.filters.campaignId] : []);
 
-    if (segmentForm.type === "campaign" && rawIds.length > 0) {
-      setLoadingCampaignPreview(true);
-      api.get(`/emails/segments/preview-campaign/${rawIds.join(',')}`)
-        .then(res => {
-          const list = res.data || [];
-          setCampaignPreviewContacts(list);
-          const allContactIds = list.map((c: any) => c.leadId || c.email);
-          setCampaignSelectedIds(allContactIds);
-        })
-        .catch(err => {
-          console.error("Failed to load campaign preview contacts", err);
-          setCampaignPreviewContacts([]);
-          setCampaignSelectedIds([]);
-        })
-        .finally(() => {
-          setLoadingCampaignPreview(false);
-        });
-    } else if (segmentForm.type !== "static") {
-      setCampaignPreviewContacts([]);
-      setCampaignSelectedIds([]);
+    const idsKey = rawIds.slice().sort().join(',');
+
+    if (rawIds.length > 0) {
+      if (loadedCampaignIdsRef.current !== idsKey) {
+        loadedCampaignIdsRef.current = idsKey;
+        setLoadingCampaignPreview(true);
+        api.get(`/emails/segments/preview-campaign/${rawIds.join(',')}`)
+          .then(res => {
+            const list = res.data || [];
+            setCampaignPreviewContacts(list);
+            const allContactIds = list.map((c: any) => c.leadId || c.email);
+            setCampaignSelectedIds(allContactIds);
+          })
+          .catch(err => {
+            console.error("Failed to load campaign preview contacts", err);
+            setCampaignPreviewContacts([]);
+            setCampaignSelectedIds([]);
+            loadedCampaignIdsRef.current = "";
+          })
+          .finally(() => {
+            setLoadingCampaignPreview(false);
+          });
+      }
+    } else {
+      if (loadedCampaignIdsRef.current !== "") {
+        loadedCampaignIdsRef.current = "";
+        setCampaignPreviewContacts([]);
+        setCampaignSelectedIds([]);
+      }
     }
-  }, [segmentForm.type, segmentForm.filters.campaignId, segmentForm.filters.campaignIds]);
+  }, [segmentForm.filters.campaignId, segmentForm.filters.campaignIds]);
 
   const fetchAvailableContacts = useCallback(async () => {
     setLoadingContacts(true);
@@ -826,62 +861,31 @@ export default function EmailCenter() {
   const [aiGenerating, setAiGenerating] = useState(false);
   const [showComposeAiPanel, setShowComposeAiPanel] = useState(false);
 
-  const fetchCampaigns = useCallback(async () => {
-    setLoadingCampaigns(true);
-    try {
-      const res = await api.get("/emails/campaigns");
-      const list = Array.isArray(res.data) ? res.data : [];
-      // Filter out records that are not Email Campaigns (e.g. legacy lead folders that lack title or subject)
-      const valid = list.filter((c: any) => c && (c.title || c.subject || c.segmentId));
-      setCampaigns(valid);
-    } catch (err) {
-      console.error(err);
-      toast.error("Failed to load email campaigns");
-    } finally {
-      setLoadingCampaigns(false);
-    }
-  }, []);
 
-  const fetchSegments = useCallback(async () => {
-    setLoadingSegments(true);
-    try {
-      const res = await api.get("/emails/segments");
-      setSegments(res.data);
-    } catch (err) {
-      console.error(err);
-      toast.error("Failed to load segments");
-    } finally {
-      setLoadingSegments(false);
-    }
-  }, []);
 
-  // Fetch Database Email Templates
-  const fetchTemplates = useCallback(async () => {
-    setLoadingTemplates(true);
-    try {
-      const res = await api.get("/templates");
-      setTemplates(res.data);
-    } catch (err) {
-      console.error(err);
-      toast.error("Failed to load email templates from database");
-    } finally {
-      setLoadingTemplates(false);
-    }
-  }, []);
-
-  // Frontend HTML Sanitizer: Cleans any raw JSON, markdown code blocks, or conversational preambles
+  // Helper to clean and extract pure HTML table layout from AI responses
   const extractCleanHtml = (raw: string): string => {
     if (!raw) return '';
     let str = raw.trim();
 
-    // 1. Check if the string has a nested JSON object with a "content" field
+    // 1. If it's a JSON response with a "content" field, extract the content
     try {
-      const jsonMatch = str.match(/\{[\s\S]*"content"\s*:\s*"([\s\S]*?)"[\s\S]*\}/);
-      if (jsonMatch && jsonMatch[1]) {
-        const extractedContent = jsonMatch[1]
+      const match = str.match(/\{[\s\S]*\}/);
+      if (match) {
+        const parsed = JSON.parse(match[0]);
+        if (parsed.content) return parsed.content;
+      }
+    } catch {
+      // ignore
+    }
+
+    try {
+      const contentFieldMatch = str.match(/"content"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+      if (contentFieldMatch && contentFieldMatch[1]) {
+        const extractedContent = contentFieldMatch[1]
           .replace(/\\n/g, '\n')
+          .replace(/\\r/g, '')
           .replace(/\\"/g, '"')
-          .replace(/\\t/g, '\t')
           .replace(/\\\\/g, '\\');
         if (extractedContent.includes('<') && extractedContent.includes('>')) {
           str = extractedContent;
@@ -994,6 +998,7 @@ export default function EmailCenter() {
       });
       toast.success("Template saved to database!");
       setTemplates(prev => [res.data, ...prev]);
+      fetchTemplates(true);
       setIsAiTemplateModalOpen(false);
       setAiDraftTemplate(null);
     } catch (err) {
@@ -1033,8 +1038,9 @@ export default function EmailCenter() {
       const savedTemplate = res.data;
       toast.success("Template saved and loaded into campaign builder!");
 
-      // 2. Add to templates list in state
+      // 2. Add to templates list in state and revalidate
       setTemplates(prev => [savedTemplate, ...prev.filter(t => t._id !== savedTemplate._id)]);
+      fetchTemplates(true);
 
       // 3. Configure campaign form with the saved template
       setCampaignForm(prev => ({
@@ -1044,6 +1050,7 @@ export default function EmailCenter() {
         content: savedTemplate.content || finalContent,
         templateId: savedTemplate._id
       }));
+      pushCampaignHistory(savedTemplate.content || finalContent, savedTemplate.subject || finalSubject);
       setCampaignEditorMode('preview');
 
       // 4. Close AI template modal & open Campaign wizard
@@ -1066,6 +1073,7 @@ export default function EmailCenter() {
       await api.delete(`/templates/${templateToDelete._id}`);
       toast.success(`Template "${templateToDelete.name}" deleted successfully!`);
       setTemplates(prev => prev.filter(t => t._id !== templateToDelete._id));
+      fetchTemplates(true);
       setIsDeleteTemplateModalOpen(false);
       setTemplateToDelete(null);
     } catch (err: any) {
@@ -1101,6 +1109,7 @@ export default function EmailCenter() {
       });
       toast.success('Template saved successfully!');
       setTemplates(prev => [res.data, ...prev]);
+      fetchTemplates(true);
       setIsManualTemplateModalOpen(false);
       // Reset form
       setManualTemplateName('');
@@ -1301,7 +1310,95 @@ export default function EmailCenter() {
     }
   }, []);
 
+  // Campaign History Management (Undo / Redo / Revive previous content)
+  const pushCampaignHistory = useCallback((content: string, subject: string) => {
+    if (!content && !subject) return;
+    setCampaignHistory(prev => {
+      // Do not push duplicate if identical to latest state
+      if (prev.length > 0 && campaignHistoryIndex >= 0 && campaignHistoryIndex < prev.length) {
+        const current = prev[campaignHistoryIndex];
+        if (current.content === content && current.subject === subject) {
+          return prev;
+        }
+      }
+      const truncated = prev.slice(0, campaignHistoryIndex + 1);
+      const updated = [...truncated, { content, subject }];
+      return updated.length > 35 ? updated.slice(updated.length - 35) : updated;
+    });
+    setCampaignHistoryIndex(prev => Math.min(prev + 1, 34));
+  }, [campaignHistoryIndex]);
+
+  const handleCampaignUndo = useCallback(() => {
+    if (campaignHistoryIndex > 0 && campaignHistory.length > 0) {
+      const targetIdx = campaignHistoryIndex - 1;
+      const targetState = campaignHistory[targetIdx];
+      if (targetState) {
+        setCampaignForm(prev => ({
+          ...prev,
+          content: targetState.content,
+          subject: targetState.subject
+        }));
+        if (campaignWriterRef.current) {
+          campaignWriterRef.current.innerHTML = targetState.content;
+        }
+        setCampaignHistoryIndex(targetIdx);
+        toast.info("Undo: Restored previous template content", { id: 'campaign-undo-toast' });
+      }
+    } else {
+      toast.info("No earlier content changes to undo", { id: 'campaign-undo-toast' });
+    }
+  }, [campaignHistory, campaignHistoryIndex]);
+
+  const handleCampaignRedo = useCallback(() => {
+    if (campaignHistoryIndex < campaignHistory.length - 1 && campaignHistory.length > 0) {
+      const targetIdx = campaignHistoryIndex + 1;
+      const targetState = campaignHistory[targetIdx];
+      if (targetState) {
+        setCampaignForm(prev => ({
+          ...prev,
+          content: targetState.content,
+          subject: targetState.subject
+        }));
+        if (campaignWriterRef.current) {
+          campaignWriterRef.current.innerHTML = targetState.content;
+        }
+        setCampaignHistoryIndex(targetIdx);
+        toast.info("Redo: Restored next template change", { id: 'campaign-undo-toast' });
+      }
+    } else {
+      toast.info("No further changes to redo", { id: 'campaign-undo-toast' });
+    }
+  }, [campaignHistory, campaignHistoryIndex]);
+
+  // Global Keyboard Listener for Undo (Ctrl+Z / Cmd+Z) and Redo (Ctrl+Y / Ctrl+Shift+Z) in Campaign Modal
+  useEffect(() => {
+    if (!isCampaignModalOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
+        e.preventDefault();
+        if (e.shiftKey) {
+          handleCampaignRedo();
+        } else {
+          handleCampaignUndo();
+        }
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) {
+        e.preventDefault();
+        handleCampaignRedo();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isCampaignModalOpen, handleCampaignUndo, handleCampaignRedo]);
+
   const execCampaignFormat = (command: string, value?: string) => {
+    if (command === 'undo') {
+      handleCampaignUndo();
+      return;
+    }
+    if (command === 'redo') {
+      handleCampaignRedo();
+      return;
+    }
     if (command === 'formatBlock' && value) {
       applyCustomHeadingFormat(campaignWriterRef, value, updateCampaignActiveFormats);
       return;
@@ -1406,6 +1503,7 @@ export default function EmailCenter() {
     try {
       await api.delete(`/emails/campaigns/${campaignToDelete._id}`);
       setCampaigns(prev => prev.filter(c => c._id !== campaignToDelete._id));
+      fetchCampaigns(true);
       toast.success(`Campaign "${campaignToDelete.title}" deleted successfully.`);
       setIsDeleteCampaignModalOpen(false);
       if (selectedCampaign?._id === campaignToDelete._id) {
@@ -1419,20 +1517,6 @@ export default function EmailCenter() {
       setDeletingCampaign(false);
     }
   };
-
-  // Fetch 1-to-1 conversations list
-  const fetchConversations = useCallback(async () => {
-    setLoadingConversations(true);
-    try {
-      const res = await api.get("/emails/conversations");
-      setConversations(res.data);
-    } catch (err) {
-      console.error(err);
-      toast.error("Failed to load conversations");
-    } finally {
-      setLoadingConversations(false);
-    }
-  }, []);
 
   // Fetch individual 1-to-1 conversation history
   const fetchHistory = useCallback(async (leadId: string) => {
@@ -1448,15 +1532,34 @@ export default function EmailCenter() {
     }
   }, []);
 
+  const prevTabRef = useRef(activeTab);
+  const prevWorkspaceRef = useRef(workspace);
+
+  // SWR Pattern: On workspace switch or initial entry, revalidate the active workspace in background
   useEffect(() => {
     if (workspace === "campaigns") {
-      fetchCampaigns();
-      fetchSegments();
-      fetchTemplates();
+      loadInitialMarketingData(true);
     } else {
-      fetchConversations();
+      fetchConversations(true);
     }
-  }, [workspace, activeTab, fetchCampaigns, fetchSegments, fetchTemplates, fetchConversations]);
+    prevWorkspaceRef.current = workspace;
+  }, [workspace, loadInitialMarketingData, fetchConversations]);
+
+  // SWR Pattern: On explicit tab switch within marketing workspace, silently refresh that specific tab
+  useEffect(() => {
+    if (workspace === "campaigns" && prevTabRef.current !== activeTab) {
+      prevTabRef.current = activeTab;
+      if (activeTab === "campaigns") {
+        fetchCampaigns(true);
+      } else if (activeTab === "segments") {
+        fetchSegments(true);
+      } else if (activeTab === "templates") {
+        fetchTemplates(true);
+      }
+    } else {
+      prevTabRef.current = activeTab;
+    }
+  }, [workspace, activeTab, fetchCampaigns, fetchSegments, fetchTemplates]);
 
   // Sync selected campaign analytics modal state with campaigns array
   useEffect(() => {
@@ -1475,35 +1578,11 @@ export default function EmailCenter() {
     if (!shouldPoll) return;
 
     const interval = setInterval(() => {
-      fetchCampaigns();
+      fetchCampaigns(true);
     }, 5000);
 
     return () => clearInterval(interval);
   }, [campaigns, fetchCampaigns, isViewStatsOpen]);
-
-  // Listen for socket events to update campaign progress in real-time
-  useEffect(() => {
-    if (!socket) return;
-
-    const handleCampaignUpdate = (data: { campaignId: string; stats: any; status: string; recipientLogs: any[] }) => {
-      setCampaigns(prev => prev.map(c => {
-        if (c._id === data.campaignId) {
-          return {
-            ...c,
-            status: data.status as any,
-            stats: data.stats,
-            recipientLogs: data.recipientLogs
-          };
-        }
-        return c;
-      }));
-    };
-
-    socket.on("campaign:updated", handleCampaignUpdate);
-    return () => {
-      socket.off("campaign:updated", handleCampaignUpdate);
-    };
-  }, [socket]);
 
   const chatScrollRef = useRef<HTMLDivElement>(null);
 
@@ -1591,6 +1670,7 @@ export default function EmailCenter() {
     setCampaignPreviewContacts([]);
     setCampaignPreviewSearch("");
     setCampaignSelectedIds([]);
+    loadedCampaignIdsRef.current = "";
   }, []);
 
   const resetImportModalState = useCallback(() => {
@@ -1600,6 +1680,14 @@ export default function EmailCenter() {
     setImportCsvSelectedEmails([]);
     setImportCsvSearchQuery("");
   }, []);
+
+  // Helper to get minimum local ISO datetime for scheduling (current time + 1 minute)
+  const getMinScheduleDateTime = () => {
+    const now = new Date();
+    now.setMinutes(now.getMinutes() + 1);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  };
 
   // Handle Campaign Creation
   const handleCreateCampaign = async (e: React.FormEvent) => {
@@ -1611,6 +1699,18 @@ export default function EmailCenter() {
     if (!campaignForm.title || !campaignForm.subject || !finalContent || !campaignForm.segmentId) {
       toast.error("Please fill in all required fields");
       return;
+    }
+
+    if (campaignForm.isScheduled) {
+      if (!campaignForm.sendAt) {
+        toast.error("Please select a date and time to schedule the campaign");
+        return;
+      }
+      const scheduledTime = new Date(campaignForm.sendAt).getTime();
+      if (isNaN(scheduledTime) || scheduledTime <= Date.now()) {
+        toast.error("Scheduled time must be in the future. Please choose an upcoming date and time.");
+        return;
+      }
     }
 
     setIsSubmitting(true);
@@ -1634,7 +1734,7 @@ export default function EmailCenter() {
 
       setIsCampaignModalOpen(false);
       setCampaignForm({ title: "", subject: "", content: "", segmentId: "", sendAt: "", isScheduled: false, templateId: null });
-      fetchCampaigns();
+      fetchCampaigns(true);
     } catch (err) {
       console.error(err);
       toast.error("Failed to create campaign");
@@ -1738,7 +1838,7 @@ export default function EmailCenter() {
       resetSegmentModalState();
       setCsvSelectedEmails([]);
       setCampaignSelectedIds([]);
-      fetchSegments();
+      fetchSegments(true);
     } catch (err) {
       console.error(err);
       toast.error("Failed to create segment");
@@ -1779,7 +1879,7 @@ export default function EmailCenter() {
       setImportCsvParsedContacts([]);
       setImportCsvSelectedEmails([]);
       setImportCsvSearchQuery("");
-      fetchSegments();
+      fetchSegments(true);
     } catch (err: any) {
       console.error(err);
       toast.error(err.response?.data?.error || "Failed to import CSV list");
@@ -1803,7 +1903,7 @@ export default function EmailCenter() {
       toast.success(`Segment "${segmentToDelete.name}" deleted successfully`);
       setIsDeleteSegmentModalOpen(false);
       setSegmentToDelete(null);
-      fetchSegments();
+      fetchSegments(true);
     } catch (err: any) {
       console.error(err);
       toast.error(err.response?.data?.message || err.response?.data?.error || "Failed to delete segment");
@@ -1821,8 +1921,11 @@ export default function EmailCenter() {
     setAiGenerating(true);
     try {
       if (workspace === "campaigns" || isCampaignModalOpen) {
-        // Use /templates/ai-generate to preserve exact HTML template styles and formatting
+        // Capture snapshot before AI modification for Ctrl+Z undo support
         const existingHtml = campaignForm.content || (campaignWriterRef.current ? campaignWriterRef.current.innerHTML : '');
+        pushCampaignHistory(existingHtml, campaignForm.subject);
+
+        // Use /templates/ai-generate to preserve exact HTML template styles and formatting
         const res = await api.post("/templates/ai-generate", {
           prompt: aiPrompt.trim(),
           existingContent: existingHtml
@@ -1830,8 +1933,12 @@ export default function EmailCenter() {
 
         toast.info("Anthropic API key is hit", { description: "Model: Claude Sonnet 4.6" });
 
+        if (!res.data || !res.data.content || typeof res.data.content !== 'string' || !res.data.content.trim()) {
+          throw new Error("AI returned invalid content. Your template remains unchanged.");
+        }
+
         const updatedSubject = res.data.subject || campaignForm.subject;
-        const updatedContent = res.data.content || campaignForm.content;
+        const updatedContent = res.data.content;
 
         setCampaignForm(prev => ({
           ...prev,
@@ -1842,6 +1949,9 @@ export default function EmailCenter() {
         if (campaignWriterRef.current) {
           campaignWriterRef.current.innerHTML = updatedContent;
         }
+
+        // Push new state to history stack
+        pushCampaignHistory(updatedContent, updatedSubject);
 
         const isPreservedTemplate = campaignEditorMode === 'preview' || !!campaignForm.templateId || (existingHtml && existingHtml.includes('<table'));
         toast.success(isPreservedTemplate ? "AI copy generated! Template style & design preserved." : "AI draft generated in campaign editor!");
@@ -1866,7 +1976,9 @@ export default function EmailCenter() {
       }
     } catch (err: any) {
       console.error(err);
-      toast.error(err.response?.data?.error || "Failed to generate AI copy");
+      const errorMsg = err.response?.data?.error || err.response?.data?.message || err.message || "Failed to generate AI copy";
+      toast.error(errorMsg);
+      // Template content remains 100% untouched
     } finally {
       setAiGenerating(false);
     }
@@ -2690,7 +2802,7 @@ export default function EmailCenter() {
                                 </td>
                                 <td className="p-3.5 align-middle text-muted-foreground text-[11px]">
                                   {seg.type === "campaign" ? (
-                                    <span>Campaign: <strong className="text-foreground">{typeof seg.filters?.campaignId === "object" ? seg.filters.campaignId.name : "Sales Leads"}</strong></span>
+                                    <span>Campaign: <strong className="text-foreground">{(typeof seg.filters?.campaignId === "object" && seg.filters?.campaignId?.name) ? seg.filters.campaignId.name : "Sales Leads"}</strong></span>
                                   ) : (
                                     <span>Recipient List</span>
                                   )}
@@ -2759,7 +2871,7 @@ export default function EmailCenter() {
                               <div className="mt-3 pt-2.5 border-t border-border/60">
                                 <span className="text-[11px] text-muted-foreground block">
                                   Funnel Campaign: <strong className="text-foreground">
-                                    {typeof seg.filters?.campaignId === "object" ? seg.filters.campaignId.name : "Sales Campaign Leads"}
+                                    {(typeof seg.filters?.campaignId === "object" && seg.filters?.campaignId !== null && seg.filters?.campaignId?.name) ? seg.filters.campaignId.name : "Sales Campaign Leads"}
                                   </strong>
                                 </span>
                               </div>
@@ -3428,6 +3540,7 @@ export default function EmailCenter() {
                       if (campaignWriterRef.current) {
                         campaignWriterRef.current.innerHTML = foundTpl.content;
                       }
+                      pushCampaignHistory(foundTpl.content, foundTpl.subject || campaignForm.subject);
                       setCampaignEditorMode('preview');
                       toast.success(`Loaded template: "${foundTpl.name}"`);
                     } else {
@@ -3451,6 +3564,29 @@ export default function EmailCenter() {
                     Message Content & Design Services
                   </label>
                   <div className="flex items-center gap-1.5">
+                    {campaignHistory.length > 1 && (
+                      <div className="flex items-center gap-1 mr-1">
+                        <button
+                          type="button"
+                          onClick={handleCampaignUndo}
+                          disabled={campaignHistoryIndex <= 0}
+                          className="px-2 py-1 rounded-lg border text-[11px] font-bold text-muted-foreground hover:text-foreground hover:bg-accent/40 flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                          title="Undo previous change (Ctrl+Z)"
+                        >
+                          <RotateCcw size={11} /> Undo
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleCampaignRedo}
+                          disabled={campaignHistoryIndex >= campaignHistory.length - 1}
+                          className="px-2 py-1 rounded-lg border text-[11px] font-bold text-muted-foreground hover:text-foreground hover:bg-accent/40 flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                          title="Redo change (Ctrl+Y)"
+                        >
+                          <RotateCw size={11} /> Redo
+                        </button>
+                      </div>
+                    )}
+
                     {campaignForm.content.trim() && (
                       <button
                         type="button"
@@ -3945,14 +4081,24 @@ export default function EmailCenter() {
                     </label>
                   </div>
                   {campaignForm.isScheduled && (
-                    <div className="mt-2.5">
+                    <div className="mt-2.5 space-y-1">
                       <input
                         type="datetime-local"
                         className="input-field text-sm dark:bg-card"
                         value={campaignForm.sendAt}
-                        onChange={e => setCampaignForm({ ...campaignForm, sendAt: e.target.value })}
+                        min={getMinScheduleDateTime()}
+                        onChange={e => {
+                          const val = e.target.value;
+                          if (val && new Date(val).getTime() <= Date.now()) {
+                            toast.warning("Please select an upcoming future date and time.");
+                          }
+                          setCampaignForm({ ...campaignForm, sendAt: val });
+                        }}
                         required={campaignForm.isScheduled}
                       />
+                      <p className="text-[10px] text-muted-foreground">
+                        Campaign will automatically dispatch at this scheduled time.
+                      </p>
                     </div>
                   )}
                 </div>
@@ -5289,154 +5435,169 @@ export default function EmailCenter() {
                 );
               })()}
 
-              {/* Top 5 KPI Summary Cards Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 shrink-0">
-                {[
-                  { label: "Sent", val: selectedCampaign.stats?.sent || 0, icon: Mail, color: "text-zinc-500", bg: "bg-zinc-500/10" },
-                  { label: "Delivered", val: selectedCampaign.stats?.delivered || 0, icon: CheckCircle, color: "text-emerald-500", bg: "bg-emerald-500/10" },
-                  { label: "Opens", val: selectedCampaign.stats?.opens || 0, icon: Eye, color: "text-blue-500", bg: "bg-blue-500/10" },
-                  { label: "Clicks", val: selectedCampaign.stats?.clicks || 0, icon: MousePointerClick, color: "text-indigo-500", bg: "bg-indigo-500/10" },
-                  { label: "Unsubscribed", val: selectedCampaign.stats?.unsubscribes || 0, icon: UserX, color: "text-amber-500", bg: "bg-amber-500/10" }
-                ].map(stat => (
-                  <div key={stat.label} className="border border-border/80 rounded-xl p-3 bg-card text-left flex flex-col justify-between shadow-2xs">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] uppercase font-extrabold text-muted-foreground">{stat.label}</span>
-                      <div className={`p-1.5 rounded-lg ${stat.bg}`}>
-                        <stat.icon className={`${stat.color} h-3.5 w-3.5`} />
+              {/* Top 5 KPI Summary Cards Grid, Filter Pills & Recipient Logs (Computed with Email Funnel Hierarchy) */}
+              {(() => {
+                const logs = selectedCampaign.recipientLogs || [];
+                const allCount = logs.length;
+                const bounceCount = logs.filter(l => l.status === "bounce" || l.status === "bounced" || l.status === "blocked" || l.status === "failed").length;
+                const unsubCount = logs.filter(l => l.status === "unsubscribe" || l.status === "unsubscribed").length;
+                const clickCount = logs.filter(l => l.status === "click" || l.status === "clicked" || l.status === "unsubscribe" || l.status === "unsubscribed").length;
+                const openCount = logs.filter(l => l.status === "open" || l.status === "opened" || l.status === "click" || l.status === "clicked" || l.status === "unsubscribe" || l.status === "unsubscribed").length;
+                const delCount = Math.max(selectedCampaign.stats?.delivered || 0, allCount - bounceCount);
+                const sentCount = Math.max(selectedCampaign.stats?.sent || 0, allCount);
+
+                return (
+                  <>
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 shrink-0">
+                      {[
+                        { label: "Sent", val: sentCount, icon: Mail, color: "text-zinc-500", bg: "bg-zinc-500/10" },
+                        { label: "Delivered", val: delCount, icon: CheckCircle, color: "text-emerald-500", bg: "bg-emerald-500/10" },
+                        { label: "Opens", val: Math.max(selectedCampaign.stats?.opens || 0, openCount), icon: Eye, color: "text-blue-500", bg: "bg-blue-500/10" },
+                        { label: "Clicks", val: Math.max(selectedCampaign.stats?.clicks || 0, clickCount), icon: MousePointerClick, color: "text-indigo-500", bg: "bg-indigo-500/10" },
+                        { label: "Unsubscribed", val: Math.max(selectedCampaign.stats?.unsubscribes || 0, unsubCount), icon: UserX, color: "text-amber-500", bg: "bg-amber-500/10" }
+                      ].map(stat => (
+                        <div key={stat.label} className="border border-border/80 rounded-xl p-3 bg-card text-left flex flex-col justify-between shadow-2xs">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] uppercase font-extrabold text-muted-foreground">{stat.label}</span>
+                            <div className={`p-1.5 rounded-lg ${stat.bg}`}>
+                              <stat.icon className={`${stat.color} h-3.5 w-3.5`} />
+                            </div>
+                          </div>
+                          <span className="text-base font-extrabold text-foreground mt-2">{stat.val}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Recipient Logs Section Header with Search and Category Filter Pills */}
+                    <div className="space-y-2.5 min-h-0 flex flex-col flex-1">
+                      <div className="flex flex-col sm:flex-row gap-2.5 justify-between sm:items-center">
+                        {/* Search Bar */}
+                        <div className="relative flex-1">
+                          <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                          <input
+                            type="text"
+                            placeholder="Filter campaign recipients by name or email..."
+                            value={campaignRecipientSearch}
+                            onChange={e => setCampaignRecipientSearch(e.target.value)}
+                            className="h-8.5 input-field text-xs w-full dark:bg-card"
+                            style={{ paddingLeft: "2.25rem" }}
+                          />
+                        </div>
+
+                        {/* Filter Category Pills */}
+                        <div className="flex flex-wrap items-center gap-1 text-[10px] shrink-0">
+                          {[
+                            { id: "all", label: `All (${allCount})` },
+                            { id: "open", label: `Opened (${openCount})` },
+                            { id: "click", label: `Clicked (${clickCount})` },
+                            { id: "unsubscribe", label: `Unsubscribed (${unsubCount})` },
+                            { id: "bounce", label: `Bounced (${bounceCount})` }
+                          ].map(tab => (
+                            <button
+                              key={tab.id}
+                              type="button"
+                              onClick={() => setCampaignRecipientFilter(tab.id as any)}
+                              className={`px-2.5 py-1 rounded-lg font-bold border transition-colors ${campaignRecipientFilter === tab.id
+                                  ? "bg-primary text-white border-primary"
+                                  : "bg-accent/20 hover:bg-accent/40 text-muted-foreground border-border/60"
+                                }`}
+                            >
+                              {tab.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Recipient Logs Scrollable List */}
+                      <div className={`flex-1 border rounded-2xl overflow-y-auto custom-scrollbar bg-accent/5 p-3 space-y-2 ${isStatsModalExpanded ? 'min-h-[420px]' : 'min-h-[220px]'}`}>
+                        {!selectedCampaign.recipientLogs || selectedCampaign.recipientLogs.length === 0 ? (
+                          <div className="flex flex-col items-center justify-center py-14 text-center text-muted-foreground">
+                            <Mail size={36} className="opacity-40 mb-2" />
+                            <p className="text-xs font-semibold">No recipient logs found for this campaign.</p>
+                            <p className="text-[11px] text-muted-foreground mt-0.5">Logs will populate automatically when the campaign is sent.</p>
+                          </div>
+                        ) : filteredCampaignRecipients.length === 0 ? (
+                          <div className="flex flex-col items-center justify-center py-14 text-center text-muted-foreground">
+                            <Search size={36} className="opacity-40 mb-2" />
+                            <p className="text-xs font-semibold">No recipients matching search or status filter.</p>
+                          </div>
+                        ) : (
+                          filteredCampaignRecipients.map((log, idx) => {
+                            const displayName = log.name || log.email.split('@')[0];
+                            const initials = displayName.substring(0, 2).toUpperCase();
+                            const isCopied = copiedEmail === log.email;
+
+                            const isBouncedOrBlocked = log.status === "bounce" || log.status === "bounced" || log.status === "blocked" || log.status === "failed";
+                            const isUnsubscribed = log.status === "unsubscribe" || log.status === "unsubscribed";
+                            const isClicked = log.status === "click" || log.status === "clicked" || isUnsubscribed;
+                            const isOpened = log.status === "open" || log.status === "opened" || isClicked;
+                            const isDelivered = !isBouncedOrBlocked;
+
+                            return (
+                              <div key={idx} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-card border border-border/80 hover:border-primary/40 rounded-xl text-xs shadow-2xs transition-all">
+                                {/* Left: Contact Details & Error Details */}
+                                <div className="flex items-center gap-3 min-w-0 text-left flex-1">
+                                  <div className="h-9 w-9 rounded-full bg-primary/10 text-primary font-extrabold text-xs flex items-center justify-center shrink-0 border border-primary/20">
+                                    {initials}
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                                    <span className="font-bold text-foreground block truncate">{displayName}</span>
+                                    <span className="text-[11px] text-muted-foreground block truncate mt-0.5">{log.email}</span>
+                                    {log.error && (
+                                      <span className="text-[10px] text-rose-500 font-semibold block truncate mt-0.5" title={log.error}>
+                                        ⚠️ {log.error}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopyEmail(log.email)}
+                                    className="h-7 w-7 p-0 text-muted-foreground hover:text-primary hover:bg-accent/40 rounded-lg flex items-center justify-center transition-colors shrink-0"
+                                    title="Copy email address"
+                                  >
+                                    {isCopied ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
+                                  </button>
+                                </div>
+
+                                {/* Right: Event Badges Stack */}
+                                <div className="flex flex-wrap items-center gap-1.5 shrink-0 justify-start sm:justify-end">
+                                  {/* Delivery / Blocked Badge */}
+                                  <span className={`text-[9px] font-extrabold uppercase px-2.5 py-0.5 rounded-full border ${isDelivered ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" :
+                                      isBouncedOrBlocked ? "bg-rose-500/10 text-rose-500 border-rose-500/20" :
+                                        "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
+                                    }`}>
+                                    {isDelivered ? "Delivered" : isBouncedOrBlocked ? "Blocked / Bounced" : "Delivered"}
+                                  </span>
+
+                                  {/* Open Badge */}
+                                  <span className={`text-[9px] font-extrabold uppercase px-2.5 py-0.5 rounded-full border ${isOpened ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20" : "bg-accent/40 text-muted-foreground border-border/50"
+                                    }`}>
+                                    {isOpened ? "Opened" : "Not Opened"}
+                                  </span>
+
+                                  {/* Click Badge */}
+                                  {isClicked && (
+                                    <span className="text-[9px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
+                                      Clicked Link
+                                    </span>
+                                  )}
+
+                                  {/* Unsubscribe Badge */}
+                                  {isUnsubscribed && (
+                                    <span className="text-[9px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                                      Unsubscribed
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
                       </div>
                     </div>
-                    <span className="text-base font-extrabold text-foreground mt-2">{stat.val}</span>
-                  </div>
-                ))}
-              </div>
-
-              {/* Recipient Logs Section Header with Search and Category Filter Pills */}
-              <div className="space-y-2.5 min-h-0 flex flex-col flex-1">
-                <div className="flex flex-col sm:flex-row gap-2.5 justify-between sm:items-center">
-                  {/* Search Bar */}
-                  <div className="relative flex-1">
-                    <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-                    <input
-                      type="text"
-                      placeholder="Filter campaign recipients by name or email..."
-                      value={campaignRecipientSearch}
-                      onChange={e => setCampaignRecipientSearch(e.target.value)}
-                      className="h-8.5 input-field text-xs w-full dark:bg-card"
-                      style={{ paddingLeft: "2.25rem" }}
-                    />
-                  </div>
-
-                  {/* Filter Category Pills */}
-                  <div className="flex flex-wrap items-center gap-1 text-[10px] shrink-0">
-                    {[
-                      { id: "all", label: `All (${selectedCampaign.recipientLogs?.length || 0})` },
-                      { id: "open", label: `Opened (${selectedCampaign.stats?.opens || 0})` },
-                      { id: "click", label: `Clicked (${selectedCampaign.stats?.clicks || 0})` },
-                      { id: "unsubscribe", label: `Unsubscribed (${selectedCampaign.stats?.unsubscribes || 0})` },
-                      { id: "bounce", label: `Bounced (${selectedCampaign.stats?.bounces || 0})` }
-                    ].map(tab => (
-                      <button
-                        key={tab.id}
-                        type="button"
-                        onClick={() => setCampaignRecipientFilter(tab.id as any)}
-                        className={`px-2.5 py-1 rounded-lg font-bold border transition-colors ${campaignRecipientFilter === tab.id
-                            ? "bg-primary text-white border-primary"
-                            : "bg-accent/20 hover:bg-accent/40 text-muted-foreground border-border/60"
-                          }`}
-                      >
-                        {tab.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Recipient Logs Scrollable List */}
-                <div className={`flex-1 border rounded-2xl overflow-y-auto custom-scrollbar bg-accent/5 p-3 space-y-2 ${isStatsModalExpanded ? 'min-h-[420px]' : 'min-h-[220px]'}`}>
-                  {!selectedCampaign.recipientLogs || selectedCampaign.recipientLogs.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-14 text-center text-muted-foreground">
-                      <Mail size={36} className="opacity-40 mb-2" />
-                      <p className="text-xs font-semibold">No recipient logs found for this campaign.</p>
-                      <p className="text-[11px] text-muted-foreground mt-0.5">Logs will populate automatically when the campaign is sent.</p>
-                    </div>
-                  ) : filteredCampaignRecipients.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-14 text-center text-muted-foreground">
-                      <Search size={36} className="opacity-40 mb-2" />
-                      <p className="text-xs font-semibold">No recipients matching search or status filter.</p>
-                    </div>
-                  ) : (
-                    filteredCampaignRecipients.map((log, idx) => {
-                      const displayName = log.name || log.email.split('@')[0];
-                      const initials = displayName.substring(0, 2).toUpperCase();
-                      const isCopied = copiedEmail === log.email;
-
-                      const isDelivered = log.status === "delivered" || log.status === "open" || log.status === "click";
-                      const isOpened = log.status === "open" || log.status === "click";
-                      const isClicked = log.status === "click";
-                      const isUnsubscribed = log.status === "unsubscribe";
-                      const isBouncedOrBlocked = log.status === "bounce" || log.status === "blocked" || log.status === "failed";
-
-                      return (
-                        <div key={idx} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-card border border-border/80 hover:border-primary/40 rounded-xl text-xs shadow-2xs transition-all">
-                          {/* Left: Contact Details & Error Details */}
-                          <div className="flex items-center gap-3 min-w-0 text-left flex-1">
-                            <div className="h-9 w-9 rounded-full bg-primary/10 text-primary font-extrabold text-xs flex items-center justify-center shrink-0 border border-primary/20">
-                              {initials}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <span className="font-bold text-foreground block truncate">{displayName}</span>
-                              <span className="text-[11px] text-muted-foreground block truncate mt-0.5">{log.email}</span>
-                              {log.error && (
-                                <span className="text-[10px] text-rose-500 font-semibold block truncate mt-0.5" title={log.error}>
-                                  ⚠️ {log.error}
-                                </span>
-                              )}
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => handleCopyEmail(log.email)}
-                              className="h-7 w-7 p-0 text-muted-foreground hover:text-primary hover:bg-accent/40 rounded-lg flex items-center justify-center transition-colors shrink-0"
-                              title="Copy email address"
-                            >
-                              {isCopied ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
-                            </button>
-                          </div>
-
-                          {/* Right: Event Badges Stack */}
-                          <div className="flex flex-wrap items-center gap-1.5 shrink-0 justify-start sm:justify-end">
-                            {/* Delivery / Blocked Badge */}
-                            <span className={`text-[9px] font-extrabold uppercase px-2.5 py-0.5 rounded-full border ${isDelivered ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" :
-                                isBouncedOrBlocked ? "bg-rose-500/10 text-rose-500 border-rose-500/20" :
-                                  "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
-                              }`}>
-                              {isDelivered ? "Delivered" : isBouncedOrBlocked ? "Blocked / Bounced" : "Delivered"}
-                            </span>
-
-                            {/* Open Badge */}
-                            <span className={`text-[9px] font-extrabold uppercase px-2.5 py-0.5 rounded-full border ${isOpened ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20" : "bg-accent/40 text-muted-foreground border-border/50"
-                              }`}>
-                              {isOpened ? "Opened" : "Not Opened"}
-                            </span>
-
-                            {/* Click Badge */}
-                            {isClicked && (
-                              <span className="text-[9px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
-                                Clicked Link
-                              </span>
-                            )}
-
-                            {/* Unsubscribe Badge */}
-                            {isUnsubscribed && (
-                              <span className="text-[9px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-                                Unsubscribed
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
+                  </>
+                );
+              })()}
             </div>
           )}
 
@@ -5907,7 +6068,6 @@ export default function EmailCenter() {
                       <div className="absolute -inset-4 rounded-full bg-gradient-to-r from-violet-600/30 to-indigo-600/30 blur-lg animate-pulse" />
                       <div className="relative h-14 w-14 rounded-2xl bg-gradient-to-tr from-violet-600 to-indigo-600 flex items-center justify-center text-white shadow-xl shadow-violet-500/25">
                         <Sparkles size={24} className="animate-pulse text-amber-300" />
-                        <Loader2 size={32} className="absolute animate-spin text-white/40" />
                       </div>
                     </div>
 

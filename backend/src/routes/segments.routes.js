@@ -13,7 +13,7 @@ import requireRole from '../middleware/role.middleware.js';
 const router = express.Router();
 const upload = multer(); // Keep in memory, do not write to disk
 
-const allowedRoles = ['admin', 'manager', 'sales_rep'];
+const allowedRoles = ['admin'];
 
 router.get('/segments', auth, requireRole(...allowedRoles), getSegments);
 router.get('/segments/preview-campaign/:campaignId', auth, requireRole(...allowedRoles), previewCampaignRecipients);

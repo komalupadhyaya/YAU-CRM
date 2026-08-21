@@ -134,6 +134,7 @@ export default function Sidebar() {
     if (item.children) return item.children.length > 0;
     
     if (item.to === '/team') return permissions.viewTeam;
+    if (item.to === '/email-center') return permissions.viewEmailCenter; // admin only
     if (item.to === '/lead-scheduler') return permissions.assignToOthers;
     if (item.to === '/candidates') return permissions.assignToOthers; // admin + manager only
     if (item.to === '/ea-leads') return permissions.viewEALeads; // admin + manager only

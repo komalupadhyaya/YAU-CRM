@@ -205,14 +205,23 @@ export const getCampaign = async (req, res, next) => {
 export const createCampaign = async (req, res, next) => {
     try {
         const { title, subject, content, segmentId, sendAt, templateId } = req.body;
+
+        let parsedSendAt = null;
+        if (sendAt) {
+            parsedSendAt = new Date(sendAt);
+            if (isNaN(parsedSendAt.getTime()) || parsedSendAt <= new Date()) {
+                return res.status(400).json({ error: 'Scheduled time must be in the future.' });
+            }
+        }
+
         const campaign = await EmailCampaign.create({
             title,
             subject,
             content,
             segmentId,
             templateId: (templateId && mongoose.Types.ObjectId.isValid(templateId)) ? templateId : null,
-            sendAt: sendAt ? new Date(sendAt) : null,
-            status: sendAt ? 'scheduled' : 'draft'
+            sendAt: parsedSendAt,
+            status: parsedSendAt ? 'scheduled' : 'draft'
         });
         const populated = await EmailCampaign.findById(campaign._id)
             .populate('segmentId')
@@ -224,6 +233,15 @@ export const createCampaign = async (req, res, next) => {
 export const updateCampaign = async (req, res, next) => {
     try {
         const { title, subject, content, segmentId, sendAt, status, templateId } = req.body;
+
+        let parsedSendAt = null;
+        if (sendAt) {
+            parsedSendAt = new Date(sendAt);
+            if (isNaN(parsedSendAt.getTime()) || parsedSendAt <= new Date()) {
+                return res.status(400).json({ error: 'Scheduled time must be in the future.' });
+            }
+        }
+
         const campaign = await EmailCampaign.findByIdAndUpdate(
             req.params.id,
             { 
@@ -232,8 +250,8 @@ export const updateCampaign = async (req, res, next) => {
                 content, 
                 segmentId, 
                 templateId: (templateId && mongoose.Types.ObjectId.isValid(templateId)) ? templateId : null,
-                sendAt: sendAt ? new Date(sendAt) : null,
-                status: status || (sendAt ? 'scheduled' : 'draft')
+                sendAt: parsedSendAt,
+                status: status || (parsedSendAt ? 'scheduled' : 'draft')
             },
             { new: true }
         ).populate('segmentId').populate('templateId', 'name category isAiGenerated subject');
@@ -391,40 +409,43 @@ export const dispatchCampaignInBackground = async (campaign, recipients) => {
 export const unsubscribeLead = async (req, res, next) => {
     try {
         const { leadId } = req.params;
-        const { model, campaignId } = req.query; // 'Lead' or 'EALead'
+        const { model, campaignId } = req.query;
 
-        let emailToOptOut = '';
+        let emailToOptOut = (req.query.email ? decodeURIComponent(req.query.email).trim().toLowerCase() : '');
 
-        if (model === 'EALead') {
-            const ea = await EALead.findByIdAndUpdate(leadId, { isEmailConsent: false });
-            if (ea) emailToOptOut = ea.email;
-        } else {
-            const lead = await Lead.findByIdAndUpdate(leadId, { isEmailConsent: false });
-            if (lead) {
-                const contact = await Contact.findOne({ lead_id: lead._id, is_primary: true });
-                if (contact) emailToOptOut = contact.email;
+        // Safely check if leadId is a valid MongoDB ObjectId before querying Lead/EALead models
+        const isValidLeadId = leadId && mongoose.Types.ObjectId.isValid(leadId) && leadId !== 'direct';
+
+        if (isValidLeadId) {
+            if (model === 'EALead') {
+                const ea = await EALead.findByIdAndUpdate(leadId, { isEmailConsent: false }, { new: true });
+                if (ea && ea.email) emailToOptOut = ea.email.toLowerCase().trim();
+            } else {
+                const lead = await Lead.findByIdAndUpdate(leadId, { isEmailConsent: false }, { new: true });
+                if (lead) {
+                    const contact = await Contact.findOne({ lead_id: lead._id, is_primary: true });
+                    if (contact && contact.email) emailToOptOut = contact.email.toLowerCase().trim();
+                }
             }
         }
 
-        // Also opt out from all segments containing this email
-        const emailQuery = req.query.email || emailToOptOut;
-        if (emailQuery) {
-            const cleanEmail = emailQuery.trim().toLowerCase();
+        // Opt out from all segment lists matching this email address
+        if (emailToOptOut) {
             const EmailSegment = mongoose.model('EmailSegment');
             await EmailSegment.updateMany(
-                { "contacts.email": cleanEmail },
+                { "contacts.email": emailToOptOut },
                 { $set: { "contacts.$.status": "opted_out" } }
             );
         }
 
-        // Update Campaign recipient logs & statistics if campaignId is present
-        if (campaignId) {
+        // Update Campaign recipient logs & statistics if campaignId is present and valid
+        if (campaignId && mongoose.Types.ObjectId.isValid(campaignId)) {
             const EmailCampaign = mongoose.model('EmailCampaign');
             const campaign = await EmailCampaign.findById(campaignId);
             if (campaign && campaign.recipientLogs && campaign.recipientLogs.length > 0) {
                 const logItem = campaign.recipientLogs.find(log => 
-                    (log.leadId && log.leadId.toString() === leadId) ||
-                    (log.email && emailToOptOut && log.email.toLowerCase() === emailToOptOut.toLowerCase())
+                    (isValidLeadId && log.leadId && log.leadId.toString() === leadId) ||
+                    (log.email && emailToOptOut && log.email.toLowerCase().trim() === emailToOptOut)
                 );
                 if (logItem) {
                     logItem.status = 'unsubscribe';
@@ -445,7 +466,7 @@ export const unsubscribeLead = async (req, res, next) => {
             if (emailToOptOut) {
                 const EmailHistory = mongoose.model('EmailHistory');
                 await EmailHistory.updateMany(
-                    { campaignId, to: emailToOptOut.toLowerCase() },
+                    { campaignId, to: emailToOptOut },
                     { $set: { status: 'unsubscribe' } }
                 );
             }
@@ -454,47 +475,188 @@ export const unsubscribeLead = async (req, res, next) => {
         // Return response based on HTTP method
         if (req.method === 'POST') {
             // Support Gmail native List-Unsubscribe background call
-            return res.status(200).json({ success: true, message: 'Unsubscribed successfully.' });
+            return res.status(200).json({ success: true, message: 'Unsubscribed successfully.', email: emailToOptOut });
         }
 
-        // Render confirmation page directly for browser GET clicks
+        // Render modern, high-end confirmation card directly for browser GET clicks matching official YAU brand palette
+        const displayEmail = emailToOptOut || 'your email address';
         res.send(`
             <!DOCTYPE html>
             <html lang="en">
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>Unsubscribed Successfully</title>
-                <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+                <title>Unsubscribed Successfully | Youth Athlete University</title>
+                <link rel="preconnect" href="https://fonts.googleapis.com">
+                <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+                <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Outfit:wght@700;800;900&display=swap" rel="stylesheet">
                 <style>
+                    * { margin: 0; padding: 0; box-sizing: border-box; }
                     body {
-                        font-family: 'Inter', sans-serif;
-                        background: #f8fafc;
+                        font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                        background: radial-gradient(circle at 50% 20%, #101c3d 0%, #080e1e 70%, #040711 100%);
+                        color: #f8fafc;
+                        min-height: 100vh;
                         display: flex;
                         align-items: center;
                         justify-content: center;
-                        min-height: 100vh;
-                        margin: 0;
+                        padding: 24px;
                     }
                     .card {
-                        background: white;
-                        padding: 30px;
-                        border-radius: 16px;
-                        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+                        background: #0d172e;
+                        border: 1px solid rgba(255, 255, 255, 0.1);
+                        border-radius: 28px;
+                        padding: 44px 36px 36px;
+                        max-width: 500px;
+                        width: 100%;
+                        box-shadow: 0 30px 60px -15px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.05);
                         text-align: center;
-                        max-width: 400px;
-                        width: 90%;
+                        position: relative;
+                        overflow: hidden;
                     }
-                    h2 { color: #0f172a; margin-top: 0; }
-                    p { color: #64748b; font-size: 14px; line-height: 1.6; }
-                    .icon { font-size: 40px; margin-bottom: 15px; }
+                    .card::before {
+                        content: '';
+                        position: absolute;
+                        top: 0;
+                        left: 0;
+                        right: 0;
+                        height: 5px;
+                        background: linear-gradient(90deg, #dc2626 0%, #2563eb 50%, #dc2626 100%);
+                    }
+                    .logo-wrapper {
+                        margin-bottom: 24px;
+                        display: inline-flex;
+                        align-items: center;
+                        justify-content: center;
+                    }
+                    .yau-crest {
+                        width: 88px;
+                        height: auto;
+                        filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.4));
+                    }
+                    .icon-badge {
+                        width: 56px;
+                        height: 56px;
+                        background: rgba(16, 185, 129, 0.12);
+                        border: 1.5px solid rgba(16, 185, 129, 0.35);
+                        border-radius: 18px;
+                        display: inline-flex;
+                        align-items: center;
+                        justify-content: center;
+                        margin-bottom: 20px;
+                        box-shadow: 0 10px 20px -5px rgba(16, 185, 129, 0.25);
+                    }
+                    .brand-pill {
+                        display: inline-block;
+                        font-size: 10px;
+                        font-weight: 800;
+                        text-transform: uppercase;
+                        letter-spacing: 0.12em;
+                        color: #ffffff;
+                        background: #dc2626;
+                        padding: 4px 14px;
+                        border-radius: 100px;
+                        margin-bottom: 12px;
+                        box-shadow: 0 2px 8px rgba(220, 38, 38, 0.4);
+                    }
+                    h1 {
+                        font-size: 24px;
+                        font-weight: 800;
+                        color: #ffffff;
+                        margin-bottom: 12px;
+                        letter-spacing: -0.02em;
+                        line-height: 1.3;
+                    }
+                    .email-badge {
+                        display: inline-block;
+                        background: rgba(15, 23, 42, 0.85);
+                        border: 1px solid rgba(148, 163, 184, 0.2);
+                        padding: 7px 16px;
+                        border-radius: 10px;
+                        font-family: monospace;
+                        font-size: 13px;
+                        color: #38bdf8;
+                        font-weight: 600;
+                        margin: 6px 0 18px;
+                        word-break: break-all;
+                    }
+                    p {
+                        color: #94a3b8;
+                        font-size: 14px;
+                        line-height: 1.6;
+                        margin-bottom: 24px;
+                    }
+                    .divider {
+                        height: 1px;
+                        background: rgba(255, 255, 255, 0.08);
+                        margin: 24px 0;
+                    }
+                    .footer-note {
+                        font-size: 12px;
+                        color: #64748b;
+                        line-height: 1.5;
+                    }
+                    .footer-note a {
+                        color: #38bdf8;
+                        text-decoration: none;
+                        font-weight: 600;
+                        transition: color 0.2s;
+                    }
+                    .footer-note a:hover {
+                        color: #f87171;
+                        text-decoration: underline;
+                    }
                 </style>
             </head>
             <body>
                 <div class="card">
-                    <div class="icon">✉️</div>
-                    <h2>Unsubscribed</h2>
-                    <p>You have been successfully removed from our mailing list. You will no longer receive marketing emails from Youth Athlete University.</p>
+                    <div class="logo-wrapper">
+                        <!-- YAU Official Diamond Shield SVG Crest -->
+                        <svg class="yau-crest" viewBox="0 0 160 180" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <!-- Diamond Outer Border -->
+                            <polygon points="80,6 154,58 126,168 80,174 34,168 6,58" fill="#ffffff" stroke="#0f3b7d" stroke-width="4"/>
+                            <!-- Diamond Red Border -->
+                            <polygon points="80,12 148,60 122,162 80,168 38,162 12,60" fill="#dc2626"/>
+                            <!-- Diamond Inner Navy Shield -->
+                            <polygon points="80,18 142,62 118,156 80,162 42,156 18,62" fill="#0f2b5c"/>
+                            
+                            <!-- White & Red Diagonal Team Stripes in Center -->
+                            <path d="M52 75 L108 75 L104 87 L48 87 Z" fill="#ffffff"/>
+                            <path d="M50 89 L110 89 L106 101 L46 101 Z" fill="#dc2626"/>
+                            
+                            <!-- Bold Athletic YAU Letters -->
+                            <text x="80" y="78" font-family="'Outfit', 'Arial Black', sans-serif" font-weight="900" font-size="34" fill="#ffffff" text-anchor="middle" letter-spacing="1">YAU</text>
+                            
+                            <!-- Ribbon Banner -->
+                            <rect x="26" y="106" width="108" height="20" rx="3" fill="#dc2626"/>
+                            <text x="80" y="120" font-family="'Plus Jakarta Sans', sans-serif" font-weight="800" font-size="8.5" fill="#ffffff" text-anchor="middle" letter-spacing="0.5">YOUTH ATHLETE</text>
+                            
+                            <!-- University Subtext -->
+                            <rect x="36" y="128" width="88" height="15" rx="2" fill="#ffffff"/>
+                            <text x="80" y="139" font-family="'Plus Jakarta Sans', sans-serif" font-weight="800" font-size="8" fill="#0f2b5c" text-anchor="middle" letter-spacing="0.5">UNIVERSITY</text>
+                            
+                            <!-- Bottom Chevron Stripes -->
+                            <polygon points="76,146 80,158 84,146" fill="#dc2626"/>
+                        </svg>
+                    </div>
+
+                    <div class="icon-badge">
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                            <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                        </svg>
+                    </div>
+
+                    <div>
+                        <span class="brand-pill">Youth Athlete University</span>
+                        <h1>Unsubscribed Successfully</h1>
+                        <div class="email-badge">${displayEmail}</div>
+                        <p>You have been removed from our marketing mailing list. You will no longer receive marketing or promotional campaign emails from Youth Athlete University.</p>
+                    </div>
+                    <div class="divider"></div>
+                    <div class="footer-note">
+                        Was this a mistake? If you wish to resubscribe or have questions, please reach out to us at <a href="mailto:support@youthathleteuniversity.org">support@youthathleteuniversity.org</a>.
+                    </div>
                 </div>
             </body>
             </html>

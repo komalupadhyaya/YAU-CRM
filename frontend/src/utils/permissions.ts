@@ -40,6 +40,8 @@ export interface Permissions {
   assignToOthers: boolean;
   /** Can view and manage Evening Activity (EA) Leads */
   viewEALeads: boolean;
+  /** Can view and manage Email Center */
+  viewEmailCenter: boolean;
   /** Is this a read-only user */
   isReadOnly: boolean;
 }
@@ -59,6 +61,7 @@ export const can = (role: string | undefined): Permissions => {
     completeItems:   r === 'admin' || r === 'manager' || r === 'sales_rep',
     assignToOthers:  r === 'admin' || r === 'manager',
     viewEALeads:     r === 'admin' || r === 'manager',
+    viewEmailCenter: r === 'admin',
     isReadOnly:      r === 'view_only',
   };
 };

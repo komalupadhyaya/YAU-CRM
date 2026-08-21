@@ -29,6 +29,7 @@ import EmailCenter from "./pages/EmailCenter";
 import { SMSProvider } from "./context/SMSContext";
 import { PresenceProvider } from "./context/PresenceContext";
 import { SocketProvider } from "./context/SocketContext";
+import { EmailCenterProvider } from "./context/EmailCenterContext";
 
 import RequireAuth from "./components/RequireAuth";
 import RequireRole from "./components/RequireRole";
@@ -55,9 +56,10 @@ const App = () => {
         <SocketProvider>
           <PresenceProvider>
             <SMSProvider>
-              <TooltipProvider>
-              <Toaster />
-              <Sonner position="top-right" closeButton richColors expand={true} />
+              <EmailCenterProvider>
+                <TooltipProvider>
+                <Toaster />
+                <Sonner position="top-right" closeButton richColors expand={true} />
               <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
               <Routes>
                 <Route path="/login" element={<Login />} />
@@ -72,7 +74,7 @@ const App = () => {
                 <Route path="/lead-scheduler" element={<RequireAuth><RequireRole roles={['admin', 'manager']}><LeadScheduler /></RequireRole></RequireAuth>} />
                 <Route path="/ea-leads" element={<RequireAuth><EALeads /></RequireAuth>} />
                 <Route path="/sms" element={<RequireAuth><RequireRole roles={['admin', 'manager', 'sales_rep']}><SMSMessages /></RequireRole></RequireAuth>} />
-                <Route path="/email-center" element={<RequireAuth><RequireRole roles={['admin', 'manager', 'sales_rep']}><EmailCenter /></RequireRole></RequireAuth>} />
+                <Route path="/email-center" element={<RequireAuth><RequireRole roles={['admin']}><EmailCenter /></RequireRole></RequireAuth>} />
                 <Route path="/history" element={<RequireAuth><RequireRole roles={['admin', 'manager']}><HistoryPage /></RequireRole></RequireAuth>} />
                 <Route path="/settings" element={<RequireAuth><RequireRole roles={['admin']}><Settings /></RequireRole></RequireAuth>} />
                 <Route path="/phone-system" element={<RequireAuth><RequireRole roles={['admin']}><PhoneSystem /></RequireRole></RequireAuth>} />
@@ -89,7 +91,8 @@ const App = () => {
               </Routes>
               <Dialer />
             </BrowserRouter>
-          </TooltipProvider>
+            </TooltipProvider>
+          </EmailCenterProvider>
         </SMSProvider>
       </PresenceProvider>
     </SocketProvider>

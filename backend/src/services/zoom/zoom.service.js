@@ -393,3 +393,11 @@ export async function inviteZoomUser(email, firstName = '', lastName = '') {
     }
 }
 
+export default {
+    getZoomUsers,
+    createZoomMeeting,
+    updateZoomMeeting,
+    deleteZoomMeeting,
+    inviteZoomUser
+};
+

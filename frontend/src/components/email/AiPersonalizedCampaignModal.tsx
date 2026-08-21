@@ -255,9 +255,16 @@ export default function AiPersonalizedCampaignModal({
       return;
     }
 
-    if (isScheduled && !scheduledDate) {
-      toast.error("Please specify a scheduled send time.");
-      return;
+    if (isScheduled) {
+      if (!scheduledDate) {
+        toast.error("Please specify a scheduled send time.");
+        return;
+      }
+      const scheduledTime = new Date(scheduledDate).getTime();
+      if (isNaN(scheduledTime) || scheduledTime <= Date.now()) {
+        toast.error("Scheduled time must be in the future. Please select an upcoming date and time.");
+        return;
+      }
     }
 
     try {
@@ -845,12 +852,29 @@ export default function AiPersonalizedCampaignModal({
                 </div>
 
                 {isScheduled && (
-                  <input
-                    type="datetime-local"
-                    value={scheduledDate}
-                    onChange={e => setScheduledDate(e.target.value)}
-                    className="input-field h-8 text-xs font-medium rounded-lg"
-                  />
+                  <div className="space-y-1">
+                    <input
+                      type="datetime-local"
+                      value={scheduledDate}
+                      min={(() => {
+                        const now = new Date();
+                        now.setMinutes(now.getMinutes() + 1);
+                        const pad = (n: number) => String(n).padStart(2, '0');
+                        return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+                      })()}
+                      onChange={e => {
+                        const val = e.target.value;
+                        if (val && new Date(val).getTime() <= Date.now()) {
+                          toast.warning("Please choose a future date and time.");
+                        }
+                        setScheduledDate(val);
+                      }}
+                      className="input-field h-8 text-xs font-medium rounded-lg"
+                    />
+                    <p className="text-[10px] text-muted-foreground">
+                      Personalized emails will automatically dispatch at this scheduled time.
+                    </p>
+                  </div>
                 )}
               </div>
             </div>

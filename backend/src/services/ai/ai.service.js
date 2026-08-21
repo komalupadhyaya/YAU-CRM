@@ -274,16 +274,18 @@ EMAIL DESIGN & HTML RULES (follow strictly):
    - All styling MUST be inline (e.g. style="font-family: Arial, sans-serif; background-color: #f8fafc; padding: 24px;").
    - Use clean, modern colors: Navy/Blue (#1e3a8a, #2563eb), Slate (#0f172a, #334155), Emerald (#059669).
    - Clear visual hierarchy: Header banner, greeting, body sections with bullet points, high-contrast call-to-action button, and professional sign-off.
-3. PERSONALIZATION: Use {{name}} as the dynamic placeholder for the recipient's name (e.g. "Hi {{name}},").
-4. STRICT TEMPLATE & DESIGN PRESERVATION: If existing HTML template code is provided, you MUST STRICTLY PRESERVE the entire surrounding HTML table layout, inline CSS styles, containers, background colors, header banners, borders, and CTA button structure/styling. Do NOT discard or alter the visual design or formatting. ONLY replace or insert the textual content (headlines, greeting, body paragraphs, bullet points, button text) according to the user's prompt.
-5. RESPONSE FORMAT: Return strictly JSON format with keys "name", "subject", "content", and "category".
+3. LINKS & CTAS OPEN IN NEW TAB:
+   - Every link (<a ...>) and CTA button in the template MUST include target="_blank" rel="noopener noreferrer" so clicking any link opens in a new browser tab.
+4. PERSONALIZATION: Use {{name}} as the dynamic placeholder for the recipient's name (e.g. "Hi {{name}},").
+5. STRICT TEMPLATE & DESIGN PRESERVATION: If existing HTML template code is provided, you MUST STRICTLY PRESERVE the entire surrounding HTML table layout, inline CSS styles, containers, background colors, header banners, borders, and CTA button structure/styling. Do NOT discard or alter the visual design or formatting. ONLY replace or insert the textual content (headlines, greeting, body paragraphs, bullet points, button text) according to the user's prompt.
+6. RESPONSE FORMAT: Return strictly JSON format with keys "name", "subject", "content", and "category".
 
 Example output format:
 {
   "name": "Summer Basketball Camp Invitation",
   "subject": "Registration Open for Summer Basketball Camp! 🏀",
   "category": "Promotional",
-  "content": "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"max-width:600px;margin:0 auto;font-family:Arial,sans-serif;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e2e8f0;\"><tr><td style=\"background:linear-gradient(135deg,#1e3a8a,#2563eb);padding:28px 24px;text-align:center;color:#ffffff;\"><h1 style=\"margin:0;font-size:22px;font-weight:800;letter-spacing:-0.5px;\">Youth Athlete University</h1><p style=\"margin:6px 0 0 0;font-size:13px;opacity:0.9;\">Summer Basketball Skill Camp 2025</p></td></tr><tr><td style=\"padding:28px 24px;color:#334155;line-height:1.6;font-size:14px;\"><p style=\"margin-top:0;\">Hi {{name}},</p><p>We are excited to invite your young athlete to our premier summer development clinic...</p><div style=\"text-align:center;margin:28px 0;\"><a href=\"https://youthathleteuniversity.org\" style=\"background:#2563eb;color:#ffffff;padding:12px 28px;text-decoration:none;border-radius:8px;font-weight:bold;display:inline-block;font-size:14px;\">Register Today &rarr;</a></div><p style=\"margin-bottom:0;color:#64748b;font-size:13px;\">Best regards,<br/><strong style=\"color:#0f172a;\">The YAU Sports Team</strong></p></td></tr></table>"
+  "content": "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"max-width:600px;margin:0 auto;font-family:Arial,sans-serif;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e2e8f0;\"><tr><td style=\"background:linear-gradient(135deg,#1e3a8a,#2563eb);padding:28px 24px;text-align:center;color:#ffffff;\"><h1 style=\"margin:0;font-size:22px;font-weight:800;letter-spacing:-0.5px;\">Youth Athlete University</h1><p style=\"margin:6px 0 0 0;font-size:13px;opacity:0.9;\">Summer Basketball Skill Camp 2025</p></td></tr><tr><td style=\"padding:28px 24px;color:#334155;line-height:1.6;font-size:14px;\"><p style=\"margin-top:0;\">Hi {{name}},</p><p>We are excited to invite your young athlete to our premier summer development clinic...</p><div style=\"text-align:center;margin:28px 0;\"><a href=\"https://youthathleteuniversity.org\" target=\"_blank\" rel=\"noopener noreferrer\" style=\"background:#2563eb;color:#ffffff;padding:12px 28px;text-decoration:none;border-radius:8px;font-weight:bold;display:inline-block;font-size:14px;\">Register Today &rarr;</a></div><p style=\"margin-bottom:0;color:#64748b;font-size:13px;\">Best regards,<br/><strong style=\"color:#0f172a;\">The YAU Sports Team</strong></p></td></tr></table>"
 }`;
 }
 
@@ -316,30 +318,48 @@ async function generateEmailTemplate({ prompt, category, existingContent }) {
     try {
         // Strip markdown ```json code blocks if returned
         let cleanRaw = raw.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
+
+        // Detect obvious AI refusals or policy restrictions
+        const isRefusal = /^(?:i cannot|i am unable|i'm unable|i am sorry|i'm sorry|as an ai|i will not)/i.test(cleanRaw) ||
+                          (/(?:cannot assist|cannot generate|abusive|offensive|inappropriate|harmful|violates? (?:safety|policy))/i.test(cleanRaw) && !cleanRaw.includes('<table') && !cleanRaw.includes('<div'));
+
+        if (isRefusal) {
+            throw new Error(cleanRaw.length < 350 ? cleanRaw : 'AI is unable to generate content for this prompt due to safety policy guidelines. Please refine your prompt.');
+        }
+
         const jsonMatch = cleanRaw.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
             const parsed = JSON.parse(jsonMatch[0]);
+            if (!parsed.content || typeof parsed.content !== 'string' || !parsed.content.trim()) {
+                throw new Error('AI returned an empty email template body. Please try again.');
+            }
             return {
                 name: parsed.name || 'AI Generated Template',
                 subject: parsed.subject || 'Special Announcement from YAU Sports',
                 category: parsed.category || category || 'AI Generated',
-                content: parsed.content || `<p>Hi {{name}},</p><p>${raw.replace(/\n/g, '<br/>')}</p>`,
+                content: parsed.content,
                 provider: 'anthropic',
                 apiHit: true
             };
         }
-    } catch (e) {
-        console.warn('Failed to parse AI template JSON, falling back to text:', e);
-    }
 
-    return {
-        name: 'AI Generated Template',
-        subject: 'Special Announcement from YAU Sports',
-        category: category || 'AI Generated',
-        content: `<p>Hi {{name}},</p><p>${raw.replace(/\n/g, '<br/>')}</p>`,
-        provider: 'anthropic',
-        apiHit: true
-    };
+        // If raw contains HTML structure directly
+        if (cleanRaw.includes('<table') || cleanRaw.includes('<div') || cleanRaw.includes('<p>')) {
+            return {
+                name: 'AI Generated Template',
+                subject: 'Special Announcement from YAU Sports',
+                category: category || 'AI Generated',
+                content: cleanRaw,
+                provider: 'anthropic',
+                apiHit: true
+            };
+        }
+
+        throw new Error(cleanRaw.length < 350 ? cleanRaw : 'AI was unable to generate a valid email template for this prompt. Please refine your request.');
+    } catch (e) {
+        console.warn('AI Template Generation Error/Refusal:', e.message);
+        throw e;
+    }
 }
 
 // ── System prompt builder for Personalized Campaigns ─────────────────

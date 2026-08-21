@@ -10,7 +10,7 @@ import auth from '../middleware/auth.middleware.js';
 import requireRole from '../middleware/role.middleware.js';
 
 const router = express.Router();
-const allowedRoles = ['admin', 'manager', 'sales_rep'];
+const allowedRoles = ['admin'];
 
 router.get('/templates', auth, requireRole(...allowedRoles), getTemplates);
 router.post('/templates', auth, requireRole(...allowedRoles), createTemplate);
