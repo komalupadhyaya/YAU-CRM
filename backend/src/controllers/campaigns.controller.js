@@ -651,6 +651,21 @@ export const getEmailConversations = async (req, res) => {
             });
         });
 
+        // Track all emails that have opted out / unsubscribed
+        const unsubscribedEmails = new Set();
+        emailHistoryDocs.forEach(h => {
+            if (h.status === 'unsubscribe' && h.to) {
+                unsubscribedEmails.add(h.to.toLowerCase().trim());
+            }
+        });
+        allCampaigns.forEach(c => {
+            (c.recipientLogs || []).forEach(log => {
+                if (log.status === 'unsubscribe' && log.email) {
+                    unsubscribedEmails.add(log.email.toLowerCase().trim());
+                }
+            });
+        });
+
         // Gather EALeads
         const eaQuery = isPrivileged ? {} : { assigned_to: userId };
         const eaLeads = await EALead.find(eaQuery).lean();
@@ -659,13 +674,13 @@ export const getEmailConversations = async (req, res) => {
         const mainQuery = isPrivileged ? {} : { assigned_to: userId };
         const mainLeads = await Lead.find(mainQuery).lean();
 
-        const conversations = [];
-        const processedEmails = new Set();
+        const conversationsMap = new Map();
 
         // 1. Process EALeads (ONLY if they have received email activity)
         for (const ea of eaLeads) {
             const eaEmail = ea.email ? ea.email.toLowerCase().trim() : '';
-            const hasActivity = leadIdsWithActivity.has(ea._id.toString()) || (eaEmail && emailsWithActivity.has(eaEmail));
+            if (!eaEmail) continue;
+            const hasActivity = leadIdsWithActivity.has(ea._id.toString()) || emailsWithActivity.has(eaEmail);
             if (!hasActivity) continue; // Skip leads with no email activity!
 
             let lastMessage = 'Campaign Email Dispatched';
@@ -674,7 +689,7 @@ export const getEmailConversations = async (req, res) => {
             // Check EmailHistory collection first
             const leadHistories = emailHistoryDocs.filter(h => 
                 (h.leadId && h.leadId.toString() === ea._id.toString()) || 
-                (eaEmail && h.to && h.to.toLowerCase().trim() === eaEmail)
+                (h.to && h.to.toLowerCase().trim() === eaEmail)
             );
 
             if (leadHistories.length > 0) {
@@ -701,19 +716,19 @@ export const getEmailConversations = async (req, res) => {
                 }
             }
 
-            conversations.push({
+            const isOptedOut = ea.isEmailConsent === false || unsubscribedEmails.has(eaEmail);
+
+            conversationsMap.set(eaEmail, {
                 _id: ea._id,
                 leadType: 'ea_lead',
                 name: ea.name,
                 email: ea.email,
                 phone: ea.phone,
                 categoryTag: 'EA Lead',
-                isConsent: ea.isEmailConsent !== false,
+                isConsent: !isOptedOut,
                 lastMessage: lastMessage,
                 lastMessageTimestamp: lastTime
             });
-
-            if (eaEmail) processedEmails.add(eaEmail);
         }
 
         // 2. Process Main CRM Leads (ONLY if they have received email activity)
@@ -724,8 +739,9 @@ export const getEmailConversations = async (req, res) => {
             const leadContacts = contacts.filter(c => c.lead_id.toString() === lead._id.toString());
             const primaryContact = leadContacts.find(c => c.is_primary) || leadContacts[0];
             const email = primaryContact?.email ? primaryContact.email.toLowerCase().trim() : '';
+            if (!email) continue;
 
-            const hasActivity = leadIdsWithActivity.has(lead._id.toString()) || (email && emailsWithActivity.has(email));
+            const hasActivity = leadIdsWithActivity.has(lead._id.toString()) || emailsWithActivity.has(email);
             if (!hasActivity) continue; // Skip leads with no email activity!
 
             let lastMessage = 'Campaign Email Dispatched';
@@ -733,7 +749,7 @@ export const getEmailConversations = async (req, res) => {
 
             const leadHistories = emailHistoryDocs.filter(h => 
                 (h.leadId && h.leadId.toString() === lead._id.toString()) || 
-                (email && h.to && h.to.toLowerCase().trim() === email)
+                (h.to && h.to.toLowerCase().trim() === email)
             );
 
             if (leadHistories.length > 0) {
@@ -760,44 +776,56 @@ export const getEmailConversations = async (req, res) => {
             }
 
             const displayName = primaryContact?.name ? `${lead.name} (${primaryContact.name})` : lead.name;
+            const isOptedOut = lead.isEmailConsent === false || unsubscribedEmails.has(email);
 
-            conversations.push({
-                _id: lead._id,
-                leadType: 'main_lead',
-                name: displayName,
-                email: primaryContact?.email || '',
-                phone: primaryContact?.direct_phone || lead.telephone || '',
-                categoryTag: 'CRM Lead',
-                isConsent: lead.isEmailConsent !== false,
-                lastMessage: lastMessage,
-                lastMessageTimestamp: lastTime
-            });
-
-            if (email) processedEmails.add(email);
+            if (conversationsMap.has(email)) {
+                // If existing entry exists for this email, combine & merge recency/opt-out status
+                const existing = conversationsMap.get(email);
+                if (new Date(lastTime).getTime() > new Date(existing.lastMessageTimestamp).getTime()) {
+                    existing.lastMessage = lastMessage;
+                    existing.lastMessageTimestamp = lastTime;
+                }
+                if (isOptedOut) {
+                    existing.isConsent = false;
+                }
+            } else {
+                conversationsMap.set(email, {
+                    _id: lead._id,
+                    leadType: 'main_lead',
+                    name: displayName,
+                    email: primaryContact?.email || email,
+                    phone: primaryContact?.direct_phone || lead.telephone || '',
+                    categoryTag: 'CRM Lead',
+                    isConsent: !isOptedOut,
+                    lastMessage: lastMessage,
+                    lastMessageTimestamp: lastTime
+                });
+            }
         }
 
         // 3. Process remaining EmailHistory recipients (CSV segment contacts or manual email recipients)
         for (const historyDoc of emailHistoryDocs) {
             const docEmail = historyDoc.to ? historyDoc.to.toLowerCase().trim() : '';
-            if (!docEmail || processedEmails.has(docEmail)) continue;
+            if (!docEmail || conversationsMap.has(docEmail)) continue;
 
             const contactHistories = emailHistoryDocs.filter(h => h.to && h.to.toLowerCase().trim() === docEmail);
             const latest = contactHistories[0];
+            const isOptedOut = unsubscribedEmails.has(docEmail) || latest.status === 'unsubscribe';
 
-            conversations.push({
+            conversationsMap.set(docEmail, {
                 _id: historyDoc.leadId || historyDoc._id,
                 leadType: historyDoc.leadModel === 'EALead' ? 'ea_lead' : 'main_lead',
                 name: latest.recipientName || docEmail.split('@')[0],
                 email: latest.to,
                 phone: '',
                 categoryTag: 'Segment Contact',
-                isConsent: true,
+                isConsent: !isOptedOut,
                 lastMessage: latest.type === 'bulk' ? `Campaign: ${latest.campaignTitle} - ${latest.subject}` : `Direct: ${latest.subject}`,
                 lastMessageTimestamp: latest.sentAt || latest.createdAt
             });
-
-            processedEmails.add(docEmail);
         }
+
+        const conversations = Array.from(conversationsMap.values());
 
         // Sort by recency
         conversations.sort((a, b) => new Date(b.lastMessageTimestamp).getTime() - new Date(a.lastMessageTimestamp).getTime());
@@ -806,6 +834,75 @@ export const getEmailConversations = async (req, res) => {
     } catch (err) {
         console.error('Error fetching email conversations:', err);
         res.status(500).json({ error: 'Failed to load conversations' });
+    }
+};
+
+// ── ADMIN RESUBSCRIBE / RESTORE EMAIL CONSENT ────────────────────────────────
+export const resubscribeLead = async (req, res, next) => {
+    try {
+        const { leadId, email, leadModel } = req.body;
+        const cleanEmail = email ? email.toLowerCase().trim() : '';
+
+        // 1. If valid leadId, update Lead or EALead
+        if (leadId && mongoose.Types.ObjectId.isValid(leadId)) {
+            if (leadModel === 'EALead') {
+                await EALead.findByIdAndUpdate(leadId, { isEmailConsent: true });
+            } else {
+                await Lead.findByIdAndUpdate(leadId, { isEmailConsent: true });
+            }
+        }
+
+        // 2. Also search and update any matching Lead/EALead documents by email
+        if (cleanEmail) {
+            await EALead.updateMany({ email: new RegExp(`^${cleanEmail}$`, 'i') }, { isEmailConsent: true });
+            const contacts = await Contact.find({ email: new RegExp(`^${cleanEmail}$`, 'i') });
+            if (contacts.length > 0) {
+                const leadIds = contacts.map(c => c.lead_id);
+                await Lead.updateMany({ _id: { $in: leadIds } }, { isEmailConsent: true });
+            }
+        }
+
+        // 3. Update all EmailSegment contacts with this email to "active"
+        if (cleanEmail) {
+            const EmailSegment = mongoose.model('EmailSegment');
+            await EmailSegment.updateMany(
+                { "contacts.email": cleanEmail },
+                { $set: { "contacts.$.status": "active" } }
+            );
+        }
+
+        // 4. Update EmailHistory status back to 'delivered' or 'sent' if was 'unsubscribe'
+        if (cleanEmail) {
+            const EmailHistory = mongoose.model('EmailHistory');
+            await EmailHistory.updateMany(
+                { to: cleanEmail, status: 'unsubscribe' },
+                { $set: { status: 'delivered' } }
+            );
+        }
+
+        // 5. Update EmailCampaign recipientLogs status back from 'unsubscribe' to 'delivered'
+        if (cleanEmail) {
+            const EmailCampaign = mongoose.model('EmailCampaign');
+            const campaigns = await EmailCampaign.find({ "recipientLogs.email": cleanEmail });
+            for (const camp of campaigns) {
+                let modified = false;
+                for (const log of camp.recipientLogs) {
+                    if (log.email && log.email.toLowerCase().trim() === cleanEmail && log.status === 'unsubscribe') {
+                        log.status = 'delivered';
+                        modified = true;
+                    }
+                }
+                if (modified) {
+                    camp.stats.unsubscribes = camp.recipientLogs.filter(l => l.status === 'unsubscribe').length;
+                    await camp.save();
+                }
+            }
+        }
+
+        res.json({ success: true, message: `Email consent restored successfully for ${cleanEmail || leadId}` });
+    } catch (err) {
+        console.error('Error resubscribing lead:', err);
+        res.status(500).json({ error: 'Failed to restore email consent' });
     }
 };
 
@@ -847,19 +944,31 @@ export const getEmailHistory = async (req, res) => {
         }).sort({ sentAt: 1 }).lean();
 
         historyDocs.forEach(rec => {
-            historyMap.set(rec._id.toString(), {
-                _id: rec._id,
-                direction: rec.direction || 'outbound',
-                campaignTitle: rec.campaignTitle || '',
-                subject: rec.subject,
-                body: rec.body,
-                cc: rec.cc || '',
-                to: rec.to,
-                timestamp: rec.sentAt || rec.createdAt,
-                type: rec.type, // 'direct' or 'bulk'
-                status: rec.status || 'sent',
-                error: rec.error || null
+            const recTime = new Date(rec.sentAt || rec.createdAt).getTime();
+            const isDup = Array.from(historyMap.values()).some(existing => {
+                const existingTime = new Date(existing.timestamp).getTime();
+                return (
+                    existing.subject === rec.subject && 
+                    (existing.to || '').toLowerCase() === (rec.to || '').toLowerCase() &&
+                    Math.abs(existingTime - recTime) < 5000
+                );
             });
+
+            if (!isDup) {
+                historyMap.set(rec._id.toString(), {
+                    _id: rec._id,
+                    direction: rec.direction || 'outbound',
+                    campaignTitle: rec.campaignTitle || '',
+                    subject: rec.subject,
+                    body: rec.body,
+                    cc: rec.cc || '',
+                    to: rec.to,
+                    timestamp: rec.sentAt || rec.createdAt,
+                    type: rec.type, // 'direct' or 'bulk'
+                    status: rec.status || 'sent',
+                    error: rec.error || null
+                });
+            }
         });
 
         // 2. Fetch legacy email notes

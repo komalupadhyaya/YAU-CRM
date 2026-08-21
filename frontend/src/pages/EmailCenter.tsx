@@ -27,6 +27,7 @@ import {
   Inbox,
   MousePointerClick,
   UserX,
+  UserCheck,
   Search,
   MessageSquare,
   ArrowRight,
@@ -135,6 +136,8 @@ interface EmailHistoryItem {
   cc?: string;
   to: string;
   timestamp: string;
+  sentAt?: string;
+  createdAt?: string;
   type: "direct" | "bulk";
   status?: string;
   campaignTitle?: string;
@@ -2078,6 +2081,40 @@ export default function EmailCenter() {
     toast.success("Template injected!");
   };
 
+  const [resubscribing, setResubscribing] = useState(false);
+
+  // Helper to switch conversation and cleanly reset composer
+  const handleSelectConversation = (conv: EmailConversation) => {
+    if (selectedConversation?._id !== conv._id) {
+      setComposeForm({ subject: "", body: "" });
+      setIsComposeExpanded(false);
+      setShowComposeAiPanel(false);
+      setAiPrompt("");
+    }
+    setSelectedConversation(conv);
+  };
+
+  // Admin action to restore email consent / remove unsubscribe
+  const handleResubscribeLead = async (conv: EmailConversation) => {
+    if (!conv) return;
+    setResubscribing(true);
+    try {
+      await api.post("/emails/resubscribe", {
+        leadId: conv._id,
+        email: conv.email,
+        leadModel: conv.leadType === "ea_lead" ? "EALead" : "Lead"
+      });
+      toast.success(`Email consent restored for ${conv.name}!`);
+      setSelectedConversation(prev => prev ? { ...prev, isConsent: true } : null);
+      fetchConversations();
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.response?.data?.error || "Failed to restore email consent");
+    } finally {
+      setResubscribing(false);
+    }
+  };
+
   // Send 1-to-1 Email via SendGrid
   const handleSendOneToOneEmail = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -2100,8 +2137,11 @@ export default function EmailCenter() {
       await api.post("/emails/send", payload);
       toast.success("1-to-1 Email sent successfully via SendGrid!");
 
-      // Update UI & history in real-time
+      // Update UI & history in real-time - clean reset state
       setComposeForm({ subject: "", body: "" });
+      setIsComposeExpanded(false);
+      setShowComposeAiPanel(false);
+      setAiPrompt("");
       fetchHistory(selectedConversation._id);
       fetchConversations();
     } catch (err: any) {
@@ -3189,7 +3229,7 @@ export default function EmailCenter() {
                     return (
                       <div
                         key={conv._id}
-                        onClick={() => setSelectedConversation(conv)}
+                        onClick={() => handleSelectConversation(conv)}
                         className={`flex items-start gap-3 p-3 rounded-xl cursor-pointer transition-all ${isSelected
                             ? "bg-primary/10 border border-primary/20 text-foreground shadow-2xs"
                             : "hover:bg-accent/30 text-muted-foreground hover:text-foreground"
@@ -3243,18 +3283,32 @@ export default function EmailCenter() {
                       </div>
                     </div>
 
-                    <button
-                      onClick={() => {
-                        if (selectedConversation.leadType === "ea_lead") {
-                          navigate(`/ea-leads?search=${encodeURIComponent(selectedConversation.phone || selectedConversation.name)}`);
-                        } else {
-                          navigate(`/lead/${selectedConversation._id}`);
-                        }
-                      }}
-                      className="h-8 px-3 bg-accent border hover:bg-accent/80 rounded-xl text-xs font-bold flex items-center gap-1.5 text-foreground shadow-2xs transition-colors cursor-pointer"
-                    >
-                      View Lead <ExternalLink size={12} />
-                    </button>
+                    <div className="flex items-center gap-2">
+                      {selectedConversation.isConsent === false && (
+                        <button
+                          type="button"
+                          onClick={() => handleResubscribeLead(selectedConversation)}
+                          disabled={resubscribing}
+                          className="h-8 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition-all cursor-pointer disabled:opacity-50"
+                          title="Restore email consent and allow sending emails to this contact"
+                        >
+                          {resubscribing ? <Loader2 size={12} className="animate-spin" /> : <UserCheck size={12} />}
+                          <span>Resubscribe</span>
+                        </button>
+                      )}
+                      <button
+                        onClick={() => {
+                          if (selectedConversation.leadType === "ea_lead") {
+                            navigate(`/ea-leads?search=${encodeURIComponent(selectedConversation.phone || selectedConversation.name)}`);
+                          } else {
+                            navigate(`/lead/${selectedConversation._id}`);
+                          }
+                        }}
+                        className="h-8 px-3 bg-accent border hover:bg-accent/80 rounded-xl text-xs font-bold flex items-center gap-1.5 text-foreground shadow-2xs transition-colors cursor-pointer"
+                      >
+                        View Lead <ExternalLink size={12} />
+                      </button>
+                    </div>
                   </div>
 
                   {/* Scrollable Email WhatsApp-style Chat Stream (Auto Scrolls to Bottom) */}
@@ -3298,10 +3352,6 @@ export default function EmailCenter() {
                             >
                               {/* Bubble Header */}
                               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2">
-                                <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase flex items-center gap-1.5 ${email.type === "bulk" ? "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20" : "bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20"
-                                  }`}>
-                                  📌 {email.type === "bulk" ? `Campaign: ${email.campaignTitle || "Bulk Mail"}` : `1-to-1 Email`}
-                                </span>
                                 <div className="flex items-center gap-2">
                                   <button
                                     type="button"
@@ -3323,7 +3373,7 @@ export default function EmailCenter() {
                                     <Maximize2 size={10} /> Full View / Flow
                                   </button>
                                   <span className="text-[10px] text-muted-foreground font-medium">
-                                    {new Date(email.timestamp).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+                                    {new Date(email.timestamp || email.sentAt || email.createdAt || Date.now()).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
                                   </span>
                                 </div>
                               </div>
@@ -3375,13 +3425,24 @@ export default function EmailCenter() {
                   <div className="p-4 border-t bg-card shrink-0 space-y-3 shadow-md">
                     {/* Consent Warning Banner */}
                     {selectedConversation.isConsent === false ? (
-                      <div className="p-4 rounded-2xl border border-destructive/30 bg-destructive/5 flex flex-col items-center justify-center gap-1.5 text-center animate-in fade-in duration-200 w-full">
-                        <div className="flex items-center gap-1.5 text-destructive text-xs font-bold">
-                          <AlertCircle size={15} /> Email Consent Revoked
+                      <div className="p-4 rounded-2xl border border-destructive/30 bg-destructive/5 flex flex-col sm:flex-row items-center justify-between gap-3 text-left animate-in fade-in duration-200 w-full">
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-1.5 text-destructive text-xs font-bold">
+                            <AlertCircle size={15} /> Email Consent Revoked (Opted Out)
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            This contact has opted out (unsubscribed) from marketing emails. Outbound email is locked.
+                          </p>
                         </div>
-                        <p className="text-xs text-muted-foreground max-w-sm">
-                          This contact has opted out (unsubscribed) from marketing campaigns. Outbound email is locked.
-                        </p>
+                        <button
+                          type="button"
+                          onClick={() => handleResubscribeLead(selectedConversation)}
+                          disabled={resubscribing}
+                          className="h-8.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-extrabold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer shrink-0 disabled:opacity-50"
+                        >
+                          {resubscribing ? <Loader2 size={13} className="animate-spin" /> : <UserCheck size={13} />}
+                          <span>Resubscribe Contact</span>
+                        </button>
                       </div>
                     ) : !isComposeExpanded ? (
                       /* Collapsed Compact Single-Line Input Bar */

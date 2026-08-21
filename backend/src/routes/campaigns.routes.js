@@ -11,6 +11,7 @@ import {
   sendCampaign,
   rerunCampaign,
   unsubscribeLead,
+  resubscribeLead,
   getEmailConversations,
   getEmailHistory
 } from '../controllers/campaigns.controller.js';
@@ -34,6 +35,7 @@ router.get('/verify-domain', auth, requireRole('admin'), verifyEmailDomain);
 // --- Public Unsubscribe (no auth) ---
 router.get('/unsubscribe/:leadId', unsubscribeLead);
 router.post('/unsubscribe/:leadId', unsubscribeLead);
+router.post('/resubscribe', auth, requireRole(...allowedRoles), resubscribeLead);
 
 // --- AI Personalized Campaigns ---
 router.post('/campaigns/ai-personalized/preview', auth, requireRole(...allowedRoles), generateAiCampaignPreview);

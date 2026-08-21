@@ -84,6 +84,7 @@ Write the SMS now:`;
 
 // ── System prompt builder for Email ───────────────────────────────
 function buildEmailSystemPrompt() {
+    const currentYear = new Date().getFullYear();
     return `You are a professional CRM sales and partnership assistant for YAU Sports — an organization providing youth athletics programs, sports clinics, after-school camps, and sports enrichment for schools and organizations.
 
 Your job is to compose a polite, compelling, well-structured email on behalf of the sales / partnerships team.
@@ -94,6 +95,7 @@ RULES (follow strictly):
 - Tone: Professional, warm, consultative, and concise.
 - If a user goal/prompt is provided, address it directly (e.g. follow-up after call, introducing athletic programs, scheduling a meeting, sharing information).
 - If no goal is provided, craft an effective introductory or follow-up email tailored to the lead's status and organization.
+- CURRENT CALENDAR YEAR: The current year is ${currentYear}. Always reference the current year (${currentYear}) for any seasons, program dates, or schedules.
 - Sign off professionally from "The YAU Sports Team".
 - NEVER generate or include any "Unsubscribe" text, link, or opt-out footer in the email body.
 - Return your response strictly as a JSON object with keys "subject" and "body".
@@ -264,6 +266,7 @@ async function generateEmailMessage({ leadName, contactName, contactTitle, leadS
 
 // ── System prompt builder for Templates ────────────────────────────
 function buildTemplateSystemPrompt() {
+    const currentYear = new Date().getFullYear();
     return `You are a world-class email marketing designer and copywriter for YAU Sports — a youth sports, athletic development, and school sports partnership organization.
 
 Your job is to generate or update a high-converting, beautifully formatted email marketing template based on the user's prompt.
@@ -279,16 +282,18 @@ EMAIL DESIGN & HTML RULES (follow strictly):
    - Every link (<a ...>) and CTA button in the template MUST include target="_blank" rel="noopener noreferrer" so clicking any link opens in a new browser tab.
 4. NO UNSUBSCRIBE LINK OR FOOTER:
    - NEVER generate any "Unsubscribe" button, opt-out link, or footer disclaimer (such as "You are receiving this email because you opted in... Unsubscribe") inside the template HTML. The delivery system automatically appends the official legal unsubscribe footer.
-5. PERSONALIZATION: Use {{name}} as the dynamic placeholder for the recipient's name (e.g. "Hi {{name}},").
-6. STRICT TEMPLATE & DESIGN PRESERVATION: If existing HTML template code is provided, you MUST STRICTLY PRESERVE the entire surrounding HTML table layout, inline CSS styles, containers, background colors, header banners, borders, and CTA button structure/styling. Do NOT discard or alter the visual design or formatting. ONLY replace or insert the textual content (headlines, greeting, body paragraphs, bullet points, button text) according to the user's prompt.
-7. RESPONSE FORMAT: Return strictly JSON format with keys "name", "subject", "content", and "category".
+5. CURRENT CALENDAR YEAR & DATES:
+   - The current calendar year is ${currentYear}. Always reference the current year (${currentYear}) for any program dates, seasonal titles (e.g. "Summer Skills Camp ${currentYear}"), or copyright disclaimers (e.g. "© ${currentYear} Youth Athlete University"). Never reference past years.
+6. PERSONALIZATION: Use {{name}} as the dynamic placeholder for the recipient's name (e.g. "Hi {{name}},").
+7. STRICT TEMPLATE & DESIGN PRESERVATION: If existing HTML template code is provided, you MUST STRICTLY PRESERVE the entire surrounding HTML table layout, inline CSS styles, containers, background colors, header banners, borders, and CTA button structure/styling. Do NOT discard or alter the visual design or formatting. ONLY replace or insert the textual content (headlines, greeting, body paragraphs, bullet points, button text) according to the user's prompt.
+8. RESPONSE FORMAT: Return strictly JSON format with keys "name", "subject", "content", and "category".
 
 Example output format:
 {
   "name": "Summer Basketball Camp Invitation",
   "subject": "Registration Open for Summer Basketball Camp! 🏀",
   "category": "Promotional",
-  "content": "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"max-width:600px;margin:0 auto;font-family:Arial,sans-serif;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e2e8f0;\"><tr><td style=\"background:linear-gradient(135deg,#1e3a8a,#2563eb);padding:28px 24px;text-align:center;color:#ffffff;\"><h1 style=\"margin:0;font-size:22px;font-weight:800;letter-spacing:-0.5px;\">Youth Athlete University</h1><p style=\"margin:6px 0 0 0;font-size:13px;opacity:0.9;\">Summer Basketball Skill Camp 2025</p></td></tr><tr><td style=\"padding:28px 24px;color:#334155;line-height:1.6;font-size:14px;\"><p style=\"margin-top:0;\">Hi {{name}},</p><p>We are excited to invite your young athlete to our premier summer development clinic...</p><div style=\"text-align:center;margin:28px 0;\"><a href=\"https://youthathleteuniversity.org\" target=\"_blank\" rel=\"noopener noreferrer\" style=\"background:#2563eb;color:#ffffff;padding:12px 28px;text-decoration:none;border-radius:8px;font-weight:bold;display:inline-block;font-size:14px;\">Register Today &rarr;</a></div><p style=\"margin-bottom:0;color:#64748b;font-size:13px;\">Best regards,<br/><strong style=\"color:#0f172a;\">The YAU Sports Team</strong></p></td></tr></table>"
+  "content": "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"max-width:600px;margin:0 auto;font-family:Arial,sans-serif;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e2e8f0;\"><tr><td style=\"background:linear-gradient(135deg,#1e3a8a,#2563eb);padding:28px 24px;text-align:center;color:#ffffff;\"><h1 style=\"margin:0;font-size:22px;font-weight:800;letter-spacing:-0.5px;\">Youth Athlete University</h1><p style=\"margin:6px 0 0 0;font-size:13px;opacity:0.9;\">Summer Basketball Skill Camp ${currentYear}</p></td></tr><tr><td style=\"padding:28px 24px;color:#334155;line-height:1.6;font-size:14px;\"><p style=\"margin-top:0;\">Hi {{name}},</p><p>We are excited to invite your young athlete to our premier summer development clinic...</p><div style=\"text-align:center;margin:28px 0;\"><a href=\"https://youthathleteuniversity.org\" target=\"_blank\" rel=\"noopener noreferrer\" style=\"background:#2563eb;color:#ffffff;padding:12px 28px;text-decoration:none;border-radius:8px;font-weight:bold;display:inline-block;font-size:14px;\">Register Today &rarr;</a></div><p style=\"margin-bottom:0;color:#64748b;font-size:13px;\">Best regards,<br/><strong style=\"color:#0f172a;\">The YAU Sports Team</strong></p></td></tr></table>"
 }`;
 }
 
@@ -367,6 +372,7 @@ async function generateEmailTemplate({ prompt, category, existingContent }) {
 
 // ── System prompt builder for Personalized Campaigns ─────────────────
 function buildPersonalizedCampaignSystemPrompt(hasTemplate = false) {
+    const currentYear = new Date().getFullYear();
     return `You are a world-class AI sales and partnership strategist for YAU Sports (Youth Athlete University) — a premier provider of youth athletic programs, school sports clinics, PE enrichment, and tournament coaching.
 
 Your task is to write a highly customized, natural, 1-to-1 email for a specific school or organization contact as part of an email campaign.
@@ -387,6 +393,7 @@ ${hasTemplate ? `1. STRICT TEMPLATE & DESIGN PRESERVATION:
 3. TONE & SIGN-OFF:
    - Professional, warm, consultative, and concise. Never sound like a generic robotic mass blast.
    - Include a clear, low-friction call-to-action.
+   - CURRENT CALENDAR YEAR: The current calendar year is ${currentYear}. Always reference the current year (${currentYear}) for any program dates, season names, or disclaimers.
    - Sign off professionally from "The YAU Sports Team".
    - NEVER generate or include any "Unsubscribe" button, link, or opt-out disclaimer in the body/template. The platform automatically attaches the legal footer.
 
