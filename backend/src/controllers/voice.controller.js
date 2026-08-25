@@ -55,20 +55,29 @@ const consumePendingRecording = (callSid) => {
 // Helper: Normalize and find Lead by phone number
 const findLeadByPhone = async (phoneNumber) => {
     if (!phoneNumber) return null;
-    // Clean phone number: keep only last 10 digits
     const cleanPhone = phoneNumber.replace(/\D/g, '').slice(-10);
     if (!cleanPhone || cleanPhone.length < 7) return null;
+    const pattern = cleanPhone.split('').map(d => `${d}[^0-9]*`).join('');
+    const regex = new RegExp(pattern);
 
-    // 1. Search Lead telephone
+    // 1. Search Lead telephone or phone
     let lead = await Lead.findOne({
-        telephone: { $regex: new RegExp(cleanPhone + '$') }
+        $or: [
+            { telephone: { $regex: regex } },
+            { phone: { $regex: regex } },
+            { altPhone: { $regex: regex } }
+        ]
     });
 
     if (lead) return lead;
 
-    // 2. Search Contact direct_phone
+    // 2. Search Contact direct_phone or phone
     const contact = await Contact.findOne({
-        direct_phone: { $regex: new RegExp(cleanPhone + '$') }
+        $or: [
+            { direct_phone: { $regex: regex } },
+            { phone: { $regex: regex } },
+            { mobilePhone: { $regex: regex } }
+        ]
     }).populate('lead_id');
 
     if (contact && contact.lead_id) {

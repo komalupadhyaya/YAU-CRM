@@ -52,7 +52,15 @@ import {
   Building,
   ChevronUp,
   ChevronDown,
-  MapPin
+  MapPin,
+  Headphones,
+  Copy,
+  Check,
+  Play,
+  Pause,
+  ExternalLink,
+  Bot,
+  FileText
 } from "lucide-react";
 
 interface EALead {
@@ -73,6 +81,21 @@ interface EALead {
     isBulk?: boolean;
     status?: 'pending' | 'sent' | 'failed' | 'received';
     twilioSid?: string;
+    _id?: string;
+  }>;
+  callHistory?: Array<{
+    callSid: string;
+    parentCallSid?: string;
+    direction: "inbound" | "outbound";
+    duration: number;
+    recordingUrl?: string;
+    status: string;
+    timestamp: string;
+    source?: string;
+    retellCallId?: string;
+    aiSummary?: string;
+    callerSentiment?: string;
+    transcript?: string;
     _id?: string;
   }>;
 }
@@ -519,6 +542,20 @@ export default function EALeads() {
     setSelectedLead(lead);
     setViewDialogOpen(true);
     setActiveTab("messages");
+    try {
+      const res = await api.get(`/ea-leads/${lead._id}`);
+      setSelectedLead(res.data);
+      setLeads(prev => prev.map(l => l._id === lead._id ? res.data : l));
+    } catch (err) {
+      console.error("Failed to fetch fresh lead details:", err);
+    }
+  };
+
+  // Open Calls Dialog directly
+  const handleOpenCalls = async (lead: EALead) => {
+    setSelectedLead(lead);
+    setViewDialogOpen(true);
+    setActiveTab("calls");
     try {
       const res = await api.get(`/ea-leads/${lead._id}`);
       setSelectedLead(res.data);
@@ -1024,6 +1061,24 @@ export default function EALeads() {
                           >
                             <MessageSquare size={14} />
                           </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className={`h-8 w-8 relative transition-all ${
+                              lead.callHistory && lead.callHistory.length > 0
+                                ? 'text-purple-600 dark:text-purple-400 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 shadow-2xs'
+                                : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+                            }`}
+                            onClick={() => handleOpenCalls(lead)}
+                            title={lead.callHistory?.length ? `View Voice & Call History (${lead.callHistory.length} calls)` : "View Voice & Call History"}
+                          >
+                            <Phone size={14} className={lead.callHistory?.length ? "text-purple-500" : ""} />
+                            {lead.callHistory && lead.callHistory.length > 0 && (
+                              <span className="absolute -top-1 -right-1 min-w-[15px] h-3.5 px-0.5 bg-purple-600 text-white rounded-full text-[9px] font-bold flex items-center justify-center shadow-xs">
+                                {lead.callHistory.length}
+                              </span>
+                            )}
+                          </Button>
                           {permissions.createEdit && (
                             <Button
                               variant="ghost"
@@ -1086,10 +1141,19 @@ export default function EALeads() {
           
           {selectedLead && (
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-              <TabsList className="grid w-full grid-cols-2 bg-muted/50 border border-border/60 mb-4 p-1 rounded-xl">
+              <TabsList className="grid w-full grid-cols-3 bg-muted/50 border border-border/60 mb-4 p-1 rounded-xl">
                 <TabsTrigger value="details">Details</TabsTrigger>
                 <TabsTrigger value="messages" className="flex items-center gap-1.5">
                   <MessageSquare size={14} /> Messages
+                </TabsTrigger>
+                <TabsTrigger value="calls" className="flex items-center gap-1.5">
+                  <Phone size={14} />
+                  <span>Voice & AI</span>
+                  {selectedLead.callHistory && selectedLead.callHistory.length > 0 && (
+                    <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-purple-500/20 text-purple-600 dark:text-purple-400 border border-purple-500/30">
+                      {selectedLead.callHistory.length}
+                    </span>
+                  )}
                 </TabsTrigger>
               </TabsList>
 
@@ -1281,6 +1345,165 @@ export default function EALeads() {
                     )}
                   </div>
                 </TooltipProvider>
+              </TabsContent>
+
+              <TabsContent value="calls">
+                <div className="flex flex-col h-[400px] border rounded-xl overflow-hidden bg-background">
+                  <div className="flex-1 overflow-y-auto p-4 space-y-3 max-h-[390px] custom-scrollbar">
+                    {!selectedLead.callHistory || selectedLead.callHistory.length === 0 ? (
+                      <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-1.5 py-12">
+                        <Phone className="opacity-40" size={24} />
+                        <p className="text-xs font-medium">No voice call history with this lead yet.</p>
+                        <p className="text-[10px] text-muted-foreground/70">Inbound calls from Retell AI Voice or Twilio will appear here.</p>
+                      </div>
+                    ) : (
+                      [...selectedLead.callHistory]
+                        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+                        .map((call, idx) => (
+                        <div key={call.callSid || idx} className="p-3.5 bg-card border border-border rounded-xl space-y-3 shadow-xs">
+                          {/* Header / Badges */}
+                          <div className="flex items-center justify-between gap-2 border-b border-border/40 pb-2">
+                            <div className="flex items-center gap-2">
+                              <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                                call.direction === 'inbound' ? 'bg-blue-500/10 text-blue-500 border border-blue-500/20' : 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
+                              }`}>
+                                {call.direction === 'inbound' ? '📲 Inbound Call' : '📞 Outbound Call'}
+                              </span>
+                              <span className="text-xs font-mono text-muted-foreground">
+                                {Math.floor(call.duration / 60)}m {call.duration % 60}s
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              {call.callerSentiment && (
+                                <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${
+                                  call.callerSentiment.toLowerCase().includes('pos')
+                                    ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/30'
+                                    : call.callerSentiment.toLowerCase().includes('neg')
+                                    ? 'bg-red-500/10 text-red-500 border border-red-500/30'
+                                    : 'bg-blue-500/10 text-blue-500 border border-blue-500/30'
+                                }`}>
+                                  {call.callerSentiment}
+                                </span>
+                              )}
+                              <span className="text-[10px] text-muted-foreground">
+                                {new Date(call.timestamp).toLocaleString()}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Recording Player */}
+                          {call.recordingUrl && (
+                            <div className="p-2.5 bg-muted/40 rounded-lg border border-border flex items-center justify-between gap-3">
+                              <div className="flex items-center gap-2">
+                                <Headphones size={14} className="text-primary shrink-0" />
+                                <span className="text-[11px] font-semibold text-foreground">Call Audio Recording</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <audio controls src={call.recordingUrl} className="h-7 w-48 sm:w-56 accent-primary" />
+                                <a
+                                  href={call.recordingUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="p-1 rounded bg-card border hover:bg-accent text-muted-foreground hover:text-foreground"
+                                  title="Open in new tab"
+                                >
+                                  <ExternalLink size={12} />
+                                </a>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* AI Summary */}
+                          {call.aiSummary && (
+                            <div className="space-y-1">
+                              <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400 uppercase tracking-wider flex items-center gap-1">
+                                <Sparkles size={11} /> AI Call Summary
+                              </span>
+                              <p className="text-xs text-foreground bg-purple-500/5 p-2.5 rounded-lg border border-purple-500/20 leading-relaxed whitespace-pre-wrap">
+                                {call.aiSummary}
+                              </p>
+                            </div>
+                          )}
+
+                          {/* Transcript */}
+                          {call.transcript && (
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+                                  <FileText size={11} /> Call Transcript
+                                </span>
+                                <button
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(call.transcript || '');
+                                    toast.success("Transcript copied!");
+                                  }}
+                                  className="text-[10px] text-primary hover:underline flex items-center gap-1 font-semibold"
+                                >
+                                  <Copy size={10} /> Copy
+                                </button>
+                              </div>
+                              <div className="max-h-48 overflow-y-auto custom-scrollbar p-2.5 rounded-lg bg-muted/20 border text-xs leading-relaxed space-y-2.5">
+                                {(() => {
+                                  const rawLines = call.transcript.split('\n').map((l: string) => l.trim()).filter(Boolean);
+                                  const turns: Array<{ role: 'agent' | 'user'; text: string }> = [];
+                                  let currentTurn: { role: 'agent' | 'user'; text: string } | null = null;
+
+                                  for (const line of rawLines) {
+                                    const isAgent = /^agent:|^assistant:|^bot:|^ai:/i.test(line);
+                                    const isUser = /^user:|^caller:|^customer:|^human:/i.test(line);
+                                    const cleanContent = line.replace(/^(agent|assistant|bot|ai|user|caller|customer|human):\s*/i, '').trim();
+
+                                    if (isAgent) {
+                                      if (currentTurn) turns.push(currentTurn);
+                                      currentTurn = { role: 'agent', text: cleanContent };
+                                    } else if (isUser) {
+                                      if (currentTurn) turns.push(currentTurn);
+                                      currentTurn = { role: 'user', text: cleanContent };
+                                    } else {
+                                      if (currentTurn) {
+                                        currentTurn.text += '\n' + line;
+                                      } else {
+                                        currentTurn = { role: 'agent', text: line };
+                                      }
+                                    }
+                                  }
+                                  if (currentTurn) turns.push(currentTurn);
+
+                                  return turns.map((turn, idx) => {
+                                    if (turn.role === 'agent') {
+                                      return (
+                                        <div key={idx} className="flex flex-col items-start max-w-[90%] mr-auto space-y-1">
+                                          <span className="text-[10px] font-bold text-purple-500 mb-0.5 ml-1 flex items-center gap-1">
+                                            <Bot size={11} /> AI Agent
+                                          </span>
+                                          <div className="p-2.5 rounded-2xl rounded-tl-sm bg-purple-500/10 border border-purple-500/20 text-xs text-foreground leading-relaxed whitespace-pre-wrap shadow-xs">
+                                            {turn.text}
+                                          </div>
+                                        </div>
+                                      );
+                                    } else {
+                                      return (
+                                        <div key={idx} className="flex flex-col items-end max-w-[90%] ml-auto space-y-1">
+                                          <span className="text-[10px] font-bold text-blue-500 mb-0.5 mr-1 flex items-center gap-1">
+                                            <User size={11} /> Caller
+                                          </span>
+                                          <div className="p-2.5 rounded-2xl rounded-tr-sm bg-blue-500/10 border border-blue-500/20 text-xs text-foreground leading-relaxed whitespace-pre-wrap shadow-xs">
+                                            {turn.text}
+                                          </div>
+                                        </div>
+                                      );
+                                    }
+                                  });
+                                })()}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
               </TabsContent>
             </Tabs>
           )}

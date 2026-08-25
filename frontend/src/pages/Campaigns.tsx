@@ -46,7 +46,12 @@ import {
   Edit,
   Wand2,
   Loader2,
-  Sparkles
+  Sparkles,
+  Bot,
+  Copy,
+  Check,
+  Headphones,
+  User
 } from "lucide-react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 
@@ -168,6 +173,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
@@ -251,7 +257,23 @@ const Campaigns = () => {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
   const [followUps, setFollowUps] = useState<FollowUp[]>([]);
-  const [activityFilter, setActivityFilter] = useState<'all' | 'recordings' | 'sms' | 'notes' | 'meetings' | 'emails'>('all');
+  const [activityFilter, setActivityFilter] = useState<'all' | 'calls' | 'recordings' | 'sms' | 'notes' | 'meetings' | 'emails'>('all');
+  const [selectedAiCall, setSelectedAiCall] = useState<any | null>(null);
+  const [aiDetailsOpen, setAiDetailsOpen] = useState(false);
+  const [copiedTranscript, setCopiedTranscript] = useState(false);
+  const [modalTab, setModalTab] = useState<'summary' | 'transcript'>('summary');
+  const transcriptContainerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (modalTab === 'transcript' && aiDetailsOpen) {
+      const timer = setTimeout(() => {
+        if (transcriptContainerRef.current) {
+          transcriptContainerRef.current.scrollTop = transcriptContainerRef.current.scrollHeight;
+        }
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [modalTab, aiDetailsOpen, selectedAiCall]);
 
   const filteredNotes = notes.filter(n => {
     if (activityFilter === 'recordings') {
@@ -1600,22 +1622,55 @@ const Campaigns = () => {
 
                 <div className="flex-1 flex flex-col bg-card border rounded-xl shadow-sm lg:overflow-hidden min-h-[400px] lg:min-h-0">
 
-                  <div className="p-3 border-b bg-accent/5 flex items-center justify-between">
-                    <div className="flex items-center justify-center gap-2">
-                      <History size={16} className="text-primary" />
-                      <Select value={activityFilter} onValueChange={(val: any) => setActivityFilter(val)}>
-                        <SelectTrigger className="h-7 text-[10px] w-[130px] font-bold uppercase tracking-wider dark:bg-card border-none bg-transparent hover:bg-accent/50 focus:ring-0 focus:ring-offset-0 px-2">
-                          <SelectValue placeholder="Activity Feed" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all" className="text-[10px] font-semibold uppercase">Activity Feed</SelectItem>
-                          <SelectItem value="sms" className="text-[10px] font-semibold uppercase">SMS</SelectItem>
-                          <SelectItem value="recordings" className="text-[10px] font-semibold uppercase">Recordings</SelectItem>
-                          <SelectItem value="notes" className="text-[10px] font-semibold uppercase">Notes</SelectItem>
-                          <SelectItem value="meetings" className="text-[10px] font-semibold uppercase">Meetings</SelectItem>
-                          <SelectItem value="emails" className="text-[10px] font-semibold uppercase">Emails</SelectItem>
-                        </SelectContent>
-                      </Select>
+                  <div className="p-3 border-b bg-accent/5 flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setActivityFilter('all')}
+                        className={`pb-1 text-xs font-bold border-b-2 transition-all cursor-pointer ${
+                          activityFilter !== 'calls'
+                            ? 'border-primary text-primary'
+                            : 'border-transparent text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        Activity Feed
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setActivityFilter('calls')}
+                        className={`pb-1 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 cursor-pointer ${
+                          activityFilter === 'calls'
+                            ? 'border-primary text-primary'
+                            : 'border-transparent text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        <span>Call History</span>
+                        {selectedLead?.callHistory && selectedLead.callHistory.length > 0 ? (
+                          <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-purple-500/20 text-purple-600 dark:text-purple-400 border border-purple-500/30">
+                            {selectedLead.callHistory.length}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-muted-foreground font-mono">(0)</span>
+                        )}
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {activityFilter !== 'calls' && (
+                        <Select value={activityFilter} onValueChange={(val: any) => setActivityFilter(val)}>
+                          <SelectTrigger className="h-6 text-[10px] w-[120px] font-bold uppercase tracking-wider dark:bg-card border-none bg-transparent hover:bg-accent/50 focus:ring-0 focus:ring-offset-0 px-2">
+                            <SelectValue placeholder="All Activities" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all" className="text-[10px] font-semibold uppercase">All Activities</SelectItem>
+                            <SelectItem value="recordings" className="text-[10px] font-semibold uppercase">Recordings</SelectItem>
+                            <SelectItem value="sms" className="text-[10px] font-semibold uppercase">SMS</SelectItem>
+                            <SelectItem value="notes" className="text-[10px] font-semibold uppercase">Notes</SelectItem>
+                            <SelectItem value="meetings" className="text-[10px] font-semibold uppercase">Meetings</SelectItem>
+                            <SelectItem value="emails" className="text-[10px] font-semibold uppercase">Emails</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )}
 
                       <button
                         onClick={() => selectedLead && fetchDetails(selectedLead._id, false)}
@@ -1628,7 +1683,7 @@ const Campaigns = () => {
                       {notes.length > 0 && permissions.deleteRecords && (
                         <button
                           onClick={() => setIsDeleteAllConfirmOpen(true)}
-                          className="text-[9px] text-destructive px-2.5 py-1 bg-destructive/5 hover:bg-destructive hover:text-white border border-destructive/20 rounded-lg font-bold uppercase transition-all flex items-center gap-1.5 shadow-sm"
+                          className="text-[9px] text-destructive px-2 py-1 bg-destructive/5 hover:bg-destructive hover:text-white border border-destructive/20 rounded-lg font-bold uppercase transition-all flex items-center gap-1 shadow-sm"
                         >
                           <Trash2 size={11} /> Delete All
                         </button>
@@ -1636,31 +1691,87 @@ const Campaigns = () => {
                     </div>
                   </div>
                   <div className="flex-1 overflow-y-auto p-4 space-y-5 custom-scrollbar">
-                    <div className={`bg-accent/10 dark:bg-accent/5 rounded-xl p-3 border border-dashed border-primary/20 ${permissions.isReadOnly ? 'opacity-40 blur-[0.5px] pointer-events-none select-none' : ''}`}>
-                      <textarea
-                          id="note-content"
-                          name="note-content"
-                      
-                        placeholder={permissions.isReadOnly ? 'Read-only access — cannot add notes' : 'Add a note...'}
-                        className="w-full bg-transparent border-none text-xs outline-none resize-none min-h-[50px] dark:text-foreground"
-                        value={noteContent}
-                        onChange={e => !permissions.isReadOnly && setNoteContent(e.target.value)}
-                        disabled={permissions.isReadOnly}
-                        readOnly={permissions.isReadOnly}
-                      />
-                      <div className="flex justify-end mt-1">
-                        <button
-                          onClick={() => !permissions.isReadOnly && addNote()}
-                          disabled={!noteContent.trim() || isSubmitting || permissions.isReadOnly}
-                          className={`btn-primary px-3 text-[10px] ${(isSubmitting || !noteContent.trim() || permissions.isReadOnly) ? "opacity-50 cursor-not-allowed" : ""}`}
-                        >
-                          {isSubmitting ? "Posting..." : "Post Note"}
-                        </button>
+                    {activityFilter !== 'calls' && (
+                      <div className={`bg-accent/10 dark:bg-accent/5 rounded-xl p-3 border border-dashed border-primary/20 ${permissions.isReadOnly ? 'opacity-40 blur-[0.5px] pointer-events-none select-none' : ''}`}>
+                        <textarea
+                            id="note-content"
+                            name="note-content"
+                        
+                          placeholder={permissions.isReadOnly ? 'Read-only access — cannot add notes' : 'Add a note...'}
+                          className="w-full bg-transparent border-none text-xs outline-none resize-none min-h-[50px] dark:text-foreground"
+                          value={noteContent}
+                          onChange={e => !permissions.isReadOnly && setNoteContent(e.target.value)}
+                          disabled={permissions.isReadOnly}
+                          readOnly={permissions.isReadOnly}
+                        />
+                        <div className="flex justify-end mt-1">
+                          <button
+                            onClick={() => !permissions.isReadOnly && addNote()}
+                            disabled={!noteContent.trim() || isSubmitting || permissions.isReadOnly}
+                            className={`btn-primary px-3 text-[10px] ${(isSubmitting || !noteContent.trim() || permissions.isReadOnly) ? "opacity-50 cursor-not-allowed" : ""}`}
+                          >
+                            {isSubmitting ? "Posting..." : "Post Note"}
+                          </button>
+                        </div>
                       </div>
-                    </div>
+                    )}
 
                     <div className="space-y-4">
-                      {loadingDetails ? (
+                      {activityFilter === 'calls' ? (
+                        !selectedLead?.callHistory || selectedLead.callHistory.length === 0 ? (
+                          <div className="text-center py-8 text-xs text-muted-foreground border border-dashed border-border rounded-xl">
+                            <p className="font-semibold text-[11px] text-muted-foreground">NO CALL HISTORY FOUND</p>
+                            <p className="text-[9px] text-muted-foreground/80 mt-0.5">Calls made with Twilio or Retell AI will appear here.</p>
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            {[...selectedLead.callHistory]
+                              .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+                              .map((c) => (
+                              <div key={c.callSid} className="p-3 bg-accent/20 dark:bg-accent/10 border border-border rounded-xl space-y-2">
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="flex items-center gap-2">
+                                    <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${c.direction === 'inbound' ? 'bg-blue-500/10 text-blue-500' : 'bg-emerald-500/10 text-emerald-500'}`}>
+                                      {c.direction === 'inbound' ? '📲 Inbound' : '📞 Outbound'}
+                                    </span>
+                                    <span className="text-[10px] font-mono text-muted-foreground">
+                                      {Math.floor(c.duration / 60)}m {c.duration % 60}s
+                                    </span>
+                                  </div>
+                                  <span className="text-[9px] text-muted-foreground">
+                                    {new Date(c.timestamp).toLocaleString()}
+                                  </span>
+                                </div>
+
+                                {c.recordingUrl && (
+                                  <div className="pt-1">
+                                    <RecordingPlayer url={c.recordingUrl} duration={c.duration} />
+                                  </div>
+                                )}
+
+                                {(c.aiSummary || c.transcript || c.source === 'retell' || c.retellCallId) && (
+                                  <div className="pt-1 flex items-center justify-between border-t border-border/40 mt-2">
+                                    <div className="flex items-center gap-1.5">
+                                      <Sparkles size={12} className="text-purple-500" />
+                                      <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400 uppercase tracking-wider">Retell AI Call</span>
+                                    </div>
+                                    <button
+                                      onClick={() => {
+                                        setSelectedAiCall(c);
+                                        setAiDetailsOpen(true);
+                                        setCopiedTranscript(false);
+                                      }}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 border border-purple-500/20 transition-all active:scale-95"
+                                    >
+                                      <span>View AI Summary & Transcript</span>
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )
+                      ) : loadingDetails ? (
                         <div className="text-center py-4 animate-pulse text-[10px] text-muted-foreground">Loading feed...</div>
                       ) : filteredNotes.length === 0 ? (
                         <div className="text-center py-8 text-xs text-muted-foreground border border-dashed border-border rounded-xl">
@@ -3594,6 +3705,209 @@ const Campaigns = () => {
               onClick={() => scheduleQuickMeeting()}
             >
               <Video size={16} /> {isSubmitting ? "Scheduling..." : "Schedule & Send Invite"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* AI Call Details Modal for Campaigns Lead Drawer */}
+      <Dialog open={aiDetailsOpen} onOpenChange={setAiDetailsOpen}>
+        <DialogContent className="max-w-2xl bg-card border-border shadow-2xl rounded-2xl p-0 overflow-hidden text-foreground">
+          <DialogHeader className="p-5 pb-3 border-b border-border bg-gradient-to-r from-purple-500/10 via-indigo-500/5 to-transparent">
+            <div className="flex items-center justify-between gap-3 pr-6">
+              <DialogTitle className="text-lg font-bold flex flex-wrap items-center gap-2.5">
+                <span className="w-8 h-8 rounded-lg bg-purple-500/20 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0 border border-purple-500/30 shadow-xs">
+                  <Sparkles size={16} />
+                </span>
+                <span>Retell AI Call Details</span>
+
+                {selectedAiCall?.callerSentiment && (
+                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide border shadow-2xs ${
+                    selectedAiCall.callerSentiment.toLowerCase().includes('pos')
+                      ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                      : selectedAiCall.callerSentiment.toLowerCase().includes('neg')
+                      ? 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/30'
+                      : 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30'
+                  }`}>
+                    <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
+                    Sentiment: {selectedAiCall.callerSentiment}
+                  </span>
+                )}
+              </DialogTitle>
+            </div>
+            <DialogDescription className="text-xs text-muted-foreground mt-1 flex flex-wrap items-center gap-3">
+              <span>Direction: <strong className="text-foreground capitalize">{selectedAiCall?.direction || 'N/A'}</strong></span>
+              <span>•</span>
+              <span>Duration: <strong className="text-foreground">{Math.floor((selectedAiCall?.duration || 0) / 60)}m {(selectedAiCall?.duration || 0) % 60}s</strong></span>
+              <span>•</span>
+              <span>Time: <strong className="text-foreground">{selectedAiCall?.timestamp ? new Date(selectedAiCall.timestamp).toLocaleString() : 'N/A'}</strong></span>
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto custom-scrollbar">
+            {/* 2-Mode Segmented Pill Toggle */}
+            <div className="flex items-center p-1 bg-muted/60 border border-border/80 rounded-xl">
+              <button
+                type="button"
+                onClick={() => setModalTab('summary')}
+                className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all duration-300 ease-out active:scale-[0.98] flex items-center justify-center gap-1.5 cursor-pointer ${
+                  modalTab === 'summary'
+                    ? 'bg-card text-foreground shadow-xs border border-border/50 scale-[1.01]'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <Bot size={14} className={modalTab === 'summary' ? "text-purple-600 dark:text-purple-400 transition-transform duration-300" : "transition-transform duration-300"} />
+                <span>Recording & AI Summary</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalTab('transcript')}
+                className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all duration-300 ease-out active:scale-[0.98] flex items-center justify-center gap-1.5 cursor-pointer ${
+                  modalTab === 'transcript'
+                    ? 'bg-card text-foreground shadow-xs border border-border/50 scale-[1.01]'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <MessageSquare size={14} className={modalTab === 'transcript' ? "text-blue-500 transition-transform duration-300" : "transition-transform duration-300"} />
+                <span>Full Call Transcript</span>
+              </button>
+            </div>
+
+            {modalTab === 'summary' ? (
+              <div className="space-y-4 animate-in fade-in-0 slide-in-from-left-3 duration-300 ease-out fill-mode-both">
+                {/* Audio Player if recording available */}
+                {selectedAiCall?.recordingUrl ? (
+                  <div className="p-3.5 bg-muted/40 rounded-xl border border-border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                        <Headphones size={16} />
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold text-foreground">Call Audio Recording</p>
+                        <p className="text-[10px] text-muted-foreground">{Math.floor((selectedAiCall.duration || 0) / 60)}m {(selectedAiCall.duration || 0) % 60}s</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                      <audio controls src={selectedAiCall.recordingUrl} className="h-8 max-w-full sm:w-60 accent-primary" />
+                      <a
+                        href={selectedAiCall.recordingUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="p-1.5 rounded-lg bg-card border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                        title="Open audio in new tab"
+                      >
+                        <ExternalLink size={14} />
+                      </a>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-3.5 bg-muted/20 rounded-xl border border-dashed text-center text-xs text-muted-foreground">
+                    No audio recording available for this call.
+                  </div>
+                )}
+
+                {/* AI Summary Card */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-purple-600 dark:text-purple-400">
+                    <Bot size={14} />
+                    <span>AI Call Summary</span>
+                  </div>
+                  <div className="p-4 rounded-xl bg-purple-500/5 border border-purple-500/20 text-xs text-foreground leading-relaxed shadow-xs">
+                    {selectedAiCall?.aiSummary ? (
+                      <p className="whitespace-pre-wrap">{selectedAiCall.aiSummary}</p>
+                    ) : (
+                      <p className="text-muted-foreground italic">No AI summary generated for this call.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* Full Transcript */
+              <div className="space-y-2 animate-in fade-in-0 slide-in-from-right-3 duration-300 ease-out fill-mode-both">
+                <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                  <MessageSquare size={14} />
+                  <span>Full Call Transcript</span>
+                </div>
+
+                <div ref={transcriptContainerRef} className="p-3.5 rounded-xl bg-muted/30 border border-border max-h-80 overflow-y-auto custom-scrollbar space-y-3">
+                  {selectedAiCall?.transcript && selectedAiCall.transcript.trim() ? (
+                    (() => {
+                      const rawLines = selectedAiCall.transcript.split('\n').map((l: string) => l.trim()).filter(Boolean);
+                      const turns: Array<{ role: 'agent' | 'user'; text: string }> = [];
+                      let currentTurn: { role: 'agent' | 'user'; text: string } | null = null;
+
+                      for (const line of rawLines) {
+                        const isAgent = /^agent:|^assistant:|^bot:|^ai:/i.test(line);
+                        const isUser = /^user:|^caller:|^customer:|^human:/i.test(line);
+                        const cleanContent = line.replace(/^(agent|assistant|bot|ai|user|caller|customer|human):\s*/i, '').trim();
+
+                        if (isAgent) {
+                          if (currentTurn) turns.push(currentTurn);
+                          currentTurn = { role: 'agent', text: cleanContent };
+                        } else if (isUser) {
+                          if (currentTurn) turns.push(currentTurn);
+                          currentTurn = { role: 'user', text: cleanContent };
+                        } else {
+                          if (currentTurn) {
+                            currentTurn.text += '\n' + line;
+                          } else {
+                            currentTurn = { role: 'agent', text: line };
+                          }
+                        }
+                      }
+                      if (currentTurn) turns.push(currentTurn);
+
+                      return turns.map((turn, idx) => {
+                        if (turn.role === 'agent') {
+                          return (
+                            <div key={idx} className="flex flex-col items-start max-w-[85%] mr-auto space-y-1">
+                              <span className="text-[10px] font-bold text-purple-500 mb-0.5 ml-1 flex items-center gap-1">
+                                <Bot size={11} /> AI Agent
+                              </span>
+                              <div className="p-3 rounded-2xl rounded-tl-sm bg-purple-500/10 border border-purple-500/20 text-xs text-foreground leading-relaxed whitespace-pre-wrap shadow-xs">
+                                {turn.text}
+                              </div>
+                            </div>
+                          );
+                        } else {
+                          return (
+                            <div key={idx} className="flex flex-col items-end max-w-[85%] ml-auto space-y-1">
+                              <span className="text-[10px] font-bold text-blue-500 mb-0.5 mr-1 flex items-center gap-1">
+                                <User size={11} /> Caller
+                              </span>
+                              <div className="p-3 rounded-2xl rounded-tr-sm bg-blue-500/10 border border-blue-500/20 text-xs text-foreground leading-relaxed whitespace-pre-wrap shadow-xs">
+                                {turn.text}
+                              </div>
+                            </div>
+                          );
+                        }
+                      });
+                    })()
+                  ) : (
+                    <div className="p-6 text-center text-muted-foreground border border-dashed rounded-xl">
+                      <FileText size={24} className="mx-auto mb-2 opacity-40" />
+                      <p className="text-xs">No transcription text available for this call.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Technical Meta Footer */}
+            {selectedAiCall?.retellCallId && (
+              <div className="pt-2 border-t border-border/40 flex flex-wrap items-center justify-between text-[10px] text-muted-foreground gap-2">
+                <span>Retell Call ID: <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-foreground">{selectedAiCall.retellCallId}</code></span>
+                <span>Source: <span className="font-semibold uppercase text-foreground">{selectedAiCall.source || 'retell'}</span></span>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="p-4 border-t border-border bg-muted/20 flex items-center justify-end">
+            <button
+              onClick={() => setAiDetailsOpen(false)}
+              className="px-4 py-2 text-xs font-semibold rounded-lg bg-secondary text-secondary-foreground hover:bg-secondary/80 border border-border transition-all shadow-2xs"
+            >
+              Close
             </button>
           </DialogFooter>
         </DialogContent>

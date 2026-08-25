@@ -21,6 +21,22 @@ const EALeadSchema = new mongoose.Schema({
             twilioSid: { type: String, default: null },
             isRead: { type: Boolean, default: false }
         }
+    ],
+    callHistory: [
+        {
+            callSid: { type: String, required: true },
+            parentCallSid: { type: String },
+            direction: { type: String, enum: ['inbound', 'outbound'], required: true },
+            duration: { type: Number, default: 0 },
+            recordingUrl: { type: String },
+            status: { type: String },
+            timestamp: { type: Date, default: Date.now },
+            source: { type: String, enum: ['twilio', 'retell'], default: 'twilio' },
+            retellCallId: { type: String, default: null },
+            aiSummary: { type: String, default: null },
+            callerSentiment: { type: String, default: null },
+            transcript: { type: String, default: null }
+        }
     ]
 }, { timestamps: true });
 

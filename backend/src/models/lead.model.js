@@ -68,7 +68,12 @@ const LeadSchema = new mongoose.Schema({
         duration: { type: Number },
         recordingUrl: { type: String },
         status: { type: String },
-        timestamp: { type: Date, default: Date.now }
+        timestamp: { type: Date, default: Date.now },
+        source: { type: String, enum: ['twilio', 'retell'], default: 'twilio' },
+        retellCallId: { type: String, default: null },
+        aiSummary: { type: String, default: null },
+        callerSentiment: { type: String, default: null },
+        transcript: { type: String, default: null }
     }]
 }, { timestamps: true });
 

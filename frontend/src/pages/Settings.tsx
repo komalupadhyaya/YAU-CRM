@@ -17,8 +17,10 @@ import {
     Users,
     X,
     Sparkles,
-    CheckCircle2
+    CheckCircle2,
+    Bot
 } from "lucide-react";
+import RetellVoiceAgent from "./RetellVoiceAgent";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -359,8 +361,12 @@ export default function Settings() {
                 </div>
 
                 {/* Tabs */}
-                <Tabs defaultValue="notifications" className="space-y-6">
-                    <TabsList className="grid grid-cols-2 max-w-md bg-muted/60 p-1">
+                <Tabs defaultValue="retell-voice" className="space-y-6">
+                    <TabsList className="grid grid-cols-3 max-w-xl bg-muted/60 p-1">
+                        <TabsTrigger value="retell-voice" className="gap-2">
+                            <Bot size={16} />
+                            AI Voice Agent
+                        </TabsTrigger>
                         <TabsTrigger value="notifications" className="gap-2">
                             <BellRing size={16} />
                             Notification Settings
@@ -370,6 +376,11 @@ export default function Settings() {
                             General & Statuses
                         </TabsTrigger>
                     </TabsList>
+
+                    {/* ══════════════════ TAB 0: RETELL AI VOICE AGENT ══════════════════ */}
+                    <TabsContent value="retell-voice" className="space-y-6">
+                        <RetellVoiceAgent />
+                    </TabsContent>
 
                     {/* ══════════════════ TAB 1: NOTIFICATION SETTINGS ══════════════════ */}
                     <TabsContent value="notifications" className="space-y-8">

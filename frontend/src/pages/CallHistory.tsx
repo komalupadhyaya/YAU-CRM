@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import api from "../api/api";
 import AppLayout from "../layout/AppLayout";
-import { PhoneCall, Search, RefreshCw, Loader2, Calendar, Clock, User, ExternalLink, Play, Pause, X, Trash2, PhoneIncoming, PhoneOutgoing } from "lucide-react";
+import { PhoneCall, Search, RefreshCw, Loader2, Calendar, Clock, User, ExternalLink, Play, Pause, X, Trash2, PhoneIncoming, PhoneOutgoing, Sparkles, Bot, Copy, Check, FileText, Headphones, MessageSquare, Tag } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import {
@@ -21,6 +21,14 @@ import {
   AlertDialogAction,
   AlertDialogCancel
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter
+} from "@/components/ui/dialog";
 
 interface CallItem {
   _id: string;
@@ -32,6 +40,11 @@ interface CallItem {
   recordingUrl?: string;
   status: string;
   timestamp: string;
+  source?: string;
+  retellCallId?: string;
+  transcript?: string;
+  aiSummary?: string;
+  callerSentiment?: string;
   user_id?: { _id: string; name?: string; username: string; email: string } | null;
   forwardedToUser?: { _id: string; name?: string; username: string; email: string } | null;
   forwardedToNumber?: string | null;
@@ -48,6 +61,24 @@ export default function CallHistoryPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [totalCalls, setTotalCalls] = useState(0);
   const limit = 20;
+
+  // AI Modal States
+  const [selectedAiCall, setSelectedAiCall] = useState<CallItem | null>(null);
+  const [aiDialogOpen, setAiDialogOpen] = useState(false);
+  const [copiedTranscript, setCopiedTranscript] = useState(false);
+  const [modalTab, setModalTab] = useState<'summary' | 'transcript'>('summary');
+  const transcriptContainerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (modalTab === 'transcript' && aiDialogOpen) {
+      const timer = setTimeout(() => {
+        if (transcriptContainerRef.current) {
+          transcriptContainerRef.current.scrollTop = transcriptContainerRef.current.scrollHeight;
+        }
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [modalTab, aiDialogOpen, selectedAiCall]);
 
   // Global Floating Audio Dock States
   const [playingCall, setPlayingCall] = useState<CallItem | null>(null);
@@ -174,6 +205,88 @@ export default function CallHistoryPage() {
     setIsPlaying(false);
   };
 
+  const handleCopyTranscript = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedTranscript(true);
+    toast.success("Transcript copied to clipboard!");
+    setTimeout(() => setCopiedTranscript(false), 2000);
+  };
+
+  const parseTranscriptTurns = (transcriptText: string) => {
+    const rawLines = transcriptText.split('\n').map(l => l.trim()).filter(Boolean);
+    const turns: Array<{ role: 'agent' | 'user'; text: string }> = [];
+    let currentTurn: { role: 'agent' | 'user'; text: string } | null = null;
+
+    for (const line of rawLines) {
+      const isAgent = /^agent:|^assistant:|^bot:|^ai:/i.test(line);
+      const isUser = /^user:|^caller:|^customer:|^human:/i.test(line);
+      const cleanContent = line.replace(/^(agent|assistant|bot|ai|user|caller|customer|human):\s*/i, '').trim();
+
+      if (isAgent) {
+        if (currentTurn) turns.push(currentTurn);
+        currentTurn = { role: 'agent', text: cleanContent };
+      } else if (isUser) {
+        if (currentTurn) turns.push(currentTurn);
+        currentTurn = { role: 'user', text: cleanContent };
+      } else {
+        if (currentTurn) {
+          currentTurn.text += '\n' + line;
+        } else {
+          // If transcript starts without a prefix, default to AI agent
+          currentTurn = { role: 'agent', text: line };
+        }
+      }
+    }
+
+    if (currentTurn) {
+      turns.push(currentTurn);
+    }
+
+    return turns;
+  };
+
+  const renderFormattedTranscript = (transcriptText?: string) => {
+    if (!transcriptText || !transcriptText.trim()) {
+      return (
+        <div className="p-6 text-center text-muted-foreground border border-dashed rounded-xl">
+          <FileText size={24} className="mx-auto mb-2 opacity-40" />
+          <p className="text-xs">No transcription text available for this call.</p>
+        </div>
+      );
+    }
+
+    const turns = parseTranscriptTurns(transcriptText);
+    return (
+      <div className="space-y-3">
+        {turns.map((turn, idx) => {
+          if (turn.role === 'agent') {
+            return (
+              <div key={idx} className="flex flex-col items-start max-w-[85%] mr-auto space-y-1">
+                <span className="text-[10px] font-bold text-purple-500 mb-0.5 ml-1 flex items-center gap-1">
+                  <Bot size={11} /> AI Agent
+                </span>
+                <div className="p-3 rounded-2xl rounded-tl-sm bg-purple-500/10 border border-purple-500/20 text-xs text-foreground leading-relaxed whitespace-pre-wrap shadow-xs">
+                  {turn.text}
+                </div>
+              </div>
+            );
+          } else {
+            return (
+              <div key={idx} className="flex flex-col items-end max-w-[85%] ml-auto space-y-1">
+                <span className="text-[10px] font-bold text-blue-500 mb-0.5 mr-1 flex items-center gap-1">
+                  <User size={11} /> Caller
+                </span>
+                <div className="p-3 rounded-2xl rounded-tr-sm bg-blue-500/10 border border-blue-500/20 text-xs text-foreground leading-relaxed whitespace-pre-wrap shadow-xs">
+                  {turn.text}
+                </div>
+              </div>
+            );
+          }
+        })}
+      </div>
+    );
+  };
+
   return (
     <AppLayout>
       <TooltipProvider>
@@ -188,7 +301,7 @@ export default function CallHistoryPage() {
                 Call History
               </h1>
               <p className="text-muted-foreground mt-0.5 text-xs">
-                Review and audit all team member inbound and outbound call logs, durations, and audio recordings.
+                Review and audit all team member inbound and outbound call logs, durations, recordings, and Retell AI insights.
               </p>
             </div>
 
@@ -281,13 +394,13 @@ export default function CallHistoryPage() {
                 <thead>
                   <tr className="border-b border-border bg-muted/30 text-xs font-bold text-muted-foreground uppercase tracking-wider">
                     <th className="py-2.5 px-3 w-[90px] text-center">Direction</th>
-                    <th className="py-2.5 px-3">Team Member</th>
-                    <th className="py-2.5 px-3 w-[130px]">Phone Number</th>
+                    <th className="py-2.5 px-3 w-[140px]">Phone Number</th>
                     <th className="py-2.5 px-3">Associated Lead</th>
                     <th className="py-2.5 px-3 w-[120px] text-center">Status</th>
                     <th className="py-2.5 px-3 w-[80px] text-center">Duration</th>
                     <th className="py-2.5 px-4 w-[160px]">Date & Time</th>
-                    <th className="py-2.5 px-4 w-[120px] text-center">Audio</th>
+                    <th className="py-2.5 px-4 w-[110px] text-center">Audio</th>
+                    <th className="py-2.5 px-3 w-[110px] text-center">AI Details</th>
                     <th className="py-2.5 px-4 w-[60px] text-center">Delete</th>
                   </tr>
                 </thead>
@@ -342,100 +455,6 @@ export default function CallHistoryPage() {
                               </p>
                             </TooltipContent>
                           </Tooltip>
-                        </td>
-
-                        {/* Team Member */}
-                        <td className="py-2 px-3 font-semibold whitespace-nowrap">
-                          <div className="flex items-center gap-1.5 text-xs">
-                            {/* Initiator */}
-                            {call.user_id ? (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <span className="text-foreground cursor-help border-b border-dotted border-muted-foreground/30 hover:text-primary transition-colors">
-                                    {call.user_id.name || call.user_id.username}
-                                  </span>
-                                </TooltipTrigger>
-                                <TooltipContent className="p-2.5 max-w-xs shadow-lg bg-popover text-popover-foreground rounded-lg border border-border">
-                                  <div className="space-y-1">
-                                    <p className="text-[10px] font-bold text-primary uppercase tracking-wider">
-                                      {call.forwardedToUser || call.forwardedToNumber || call.forwardedToExtensionLabel ? "Initiating Agent" : "Team Member"}
-                                    </p>
-                                    <p className="font-semibold">{call.user_id.name || call.user_id.username}</p>
-                                    <p className="text-xs text-muted-foreground font-normal">{call.user_id.email}</p>
-                                  </div>
-                                </TooltipContent>
-                              </Tooltip>
-                            ) : call.forwardedToExtensionLabel ? (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <span className="text-foreground cursor-help border-b border-dotted border-muted-foreground/30 hover:text-primary transition-colors">
-                                    {call.forwardedToExtensionLabel}
-                                  </span>
-                                </TooltipTrigger>
-                                <TooltipContent className="p-2.5 max-w-xs shadow-lg bg-popover text-popover-foreground rounded-lg border border-border">
-                                  <div className="space-y-1">
-                                    <p className="text-[10px] font-bold text-primary uppercase tracking-wider">IVR Extension / Department</p>
-                                    <p className="font-semibold">{call.forwardedToExtensionLabel}</p>
-                                    {call.forwardedToNumber && (
-                                      <p className="text-xs text-muted-foreground font-normal">
-                                        Forwarded number: {formatPhoneNumber(call.forwardedToNumber)}
-                                      </p>
-                                    )}
-                                  </div>
-                                </TooltipContent>
-                              </Tooltip>
-                            ) : (
-                              <span className="text-muted-foreground/60 italic font-normal">
-                                {call.direction === 'inbound' ? 'Unrouted / System' : 'System Outbound'}
-                              </span>
-                            )}
-
-                            {/* Forwarded Target */}
-                            {(call.user_id || (!call.user_id && !call.forwardedToExtensionLabel)) && (call.forwardedToUser || call.forwardedToNumber || call.forwardedToExtensionLabel) && (
-                              <>
-                                <span className="text-muted-foreground/60 font-bold select-none">➜</span>
-                                {call.forwardedToUser ? (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <span className="text-blue-500 cursor-help border-b border-dotted border-blue-500/30 hover:text-blue-600 transition-colors">
-                                        {call.forwardedToUser.name || call.forwardedToUser.username}
-                                      </span>
-                                    </TooltipTrigger>
-                                    <TooltipContent className="p-2.5 max-w-xs shadow-lg bg-popover text-popover-foreground rounded-lg border border-border">
-                                      <div className="space-y-1">
-                                        <p className="text-[10px] font-bold text-blue-500 uppercase tracking-wider">Forwarded Target</p>
-                                        <p className="font-semibold">{call.forwardedToUser.name || call.forwardedToUser.username}</p>
-                                        <p className="text-xs text-muted-foreground font-normal">{call.forwardedToUser.email}</p>
-                                      </div>
-                                    </TooltipContent>
-                                  </Tooltip>
-                                ) : call.forwardedToExtensionLabel ? (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <span className="text-blue-500 cursor-help border-b border-dotted border-blue-500/30 hover:text-blue-600 transition-colors">
-                                        {call.forwardedToExtensionLabel}
-                                      </span>
-                                    </TooltipTrigger>
-                                    <TooltipContent className="p-2.5 max-w-xs shadow-lg bg-popover text-popover-foreground rounded-lg border border-border">
-                                      <div className="space-y-1">
-                                        <p className="text-[10px] font-bold text-blue-500 uppercase tracking-wider">Forwarded Extension</p>
-                                        <p className="font-semibold">{call.forwardedToExtensionLabel}</p>
-                                        {call.forwardedToNumber && (
-                                          <p className="text-xs text-muted-foreground font-normal">
-                                            Phone: {formatPhoneNumber(call.forwardedToNumber)}
-                                          </p>
-                                        )}
-                                      </div>
-                                    </TooltipContent>
-                                  </Tooltip>
-                                ) : (
-                                  <span className="text-blue-500 font-semibold" title="Forwarded phone number">
-                                    {formatPhoneNumber(call.forwardedToNumber || '')}
-                                  </span>
-                                )}
-                              </>
-                            )}
-                          </div>
                         </td>
 
                         {/* Phone Number */}
@@ -521,6 +540,67 @@ export default function CallHistoryPage() {
                             </div>
                           ) : (
                             <span className="text-muted-foreground/30 italic text-xs">None</span>
+                          )}
+                        </td>
+
+                        {/* AI Insights Cell (Between Audio and Delete) */}
+                        <td className="py-2 px-3 whitespace-nowrap text-center">
+                          {call.aiSummary || call.transcript || call.source === 'retell' || call.retellCallId ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedAiCall(call);
+                                    setAiDialogOpen(true);
+                                    setCopiedTranscript(false);
+                                  }}
+                                  className="inline-flex items-center justify-center p-1.5 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 border border-purple-500/30 transition-all duration-200 active:scale-95 shadow-2xs cursor-pointer group"
+                                  title="View AI Call Details & Transcript"
+                                >
+                                  <Sparkles size={13} className="text-purple-500 group-hover:rotate-12 transition-transform shrink-0" />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent className="p-4 w-96 max-w-md shadow-2xl bg-popover text-popover-foreground rounded-2xl border border-purple-500/20 backdrop-blur-md">
+                                <div className="space-y-2.5">
+                                  <div className="flex items-center justify-between gap-2 border-b border-border/50 pb-2">
+                                    <span className="text-[11px] font-bold text-purple-600 dark:text-purple-400 uppercase tracking-wider flex items-center gap-1.5">
+                                      <Sparkles size={13} className="text-purple-500 animate-pulse" /> Retell AI Voice Call
+                                    </span>
+                                    {call.callerSentiment && (
+                                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                                        call.callerSentiment.toLowerCase().includes('pos')
+                                          ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
+                                          : call.callerSentiment.toLowerCase().includes('neg')
+                                          ? 'bg-red-500/10 text-red-500 border border-red-500/20'
+                                          : 'bg-blue-500/10 text-blue-500 border border-blue-500/20'
+                                      }`}>
+                                        {call.callerSentiment}
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  <div className="flex items-center gap-3 text-[10px] text-muted-foreground font-mono">
+                                    <span>Duration: <strong className="text-foreground">{formatDuration(call.duration)}</strong></span>
+                                    <span>•</span>
+                                    <span>{new Date(call.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                  </div>
+
+                                  {call.aiSummary ? (
+                                    <div className="p-2.5 rounded-xl bg-purple-500/5 border border-purple-500/15 max-h-48 overflow-y-auto">
+                                      <p className="text-xs text-foreground/90 whitespace-pre-wrap leading-relaxed">
+                                        {call.aiSummary}
+                                      </p>
+                                    </div>
+                                  ) : (
+                                    <p className="text-xs text-muted-foreground italic">No AI summary generated for this call.</p>
+                                  )}
+                                </div>
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            <span className="text-muted-foreground/30 italic text-xs">-</span>
                           )}
                         </td>
 
@@ -635,6 +715,151 @@ export default function CallHistoryPage() {
               </div>
             </div>
           )}
+
+          {/* AI Call Details Modal */}
+          <Dialog open={aiDialogOpen} onOpenChange={setAiDialogOpen}>
+            <DialogContent className="max-w-2xl sm:max-w-3xl bg-card border-border shadow-2xl rounded-2xl p-0 overflow-hidden text-foreground">
+              <DialogHeader className="p-5 pb-3 border-b border-border bg-gradient-to-r from-purple-500/10 via-indigo-500/5 to-transparent">
+                <div className="flex items-center justify-between gap-3 pr-6">
+                  <DialogTitle className="text-lg font-bold flex flex-wrap items-center gap-2.5">
+                    <span className="w-8 h-8 rounded-lg bg-purple-500/20 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0 border border-purple-500/30 shadow-xs">
+                      <Sparkles size={16} />
+                    </span>
+                    <span>Retell AI Call Details</span>
+
+                    {selectedAiCall?.callerSentiment && (
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide border shadow-2xs ${
+                        selectedAiCall.callerSentiment.toLowerCase().includes('pos')
+                          ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                          : selectedAiCall.callerSentiment.toLowerCase().includes('neg')
+                          ? 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/30'
+                          : 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30'
+                      }`}>
+                        <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
+                        Sentiment: {selectedAiCall.callerSentiment}
+                      </span>
+                    )}
+                  </DialogTitle>
+                </div>
+                <DialogDescription className="text-xs text-muted-foreground mt-1 flex flex-wrap items-center gap-3">
+                  <span>Phone: <strong className="text-foreground">{formatPhoneNumber(selectedAiCall?.direction === 'inbound' ? selectedAiCall?.fromNumber || '' : selectedAiCall?.toNumber || '')}</strong></span>
+                  <span>•</span>
+                  <span>Duration: <strong className="text-foreground">{formatDuration(selectedAiCall?.duration || 0)}</strong></span>
+                  <span>•</span>
+                  <span>Time: <strong className="text-foreground">{selectedAiCall?.timestamp ? new Date(selectedAiCall.timestamp).toLocaleString() : 'N/A'}</strong></span>
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto custom-scrollbar">
+                {/* 2-Mode Segmented Pill Toggle */}
+                <div className="flex items-center p-1 bg-muted/60 border border-border/80 rounded-xl">
+                  <button
+                    type="button"
+                    onClick={() => setModalTab('summary')}
+                    className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all duration-300 ease-out active:scale-[0.98] flex items-center justify-center gap-1.5 cursor-pointer ${
+                      modalTab === 'summary'
+                        ? 'bg-card text-foreground shadow-xs border border-border/50 scale-[1.01]'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <Bot size={14} className={modalTab === 'summary' ? "text-purple-600 dark:text-purple-400 transition-transform duration-300" : "transition-transform duration-300"} />
+                    <span>Recording & AI Summary</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setModalTab('transcript')}
+                    className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all duration-300 ease-out active:scale-[0.98] flex items-center justify-center gap-1.5 cursor-pointer ${
+                      modalTab === 'transcript'
+                        ? 'bg-card text-foreground shadow-xs border border-border/50 scale-[1.01]'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <MessageSquare size={14} className={modalTab === 'transcript' ? "text-blue-500 transition-transform duration-300" : "transition-transform duration-300"} />
+                    <span>Full Call Transcript</span>
+                  </button>
+                </div>
+
+                {modalTab === 'summary' ? (
+                  <div className="space-y-4 animate-in fade-in-0 slide-in-from-left-3 duration-300 ease-out fill-mode-both">
+                    {/* Audio Player if recording available */}
+                    {selectedAiCall?.recordingUrl ? (
+                      <div className="p-3.5 bg-muted/40 rounded-xl border border-border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                            <Headphones size={16} />
+                          </div>
+                          <div>
+                            <p className="text-xs font-bold text-foreground">Call Audio Recording</p>
+                            <p className="text-[10px] text-muted-foreground">{formatDuration(selectedAiCall.duration)}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 w-full sm:w-auto">
+                          <audio controls src={selectedAiCall.recordingUrl} className="h-8 max-w-full sm:w-60 accent-primary" />
+                          <a
+                            href={selectedAiCall.recordingUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="p-1.5 rounded-lg bg-card border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                            title="Open audio in new tab"
+                          >
+                            <ExternalLink size={14} />
+                          </a>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-3.5 bg-muted/20 rounded-xl border border-dashed text-center text-xs text-muted-foreground">
+                        No audio recording available for this call.
+                      </div>
+                    )}
+
+                    {/* AI Summary Card */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-purple-600 dark:text-purple-400">
+                        <Bot size={14} />
+                        <span>AI Call Summary</span>
+                      </div>
+                      <div className="p-4 rounded-xl bg-purple-500/5 border border-purple-500/20 text-xs text-foreground leading-relaxed shadow-xs">
+                        {selectedAiCall?.aiSummary ? (
+                          <p className="whitespace-pre-wrap">{selectedAiCall.aiSummary}</p>
+                        ) : (
+                          <p className="text-muted-foreground italic">No AI summary generated for this call.</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  /* Full Transcript Tab */
+                  <div className="space-y-2 animate-in fade-in-0 slide-in-from-right-3 duration-300 ease-out fill-mode-both">
+                    <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                      <MessageSquare size={14} />
+                      <span>Full Call Transcript</span>
+                    </div>
+
+                    <div ref={transcriptContainerRef} className="p-3.5 rounded-xl bg-muted/30 border border-border max-h-80 overflow-y-auto custom-scrollbar space-y-2">
+                      {renderFormattedTranscript(selectedAiCall?.transcript)}
+                    </div>
+                  </div>
+                )}
+
+                {/* Technical Meta Footer */}
+                {selectedAiCall?.retellCallId && (
+                  <div className="pt-2 border-t border-border/40 flex flex-wrap items-center justify-between text-[10px] text-muted-foreground gap-2">
+                    <span>Retell Call ID: <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-foreground">{selectedAiCall.retellCallId}</code></span>
+                    <span>Source: <span className="font-semibold uppercase text-foreground">{selectedAiCall.source || 'retell'}</span></span>
+                  </div>
+                )}
+              </div>
+
+              <DialogFooter className="p-4 border-t border-border bg-muted/20 flex items-center justify-end">
+                <button
+                  onClick={() => setAiDialogOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold rounded-lg bg-secondary text-secondary-foreground hover:bg-secondary/80 border border-border transition-all shadow-2xs"
+                >
+                  Close
+                </button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
       </TooltipProvider>
     </AppLayout>

@@ -45,6 +45,11 @@ export interface Lead {
         recordingUrl?: string;
         status: string;
         timestamp: string;
+        source?: string;
+        retellCallId?: string;
+        aiSummary?: string;
+        callerSentiment?: string;
+        transcript?: string;
     }>;
 }
 
