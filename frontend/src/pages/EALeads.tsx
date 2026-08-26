@@ -30,11 +30,19 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
+import {
   Search,
   Sparkles,
   Eye,
   Edit2,
   Trash2,
+  MoreVertical,
   Loader2,
   AlertCircle,
   Mail,
@@ -132,6 +140,7 @@ export default function EALeads() {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("details");
+  const [callSubTabs, setCallSubTabs] = useState<Record<string, 'summary' | 'transcript'>>({});
 
   // Checkbox selection state
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -1005,7 +1014,7 @@ export default function EALeads() {
                     <TableHead className="text-center">Source</TableHead>
                     <TableHead>Consent</TableHead>
                     <TableHead>Date Submitted</TableHead>
-                    <TableHead className="text-center">Actions</TableHead>
+                    <TableHead className="w-[80px] text-center pr-4">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1041,78 +1050,90 @@ export default function EALeads() {
                       <TableCell className="text-muted-foreground text-xs font-medium">
                         {formatDateDisplay(lead.dateSubmitted)}
                       </TableCell>
-                      <TableCell className="text-center">
-                        <div className="flex items-center justify-center gap-1.5">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 hover:bg-accent hover:text-foreground"
-                            onClick={() => handleOpenView(lead)}
-                            title="View Lead Record"
-                          >
-                            <Eye size={14} />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 hover:bg-accent hover:text-foreground text-primary"
-                            onClick={() => handleOpenMessages(lead)}
-                            title="Send/View Messages"
-                          >
-                            <MessageSquare size={14} />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className={`h-8 w-8 relative transition-all ${
-                              lead.callHistory && lead.callHistory.length > 0
-                                ? 'text-purple-600 dark:text-purple-400 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 shadow-2xs'
-                                : 'text-muted-foreground hover:bg-accent hover:text-foreground'
-                            }`}
-                            onClick={() => handleOpenCalls(lead)}
-                            title={lead.callHistory?.length ? `View Voice & Call History (${lead.callHistory.length} calls)` : "View Voice & Call History"}
-                          >
-                            <Phone size={14} className={lead.callHistory?.length ? "text-purple-500" : ""} />
-                            {lead.callHistory && lead.callHistory.length > 0 && (
-                              <span className="absolute -top-1 -right-1 min-w-[15px] h-3.5 px-0.5 bg-purple-600 text-white rounded-full text-[9px] font-bold flex items-center justify-center shadow-xs">
-                                {lead.callHistory.length}
-                              </span>
+                      <TableCell className="w-[80px] text-center pr-4">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 hover:bg-accent text-muted-foreground hover:text-foreground relative"
+                              title="Actions"
+                            >
+                              <MoreVertical size={15} />
+                              {lead.callHistory && lead.callHistory.length > 0 && (
+                                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-purple-500 rounded-full" />
+                              )}
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-52 bg-card border-border text-foreground shadow-lg">
+                            <DropdownMenuItem 
+                              onClick={() => handleOpenView(lead)} 
+                              className="gap-2.5 cursor-pointer py-2 text-xs font-medium"
+                            >
+                              <Eye size={14} className="text-muted-foreground" />
+                              <span>View Details</span>
+                            </DropdownMenuItem>
+
+                            {permissions.createEdit && (
+                              <DropdownMenuItem 
+                                onClick={() => handleOpenEdit(lead)} 
+                                className="gap-2.5 cursor-pointer py-2 text-xs font-medium"
+                              >
+                                <Edit2 size={14} className="text-muted-foreground" />
+                                <span>Edit Lead</span>
+                              </DropdownMenuItem>
                             )}
-                          </Button>
-                          {permissions.createEdit && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 hover:bg-accent hover:text-foreground text-amber-600 dark:text-amber-400"
-                              onClick={() => handleOpenConvert(lead)}
-                              title="Convert to CRM Lead"
+                            
+                            <DropdownMenuItem 
+                              onClick={() => handleOpenMessages(lead)} 
+                              className="gap-2.5 cursor-pointer py-2 text-xs font-medium"
                             >
-                              <Shuffle size={14} />
-                            </Button>
-                          )}
-                          {permissions.createEdit && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 hover:bg-accent hover:text-foreground"
-                              onClick={() => handleOpenEdit(lead)}
-                              title="Edit Lead"
+                              <MessageSquare size={14} className="text-primary" />
+                              <span>Send / View SMS</span>
+                            </DropdownMenuItem>
+                            
+                            <DropdownMenuItem 
+                              onClick={() => handleOpenCalls(lead)} 
+                              className="gap-2.5 cursor-pointer py-2 text-xs font-medium justify-between"
                             >
-                              <Edit2 size={14} />
-                            </Button>
-                          )}
-                          {permissions.deleteRecords && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                              onClick={() => handleOpenDelete(lead)}
-                              title="Delete Lead"
-                            >
-                              <Trash2 size={14} />
-                            </Button>
-                          )}
-                        </div>
+                              <div className="flex items-center gap-2.5">
+                                <Phone size={14} className="text-purple-500" />
+                                <span>Call & Voice History</span>
+                              </div>
+                              {lead.callHistory && lead.callHistory.length > 0 && (
+                                <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/20">
+                                  {lead.callHistory.length}
+                                </span>
+                              )}
+                            </DropdownMenuItem>
+
+                            {permissions.createEdit && (
+                              <>
+                                <DropdownMenuSeparator className="bg-border" />
+                                <DropdownMenuItem 
+                                  onClick={() => handleOpenConvert(lead)} 
+                                  className="gap-2.5 cursor-pointer py-2 text-xs font-medium text-amber-600 dark:text-amber-400 focus:text-amber-600 dark:focus:text-amber-400"
+                                >
+                                  <Shuffle size={14} />
+                                  <span>Convert to CRM Lead</span>
+                                </DropdownMenuItem>
+                              </>
+                            )}
+
+                            {permissions.deleteRecords && (
+                              <>
+                                <DropdownMenuSeparator className="bg-border" />
+                                <DropdownMenuItem 
+                                  onClick={() => handleOpenDelete(lead)} 
+                                  className="gap-2.5 cursor-pointer py-2 text-xs font-medium text-destructive focus:text-destructive focus:bg-destructive/10"
+                                >
+                                  <Trash2 size={14} />
+                                  <span>Delete Lead</span>
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -1126,7 +1147,7 @@ export default function EALeads() {
         </div>
       </div>      {/* View Lead Dialog */}
       <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
-        <DialogContent className="sm:max-w-[550px] bg-card border-border text-foreground">
+        <DialogContent className="sm:max-w-[650px] bg-card border-border text-foreground">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-xl font-bold">
               <span className="w-6 h-6 rounded-lg bg-primary/15 flex items-center justify-center shrink-0">
@@ -1346,161 +1367,220 @@ export default function EALeads() {
                   </div>
                 </TooltipProvider>
               </TabsContent>
-
               <TabsContent value="calls">
-                <div className="flex flex-col h-[400px] border rounded-xl overflow-hidden bg-background">
-                  <div className="flex-1 overflow-y-auto p-4 space-y-3 max-h-[390px] custom-scrollbar">
+                <div className="flex flex-col h-[420px] border rounded-xl overflow-hidden bg-background">
+                  <div className="flex-1 overflow-y-auto p-4 space-y-4 max-h-[410px] custom-scrollbar">
                     {!selectedLead.callHistory || selectedLead.callHistory.length === 0 ? (
-                      <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-1.5 py-12">
-                        <Phone className="opacity-40" size={24} />
-                        <p className="text-xs font-medium">No voice call history with this lead yet.</p>
-                        <p className="text-[10px] text-muted-foreground/70">Inbound calls from Retell AI Voice or Twilio will appear here.</p>
+                      <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-2 py-16">
+                        <div className="w-12 h-12 rounded-2xl bg-muted/60 flex items-center justify-center">
+                          <Phone className="opacity-40" size={24} />
+                        </div>
+                        <p className="text-xs font-semibold text-foreground">No voice call history with this lead yet.</p>
+                        <p className="text-[10px] text-muted-foreground/70 text-center max-w-xs">
+                          Inbound calls handled by Retell AI Voice or manual team calls will automatically be recorded and displayed here.
+                        </p>
                       </div>
                     ) : (
                       [...selectedLead.callHistory]
                         .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-                        .map((call, idx) => (
-                        <div key={call.callSid || idx} className="p-3.5 bg-card border border-border rounded-xl space-y-3 shadow-xs">
-                          {/* Header / Badges */}
-                          <div className="flex items-center justify-between gap-2 border-b border-border/40 pb-2">
-                            <div className="flex items-center gap-2">
-                              <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                                call.direction === 'inbound' ? 'bg-blue-500/10 text-blue-500 border border-blue-500/20' : 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
-                              }`}>
-                                {call.direction === 'inbound' ? '📲 Inbound Call' : '📞 Outbound Call'}
-                              </span>
-                              <span className="text-xs font-mono text-muted-foreground">
-                                {Math.floor(call.duration / 60)}m {call.duration % 60}s
-                              </span>
-                            </div>
+                        .map((call, idx) => {
+                          const callKey = call.callSid || `call-${idx}`;
+                          const currentSubTab = callSubTabs[callKey] || 'summary';
+                          const isPositive = call.callerSentiment?.toLowerCase().includes('pos');
+                          const isNegative = call.callerSentiment?.toLowerCase().includes('neg');
+                          
+                          return (
+                            <div key={callKey} className="p-4 bg-card border border-border/80 rounded-2xl space-y-3.5 shadow-xs">
+                              {/* Header: Call Direction, Duration, Sentiment & Date */}
+                              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/50 pb-3">
+                                <div className="flex items-center gap-2">
+                                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                                    call.direction === 'inbound' 
+                                      ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20' 
+                                      : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+                                  }`}>
+                                    {call.direction === 'inbound' ? '📲 Inbound Call' : '📞 Outbound Call'}
+                                  </span>
+                                  <span className="text-xs font-mono font-medium text-muted-foreground">
+                                    {Math.floor(call.duration / 60)}m {call.duration % 60}s
+                                  </span>
+                                </div>
 
-                            <div className="flex items-center gap-2">
-                              {call.callerSentiment && (
-                                <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${
-                                  call.callerSentiment.toLowerCase().includes('pos')
-                                    ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/30'
-                                    : call.callerSentiment.toLowerCase().includes('neg')
-                                    ? 'bg-red-500/10 text-red-500 border border-red-500/30'
-                                    : 'bg-blue-500/10 text-blue-500 border border-blue-500/30'
-                                }`}>
-                                  {call.callerSentiment}
-                                </span>
-                              )}
-                              <span className="text-[10px] text-muted-foreground">
-                                {new Date(call.timestamp).toLocaleString()}
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Recording Player */}
-                          {call.recordingUrl && (
-                            <div className="p-2.5 bg-muted/40 rounded-lg border border-border flex items-center justify-between gap-3">
-                              <div className="flex items-center gap-2">
-                                <Headphones size={14} className="text-primary shrink-0" />
-                                <span className="text-[11px] font-semibold text-foreground">Call Audio Recording</span>
+                                <div className="flex items-center gap-2.5">
+                                  {call.callerSentiment && (
+                                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border shadow-2xs ${
+                                      isPositive
+                                        ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                                        : isNegative
+                                        ? 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/30'
+                                        : 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30'
+                                    }`}>
+                                      <span className={`w-1.5 h-1.5 rounded-full ${
+                                        isPositive ? 'bg-emerald-500' : isNegative ? 'bg-red-500' : 'bg-blue-500'
+                                      }`} />
+                                      {call.callerSentiment}
+                                    </span>
+                                  )}
+                                  <span className="text-[10px] text-muted-foreground font-medium">
+                                    {new Date(call.timestamp).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+                                  </span>
+                                </div>
                               </div>
-                              <div className="flex items-center gap-2">
-                                <audio controls src={call.recordingUrl} className="h-7 w-48 sm:w-56 accent-primary" />
-                                <a
-                                  href={call.recordingUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="p-1 rounded bg-card border hover:bg-accent text-muted-foreground hover:text-foreground"
-                                  title="Open in new tab"
-                                >
-                                  <ExternalLink size={12} />
-                                </a>
-                              </div>
-                            </div>
-                          )}
 
-                          {/* AI Summary */}
-                          {call.aiSummary && (
-                            <div className="space-y-1">
-                              <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400 uppercase tracking-wider flex items-center gap-1">
-                                <Sparkles size={11} /> AI Call Summary
-                              </span>
-                              <p className="text-xs text-foreground bg-purple-500/5 p-2.5 rounded-lg border border-purple-500/20 leading-relaxed whitespace-pre-wrap">
-                                {call.aiSummary}
-                              </p>
-                            </div>
-                          )}
-
-                          {/* Transcript */}
-                          {call.transcript && (
-                            <div className="space-y-1">
-                              <div className="flex items-center justify-between">
-                                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
-                                  <FileText size={11} /> Call Transcript
-                                </span>
+                              {/* 2-Mode Segmented Pill Toggle */}
+                              <div className="flex items-center p-1 bg-muted/60 border border-border/80 rounded-xl">
                                 <button
-                                  onClick={() => {
-                                    navigator.clipboard.writeText(call.transcript || '');
-                                    toast.success("Transcript copied!");
-                                  }}
-                                  className="text-[10px] text-primary hover:underline flex items-center gap-1 font-semibold"
+                                  type="button"
+                                  onClick={() => setCallSubTabs(prev => ({ ...prev, [callKey]: 'summary' }))}
+                                  className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all duration-200 flex items-center justify-center gap-1.5 cursor-pointer ${
+                                    currentSubTab === 'summary'
+                                      ? 'bg-card text-foreground shadow-xs border border-border/50'
+                                      : 'text-muted-foreground hover:text-foreground'
+                                  }`}
                                 >
-                                  <Copy size={10} /> Copy
+                                  <Bot size={13} className={currentSubTab === 'summary' ? "text-purple-600 dark:text-purple-400" : ""} />
+                                  <span>Recording & AI Summary</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setCallSubTabs(prev => ({ ...prev, [callKey]: 'transcript' }))}
+                                  className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all duration-200 flex items-center justify-center gap-1.5 cursor-pointer ${
+                                    currentSubTab === 'transcript'
+                                      ? 'bg-card text-foreground shadow-xs border border-border/50'
+                                      : 'text-muted-foreground hover:text-foreground'
+                                  }`}
+                                >
+                                  <MessageSquare size={13} className={currentSubTab === 'transcript' ? "text-blue-500" : ""} />
+                                  <span>Full Call Transcript</span>
                                 </button>
                               </div>
-                              <div className="max-h-48 overflow-y-auto custom-scrollbar p-2.5 rounded-lg bg-muted/20 border text-xs leading-relaxed space-y-2.5">
-                                {(() => {
-                                  const rawLines = call.transcript.split('\n').map((l: string) => l.trim()).filter(Boolean);
-                                  const turns: Array<{ role: 'agent' | 'user'; text: string }> = [];
-                                  let currentTurn: { role: 'agent' | 'user'; text: string } | null = null;
 
-                                  for (const line of rawLines) {
-                                    const isAgent = /^agent:|^assistant:|^bot:|^ai:/i.test(line);
-                                    const isUser = /^user:|^caller:|^customer:|^human:/i.test(line);
-                                    const cleanContent = line.replace(/^(agent|assistant|bot|ai|user|caller|customer|human):\s*/i, '').trim();
-
-                                    if (isAgent) {
-                                      if (currentTurn) turns.push(currentTurn);
-                                      currentTurn = { role: 'agent', text: cleanContent };
-                                    } else if (isUser) {
-                                      if (currentTurn) turns.push(currentTurn);
-                                      currentTurn = { role: 'user', text: cleanContent };
-                                    } else {
-                                      if (currentTurn) {
-                                        currentTurn.text += '\n' + line;
-                                      } else {
-                                        currentTurn = { role: 'agent', text: line };
-                                      }
-                                    }
-                                  }
-                                  if (currentTurn) turns.push(currentTurn);
-
-                                  return turns.map((turn, idx) => {
-                                    if (turn.role === 'agent') {
-                                      return (
-                                        <div key={idx} className="flex flex-col items-start max-w-[90%] mr-auto space-y-1">
-                                          <span className="text-[10px] font-bold text-purple-500 mb-0.5 ml-1 flex items-center gap-1">
-                                            <Bot size={11} /> AI Agent
-                                          </span>
-                                          <div className="p-2.5 rounded-2xl rounded-tl-sm bg-purple-500/10 border border-purple-500/20 text-xs text-foreground leading-relaxed whitespace-pre-wrap shadow-xs">
-                                            {turn.text}
-                                          </div>
+                              {/* Mode 1: Recording & AI Summary */}
+                              {currentSubTab === 'summary' && (
+                                <div className="space-y-3 pt-1 animate-in fade-in-0 duration-200">
+                                  {/* Audio Player */}
+                                  {call.recordingUrl ? (
+                                    <div className="p-3 bg-muted/30 rounded-xl border border-border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                                      <div className="flex items-center gap-2.5">
+                                        <div className="w-7 h-7 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                                          <Headphones size={14} />
                                         </div>
-                                      );
-                                    } else {
-                                      return (
-                                        <div key={idx} className="flex flex-col items-end max-w-[90%] ml-auto space-y-1">
-                                          <span className="text-[10px] font-bold text-blue-500 mb-0.5 mr-1 flex items-center gap-1">
-                                            <User size={11} /> Caller
-                                          </span>
-                                          <div className="p-2.5 rounded-2xl rounded-tr-sm bg-blue-500/10 border border-blue-500/20 text-xs text-foreground leading-relaxed whitespace-pre-wrap shadow-xs">
-                                            {turn.text}
-                                          </div>
+                                        <div>
+                                          <p className="text-xs font-bold text-foreground">Call Audio Recording</p>
+                                          <p className="text-[10px] text-muted-foreground">{Math.floor(call.duration / 60)}m {call.duration % 60}s</p>
                                         </div>
-                                      );
-                                    }
-                                  });
-                                })()}
-                              </div>
+                                      </div>
+                                      <div className="flex items-center gap-2 w-full sm:w-auto">
+                                        <audio controls src={call.recordingUrl} className="h-7 max-w-full sm:w-52 accent-primary" />
+                                        <a
+                                          href={call.recordingUrl}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="p-1.5 rounded-lg bg-card border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                                          title="Open audio in new tab"
+                                        >
+                                          <ExternalLink size={13} />
+                                        </a>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="p-3 bg-muted/20 rounded-xl border border-dashed text-center text-xs text-muted-foreground">
+                                      No audio recording available for this call.
+                                    </div>
+                                  )}
+
+                                  {/* AI Summary */}
+                                  <div className="space-y-1.5">
+                                    <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-purple-600 dark:text-purple-400">
+                                      <Sparkles size={13} />
+                                      <span>AI Call Summary</span>
+                                    </div>
+                                    <div className="p-3.5 rounded-xl bg-purple-500/5 border border-purple-500/20 text-xs text-foreground leading-relaxed shadow-xs">
+                                      {call.aiSummary ? (
+                                        <p className="whitespace-pre-wrap">{call.aiSummary}</p>
+                                      ) : (
+                                        <p className="text-muted-foreground italic">No AI summary generated for this call.</p>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Mode 2: Full Call Transcript */}
+                              {currentSubTab === 'transcript' && (
+                                <div className="space-y-2 pt-1 animate-in fade-in-0 duration-200">
+                                  <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                                    <MessageSquare size={13} />
+                                    <span>Full Call Transcript</span>
+                                  </div>
+
+                                  <div className="p-3.5 rounded-xl bg-muted/20 border border-border max-h-72 overflow-y-auto custom-scrollbar space-y-3">
+                                    {call.transcript && call.transcript.trim() ? (
+                                      (() => {
+                                        const rawLines = call.transcript.split('\n').map((l: string) => l.trim()).filter(Boolean);
+                                        const turns: Array<{ role: 'agent' | 'user'; text: string }> = [];
+                                        let currentTurn: { role: 'agent' | 'user'; text: string } | null = null;
+
+                                        for (const line of rawLines) {
+                                          const isAgent = /^agent:|^assistant:|^bot:|^ai:/i.test(line);
+                                          const isUser = /^user:|^caller:|^customer:|^human:/i.test(line);
+                                          const cleanContent = line.replace(/^(agent|assistant|bot|ai|user|caller|customer|human):\s*/i, '').trim();
+
+                                          if (isAgent) {
+                                            if (currentTurn) turns.push(currentTurn);
+                                            currentTurn = { role: 'agent', text: cleanContent };
+                                          } else if (isUser) {
+                                            if (currentTurn) turns.push(currentTurn);
+                                            currentTurn = { role: 'user', text: cleanContent };
+                                          } else {
+                                            if (currentTurn) {
+                                              currentTurn.text += '\n' + line;
+                                            } else {
+                                              currentTurn = { role: 'agent', text: line };
+                                            }
+                                          }
+                                        }
+                                        if (currentTurn) turns.push(currentTurn);
+
+                                        return turns.map((turn, tIdx) => (
+                                          <div
+                                            key={tIdx}
+                                            className={`flex flex-col max-w-[85%] ${
+                                              turn.role === 'agent' ? 'self-start mr-auto items-start' : 'self-end ml-auto items-end'
+                                            }`}
+                                          >
+                                            <span className={`text-[10px] font-bold mb-1 px-1 flex items-center gap-1 ${
+                                              turn.role === 'agent' ? 'text-purple-600 dark:text-purple-400' : 'text-blue-600 dark:text-blue-400'
+                                            }`}>
+                                              {turn.role === 'agent' ? (
+                                                <><Bot size={11} /> AI Agent</>
+                                              ) : (
+                                                <><User size={11} /> Caller / Parent</>
+                                              )}
+                                            </span>
+                                            <div
+                                              className={`rounded-2xl px-3.5 py-2 text-xs leading-relaxed ${
+                                                turn.role === 'agent'
+                                                  ? 'bg-purple-500/10 border border-purple-500/20 text-foreground rounded-tl-sm shadow-2xs'
+                                                  : 'bg-primary text-primary-foreground rounded-tr-sm shadow-2xs'
+                                              }`}
+                                            >
+                                              {turn.text}
+                                            </div>
+                                          </div>
+                                        ));
+                                      })()
+                                    ) : (
+                                      <p className="text-xs text-muted-foreground italic text-center py-4">
+                                        No transcript text recorded for this call.
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
                             </div>
-                          )}
-                        </div>
-                      ))
+                          );
+                        })
                     )}
                   </div>
                 </div>

@@ -24,6 +24,21 @@ export interface ObjectionItem {
     response: string;
 }
 
+export interface PricingPlanItem {
+    name: string;
+    price: number;
+    interval: string;
+    isRecommended: boolean;
+    includes: string;
+}
+
+export interface TransferDepartmentItem {
+    departmentName: string;
+    phoneNumber: string;
+    triggers: string;
+    transferType?: 'cold_transfer' | 'warm_transfer';
+}
+
 export interface RetellKnowledgeBaseData {
     agentName: string;
     phoneNumber: string;
@@ -46,11 +61,13 @@ export interface RetellKnowledgeBaseData {
     gameSchedule: string;
     outOfAreaScript: string;
 
-    monthlyPrice: number;
-    seasonalPrice: number;
-    monthlyIncludes: string;
-    seasonalIncludes: string;
+    pricingPlans?: PricingPlanItem[];
+    monthlyPrice?: number;
+    seasonalPrice?: number;
+    monthlyIncludes?: string;
+    seasonalIncludes?: string;
     refundPolicy: string;
+    refundHandlingScript?: string;
 
     inboundOpeningScript: string;
     hesitantCallerScript: string;
@@ -58,12 +75,15 @@ export interface RetellKnowledgeBaseData {
     thinkAboutItCloseScript: string;
     voicemailScript: string;
     warmTransferScript: string;
+    cancellationHandlingScript?: string;
+    afterSchoolScript?: string;
 
     faqs: FAQItem[];
     objections: ObjectionItem[];
 
     humanTransferPhone: string;
     humanTransferTriggers: string[];
+    transferDepartments?: TransferDepartmentItem[];
 
     lastSyncedAt?: string;
     lastSyncStatus?: 'success' | 'failed' | 'never';

@@ -87,6 +87,13 @@ const RetellKnowledgeBaseSchema = new mongoose.Schema({
     },
 
     // Pricing & Membership
+    pricingPlans: [{
+        name: { type: String, required: true },
+        price: { type: Number, required: true },
+        interval: { type: String, default: 'month' },
+        isRecommended: { type: Boolean, default: false },
+        includes: { type: String, default: '' }
+    }],
     monthlyPrice: { type: Number, default: 50 },
     seasonalPrice: { type: Number, default: 200 },
     monthlyIncludes: { 
@@ -100,6 +107,10 @@ const RetellKnowledgeBaseSchema = new mongoose.Schema({
     refundPolicy: { 
         type: String, 
         default: 'YAU has a strict NO REFUND policy — this applies even if the child did not participate. NEVER promise a refund. ALWAYS direct to a team member for special circumstance reviews.' 
+    },
+    refundHandlingScript: {
+        type: String,
+        default: 'Our standard policy is non-refundable, but let me connect you with one of our team members who can personally review your situation.'
     },
 
     // Call Scripts
@@ -127,6 +138,14 @@ const RetellKnowledgeBaseSchema = new mongoose.Schema({
         type: String, 
         default: "That's a great question and I want to make sure you get the most accurate answer. Let me connect you with one of our team members who specializes in exactly that — one moment please, I'll have someone with you right away!" 
     },
+    cancellationHandlingScript: {
+        type: String,
+        default: 'I am sorry to hear you are thinking of cancelling. Let me connect you with a team member who can help.'
+    },
+    afterSchoolScript: {
+        type: String,
+        default: 'After-school programs vary by school. Please check directly with your school front office or I can have our coordinator reach out.'
+    },
 
     // FAQs
     faqs: [{
@@ -141,7 +160,7 @@ const RetellKnowledgeBaseSchema = new mongoose.Schema({
     }],
 
     // Human Transfer & Escalation
-    humanTransferPhone: { type: String, default: '+919896233745' },
+    humanTransferPhone: { type: String, default: '+18002930354' },
     humanTransferTriggers: {
         type: [String],
         default: [
@@ -154,6 +173,14 @@ const RetellKnowledgeBaseSchema = new mongoose.Schema({
         ]
     },
 
+    // Multi-Department Topic Transfer Routing
+    transferDepartments: [{
+        departmentName: { type: String, default: '' },
+        phoneNumber: { type: String, default: '' },
+        triggers: { type: String, default: '' },
+        transferType: { type: String, enum: ['cold_transfer', 'warm_transfer'], default: 'cold_transfer' }
+    }],
+
     // Sync Metadata
     lastSyncedAt: { type: Date, default: null },
     lastSyncStatus: { type: String, enum: ['success', 'failed', 'never'], default: 'never' },
@@ -165,6 +192,22 @@ RetellKnowledgeBaseSchema.statics.getOrCreateDefault = async function() {
     let doc = await this.findOne();
     if (!doc) {
         doc = await this.create({
+            pricingPlans: [
+                {
+                    name: 'Monthly Membership',
+                    price: 50,
+                    interval: 'month',
+                    isRecommended: true,
+                    includes: 'All 4 sports (soccer, basketball, flag football, cheer) — rotate anytime. No re-registration fees. Uniform purchased separately.'
+                },
+                {
+                    name: 'Seasonal Fee',
+                    price: 200,
+                    interval: 'season',
+                    isRecommended: false,
+                    includes: 'One sport per season (3–4 months). Uniform included.'
+                }
+            ],
             sportsPrograms: [
                 { name: 'Soccer', emoji: '⚽', grades: 'K – 8th Grade', description: 'Teamwork, footwork, and non-stop action' },
                 { name: 'Basketball', emoji: '🏀', grades: 'K – 8th Grade', description: 'Dribbling, shooting, and learning court awareness' },
@@ -214,6 +257,14 @@ RetellKnowledgeBaseSchema.statics.getOrCreateDefault = async function() {
                 {
                     trigger: "I need to talk to my spouse first.",
                     response: "Of course — that makes total sense and I think it's great that you're making this decision together! Can I send you something to share with them that has all the details — locations, pricing, and what we're all about? That way you both have everything in front of you. And honestly, the best thing is just to come out and watch a practice together. Parents always leave those saying they wish they had signed up sooner! What's the best email to send our information to?"
+                }
+            ],
+            transferDepartments: [
+                {
+                    departmentName: "Executive Management / Escalations",
+                    phoneNumber: "+919896233745",
+                    triggers: "Director requests, serious complaints, special circumstance reviews",
+                    transferType: "cold_transfer"
                 }
             ]
         });

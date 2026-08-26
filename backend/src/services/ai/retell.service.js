@@ -3,6 +3,12 @@ import RetellKnowledgeBase from '../../models/retellKnowledgeBase.model.js';
 
 const RETELL_API_BASE = 'https://api.retellai.com';
 
+export function getSanitizedToolName(deptName, index = 0) {
+    const raw = (deptName || '').toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+    const clean = raw.slice(0, 30);
+    return clean ? `transfer_to_${clean}` : `transfer_to_dept_${index}`;
+}
+
 /**
  * Builds the complete Markdown Universal Prompt from the database Knowledge Base model.
  *
@@ -42,10 +48,38 @@ export function buildPromptFromKnowledgeBase(kb) {
         .map((t, i) => `${i + 1}. ${t}`)
         .join('\n');
 
+    let pricingStr = '';
+    if (kb.pricingPlans && kb.pricingPlans.length > 0) {
+        pricingStr = kb.pricingPlans.map((plan, i) => {
+            const intervalText = plan.interval ? ` / ${plan.interval}` : '';
+            const recText = plan.isRecommended ? ' (Recommended)' : '';
+            return `${i + 1}. **${plan.name} — $${plan.price}${intervalText}${recText}**:\n   - ${plan.includes || 'Features and details as described'}`;
+        }).join('\n\n');
+    } else {
+        pricingStr = `1. **Monthly Membership — $${kb.monthlyPrice || 50} / month (Recommended)**:\n   - ${kb.monthlyIncludes || 'All 4 sports — rotate anytime. No re-registration fees.'}\n   - Uniforms are purchased separately.\n\n2. **Seasonal Fee — $${kb.seasonalPrice || 200} / season**:\n   - ${kb.seasonalIncludes || 'Covers one specific sport for 3–4 months. Uniform included.'}`;
+    }
+
+    const departments = (kb.transferDepartments && kb.transferDepartments.length > 0)
+        ? kb.transferDepartments
+        : [
+            {
+                departmentName: 'Executive Management / Escalations',
+                phoneNumber: kb.humanTransferPhone || '+18002930354',
+                triggers: 'Director requests, serious complaints, special circumstance reviews',
+                transferType: 'cold_transfer'
+            }
+        ];
+
+    const departmentRoutingLines = departments.map((dept, i) => {
+        const toolName = getSanitizedToolName(dept.departmentName, i);
+        return `- **${dept.departmentName}** (Tool: \`${toolName}\` | Phone: ${dept.phoneNumber || kb.humanTransferPhone || '+18002930354'}):\n  - **Topic / Triggers**: ${dept.triggers || 'General department requests'}\n  - **Action**: Speak warm transfer script and invoke tool \`${toolName}\`.`;
+    }).join('\n\n');
+
     return `# YOUTH ATHLETE UNIVERSITY (YAU) — VOICE AGENT OPERATING INSTRUCTIONS
 
-## 1. IDENTITY, ROLE & PERSONALITY
-You are a warm, enthusiastic, and knowledgeable team member representing Youth Athlete University (YAU). You speak directly with parents and families over the phone.
+## 1. IDENTITY, ROLE & MANDATORY PRONUNCIATION
+You are a warm, enthusiastic, and knowledgeable team member representing Youth Athlete University (Y-A-U). You speak directly with parents and families over the phone.
+- **CRITICAL PRONUNCIATION INSTRUCTION**: Whenever you mention or speak the acronym "YAU", ALWAYS pronounce it as three distinct, separate letters: **"Y - A - U"** (Why-Ay-You) or say the full name **"Youth Athlete University"**. NEVER pronounce "YAU" as a single blended word like "YOWL" or "Yaw". In your text output, format it as **Y-A-U** so the speech synthesizer articulates each individual letter clearly.
 ${personalityTraitsStr}
 
 ## 2. CONVERSATIONAL TONE RULES
@@ -85,15 +119,9 @@ ${locationsTable}
 ---
 
 ## 6. PRICING & MEMBERSHIP OPTIONS
-Always present the **Monthly Membership** first as the best value:
+Always present recommended membership plans first as the best value for families:
 
-1. **Monthly Membership — $${kb.monthlyPrice || 50} / month (Recommended)**:
-   - ${kb.monthlyIncludes || 'All 4 sports — rotate anytime. No re-registration fees.'}
-   - Uniforms are purchased separately.
-   - *Key Talking Point*: "For just $${kb.monthlyPrice || 50} a month, your child can try soccer, switch over to basketball, and do flag football — all without paying registration fees again."
-
-2. **Seasonal Fee — $${kb.seasonalPrice || 200} / season**:
-   - ${kb.seasonalIncludes || 'Covers one specific sport for 3–4 months. Uniform included.'}
+${pricingStr}
 
 ### STRICT REFUND POLICY
 - ${kb.refundPolicy || 'YAU has a strict NO REFUND policy. NEVER promise a refund. Always connect to a human team member for special circumstance reviews.'}
@@ -120,12 +148,17 @@ ${objectionsStr}
 
 ---
 
-## 10. SPECIAL SITUATIONS & ESCALATION RULES
+## 10. SPECIAL SITUATIONS & DEPARTMENT ROUTING RULES
 - **Cancellation Requests**: *"${kb.cancellationHandlingScript || 'I am sorry to hear you are thinking of cancelling. Let me connect you with a team member who can help.'}"*
 - **After-School Programs**: *"${kb.afterSchoolScript || 'After-school programs vary by school. Please check directly with your school front office or I can have our coordinator reach out.'}"*
 
+### Department-Specific Transfer Routing:
+Whenever a caller inquires about a specific topic, route to the corresponding department:
+
+${departmentRoutingLines}
+
 ### Immediate Human Transfer Triggers:
-Politly initiate a transfer to a human team member for:
+Politely initiate a transfer to a human team member for:
 ${triggersStr}
 
 **Warm Transfer Script**:
@@ -134,10 +167,9 @@ ${triggersStr}
 ---
 
 ## 11. CALL CONTROL & TOOL EXECUTION RULES (CRITICAL)
-- **Transfer to Human Representative (transfer_to_human)**:
-  - Whenever the caller explicitly asks to speak to a real person, human representative, live agent, or coach, OR if any of the Immediate Human Transfer Triggers occur:
-  - Say your warm transfer script politely: *"${kb.warmTransferScript || 'That is a great question and I want to make sure you get the exact right answer. Let me connect you with one of our team members right now — one moment please!'}"*
-  - **IMMEDIATELY invoke the transfer_to_human tool** to transfer the live phone call to our team member.
+- **Topic-Based Call Transfers**:
+  - When the caller's request matches a specific department topic above, speak the warm transfer script and **immediately invoke the matching transfer tool** (e.g. \`transfer_to_...\`).
+  - If the caller explicitly asks for a live human agent without a specific department, invoke \`transfer_to_human\`.
 - **Ending & Cancelling Calls (end_call)**:
   - Whenever the caller says goodbye, asks to hang up, says *"please cancel the call"*, *"hang up"*, *"cut the call"*, *"that is all"*, or indicates the conversation has finished:
   - Respond with a brief, friendly goodbye: *"${kb.positiveCloseScript || 'Thank you for calling Youth Athlete University! Have a wonderful day!'}"*
@@ -208,14 +240,42 @@ export async function syncKnowledgeBaseToRetell(kb) {
 
     const compiledPrompt = buildPromptFromKnowledgeBase(kb);
     const welcomeMsg = kb.welcomeMessage || 'Thank you for calling Youth Athlete University! This is Cimo — how can I help you and your athlete today?';
-    const transferNumber = kb.humanTransferPhone || process.env.RETELL_TRANSFER_NUMBER || '+919896233745';
+    const transferNumber = kb.humanTransferPhone || process.env.RETELL_TRANSFER_NUMBER || '+18002930354';
 
-    // Built-in tools for call forwarding and hangup
-    const generalTools = [
-        {
+    // Build dynamic transfer_call tools for each department
+    const departments = (kb.transferDepartments && kb.transferDepartments.length > 0)
+        ? kb.transferDepartments
+        : [
+            {
+                departmentName: 'Executive Management / Escalations',
+                phoneNumber: transferNumber,
+                triggers: 'Director requests, serious complaints, special circumstance reviews',
+                transferType: 'cold_transfer'
+            }
+        ];
+
+    const transferTools = departments.map((dept, idx) => {
+        const toolName = getSanitizedToolName(dept.departmentName, idx);
+        return {
+            type: 'transfer_call',
+            name: toolName,
+            description: `Transfer call to ${dept.departmentName} when caller discusses: ${dept.triggers || 'department requests'}.`,
+            transfer_destination: {
+                type: 'predefined',
+                number: dept.phoneNumber || transferNumber
+            },
+            transfer_option: {
+                type: dept.transferType || 'cold_transfer'
+            }
+        };
+    });
+
+    // Also include general fallback transfer tool
+    if (!transferTools.some(t => t.name === 'transfer_to_human')) {
+        transferTools.push({
             type: 'transfer_call',
             name: 'transfer_to_human',
-            description: 'Transfer the call to a live human representative or staff member when requested by the caller, or for refund requests, cancellations, complaints, or questions beyond AI scope.',
+            description: 'Transfer the call to a live human representative or staff member when requested by the caller.',
             transfer_destination: {
                 type: 'predefined',
                 number: transferNumber
@@ -223,7 +283,11 @@ export async function syncKnowledgeBaseToRetell(kb) {
             transfer_option: {
                 type: 'cold_transfer'
             }
-        },
+        });
+    }
+
+    const generalTools = [
+        ...transferTools,
         {
             type: 'end_call',
             name: 'end_call',
@@ -233,9 +297,11 @@ export async function syncKnowledgeBaseToRetell(kb) {
 
     let llmId = process.env.RETELL_LLM_ID || null;
     let agentDetails = null;
+    let targetVersion = 1;
 
     try {
         agentDetails = await getRetellAgentDetails(agentId);
+        targetVersion = agentDetails?.version || 1;
         if (agentDetails?.response_engine?.llm_id) {
             llmId = agentDetails.response_engine.llm_id;
         }
@@ -246,7 +312,34 @@ export async function syncKnowledgeBaseToRetell(kb) {
     let responseData = {};
     let syncError = null;
 
-    // 1. Update Retell LLM (Prompt, Begin Message, General Tools including Transfer & End Call)
+    // 1. If agent is currently published, create a new draft version first so the LLM becomes editable
+    if (agentDetails?.is_published) {
+        try {
+            console.log(`[Retell Service] Agent is published at version ${targetVersion}. Creating draft version from base_version ${targetVersion}...`);
+            const createVerRes = await axios.post(
+                `${RETELL_API_BASE}/create-agent-version/${agentId}`,
+                { base_version: targetVersion },
+                {
+                    headers: {
+                        Authorization: `Bearer ${apiKey}`,
+                        'Content-Type': 'application/json'
+                    }
+                }
+            );
+            if (createVerRes?.data?.version) {
+                targetVersion = createVerRes.data.version;
+                agentDetails = createVerRes.data;
+                if (createVerRes.data.response_engine?.llm_id) {
+                    llmId = createVerRes.data.response_engine.llm_id;
+                }
+                console.log(`✅ [Retell Service] Created draft agent version ${targetVersion} with LLM ${llmId}`);
+            }
+        } catch (createErr) {
+            console.log('[Retell Service] Note on create-agent-version:', createErr.response?.data?.message || createErr.message);
+        }
+    }
+
+    // 2. Update Retell LLM (Prompt, Begin Message, General Tools including Transfer & End Call)
     if (llmId) {
         try {
             console.log(`[Retell Service] Updating Retell LLM (${llmId}) with tools: transfer_call -> ${transferNumber}, end_call`);
@@ -255,7 +348,8 @@ export async function syncKnowledgeBaseToRetell(kb) {
                 {
                     general_prompt: compiledPrompt,
                     begin_message: welcomeMsg,
-                    general_tools: generalTools
+                    general_tools: generalTools,
+                    start_speaker: 'agent'
                 },
                 {
                     headers: {
@@ -272,10 +366,27 @@ export async function syncKnowledgeBaseToRetell(kb) {
         }
     }
 
-    // 2. Update Retell Agent (Agent Name & Metadata)
+    // 3. Update Retell Agent (Agent Name, Metadata & Pronunciation Dictionary)
     try {
         const agentUpdatePayload = {
-            agent_name: kb.agentName ? `YAU Support Agent (${kb.agentName})` : 'YAU Support Agent'
+            agent_name: kb.agentName ? `YAU Support Agent (${kb.agentName})` : 'YAU Support Agent',
+            pronunciation_dictionary: [
+                {
+                    word: 'YAU',
+                    alphabet: 'ipa',
+                    phoneme: 'waɪ eɪ juː'
+                },
+                {
+                    word: 'yau',
+                    alphabet: 'ipa',
+                    phoneme: 'waɪ eɪ juː'
+                },
+                {
+                    word: 'Yau',
+                    alphabet: 'ipa',
+                    phoneme: 'waɪ eɪ juː'
+                }
+            ]
         };
 
         const agentRes = await axios.patch(
@@ -287,18 +398,7 @@ export async function syncKnowledgeBaseToRetell(kb) {
                     'Content-Type': 'application/json'
                 }
             }
-        ).catch(() => {
-            return axios.patch(
-                `${RETELL_API_BASE}/agents/${agentId}`,
-                agentUpdatePayload,
-                {
-                    headers: {
-                        Authorization: `Bearer ${apiKey}`,
-                        'Content-Type': 'application/json'
-                    }
-                }
-            );
-        });
+        );
 
         responseData.agent = agentRes?.data;
     } catch (agentErr) {
@@ -308,15 +408,16 @@ export async function syncKnowledgeBaseToRetell(kb) {
         console.error('[Retell Service] Agent Update error:', agentErr.response?.data || agentErr.message);
     }
 
-    // 3. Publish Agent Version so live phone calls use the latest prompt and tools
-    let publishedVersion = null;
+    // 4. Publish Agent Version so live phone calls use the latest prompt and tools
+    let publishedVersion = targetVersion;
     try {
-        const latestAgent = await getRetellAgentDetails(agentId);
-        const currentVersion = latestAgent?.version || 1;
-        console.log(`[Retell Service] Publishing agent version ${currentVersion}...`);
-        await axios.post(
+        console.log(`[Retell Service] Publishing agent version ${targetVersion}...`);
+        const pubRes = await axios.post(
             `${RETELL_API_BASE}/publish-agent-version/${agentId}`,
-            { version: currentVersion },
+            { 
+                version: targetVersion,
+                version_description: `Updated from YAU-CRM Knowledge Base at ${new Date().toISOString()}`
+            },
             {
                 headers: {
                     Authorization: `Bearer ${apiKey}`,
@@ -324,39 +425,59 @@ export async function syncKnowledgeBaseToRetell(kb) {
                 }
             }
         );
-        publishedVersion = currentVersion;
+        publishedVersion = pubRes?.data?.version || targetVersion;
         console.log(`✅ [Retell Service] Successfully published agent version ${publishedVersion}`);
     } catch (pubErr) {
-        console.warn('[Retell Service] Warning: Failed to publish agent version:', pubErr.response?.data || pubErr.message);
+        console.warn('[Retell Service] Note on publish-agent-version:', pubErr.response?.data?.message || pubErr.message);
     }
 
-    // 4. Update Phone Number to bind to the latest published agent version
+    // 5. Update Phone Number to bind to the latest agent / version
     const phoneNumber = kb.phoneNumber || process.env.RETELL_PHONE_NUMBER || '+18886879139';
-    if (phoneNumber && publishedVersion) {
+    if (phoneNumber) {
         try {
             const cleanPhone = encodeURIComponent(phoneNumber.trim());
-            console.log(`[Retell Service] Binding phone number ${phoneNumber} to agent ${agentId} v${publishedVersion}...`);
+            console.log(`[Retell Service] Binding phone number ${phoneNumber} to agent ${agentId} (version: ${publishedVersion})...`);
+            
+            const agentEntry = {
+                agent_id: agentId,
+                weight: 1
+            };
+            if (publishedVersion) {
+                agentEntry.agent_version = publishedVersion;
+            }
+
+            const phonePayload = {
+                inbound_agents: [agentEntry]
+            };
+            if (transferNumber) {
+                phonePayload.fallback_destination_number = transferNumber;
+            }
+
             await axios.patch(
                 `${RETELL_API_BASE}/update-phone-number/${cleanPhone}`,
-                {
-                    inbound_agents: [
-                        {
-                            agent_id: agentId,
-                            agent_version: publishedVersion,
-                            weight: 1
-                        }
-                    ]
-                },
+                phonePayload,
                 {
                     headers: {
                         Authorization: `Bearer ${apiKey}`,
                         'Content-Type': 'application/json'
                     }
                 }
-            );
-            console.log(`✅ [Retell Service] Successfully bound phone number to agent version ${publishedVersion}`);
+            ).catch(async () => {
+                // Fallback to unencoded path if needed
+                return axios.patch(
+                    `${RETELL_API_BASE}/phone-numbers/${cleanPhone}`,
+                    phonePayload,
+                    {
+                        headers: {
+                            Authorization: `Bearer ${apiKey}`,
+                            'Content-Type': 'application/json'
+                        }
+                    }
+                );
+            });
+            console.log(`✅ [Retell Service] Successfully bound phone number ${phoneNumber} to agent version ${publishedVersion || 'latest'}`);
         } catch (phoneErr) {
-            console.warn('[Retell Service] Warning: Failed to update phone number binding:', phoneErr.response?.data || phoneErr.message);
+            console.warn('[Retell Service] Warning: Failed to update phone number binding:', phoneErr.response?.data?.message || phoneErr.message);
         }
     }
 

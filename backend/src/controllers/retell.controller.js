@@ -23,15 +23,15 @@ function buildPhoneRegex(phoneNumber) {
 }
 
 /**
- * Helper to match lead by phone number (last 10 digits)
+ * Helper to match all leads (Main Leads and EA Leads) by phone number (last 10 digits)
  */
-async function findLeadByPhone(phoneNumber) {
-    if (!phoneNumber) return null;
+async function findMatchingLeadsByPhone(phoneNumber) {
+    if (!phoneNumber) return { mainLeads: [], eaLeads: [] };
     const regex = buildPhoneRegex(phoneNumber);
-    if (!regex) return null;
+    if (!regex) return { mainLeads: [], eaLeads: [] };
 
     // 1. Check Lead collection (telephone, phone, altPhone)
-    let lead = await Lead.findOne({
+    const directMainLeads = await Lead.find({
         $or: [
             { telephone: { $regex: regex } },
             { phone: { $regex: regex } },
@@ -40,33 +40,37 @@ async function findLeadByPhone(phoneNumber) {
     });
 
     // 2. Check Contact collection (direct_phone, phone, mobilePhone)
-    if (!lead) {
-        const contact = await Contact.findOne({
-            $or: [
-                { direct_phone: { $regex: regex } },
-                { phone: { $regex: regex } },
-                { mobilePhone: { $regex: regex } }
-            ]
-        });
-        if (contact && contact.lead_id) {
-            lead = await Lead.findById(contact.lead_id);
-        }
+    const contacts = await Contact.find({
+        $or: [
+            { direct_phone: { $regex: regex } },
+            { phone: { $regex: regex } },
+            { mobilePhone: { $regex: regex } }
+        ],
+        lead_id: { $exists: true, $ne: null }
+    });
+
+    let contactLinkedLeads = [];
+    const contactLeadIds = contacts.map(c => c.lead_id).filter(Boolean);
+    if (contactLeadIds.length > 0) {
+        contactLinkedLeads = await Lead.find({ _id: { $in: contactLeadIds } });
     }
+
+    // Deduplicate main leads
+    const mainLeadMap = new Map();
+    [...directMainLeads, ...contactLinkedLeads].forEach(l => {
+        if (l && l._id) mainLeadMap.set(l._id.toString(), l);
+    });
+    const mainLeads = Array.from(mainLeadMap.values());
 
     // 3. Check EALead collection (phone, parentPhone)
-    if (!lead) {
-        const eaLead = await EALead.findOne({
-            $or: [
-                { phone: { $regex: regex } },
-                { parentPhone: { $regex: regex } }
-            ]
-        });
-        if (eaLead) {
-            return { lead: null, eaLead, isEALead: true };
-        }
-    }
+    const eaLeads = await EALead.find({
+        $or: [
+            { phone: { $regex: regex } },
+            { parentPhone: { $regex: regex } }
+        ]
+    });
 
-    return lead ? { lead, eaLead: null, isEALead: false } : null;
+    return { mainLeads, eaLeads };
 }
 
 /**
@@ -76,6 +80,41 @@ async function findLeadByPhone(phoneNumber) {
 export async function getKnowledgeBase(req, res, next) {
     try {
         const kb = await RetellKnowledgeBase.getOrCreateDefault();
+        
+        // Ensure pricingPlans is populated if empty or legacy doc
+        if (!kb.pricingPlans || kb.pricingPlans.length === 0) {
+            kb.pricingPlans = [
+                {
+                    name: 'Monthly Membership',
+                    price: kb.monthlyPrice || 50,
+                    interval: 'month',
+                    isRecommended: true,
+                    includes: kb.monthlyIncludes || 'All 4 sports (soccer, basketball, flag football, cheer) — rotate anytime. No re-registration fees. Uniform purchased separately.'
+                },
+                {
+                    name: 'Seasonal Fee',
+                    price: kb.seasonalPrice || 200,
+                    interval: 'season',
+                    isRecommended: false,
+                    includes: kb.seasonalIncludes || 'One sport per season (3–4 months). Uniform included.'
+                }
+            ];
+            await kb.save();
+        }
+
+        // Ensure transferDepartments is populated if empty or legacy doc
+        if (!kb.transferDepartments || kb.transferDepartments.length === 0) {
+            kb.transferDepartments = [
+                {
+                    departmentName: 'Executive Management / Escalations',
+                    phoneNumber: kb.humanTransferPhone || '+919896233745',
+                    triggers: 'Director requests, serious complaints, special circumstance reviews',
+                    transferType: 'cold_transfer'
+                }
+            ];
+            await kb.save();
+        }
+
         const compiledPrompt = buildPromptFromKnowledgeBase(kb);
 
         return res.json({
@@ -106,11 +145,12 @@ export async function updateKnowledgeBase(req, res, next) {
             'organizationName', 'motto', 'mission', 'differentiators',
             'contactPhone', 'contactEmail', 'contactWebsite',
             'sportsPrograms', 'locations', 'gameSchedule', 'outOfAreaScript',
-            'monthlyPrice', 'seasonalPrice', 'monthlyIncludes', 'seasonalIncludes', 'refundPolicy',
+            'pricingPlans', 'monthlyPrice', 'seasonalPrice', 'monthlyIncludes', 'seasonalIncludes', 'refundPolicy',
             'inboundOpeningScript', 'hesitantCallerScript', 'positiveCloseScript',
             'thinkAboutItCloseScript', 'voicemailScript', 'warmTransferScript',
             'faqs', 'objections',
-            'humanTransferPhone', 'humanTransferTriggers'
+            'humanTransferPhone', 'humanTransferTriggers',
+            'transferDepartments'
         ];
 
         updateFields.forEach(field => {
@@ -233,9 +273,37 @@ export async function handleRetellWebhook(req, res, next) {
         const callerSentiment = callData.call_analysis?.user_sentiment || callData.sentiment || null;
         const disconnectionReason = callData.disconnection_reason || callData.status || 'completed';
 
-        // 1. Find existing lead or match
-        const leadMatch = await findLeadByPhone(targetLeadNumber);
-        let associatedLeadId = leadMatch?.lead ? leadMatch.lead._id : null;
+        // 1. Find all matching main leads and EA leads (by phone number AND by existing call ID)
+        const { mainLeads: phoneMainLeads, eaLeads: phoneEALeads } = await findMatchingLeadsByPhone(targetLeadNumber);
+        
+        const directMainLeadsByCall = await Lead.find({
+            $or: [
+                { 'callHistory.callSid': `retell_${callId}` },
+                { 'callHistory.retellCallId': callId }
+            ]
+        });
+
+        const directEALeadsByCall = await EALead.find({
+            $or: [
+                { 'callHistory.callSid': `retell_${callId}` },
+                { 'callHistory.retellCallId': callId }
+            ]
+        });
+
+        // Combine and deduplicate
+        const mainLeadMap = new Map();
+        [...phoneMainLeads, ...directMainLeadsByCall].forEach(l => {
+            if (l && l._id) mainLeadMap.set(l._id.toString(), l);
+        });
+        const targetMainLeads = Array.from(mainLeadMap.values());
+
+        const eaLeadMap = new Map();
+        [...phoneEALeads, ...directEALeadsByCall].forEach(l => {
+            if (l && l._id) eaLeadMap.set(l._id.toString(), l);
+        });
+        const targetEALeads = Array.from(eaLeadMap.values());
+
+        let associatedLeadId = targetMainLeads.length > 0 ? targetMainLeads[0]._id : (targetEALeads.length > 0 ? targetEALeads[0]._id : null);
 
         // 2. Create or Update Call Record in CRM
         let callRecord = await Call.findOne({ retellCallId: callId });
@@ -258,12 +326,12 @@ export async function handleRetellWebhook(req, res, next) {
             });
             console.log(`✅ [Retell Webhook] Created Call record: ${callRecord._id} for ${callerNumber}`);
         } else {
-            callRecord.duration = durationSeconds || callRecord.duration;
-            callRecord.recordingUrl = recordingUrl || callRecord.recordingUrl;
-            callRecord.status = disconnectionReason || callRecord.status;
-            callRecord.transcript = transcript || callRecord.transcript;
-            callRecord.aiSummary = aiSummary || callRecord.aiSummary;
-            callRecord.callerSentiment = callerSentiment || callRecord.callerSentiment;
+            if (durationSeconds) callRecord.duration = durationSeconds;
+            if (recordingUrl) callRecord.recordingUrl = recordingUrl;
+            if (disconnectionReason) callRecord.status = disconnectionReason;
+            if (transcript) callRecord.transcript = transcript;
+            if (aiSummary) callRecord.aiSummary = aiSummary;
+            if (callerSentiment) callRecord.callerSentiment = callerSentiment;
             if (associatedLeadId && !callRecord.lead_id) {
                 callRecord.lead_id = associatedLeadId;
             }
@@ -271,64 +339,68 @@ export async function handleRetellWebhook(req, res, next) {
             console.log(`✅ [Retell Webhook] Updated Call record: ${callRecord._id}`);
         }
 
-        // 3. Update Lead callHistory if lead matched
-        if (leadMatch?.lead) {
-            const lead = leadMatch.lead;
+        // 3. Save / Update callHistory to ALL matching Main Leads non-destructively
+        for (const lead of targetMainLeads) {
             if (!lead.callHistory) lead.callHistory = [];
-            
             const existingIndex = lead.callHistory.findIndex(c => c.callSid === `retell_${callId}` || c.retellCallId === callId);
-            const callHistoryEntry = {
-                callSid: `retell_${callId}`,
-                retellCallId: callId,
-                source: 'retell',
-                direction,
-                duration: durationSeconds,
-                recordingUrl,
-                status: disconnectionReason,
-                timestamp: callData.start_timestamp ? new Date(callData.start_timestamp) : new Date(),
-                aiSummary,
-                callerSentiment,
-                transcript
-            };
-
             if (existingIndex >= 0) {
-                lead.callHistory[existingIndex] = { ...lead.callHistory[existingIndex].toObject?.() || lead.callHistory[existingIndex], ...callHistoryEntry };
+                const existing = lead.callHistory[existingIndex];
+                if (durationSeconds) existing.duration = durationSeconds;
+                if (recordingUrl) existing.recordingUrl = recordingUrl;
+                if (disconnectionReason) existing.status = disconnectionReason;
+                if (transcript) existing.transcript = transcript;
+                if (aiSummary) existing.aiSummary = aiSummary;
+                if (callerSentiment) existing.callerSentiment = callerSentiment;
             } else {
-                lead.callHistory.unshift(callHistoryEntry);
+                lead.callHistory.unshift({
+                    callSid: `retell_${callId}`,
+                    retellCallId: callId,
+                    source: 'retell',
+                    direction,
+                    duration: durationSeconds,
+                    recordingUrl,
+                    status: disconnectionReason,
+                    timestamp: callData.start_timestamp ? new Date(callData.start_timestamp) : new Date(),
+                    aiSummary: aiSummary || null,
+                    callerSentiment: callerSentiment || null,
+                    transcript: transcript || null
+                });
             }
             lead.markModified('callHistory');
             await lead.save();
-            console.log(`📞 [Retell Webhook] Saved callHistory entry to Lead: ${lead.name || lead._id}`);
+            console.log(`📞 [Retell Webhook] Saved/Updated callHistory on Main Lead: ${lead.name || lead._id} (Summary: ${aiSummary ? 'YES' : 'Pending'})`);
         }
 
-        // 4. Update EALead callHistory if existing EA lead matched
-        if (leadMatch?.isEALead && leadMatch?.eaLead) {
-            const eaLead = leadMatch.eaLead;
+        // 4. Save / Update callHistory to ALL matching EA Leads non-destructively
+        for (const eaLead of targetEALeads) {
             if (!eaLead.callHistory) eaLead.callHistory = [];
-
             const existingIndex = eaLead.callHistory.findIndex(c => c.callSid === `retell_${callId}` || c.retellCallId === callId);
-            const callHistoryEntry = {
-                callSid: `retell_${callId}`,
-                retellCallId: callId,
-                source: 'retell',
-                direction,
-                duration: durationSeconds,
-                recordingUrl,
-                status: disconnectionReason,
-                timestamp: callData.start_timestamp ? new Date(callData.start_timestamp) : new Date(),
-                aiSummary,
-                callerSentiment,
-                transcript
-            };
-
             if (existingIndex >= 0) {
-                eaLead.callHistory[existingIndex] = { ...eaLead.callHistory[existingIndex].toObject?.() || eaLead.callHistory[existingIndex], ...callHistoryEntry };
+                const existing = eaLead.callHistory[existingIndex];
+                if (durationSeconds) existing.duration = durationSeconds;
+                if (recordingUrl) existing.recordingUrl = recordingUrl;
+                if (disconnectionReason) existing.status = disconnectionReason;
+                if (transcript) existing.transcript = transcript;
+                if (aiSummary) existing.aiSummary = aiSummary;
+                if (callerSentiment) existing.callerSentiment = callerSentiment;
             } else {
-                eaLead.callHistory.unshift(callHistoryEntry);
+                eaLead.callHistory.unshift({
+                    callSid: `retell_${callId}`,
+                    retellCallId: callId,
+                    source: 'retell',
+                    direction,
+                    duration: durationSeconds,
+                    recordingUrl,
+                    status: disconnectionReason,
+                    timestamp: callData.start_timestamp ? new Date(callData.start_timestamp) : new Date(),
+                    aiSummary: aiSummary || null,
+                    callerSentiment: callerSentiment || null,
+                    transcript: transcript || null
+                });
             }
             eaLead.markModified('callHistory');
             await eaLead.save();
-            console.log(`📞 [Retell Webhook] Saved callHistory entry to existing EALead: ${eaLead._id}`);
+            console.log(`📞 [Retell Webhook] Saved/Updated callHistory on EA Lead: ${eaLead.name || eaLead._id} (Summary: ${aiSummary ? 'YES' : 'Pending'})`);
         }
 
         return res.status(200).json({
