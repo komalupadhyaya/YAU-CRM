@@ -37,6 +37,7 @@ export interface TransferDepartmentItem {
     phoneNumber: string;
     triggers: string;
     transferType?: 'cold_transfer' | 'warm_transfer';
+    onHoldMusic?: 'relaxing_sound' | 'uplifting_beats' | 'ringtone' | 'none';
 }
 
 export interface RetellKnowledgeBaseData {

@@ -98,7 +98,7 @@ export default function RetellVoiceAgent() {
     // Departments State
     const [isAddingDepartment, setIsAddingDepartment] = useState(false);
     const [editingDepartmentIndex, setEditingDepartmentIndex] = useState<number | null>(null);
-    const [departmentForm, setDepartmentForm] = useState<TransferDepartmentItem>({ departmentName: "", phoneNumber: "", triggers: "", transferType: "cold_transfer" });
+    const [departmentForm, setDepartmentForm] = useState<TransferDepartmentItem>({ departmentName: "", phoneNumber: "", triggers: "", transferType: "warm_transfer", onHoldMusic: "relaxing_sound" });
 
     const handleSaveTrait = () => {
         if (!kb || !newTrait.trim()) return;
@@ -255,13 +255,20 @@ export default function RetellVoiceAgent() {
     const handleSaveDepartment = () => {
         if (!kb || !departmentForm.departmentName.trim()) return;
         setKb({ ...kb, transferDepartments: [...(kb.transferDepartments || []), { ...departmentForm }] });
-        setDepartmentForm({ departmentName: "", phoneNumber: "", triggers: "", transferType: "cold_transfer" });
+        setDepartmentForm({ departmentName: "", phoneNumber: "", triggers: "", transferType: "warm_transfer", onHoldMusic: "relaxing_sound" });
         setIsAddingDepartment(false);
     };
 
     const handleStartEditDepartment = (index: number) => {
         if (!kb) return;
-        setDepartmentForm({ ...(kb.transferDepartments || [])[index] });
+        const dept = (kb.transferDepartments || [])[index];
+        setDepartmentForm({
+            departmentName: dept?.departmentName || "",
+            phoneNumber: dept?.phoneNumber || "",
+            triggers: dept?.triggers || "",
+            transferType: dept?.transferType || "warm_transfer",
+            onHoldMusic: dept?.onHoldMusic || "relaxing_sound"
+        });
         setEditingDepartmentIndex(index);
     };
 
@@ -2044,7 +2051,7 @@ export default function RetellVoiceAgent() {
                                             </Button>
                                         </div>
                                     </div>
-                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
                                         <div>
                                             <Label className="text-[11px]">Department / Role</Label>
                                             <Input
@@ -2067,12 +2074,39 @@ export default function RetellVoiceAgent() {
                                         <div>
                                             <Label className="text-[11px]">Transfer Type</Label>
                                             <select
-                                                value={departmentForm.transferType || "cold_transfer"}
-                                                onChange={e => setDepartmentForm({ ...departmentForm, transferType: e.target.value as any })}
-                                                className="w-full h-9 mt-1 rounded-md border border-input bg-background px-3 py-1 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                                value={departmentForm.transferType || "warm_transfer"}
+                                                onChange={e => {
+                                                    const val = e.target.value as 'cold_transfer' | 'warm_transfer';
+                                                    setDepartmentForm({
+                                                        ...departmentForm,
+                                                        transferType: val,
+                                                        onHoldMusic: val === 'cold_transfer' ? 'none' : (departmentForm.onHoldMusic || 'relaxing_sound')
+                                                    });
+                                                }}
+                                                className="w-full h-9 mt-1 rounded-md border border-input bg-background px-3 py-1 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring font-medium"
                                             >
+                                                <option value="warm_transfer">Warm Transfer (Hold Music + Announce)</option>
                                                 <option value="cold_transfer">Cold Transfer (Direct Forward)</option>
-                                                <option value="warm_transfer">Warm Transfer (Announce Caller)</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <Label className="text-[11px]">Hold Music (While Connecting)</Label>
+                                            <select
+                                                value={departmentForm.onHoldMusic || "relaxing_sound"}
+                                                onChange={e => {
+                                                    const music = e.target.value as any;
+                                                    setDepartmentForm({
+                                                        ...departmentForm,
+                                                        onHoldMusic: music,
+                                                        transferType: music === 'none' ? departmentForm.transferType : 'warm_transfer'
+                                                    });
+                                                }}
+                                                className="w-full h-9 mt-1 rounded-md border border-input bg-background px-3 py-1 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring font-medium"
+                                            >
+                                                <option value="relaxing_sound">🎵 Relaxing Sound (Ambient)</option>
+                                                <option value="uplifting_beats">🎶 Uplifting Beats (Modern)</option>
+                                                <option value="ringtone">🔔 Standard Ringtone</option>
+                                                <option value="none">🔇 None (Silence / Direct)</option>
                                             </select>
                                         </div>
                                     </div>
@@ -2124,7 +2158,7 @@ export default function RetellVoiceAgent() {
                                                         </Button>
                                                     </div>
                                                 </div>
-                                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
                                                     <div>
                                                         <Label className="text-[11px]">Department / Role</Label>
                                                         <Input
@@ -2144,12 +2178,39 @@ export default function RetellVoiceAgent() {
                                                     <div>
                                                         <Label className="text-[11px]">Transfer Type</Label>
                                                         <select
-                                                            value={departmentForm.transferType || "cold_transfer"}
-                                                            onChange={e => setDepartmentForm({ ...departmentForm, transferType: e.target.value as any })}
-                                                            className="w-full h-9 mt-1 rounded-md border border-input bg-background px-3 py-1 text-xs"
+                                                            value={departmentForm.transferType || "warm_transfer"}
+                                                            onChange={e => {
+                                                                const val = e.target.value as 'cold_transfer' | 'warm_transfer';
+                                                                setDepartmentForm({
+                                                                    ...departmentForm,
+                                                                    transferType: val,
+                                                                    onHoldMusic: val === 'cold_transfer' ? 'none' : (departmentForm.onHoldMusic || 'relaxing_sound')
+                                                                });
+                                                            }}
+                                                            className="w-full h-9 mt-1 rounded-md border border-input bg-background px-3 py-1 text-xs font-medium"
                                                         >
+                                                            <option value="warm_transfer">Warm Transfer (Hold Music + Announce)</option>
                                                             <option value="cold_transfer">Cold Transfer (Direct Forward)</option>
-                                                            <option value="warm_transfer">Warm Transfer (Announce Caller)</option>
+                                                        </select>
+                                                    </div>
+                                                    <div>
+                                                        <Label className="text-[11px]">Hold Music (While Connecting)</Label>
+                                                        <select
+                                                            value={departmentForm.onHoldMusic || "relaxing_sound"}
+                                                            onChange={e => {
+                                                                const music = e.target.value as any;
+                                                                setDepartmentForm({
+                                                                    ...departmentForm,
+                                                                    onHoldMusic: music,
+                                                                    transferType: music === 'none' ? departmentForm.transferType : 'warm_transfer'
+                                                                });
+                                                            }}
+                                                            className="w-full h-9 mt-1 rounded-md border border-input bg-background px-3 py-1 text-xs font-medium"
+                                                        >
+                                                            <option value="relaxing_sound">🎵 Relaxing Sound (Ambient)</option>
+                                                            <option value="uplifting_beats">🎶 Uplifting Beats (Modern)</option>
+                                                            <option value="ringtone">🔔 Standard Ringtone</option>
+                                                            <option value="none">🔇 None (Silence / Direct)</option>
                                                         </select>
                                                     </div>
                                                 </div>
@@ -2179,6 +2240,11 @@ export default function RetellVoiceAgent() {
                                                         <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-muted text-muted-foreground border border-border/60">
                                                             {dept.transferType === "warm_transfer" ? "Warm Transfer" : "Cold Transfer"}
                                                         </span>
+                                                        {dept.transferType === "warm_transfer" && (
+                                                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
+                                                                🎵 {dept.onHoldMusic === 'uplifting_beats' ? 'Uplifting Beats' : dept.onHoldMusic === 'ringtone' ? 'Ringtone' : dept.onHoldMusic === 'none' ? 'Silent Hold' : 'Relaxing Sound'}
+                                                            </span>
+                                                        )}
                                                         <span className="px-2 py-0.5 rounded-md text-[10px] font-mono text-muted-foreground bg-muted/70 border border-border/50">
                                                             Tool: {getSanitizedToolName(dept.departmentName, i)}
                                                         </span>

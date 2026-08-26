@@ -178,7 +178,8 @@ const RetellKnowledgeBaseSchema = new mongoose.Schema({
         departmentName: { type: String, default: '' },
         phoneNumber: { type: String, default: '' },
         triggers: { type: String, default: '' },
-        transferType: { type: String, enum: ['cold_transfer', 'warm_transfer'], default: 'cold_transfer' }
+        transferType: { type: String, enum: ['cold_transfer', 'warm_transfer'], default: 'warm_transfer' },
+        onHoldMusic: { type: String, enum: ['relaxing_sound', 'uplifting_beats', 'ringtone', 'none'], default: 'relaxing_sound' }
     }],
 
     // Sync Metadata

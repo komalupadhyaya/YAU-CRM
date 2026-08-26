@@ -256,6 +256,17 @@ export async function syncKnowledgeBaseToRetell(kb) {
 
     const transferTools = departments.map((dept, idx) => {
         const toolName = getSanitizedToolName(dept.departmentName, idx);
+        const isWarm = dept.transferType === 'warm_transfer';
+        const transferOption = isWarm
+            ? {
+                type: 'warm_transfer',
+                on_hold_music: dept.onHoldMusic || 'relaxing_sound',
+                enable_bridge_audio_cue: true
+            }
+            : {
+                type: 'cold_transfer'
+            };
+
         return {
             type: 'transfer_call',
             name: toolName,
@@ -264,9 +275,7 @@ export async function syncKnowledgeBaseToRetell(kb) {
                 type: 'predefined',
                 number: dept.phoneNumber || transferNumber
             },
-            transfer_option: {
-                type: dept.transferType || 'cold_transfer'
-            }
+            transfer_option: transferOption
         };
     });
 
@@ -281,7 +290,9 @@ export async function syncKnowledgeBaseToRetell(kb) {
                 number: transferNumber
             },
             transfer_option: {
-                type: 'cold_transfer'
+                type: 'warm_transfer',
+                on_hold_music: 'relaxing_sound',
+                enable_bridge_audio_cue: true
             }
         });
     }
