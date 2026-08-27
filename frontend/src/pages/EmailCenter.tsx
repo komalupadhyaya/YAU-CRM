@@ -59,7 +59,9 @@ import {
   Type,
   Folder,
   X,
-  HelpCircle
+  HelpCircle,
+  Edit2,
+  UserPlus
 } from "lucide-react";
 import { toast } from "sonner";
 import ReactQuill from "react-quill-new";
@@ -406,6 +408,39 @@ export default function EmailCenter() {
   const [viewSegmentSearchQuery, setViewSegmentSearchQuery] = useState("");
   const [copiedEmail, setCopiedEmail] = useState<string | null>(null);
 
+  // State for Quick Add / Append inside View Segment Modal
+  const [quickAddName, setQuickAddName] = useState("");
+  const [quickAddEmail, setQuickAddEmail] = useState("");
+  const [isQuickAdding, setIsQuickAdding] = useState(false);
+  const [isAppendingCsv, setIsAppendingCsv] = useState(false);
+  const appendCsvFileInputRef = useRef<HTMLInputElement>(null);
+
+  // State for Edit / Builder Segment Modal
+  const [editingSegmentId, setEditingSegmentId] = useState<string | null>(null);
+  const [existingSegmentContacts, setExistingSegmentContacts] = useState<{ name: string; email: string; status?: string }[]>([]);
+  const [existingSelectedEmails, setExistingSelectedEmails] = useState<string[]>([]);
+  const [existingContactsSearch, setExistingContactsSearch] = useState("");
+  const [segmentTab, setSegmentTab] = useState<"existing" | "csv" | "static" | "campaign">("csv");
+  const [customContactsSearch, setCustomContactsSearch] = useState("");
+
+  const filteredExistingContacts = React.useMemo(() => {
+    if (!existingContactsSearch.trim()) return existingSegmentContacts;
+    const q = existingContactsSearch.toLowerCase().trim();
+    return existingSegmentContacts.filter(c =>
+      (c.name && c.name.toLowerCase().includes(q)) ||
+      c.email.toLowerCase().includes(q)
+    );
+  }, [existingSegmentContacts, existingContactsSearch]);
+
+  const filteredCustomContacts = React.useMemo(() => {
+    if (!customContactsSearch.trim()) return segmentForm.customContacts;
+    const q = customContactsSearch.toLowerCase().trim();
+    return segmentForm.customContacts.filter(c =>
+      (c.name && c.name.toLowerCase().includes(q)) ||
+      (c.email && c.email.toLowerCase().includes(q))
+    );
+  }, [segmentForm.customContacts, customContactsSearch]);
+
   const handleCopyEmail = (email: string) => {
     navigator.clipboard.writeText(email);
     setCopiedEmail(email);
@@ -582,18 +617,29 @@ export default function EmailCenter() {
 
     const totalSet = new Set<string>();
 
+    // 0. Existing Retained Contacts (when editing)
+    let existingCount = 0;
+    if (editingSegmentId) {
+      existingSegmentContacts.forEach(c => {
+        if (existingSelectedEmails.includes(c.email)) {
+          totalSet.add(c.email.toLowerCase().trim());
+          existingCount++;
+        }
+      });
+    }
+
     // 1. CSV
     csvParsedContacts.forEach(c => {
       if (csvSelectedEmails.includes(c.email)) totalSet.add(c.email.toLowerCase().trim());
     });
 
-    // 2. Manual
+    // 2. Manual CRM
     segmentForm.leadIds.forEach(id => {
       const found = availableContacts.find(c => c._id === id);
       if (found?.email) totalSet.add(found.email.toLowerCase().trim());
     });
 
-    // 3. Custom
+    // 3. Custom Manual
     segmentForm.customContacts.forEach(c => {
       if (c.email) totalSet.add(c.email.toLowerCase().trim());
     });
@@ -608,6 +654,7 @@ export default function EmailCenter() {
 
     return {
       totalUnique: totalSet.size,
+      existingCount,
       csvCount,
       crmCount,
       eaCount,
@@ -615,7 +662,7 @@ export default function EmailCenter() {
       campaignCount,
       customCount
     };
-  }, [csvSelectedEmails, csvParsedContacts, segmentForm.leadIds, availableContacts, segmentForm.customContacts, campaignSelectedIds, campaignPreviewContacts]);
+  }, [editingSegmentId, existingSegmentContacts, existingSelectedEmails, csvSelectedEmails, csvParsedContacts, segmentForm.leadIds, availableContacts, segmentForm.customContacts, campaignSelectedIds, campaignPreviewContacts]);
 
   const handleInlineCsvSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1682,6 +1729,12 @@ export default function EmailCenter() {
     setCampaignPreviewContacts([]);
     setCampaignPreviewSearch("");
     setCampaignSelectedIds([]);
+    setEditingSegmentId(null);
+    setExistingSegmentContacts([]);
+    setExistingSelectedEmails([]);
+    setExistingContactsSearch("");
+    setSegmentTab("csv");
+    setCustomContactsSearch("");
     loadedCampaignIdsRef.current = "";
   }, []);
 
@@ -1819,30 +1872,38 @@ export default function EmailCenter() {
       return;
     }
 
-    // 1. Selected CSV contacts
+    // 1. Retained Existing contacts (when editing)
+    const retainedExistingContacts = editingSegmentId
+      ? existingSegmentContacts
+          .filter(c => existingSelectedEmails.includes(c.email))
+          .map(c => ({ name: c.name, email: c.email, status: c.status || "active" }))
+      : [];
+
+    // 2. Newly selected CSV contacts
     const selectedCsvContacts = csvParsedContacts
       .filter(c => csvSelectedEmails.includes(c.email))
       .map(c => ({ name: c.name, email: c.email, status: "active" }));
 
-    // 2. Selected Manual CRM/EA/Team contacts
+    // 3. Selected Manual CRM/EA/Team contacts
     const selectedCRMContacts = segmentForm.leadIds.map(id => {
       const found = availableContacts.find(c => c._id === id);
       return found ? { name: found.name, email: found.email, status: "active" } : null;
     }).filter(Boolean) as { name: string; email: string; status: string }[];
 
-    // 3. Custom contacts
+    // 4. Custom contacts
     const selectedCustomContacts = segmentForm.customContacts.map(c => ({
       name: c.name,
       email: c.email,
       status: "active"
     }));
 
-    // 4. Selected Sales Campaign contacts
+    // 5. Selected Sales Campaign contacts
     const selectedCampaignContacts = campaignPreviewContacts
       .filter((c: any) => campaignSelectedIds.includes(c.leadId || c.email))
       .map((c: any) => ({ name: c.name, email: c.email, status: "active" }));
 
     let contacts = [
+      ...retainedExistingContacts,
       ...selectedCsvContacts,
       ...selectedCRMContacts,
       ...selectedCustomContacts,
@@ -1869,7 +1930,7 @@ export default function EmailCenter() {
     }
 
     if (contacts.length === 0) {
-      toast.error("Please add at least 1 contact (via CSV upload, Manual contacts, or Sales Campaign) to create this list");
+      toast.error("Please retain or add at least 1 contact to save this list");
       return;
     }
 
@@ -1878,7 +1939,9 @@ export default function EmailCenter() {
       : (segmentForm.filters.campaignId ? [segmentForm.filters.campaignId] : []);
 
     let finalType = segmentForm.type;
-    if (selectedCsvContacts.length > 0 && selectedCRMContacts.length === 0 && selectedCustomContacts.length === 0 && selectedCampaignContacts.length === 0) {
+    if (editingSegmentId) {
+      finalType = segmentForm.type;
+    } else if (selectedCsvContacts.length > 0 && selectedCRMContacts.length === 0 && selectedCustomContacts.length === 0 && selectedCampaignContacts.length === 0) {
       finalType = "csv";
     } else if (selectedCampaignContacts.length > 0 && selectedCsvContacts.length === 0 && selectedCRMContacts.length === 0 && selectedCustomContacts.length === 0) {
       finalType = "campaign";
@@ -1896,16 +1959,25 @@ export default function EmailCenter() {
         contacts: contacts
       };
 
-      await api.post("/emails/segments", payload);
-      toast.success("Segment created successfully!");
+      if (editingSegmentId) {
+        const res = await api.put(`/emails/segments/${editingSegmentId}`, payload);
+        toast.success("Segment updated successfully!");
+        if (selectedSegmentForView?._id === editingSegmentId && res.data?.segment) {
+          setSelectedSegmentForView(res.data.segment);
+        }
+      } else {
+        await api.post("/emails/segments", payload);
+        toast.success("Segment created successfully!");
+      }
+
       setIsSegmentModalOpen(false);
       resetSegmentModalState();
       setCsvSelectedEmails([]);
       setCampaignSelectedIds([]);
       fetchSegments(true);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      toast.error("Failed to create segment");
+      toast.error(err.response?.data?.message || err.response?.data?.error || "Failed to save segment");
     } finally {
       setIsSubmitting(false);
     }
@@ -1973,6 +2045,152 @@ export default function EmailCenter() {
       toast.error(err.response?.data?.message || err.response?.data?.error || "Failed to delete segment");
     } finally {
       setDeletingSegment(false);
+    }
+  };
+
+  // Open Unified Edit Segment Modal (Pre-populates existing contacts into dedicated panel)
+  const handleOpenEditSegment = (seg: Segment) => {
+    setEditingSegmentId(seg._id);
+    const segType = seg.type === "dynamic" ? "dynamic" : seg.type === "campaign" ? "campaign" : seg.type === "csv" ? "csv" : "static";
+
+    const activeCampId = typeof seg.filters?.campaignId === "object" && seg.filters?.campaignId ? (seg.filters.campaignId as any)._id : (seg.filters?.campaignId as string || "");
+    const activeCampIds = (seg.filters as any)?.campaignIds || (activeCampId ? [activeCampId] : []);
+
+    const existingContacts = (seg.contacts || []).map(c => ({
+      name: c.name || c.email.split('@')[0],
+      email: c.email.toLowerCase().trim(),
+      status: c.status || "active"
+    }));
+
+    setExistingSegmentContacts(existingContacts);
+    setExistingSelectedEmails(existingContacts.map(c => c.email));
+    setExistingContactsSearch("");
+
+    // Fresh, clean append states so existing contacts never mix with new inputs
+    setSegmentForm({
+      name: seg.name || "",
+      description: seg.description || "",
+      type: segType,
+      filters: {
+        source: seg.filters?.source || "",
+        sport: seg.filters?.sport || "",
+        location: seg.filters?.location || "",
+        status: seg.filters?.status || "",
+        campaignId: activeCampId,
+        campaignIds: activeCampIds
+      },
+      leadIds: [],
+      leadModel: "Lead",
+      customContacts: []
+    });
+
+    setCsvParsedContacts([]);
+    setCsvSelectedEmails([]);
+    setCsvFileName("");
+    setCsvSearchQuery("");
+    setContactsSearchQuery("");
+    setCustomContactName("");
+    setCustomContactEmail("");
+    setCampaignSelectedIds([]);
+    setSegmentTab("existing"); // Open directly to the dedicated Existing Contacts tab!
+    setIsSegmentModalOpen(true);
+  };
+
+  // Quick Add Contact directly from inside the View Recipients Modal
+  const handleQuickAddContactToViewSegment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedSegmentForView) return;
+    if (!quickAddEmail.trim() || !quickAddEmail.includes('@')) {
+      toast.error("Please enter a valid email address");
+      return;
+    }
+
+    const email = quickAddEmail.trim().toLowerCase();
+    const name = quickAddName.trim() || email.split('@')[0];
+
+    // Check if already in list
+    if (selectedSegmentForView.contacts?.some(c => c.email.toLowerCase() === email)) {
+      toast.warning("This email is already in this list");
+      return;
+    }
+
+    setIsQuickAdding(true);
+    try {
+      const res = await api.put(`/emails/segments/${selectedSegmentForView._id}`, {
+        newContacts: [{ name, email }]
+      });
+
+      if (res.data?.segment) {
+        setSelectedSegmentForView(res.data.segment);
+        setSegments(prev => prev.map(s => s._id === res.data.segment._id ? res.data.segment : s));
+      }
+
+      toast.success(`Added "${email}" to list!`);
+      setQuickAddName("");
+      setQuickAddEmail("");
+      fetchSegments(true);
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.response?.data?.message || err.response?.data?.error || "Failed to add contact");
+    } finally {
+      setIsQuickAdding(false);
+    }
+  };
+
+  // Append CSV directly from inside View Recipients Modal
+  const handleAppendCsvToViewSegment = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedSegmentForView) return;
+
+    setIsAppendingCsv(true);
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const res = await api.post(`/emails/segments/${selectedSegmentForView._id}/append-csv`, formData, {
+        headers: { "Content-Type": "multipart/form-data" }
+      });
+
+      if (res.data?.segment) {
+        setSelectedSegmentForView(res.data.segment);
+        setSegments(prev => prev.map(s => s._id === res.data.segment._id ? res.data.segment : s));
+      }
+
+      toast.success(res.data?.message || `Successfully appended contacts!`);
+      fetchSegments(true);
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.response?.data?.message || err.response?.data?.error || "Failed to append CSV contacts");
+    } finally {
+      setIsAppendingCsv(false);
+      if (appendCsvFileInputRef.current) {
+        appendCsvFileInputRef.current.value = "";
+      }
+    }
+  };
+
+  // Remove Single Contact from View Recipients Modal
+  const handleRemoveContactFromViewSegment = async (contactEmail: string) => {
+    if (!selectedSegmentForView) return;
+
+    try {
+      const res = await api.delete(`/emails/segments/${selectedSegmentForView._id}/contacts/${encodeURIComponent(contactEmail)}`);
+
+      if (res.data?.segment) {
+        setSelectedSegmentForView(res.data.segment);
+        setSegments(prev => prev.map(s => s._id === res.data.segment._id ? res.data.segment : s));
+      } else {
+        setSelectedSegmentForView(prev => prev ? {
+          ...prev,
+          contacts: (prev.contacts || []).filter(c => c.email.toLowerCase() !== contactEmail.toLowerCase())
+        } : null);
+      }
+
+      toast.success(`Removed ${contactEmail}`);
+      fetchSegments(true);
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.response?.data?.message || err.response?.data?.error || "Failed to remove contact");
     }
   };
 
@@ -2897,12 +3115,20 @@ export default function EmailCenter() {
                                     </button>
                                     <button
                                       type="button"
+                                      onClick={() => handleOpenEditSegment(seg)}
+                                      className="h-8 px-2.5 bg-accent/60 hover:bg-accent text-foreground rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
+                                      title="Edit List & Add Contacts"
+                                    >
+                                      <Edit2 size={12} /> Edit
+                                    </button>
+                                    <button
+                                      type="button"
                                       onClick={() => {
                                         setSelectedSegmentForView(seg);
                                         setViewSegmentSearchQuery("");
                                         setIsViewSegmentModalOpen(true);
                                       }}
-                                      className="h-8 px-3 bg-primary/10 hover:bg-primary hover:text-white text-primary rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs"
+                                      className="h-8 px-3 bg-primary/10 hover:bg-primary hover:text-white text-primary rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
                                     >
                                       <Eye size={12} /> View ({seg.contacts?.length || 0})
                                     </button>
@@ -2957,18 +3183,31 @@ export default function EmailCenter() {
                           </div>
 
                           <div className="flex items-center justify-between gap-2 mt-4 pt-3 border-t border-border/60">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSelectedSegmentForView(seg);
-                                setViewSegmentSearchQuery("");
-                                setIsViewSegmentModalOpen(true);
-                              }}
-                              className="h-8 px-3 bg-primary/10 group-hover:bg-primary group-hover:text-white text-primary rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs"
-                            >
-                              <Eye size={13} /> View Recipients ({seg.contacts?.length || 0})
-                            </button>
+                            <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenEditSegment(seg);
+                                }}
+                                className="h-8 px-2.5 bg-accent/60 hover:bg-accent text-foreground rounded-xl text-xs font-bold flex items-center gap-1 transition-all shadow-xs shrink-0 cursor-pointer"
+                                title="Edit List & Add Contacts"
+                              >
+                                <Edit2 size={12} /> Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedSegmentForView(seg);
+                                  setViewSegmentSearchQuery("");
+                                  setIsViewSegmentModalOpen(true);
+                                }}
+                                className="h-8 px-2.5 bg-primary/10 group-hover:bg-primary group-hover:text-white text-primary rounded-xl text-xs font-bold flex items-center gap-1 transition-all shadow-xs truncate cursor-pointer"
+                              >
+                                <Eye size={12} /> View ({seg.contacts?.length || 0})
+                              </button>
+                            </div>
                             <button
                               type="button"
                               onClick={(e) => {
@@ -4322,11 +4561,21 @@ export default function EmailCenter() {
         </DialogContent>
       </Dialog>
 
-      {/* --- DIALOG 2: SEGMENT BUILDER DIALOG --- */}
+      {/* --- DIALOG 2: SEGMENT BUILDER DIALOG (CREATE & EDIT) --- */}
       <Dialog open={isSegmentModalOpen} onOpenChange={(open) => { if (!open) resetSegmentModalState(); setIsSegmentModalOpen(open); }}>
         <DialogContent className={`w-[95vw] transition-all duration-300 ${segmentForm.type === "dynamic" ? "max-w-lg" : "max-w-3xl"} max-h-[85vh] p-0 flex flex-col overflow-hidden dark:bg-card`}>
           <DialogHeader className="p-5 pb-3 border-b shrink-0">
-            <DialogTitle>Create List & Segment</DialogTitle>
+            <div className="flex items-center gap-2">
+              {editingSegmentId ? <Edit2 className="text-primary h-5 w-5" /> : <Users className="text-primary h-5 w-5" />}
+              <DialogTitle>
+                {editingSegmentId ? `Edit List & Segment (${segmentForm.name || "Current List"})` : "Create List & Segment"}
+              </DialogTitle>
+            </div>
+            {editingSegmentId && (
+              <DialogDescription className="text-xs text-muted-foreground mt-0.5">
+                Update list details, targeting rules, or manage and remove contacts currently present in this list.
+              </DialogDescription>
+            )}
           </DialogHeader>
 
           <form onSubmit={handleCreateSegment} className="flex-1 flex flex-col min-h-0 overflow-hidden">
@@ -4442,32 +4691,99 @@ export default function EmailCenter() {
                     </Popover>
                   </div>
                 </div>
-                <div className="flex bg-accent/40 border p-1 rounded-xl w-full gap-1">
-                  <button
-                    type="button"
-                    onClick={() => setSegmentForm({ ...segmentForm, type: "csv" })}
-                    className={`flex-1 py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all ${segmentForm.type === "csv" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                {/* Segment Selection / Edit Tab Toggle Pills */}
+                {editingSegmentId ? (
+                  <div className="flex bg-accent/40 border p-1 rounded-xl w-full gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setSegmentTab("existing")}
+                      className={`flex-1 py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                        segmentTab === "existing" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
                       }`}
-                  >
-                    Import CSV File
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSegmentForm({ ...segmentForm, type: "static" })}
-                    className={`flex-1 py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all ${segmentForm.type === "static" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                    >
+                      <Users size={13} />
+                      <span>1. Current Contacts ({existingSelectedEmails.length}/{existingSegmentContacts.length})</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSegmentTab("csv");
+                        setSegmentForm(prev => ({ ...prev, type: "csv" }));
+                      }}
+                      className={`flex-1 py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                        segmentTab === "csv" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
                       }`}
-                  >
-                    Manual Contacts
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSegmentForm({ ...segmentForm, type: "campaign" })}
-                    className={`flex-1 py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all ${segmentForm.type === "campaign" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                    >
+                      <Upload size={13} />
+                      <span>2. Append CSV</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSegmentTab("static");
+                        setSegmentForm(prev => ({ ...prev, type: "static" }));
+                      }}
+                      className={`flex-1 py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                        segmentTab === "static" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
                       }`}
-                  >
-                    Sales Campaign
-                  </button>
-                </div>
+                    >
+                      <UserCheck size={13} />
+                      <span>3. Append CRM</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSegmentTab("campaign");
+                        setSegmentForm(prev => ({ ...prev, type: "campaign" }));
+                      }}
+                      className={`flex-1 py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                        segmentTab === "campaign" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      <Sparkles size={13} />
+                      <span>4. Append Campaign</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex bg-accent/40 border p-1 rounded-xl w-full gap-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSegmentTab("csv");
+                        setSegmentForm(prev => ({ ...prev, type: "csv" }));
+                      }}
+                      className={`flex-1 py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all ${
+                        segmentForm.type === "csv" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      Import CSV File
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSegmentTab("static");
+                        setSegmentForm(prev => ({ ...prev, type: "static" }));
+                      }}
+                      className={`flex-1 py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all ${
+                        segmentForm.type === "static" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      Manual Contacts
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSegmentTab("campaign");
+                        setSegmentForm(prev => ({ ...prev, type: "campaign" }));
+                      }}
+                      className={`flex-1 py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all ${
+                        segmentForm.type === "campaign" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      Sales Campaign
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Compact Sleek Audience Summary Strip */}
@@ -4475,37 +4791,42 @@ export default function EmailCenter() {
                 <div className="flex items-center gap-2">
                   <Users size={14} className="text-primary shrink-0" />
                   <span className="font-semibold text-foreground">Target Audience Summary:</span>
-                  <span className="font-bold text-primary">{selectionBreakdown.totalUnique} Selected</span>
+                  <span className="font-bold text-primary">{selectionBreakdown.totalUnique} Ready</span>
                 </div>
                 <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+                  {editingSegmentId && selectionBreakdown.existingCount > 0 && (
+                    <span className="px-2 py-0.5 rounded-md font-bold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+                      Retained: {selectionBreakdown.existingCount}
+                    </span>
+                  )}
                   {selectionBreakdown.csvCount > 0 && (
                     <span className="px-2 py-0.5 rounded-md font-bold bg-violet-500/10 text-violet-600 dark:text-violet-400">
-                      CSV: {selectionBreakdown.csvCount}
+                      CSV: +{selectionBreakdown.csvCount}
                     </span>
                   )}
                   {selectionBreakdown.crmCount > 0 && (
                     <span className="px-2 py-0.5 rounded-md font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400">
-                      CRM: {selectionBreakdown.crmCount}
+                      CRM: +{selectionBreakdown.crmCount}
                     </span>
                   )}
                   {selectionBreakdown.eaCount > 0 && (
                     <span className="px-2 py-0.5 rounded-md font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400">
-                      EA: {selectionBreakdown.eaCount}
+                      EA: +{selectionBreakdown.eaCount}
                     </span>
                   )}
                   {selectionBreakdown.teamCount > 0 && (
                     <span className="px-2 py-0.5 rounded-md font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                      Team: {selectionBreakdown.teamCount}
+                      Team: +{selectionBreakdown.teamCount}
                     </span>
                   )}
                   {selectionBreakdown.campaignCount > 0 && (
                     <span className="px-2 py-0.5 rounded-md font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400">
-                      Campaign: {selectionBreakdown.campaignCount}
+                      Campaign: +{selectionBreakdown.campaignCount}
                     </span>
                   )}
                   {selectionBreakdown.customCount > 0 && (
-                    <span className="px-2 py-0.5 rounded-md font-bold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
-                      Custom: {selectionBreakdown.customCount}
+                    <span className="px-2 py-0.5 rounded-md font-bold bg-teal-500/10 text-teal-600 dark:text-teal-400">
+                      Custom: +{selectionBreakdown.customCount}
                     </span>
                   )}
                   {selectionBreakdown.totalUnique === 0 && (
@@ -4515,15 +4836,138 @@ export default function EmailCenter() {
               </div>
 
               {/* Selection Method Specific Body */}
-              {segmentForm.type === "csv" ? (
+              {editingSegmentId && segmentTab === "existing" ? (
+                /* TAB 1 (EDIT ONLY): Dedicated Existing Contacts Inspector & Manager */
+                <div className="border-t pt-4 space-y-3 animate-in fade-in duration-200 text-left">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <h4 className="text-xs font-bold uppercase text-primary flex items-center gap-1.5">
+                        <Users size={14} /> Existing Segment Contacts ({existingSegmentContacts.length})
+                      </h4>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Review or uncheck contacts to exclude them from this list. Use 🗑️ to permanently delete.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setExistingSelectedEmails(existingSegmentContacts.map(c => c.email))}
+                        className="text-[11px] font-bold text-primary hover:underline cursor-pointer"
+                      >
+                        Select All
+                      </button>
+                      <span className="text-muted-foreground">|</span>
+                      <button
+                        type="button"
+                        onClick={() => setExistingSelectedEmails([])}
+                        className="text-[11px] font-bold text-muted-foreground hover:text-foreground hover:underline cursor-pointer"
+                      >
+                        Deselect All
+                      </button>
+                      {existingSegmentContacts.length > 0 && (
+                        <>
+                          <span className="text-muted-foreground">|</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setExistingSegmentContacts([]);
+                              setExistingSelectedEmails([]);
+                            }}
+                            className="text-[11px] font-bold text-destructive hover:underline cursor-pointer"
+                          >
+                            Delete All
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Search Filter for Current Contacts */}
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                    <input
+                      type="text"
+                      placeholder="Filter existing contacts by name or email..."
+                      value={existingContactsSearch}
+                      onChange={e => setExistingContactsSearch(e.target.value)}
+                      className="!pl-9 h-8.5 input-field text-xs w-full bg-card"
+                    />
+                  </div>
+
+                  {/* Contacts List */}
+                  <div className="border border-border rounded-xl p-2 max-h-72 overflow-y-auto custom-scrollbar space-y-1 bg-accent/5">
+                    {existingSegmentContacts.length === 0 ? (
+                      <div className="py-12 text-center text-muted-foreground space-y-1">
+                        <Users size={28} className="mx-auto opacity-30" />
+                        <p className="text-xs font-semibold">No existing contacts remaining in this list.</p>
+                        <p className="text-[11px]">Use the "Append" tabs above to add fresh contacts from CSV, CRM, or Campaigns.</p>
+                      </div>
+                    ) : filteredExistingContacts.length === 0 ? (
+                      <div className="py-8 text-center text-muted-foreground text-xs">
+                        No contacts match "{existingContactsSearch}"
+                      </div>
+                    ) : (
+                      filteredExistingContacts.map((contact, idx) => {
+                        const isSelected = existingSelectedEmails.includes(contact.email);
+                        return (
+                          <div
+                            key={contact.email || idx}
+                            className={`flex items-center justify-between gap-2.5 p-2 rounded-lg border transition-colors ${
+                              isSelected ? "bg-card border-border/80 text-foreground" : "opacity-50 bg-muted/20 border-transparent text-muted-foreground"
+                            }`}
+                          >
+                            <label className="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => {
+                                  setExistingSelectedEmails(prev =>
+                                    prev.includes(contact.email) ? prev.filter(e => e !== contact.email) : [...prev, contact.email]
+                                  );
+                                }}
+                                className="rounded shrink-0"
+                              />
+                              <div className="min-w-0 flex-1 text-left">
+                                <span className={`font-bold text-xs block truncate ${isSelected ? "text-foreground" : "line-through text-muted-foreground"}`}>
+                                  {contact.name || contact.email.split('@')[0]}
+                                </span>
+                                <span className="text-[10px] text-muted-foreground block truncate">{contact.email}</span>
+                              </div>
+                            </label>
+
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <span className="text-[8px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-primary/10 text-primary">
+                                Saved
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setExistingSegmentContacts(prev => prev.filter(c => c.email !== contact.email));
+                                  setExistingSelectedEmails(prev => prev.filter(e => e !== contact.email));
+                                }}
+                                className="h-6 w-6 rounded hover:bg-destructive/10 text-destructive flex items-center justify-center transition-colors cursor-pointer"
+                                title="Delete contact from list"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              ) : segmentTab === "csv" || (segmentForm.type === "csv" && !editingSegmentId) ? (
                 /* 2-Column Responsive Grid for CSV File Import */
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 border-t pt-4 animate-in fade-in duration-200">
                   {/* Left Column: File Upload Picker */}
                   <div className="space-y-4 text-left">
                     <div className="space-y-1">
-                      <h4 className="text-xs font-bold uppercase text-primary">Import Contacts from CSV File</h4>
+                      <h4 className="text-xs font-bold uppercase text-primary">
+                        {editingSegmentId ? "Append Contacts from CSV File" : "Import Contacts from CSV File"}
+                      </h4>
                       <p className="text-xs text-muted-foreground leading-relaxed">
-                        Upload a standard CSV file containing recipient names and email addresses. Headers like "Name" and "Email" will be detected automatically.
+                        Upload a CSV file containing recipient names and email addresses.
                       </p>
                     </div>
 
@@ -4611,7 +5055,7 @@ export default function EmailCenter() {
                           const allFilteredEmails = filteredCsvParsedContacts.map(c => c.email);
                           setCsvSelectedEmails(prev => Array.from(new Set([...prev, ...allFilteredEmails])));
                         }}
-                        className="text-[10px] text-primary hover:underline font-semibold"
+                        className="text-[10px] text-primary hover:underline font-semibold cursor-pointer"
                       >
                         Select All Filtered
                       </button>
@@ -4621,7 +5065,7 @@ export default function EmailCenter() {
                           const allFilteredEmails = filteredCsvParsedContacts.map(c => c.email);
                           setCsvSelectedEmails(prev => prev.filter(email => !allFilteredEmails.includes(email)));
                         }}
-                        className="text-[10px] text-destructive hover:underline font-semibold"
+                        className="text-[10px] text-destructive hover:underline font-semibold cursor-pointer"
                       >
                         Deselect All Filtered
                       </button>
@@ -4677,16 +5121,18 @@ export default function EmailCenter() {
                     </div>
                   </div>
                 </div>
-              ) : segmentForm.type === "static" ? (
+              ) : segmentTab === "static" || (segmentForm.type === "static" && !editingSegmentId) ? (
                 /* 2-Column Responsive Grid for Static Selection */
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 border-t pt-4">
                   {/* Left Column: Custom Contact Insertion */}
                   <div className="space-y-4">
                     <div className="space-y-2.5 text-left">
                       <div className="flex justify-between items-center">
-                        <h5 className="text-xs font-bold uppercase text-primary">Insert Custom Contact</h5>
+                        <h5 className="text-xs font-bold uppercase text-primary">
+                          {editingSegmentId ? "Append Custom Contact" : "Insert Custom Contact"}
+                        </h5>
                         <span className="text-[10px] bg-indigo-500/10 text-indigo-500 px-2 py-0.5 rounded-full font-bold">
-                          {segmentForm.customContacts.length} Custom Added
+                          {segmentForm.customContacts.length} Added
                         </span>
                       </div>
 
@@ -4738,28 +5184,42 @@ export default function EmailCenter() {
                       <button
                         type="button"
                         onClick={handleAddCustomContact}
-                        className="w-full h-8 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 shadow-sm transition-colors"
+                        className="w-full h-8 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 shadow-sm transition-colors cursor-pointer"
                       >
-                        <Plus size={12} /> Add Custom Contact
+                        <Plus size={12} /> Add Contact to List
                       </button>
 
                       {segmentForm.customContacts.length > 0 && (
-                        <div className="border border-indigo-500/20 bg-indigo-500/5 rounded-xl p-2 max-h-36 overflow-y-auto custom-scrollbar space-y-1 mt-2">
-                          {segmentForm.customContacts.map((contact, idx) => (
-                            <div key={idx} className="flex justify-between items-center gap-2 p-1.5 bg-card border rounded-lg text-xs">
-                              <div className="min-w-0 flex-1">
-                                <span className="font-bold block text-foreground truncate">{contact.name}</span>
-                                <span className="text-[10px] text-muted-foreground block truncate">{contact.email}</span>
+                        <div className="space-y-1.5 mt-2">
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="text-[10px] font-bold text-muted-foreground uppercase">Newly Added Contacts ({segmentForm.customContacts.length}):</span>
+                            <button
+                              type="button"
+                              onClick={() => setSegmentForm(prev => ({ ...prev, customContacts: [] }))}
+                              className="text-[10px] text-destructive hover:underline font-semibold"
+                            >
+                              Clear
+                            </button>
+                          </div>
+
+                          <div className="border border-indigo-500/20 bg-indigo-500/5 rounded-xl p-2 max-h-36 overflow-y-auto custom-scrollbar space-y-1">
+                            {segmentForm.customContacts.map((contact, idx) => (
+                              <div key={idx} className="flex justify-between items-center gap-2 p-1.5 bg-card border rounded-lg text-xs">
+                                <div className="min-w-0 flex-1">
+                                  <span className="font-bold block text-foreground truncate">{contact.name}</span>
+                                  <span className="text-[10px] text-muted-foreground block truncate">{contact.email}</span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveCustomContact(contact.email)}
+                                  className="h-5 w-5 rounded hover:bg-destructive/10 text-destructive flex items-center justify-center shrink-0 transition-colors cursor-pointer"
+                                  title="Remove contact"
+                                >
+                                  <Trash2 size={11} />
+                                </button>
                               </div>
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveCustomContact(contact.email)}
-                                className="h-5 w-5 rounded hover:bg-destructive/10 text-destructive flex items-center justify-center shrink-0 transition-colors"
-                              >
-                                <Trash2 size={11} />
-                              </button>
-                            </div>
-                          ))}
+                            ))}
+                          </div>
                         </div>
                       )}
                     </div>
@@ -4887,7 +5347,7 @@ export default function EmailCenter() {
                     </div>
                   </div>
                 </div>
-              ) : segmentForm.type === "campaign" ? (
+              ) : segmentTab === "campaign" || (segmentForm.type === "campaign" && !editingSegmentId) ? (
                 /* Target Sales Campaign 2-Column Grid */
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 border-t pt-4 animate-in fade-in duration-200">
                   {/* Left Column: Target Sales Campaign Dropdown with Checkboxes */}
@@ -5245,10 +5705,12 @@ export default function EmailCenter() {
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="btn-primary text-xs h-9 bg-emerald-600 hover:bg-emerald-700 flex items-center justify-center gap-1 text-white shadow-sm"
+                  className="btn-primary text-xs h-9 bg-emerald-600 hover:bg-emerald-700 flex items-center justify-center gap-1.5 text-white shadow-sm cursor-pointer disabled:opacity-50"
                 >
                   {isSubmitting ? (
-                    <Loader2 size={14} className="animate-spin" />
+                    <><Loader2 size={14} className="animate-spin" /> Saving...</>
+                  ) : editingSegmentId ? (
+                    <><Check size={14} /> Save Changes ({selectionBreakdown.totalUnique} Recipients)</>
                   ) : (
                     <>Save Segment</>
                   )}
@@ -5767,21 +6229,34 @@ export default function EmailCenter() {
           </DialogHeader>
 
           <div className="p-5 flex-1 flex flex-col min-h-0 space-y-4 overflow-hidden">
-            {/* Header stats and search bar */}
+            {/* Search filter bar & Stats */}
             <div className="flex flex-col sm:flex-row gap-3 justify-between sm:items-center">
               <div className="relative flex-1">
-                <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground pointer-events-none" />
                 <input
                   type="text"
                   placeholder="Filter recipients by name or email..."
                   value={viewSegmentSearchQuery}
                   onChange={e => setViewSegmentSearchQuery(e.target.value)}
-                  className="pl-9 h-9 input-field text-xs w-full dark:bg-card"
+                  className="!pl-9 h-9 input-field text-xs w-full dark:bg-card"
                 />
               </div>
-              <span className="text-xs font-bold text-muted-foreground px-3.5 py-1.5 bg-accent/30 rounded-xl border border-border/50 shrink-0 text-left sm:text-right">
-                Saved Contacts: <strong className="text-primary font-extrabold">{selectedSegmentForView?.contacts?.length || 0}</strong>
-              </span>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedSegmentForView) {
+                      handleOpenEditSegment(selectedSegmentForView);
+                    }
+                  }}
+                  className="h-8.5 px-3 bg-accent/60 hover:bg-accent text-foreground border rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
+                >
+                  <Edit2 size={12} /> Edit Full List
+                </button>
+                <span className="text-xs font-bold text-muted-foreground px-3.5 py-1.5 bg-accent/30 rounded-xl border border-border/50 text-left sm:text-right">
+                  Saved Contacts: <strong className="text-primary font-extrabold">{selectedSegmentForView?.contacts?.length || 0}</strong>
+                </span>
+              </div>
             </div>
 
             {/* Contacts Cards Grid / Scrollable List */}
@@ -5790,6 +6265,7 @@ export default function EmailCenter() {
                 <div className="flex flex-col items-center justify-center py-14 text-center text-muted-foreground">
                   <UserX size={36} className="opacity-40 mb-2" />
                   <p className="text-xs font-semibold">No contacts saved in this segment.</p>
+                  <p className="text-[11px] text-muted-foreground mt-1">Click "Edit Full List" above to add or import recipients.</p>
                 </div>
               ) : filteredViewSegmentContacts.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-14 text-center text-muted-foreground">
@@ -5818,7 +6294,7 @@ export default function EmailCenter() {
                         <button
                           type="button"
                           onClick={() => handleCopyEmail(contact.email)}
-                          className="h-7 w-7 p-0 text-muted-foreground hover:text-primary hover:bg-accent/40 rounded-lg flex items-center justify-center transition-colors"
+                          className="h-7.5 w-7.5 p-0 text-muted-foreground hover:text-primary hover:bg-accent/40 rounded-lg flex items-center justify-center transition-colors cursor-pointer"
                           title="Copy email address"
                         >
                           {isCopied ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
@@ -5828,6 +6304,14 @@ export default function EmailCenter() {
                           <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
                           {contact.status || "active"}
                         </span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveContactFromViewSegment(contact.email)}
+                          className="h-7.5 w-7.5 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg flex items-center justify-center transition-colors cursor-pointer"
+                          title="Remove recipient from list"
+                        >
+                          <Trash2 size={13} />
+                        </button>
                       </div>
                     </div>
                   );
@@ -5836,7 +6320,10 @@ export default function EmailCenter() {
             </div>
           </div>
 
-          <DialogFooter className="p-4 border-t bg-card shrink-0">
+          <DialogFooter className="p-4 border-t bg-card shrink-0 flex items-center justify-between">
+            <span className="text-xs text-muted-foreground">
+              Total Contacts: <strong className="text-foreground">{selectedSegmentForView?.contacts?.length || 0}</strong>
+            </span>
             <button
               type="button"
               onClick={() => setIsViewSegmentModalOpen(false)}

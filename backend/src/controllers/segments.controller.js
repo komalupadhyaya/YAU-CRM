@@ -261,3 +261,162 @@ export const previewCampaignRecipients = async (req, res, next) => {
         next(err);
     }
 };
+
+export const updateSegment = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { name, description, type, filters, contacts, newContacts } = req.body;
+
+        const segment = await EmailSegment.findById(id);
+        if (!segment) {
+            return res.status(404).json({ error: 'Segment not found' });
+        }
+
+        if (name && name.trim()) segment.name = name.trim();
+        if (description !== undefined) segment.description = description;
+        if (type) segment.type = type;
+        if (filters) segment.filters = { ...segment.filters, ...filters };
+
+        // Handle contacts update or appending
+        if (contacts && Array.isArray(contacts)) {
+            const seenEmails = new Set();
+            const uniqueContacts = [];
+            for (const c of contacts) {
+                if (!c || !c.email) continue;
+                const normalized = c.email.toLowerCase().trim();
+                if (!seenEmails.has(normalized)) {
+                    seenEmails.add(normalized);
+                    uniqueContacts.push({
+                        name: c.name || normalized.split('@')[0],
+                        email: normalized,
+                        status: c.status || 'active'
+                    });
+                }
+            }
+            segment.contacts = uniqueContacts;
+        } else if (newContacts && Array.isArray(newContacts) && newContacts.length > 0) {
+            // Append new contacts while maintaining uniqueness
+            const seenEmails = new Set((segment.contacts || []).map(c => c.email.toLowerCase().trim()));
+            let addedCount = 0;
+            for (const c of newContacts) {
+                if (!c || !c.email) continue;
+                const normalized = c.email.toLowerCase().trim();
+                if (!seenEmails.has(normalized)) {
+                    seenEmails.add(normalized);
+                    segment.contacts.push({
+                        name: c.name || normalized.split('@')[0],
+                        email: normalized,
+                        status: c.status || 'active'
+                    });
+                    addedCount++;
+                }
+            }
+        }
+
+        await segment.save();
+        res.json({
+            success: true,
+            message: 'Segment updated successfully',
+            segment
+        });
+    } catch (err) {
+        next(err);
+    }
+};
+
+export const appendSegmentCsv = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const segment = await EmailSegment.findById(id);
+        if (!segment) {
+            return res.status(404).json({ error: 'Segment not found' });
+        }
+
+        if (!req.file) {
+            return res.status(400).json({ error: 'No CSV file uploaded' });
+        }
+
+        const csvContent = req.file.buffer.toString('utf-8').replace(/^\uFEFF/, '');
+        const lines = csvContent.split(/\r?\n/).filter(l => l.trim().length > 0);
+        if (lines.length <= 1) {
+            return res.status(400).json({ error: 'CSV file is empty or missing data rows' });
+        }
+
+        const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/^["']|["']$/g, ''));
+        let emailIndex = headers.findIndex(h => h === 'email' || h.includes('email') || h.includes('e-mail') || h.includes('mail'));
+        let nameIndex = headers.findIndex(h => h.includes('name') || h.includes('first') || h.includes('contact'));
+
+        if (emailIndex === -1) {
+            const sampleEmail = lines[1]?.split(',')[0]?.trim();
+            if (sampleEmail && sampleEmail.includes('@')) {
+                emailIndex = 0;
+            } else {
+                return res.status(400).json({ error: 'CSV must contain an "email" header column' });
+            }
+        }
+
+        const seenEmails = new Set((segment.contacts || []).map(c => c.email.toLowerCase().trim()));
+        let addedCount = 0;
+
+        for (let i = 1; i < lines.length; i++) {
+            const cols = lines[i].split(',').map(c => c.trim().replace(/^["']|["']$/g, ''));
+            if (cols.length <= emailIndex) continue;
+
+            const email = cols[emailIndex]?.trim().toLowerCase();
+            if (!email || !email.includes('@')) continue;
+
+            if (seenEmails.has(email)) continue;
+            seenEmails.add(email);
+
+            const name = (nameIndex !== -1 && cols[nameIndex]) ? cols[nameIndex]?.trim() : email.split('@')[0];
+            segment.contacts.push({
+                name,
+                email,
+                status: 'active'
+            });
+            addedCount++;
+        }
+
+        await segment.save();
+
+        res.json({
+            success: true,
+            message: `Successfully added ${addedCount} new contact(s) to segment. Total recipients: ${segment.contacts.length}.`,
+            addedCount,
+            totalCount: segment.contacts.length,
+            segment
+        });
+    } catch (err) {
+        next(err);
+    }
+};
+
+export const removeSegmentContact = async (req, res, next) => {
+    try {
+        const { id, contactEmail } = req.params;
+        const segment = await EmailSegment.findById(id);
+        if (!segment) {
+            return res.status(404).json({ error: 'Segment not found' });
+        }
+
+        const targetEmail = decodeURIComponent(contactEmail).toLowerCase().trim();
+        const initialLength = (segment.contacts || []).length;
+        segment.contacts = (segment.contacts || []).filter(c => c.email.toLowerCase().trim() !== targetEmail);
+
+        if (segment.contacts.length === initialLength) {
+            return res.status(404).json({ error: 'Contact not found in this segment' });
+        }
+
+        await segment.save();
+
+        res.json({
+            success: true,
+            message: `Contact "${targetEmail}" removed from segment.`,
+            totalCount: segment.contacts.length,
+            segment
+        });
+    } catch (err) {
+        next(err);
+    }
+};
+
