@@ -22,6 +22,7 @@ const EALeadSchema = new mongoose.Schema({
             isRead: { type: Boolean, default: false }
         }
     ],
+    calls: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Call', index: true }],
     callHistory: [
         {
             callSid: { type: String, required: true },

@@ -71,9 +71,20 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    // Show error toast for all other non-401 errors
+    // Deduplicate "Lead not found" errors to a single notification
+    if (typeof message === "string" && message.toLowerCase().includes("lead not found")) {
+      toast.error("Lead not found or has been deleted", {
+        id: "lead-not-found-toast",
+        duration: 4000,
+      });
+      return Promise.reject(error);
+    }
+
+    // Show error toast for all other non-401 errors (deduplicated by message)
     if (status !== 401) {
-      toast.error(message);
+      toast.error(message, {
+        id: typeof message === "string" ? message : undefined,
+      });
     }
 
     return Promise.reject(error);

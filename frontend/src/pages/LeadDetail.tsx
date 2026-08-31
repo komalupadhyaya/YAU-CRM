@@ -407,6 +407,12 @@ export default function LeadDetail() {
 
   useEffect(() => {
     loadAll();
+    const interval = setInterval(() => {
+      if (!isEditingRef.current) {
+        loadAll(true);
+      }
+    }, 5000);
+    return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
@@ -594,7 +600,12 @@ export default function LeadDetail() {
       if (lead && lead.callHistory) {
         setLead({
           ...lead,
-          callHistory: lead.callHistory.filter(c => c.callSid !== callToDeleteSid && c.parentCallSid !== callToDeleteSid)
+          callHistory: lead.callHistory.filter(c => 
+            c.callSid !== callToDeleteSid && 
+            c.parentCallSid !== callToDeleteSid && 
+            c.retellCallId !== callToDeleteSid &&
+            (c as any)._id !== callToDeleteSid
+          )
         });
       }
       await api.delete(`/leads/${id}/call-history/${callToDeleteSid}`);
@@ -1679,7 +1690,7 @@ export default function LeadDetail() {
 
             {activeLogTab === 'calls' && (
               <div className="space-y-4">
-                {lead?.callHistory && lead.callHistory.length > 0 && currentUser?.role === 'admin' && (
+                {lead?.callHistory && lead.callHistory.length > 0 && (currentUser?.role === 'admin' || currentUser?.role === 'manager') && (
                   <div className="flex justify-end mb-2">
                     <button
                       onClick={() => setIsDeleteAllCallsOpen(true)}
@@ -1705,7 +1716,7 @@ export default function LeadDetail() {
                           <th className="py-2 px-3">Status</th>
                           <th className="py-2 px-3 text-center">Recording</th>
                           <th className="py-2 px-3 text-center">AI Details</th>
-                          {currentUser?.role === 'admin' && (
+                          {(currentUser?.role === 'admin' || currentUser?.role === 'manager') && (
                             <th className="py-2 px-3 text-center w-[60px]">Delete</th>
                           )}
                         </tr>
@@ -1714,7 +1725,7 @@ export default function LeadDetail() {
                         {[...lead.callHistory]
                           .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
                           .map((call) => (
-                          <tr key={call.callSid} className="text-xs text-foreground hover:bg-accent/10">
+                          <tr key={call.callSid || call.retellCallId || (call as any)._id} className="text-xs text-foreground hover:bg-accent/10">
                             <td className="py-3 px-3 font-semibold">
                               {call.direction === 'inbound' ? '📲 Inbound' : '📞 Outbound'}
                             </td>
@@ -1727,7 +1738,7 @@ export default function LeadDetail() {
                             <td className="py-3 px-3">
                               <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${
                                 call.status === 'completed' 
-                                  ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' 
+                                   ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' 
                                   : 'bg-rose-500/10 text-rose-500 border border-rose-500/20'
                               }`}>
                                 {call.status}
@@ -1760,10 +1771,10 @@ export default function LeadDetail() {
                                 <span className="text-muted-foreground/30 italic font-mono">—</span>
                               )}
                             </td>
-                            {currentUser?.role === 'admin' && (
+                            {(currentUser?.role === 'admin' || currentUser?.role === 'manager') && (
                               <td className="py-3 px-3 text-center">
                                 <button
-                                  onClick={() => setCallToDeleteSid(call.callSid)}
+                                  onClick={() => setCallToDeleteSid(call.callSid || call.retellCallId || (call as any)._id)}
                                   className="inline-flex items-center justify-center p-1.5 rounded-lg bg-destructive/10 text-destructive border border-destructive/20 hover:bg-destructive hover:text-destructive-foreground transition-all duration-200 active:scale-95"
                                   title="Delete call record"
                                 >

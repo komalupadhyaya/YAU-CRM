@@ -247,11 +247,55 @@ export const getEALeads = async (req, res) => {
  */
 export const getEALeadById = async (req, res) => {
     try {
-        const lead = await EALead.findById(req.params.id);
+        const lead = await EALead.findById(req.params.id).lean();
         if (!lead) {
             return res.status(404).json({ error: 'Lead not found' });
         }
-        return res.status(200).json(lead);
+
+        // Fetch authoritative calls from Call collection for this EA Lead
+        const Call = (await import('../models/call.model.js')).default;
+        const callRecords = await Call.find({
+            $or: [
+                { ea_lead_id: lead._id },
+                { lead_id: lead._id },
+                ...(lead.calls && lead.calls.length > 0 ? [{ _id: { $in: lead.calls } }] : []),
+                ...(lead.phone ? [{ fromNumber: { $regex: new RegExp(lead.phone.replace(/\D/g, '').slice(-10) + '$') } }, { toNumber: { $regex: new RegExp(lead.phone.replace(/\D/g, '').slice(-10) + '$') } }] : [])
+            ]
+        }).sort({ timestamp: -1 }).lean();
+
+        // Merge call records into lead.callHistory ensuring fresh AI summaries
+        const callMap = new Map();
+        callRecords.forEach(c => {
+            const key = c.callSid || c.retellCallId || c._id.toString();
+            callMap.set(key, {
+                _id: c._id,
+                callSid: c.callSid,
+                parentCallSid: c.parentCallSid,
+                direction: c.direction,
+                duration: c.duration,
+                recordingUrl: c.recordingUrl,
+                status: c.status,
+                timestamp: c.timestamp,
+                source: c.source || 'twilio',
+                retellCallId: c.retellCallId,
+                aiSummary: c.aiSummary,
+                callerSentiment: c.callerSentiment,
+                transcript: c.transcript
+            });
+        });
+
+        if (lead.callHistory && lead.callHistory.length > 0) {
+            lead.callHistory.forEach(c => {
+                const key = c.callSid || c.retellCallId || c._id?.toString();
+                if (key && !callMap.has(key)) {
+                    callMap.set(key, c);
+                }
+            });
+        }
+
+        const consolidatedCallHistory = Array.from(callMap.values()).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+        return res.status(200).json({ ...lead, callHistory: consolidatedCallHistory });
     } catch (error) {
         console.error('Error fetching EA lead:', error);
         return res.status(500).json({ error: 'Failed to fetch lead details' });

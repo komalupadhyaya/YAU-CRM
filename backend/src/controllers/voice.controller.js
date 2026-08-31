@@ -1061,6 +1061,12 @@ export const handleCallStatus = async (req, res, next) => {
                         status: CallStatus,
                         timestamp: new Date()
                     });
+                    if (callRecord && callRecord._id) {
+                        if (!lead.calls) lead.calls = [];
+                        if (!lead.calls.some(cid => cid.toString() === callRecord._id.toString())) {
+                            lead.calls.push(callRecord._id);
+                        }
+                    }
                     await lead.save();
                     console.log(`✅ callHistory updated for lead ${lead._id} with callSid ${CallSid} / parentCallSid ${ParentCallSid}`);
                 } else {
@@ -1377,10 +1383,16 @@ export const logCallOutcome = async (req, res, next) => {
                     status: 'completed',
                     timestamp: new Date()
                 });
-                lead.markModified('callHistory');
-                await lead.save();
-                console.log(`✅ logCallOutcome: added callSid ${callSid} to lead ${lead._id} callHistory`);
             }
+            if (callRecord && callRecord._id) {
+                if (!lead.calls) lead.calls = [];
+                if (!lead.calls.some(cid => cid.toString() === callRecord._id.toString())) {
+                    lead.calls.push(callRecord._id);
+                }
+            }
+            lead.markModified('callHistory');
+            await lead.save();
+            console.log(`✅ logCallOutcome: updated lead ${lead._id} call history & references`);
         }
 
         res.json({ success: true, followup_needed: outcome.includes('Follow-Up Needed'), note_id: note._id });

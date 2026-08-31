@@ -61,6 +61,7 @@ const LeadSchema = new mongoose.Schema({
         twilioSid: { type: String, default: null },
         isRead: { type: Boolean, default: false }
     }],
+    calls: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Call', index: true }],
     callHistory: [{
         callSid: { type: String, required: true },
         parentCallSid: { type: String },

@@ -511,7 +511,11 @@ export const handleSendGridWebhook = async (req, res) => {
                 continue;
             }
 
-            // 1. Update recipient log status first
+            // Determine if this is an unsubscribe action (either native event or click on unsubscribe URL)
+            const isUnsubscribeClick = eventType === 'click' && event.url && event.url.toLowerCase().includes('/unsubscribe');
+            const isUnsubscribeEvent = ['unsubscribe', 'group_unsubscribe'].includes(eventType) || isUnsubscribeClick;
+
+            // 1. Update recipient log status first with strict status precedence
             if (campaign.recipientLogs && campaign.recipientLogs.length > 0) {
                 const sgMsgId = event.sg_message_id ? event.sg_message_id.split('.')[0] : null;
                 const logItem = campaign.recipientLogs.find(log => 
@@ -525,6 +529,12 @@ export const handleSendGridWebhook = async (req, res) => {
                     if (['bounce', 'blocked', 'dropped'].includes(eventType)) {
                         logItem.status = 'bounce';
                         logItem.error = event.reason || event.response || `SendGrid Event: ${eventType}`;
+                    } else if (isUnsubscribeEvent) {
+                        // Mark as unsubscribe (highest priority state)
+                        logItem.status = 'unsubscribe';
+                    } else if (logItem.status === 'unsubscribe') {
+                        // CRITICAL: Preserve unsubscribe status! Never downgrade back to 'click', 'open', or 'delivered'
+                        console.log(`[SendGrid Webhook] Preserving 'unsubscribe' status for ${email} (ignored lower-priority event: ${eventType})`);
                     } else {
                         logItem.status = eventType;
                     }
@@ -592,6 +602,11 @@ export const handleSendGridWebhook = async (req, res) => {
                 if (['bounce', 'blocked', 'dropped'].includes(eventType)) {
                     emailHistoryDoc.status = 'bounce';
                     emailHistoryDoc.error = event.reason || event.response || `SendGrid Event: ${eventType}`;
+                } else if (isUnsubscribeEvent) {
+                    emailHistoryDoc.status = 'unsubscribe';
+                } else if (emailHistoryDoc.status === 'unsubscribe') {
+                    // CRITICAL: Preserve unsubscribe status on EmailHistory doc
+                    console.log(`[SendGrid Webhook] Preserving 'unsubscribe' status on EmailHistory for ${email}`);
                 } else {
                     emailHistoryDoc.status = eventType;
                 }
@@ -601,7 +616,7 @@ export const handleSendGridWebhook = async (req, res) => {
                 await emailHistoryDoc.save();
             }
 
-            if (['unsubscribe', 'bounce', 'spam'].includes(eventType)) {
+            if (['unsubscribe', 'group_unsubscribe', 'bounce', 'spam'].includes(eventType) || isUnsubscribeEvent) {
                 console.log(`[SendGrid Webhook] Revoking email consent for ${email} due to event: ${eventType}`);
                 if (leadId) {
                     if (leadModel === 'EALead') {

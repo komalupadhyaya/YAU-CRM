@@ -128,6 +128,7 @@ interface EmailConversation {
   isConsent: boolean;
   lastMessage: string;
   lastMessageTimestamp: string;
+  leadId?: string;
 }
 
 interface EmailHistoryItem {
@@ -237,8 +238,9 @@ export default function EmailCenter() {
   const [isGeneratingAiTemplate, setIsGeneratingAiTemplate] = useState(false);
   const [isSavingTemplate, setIsSavingTemplate] = useState(false);
 
-  // Manual Template Builder State
+  // Manual & Edit Template Builder State
   const [isManualTemplateModalOpen, setIsManualTemplateModalOpen] = useState(false);
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
   const [manualTemplateMode, setManualTemplateMode] = useState<'editor' | 'html'>('editor');
   const [manualTemplateName, setManualTemplateName] = useState('');
   const [manualTemplateSubject, setManualTemplateSubject] = useState('');
@@ -246,6 +248,21 @@ export default function EmailCenter() {
   const [manualTemplateHtml, setManualTemplateHtml] = useState('');
   const [savingManualTemplate, setSavingManualTemplate] = useState(false);
   const manualEditorRef = useRef<HTMLDivElement>(null);
+
+  const handleOpenEditTemplate = (tpl: DbTemplate) => {
+    setEditingTemplateId(tpl._id);
+    setManualTemplateName(tpl.name || '');
+    setManualTemplateSubject(tpl.subject || '');
+    setManualTemplateCategory(tpl.category || 'General');
+    setManualTemplateHtml(tpl.content || '');
+    setManualTemplateMode('editor');
+    setIsManualTemplateModalOpen(true);
+    setTimeout(() => {
+      if (manualEditorRef.current) {
+        manualEditorRef.current.innerHTML = tpl.content || '';
+      }
+    }, 50);
+  };
 
   // Direct Template Preview Modal State
   const [selectedTemplateForPreview, setSelectedTemplateForPreview] = useState<DbTemplate | null>(null);
@@ -469,7 +486,7 @@ export default function EmailCenter() {
     if (campaignRecipientFilter === "open" || campaignRecipientFilter === "opened") {
       list = list.filter(log => log.status === "open" || log.status === "opened" || log.status === "click" || log.status === "clicked" || log.status === "unsubscribe");
     } else if (campaignRecipientFilter === "click" || campaignRecipientFilter === "clicked") {
-      list = list.filter(log => log.status === "click" || log.status === "clicked" || log.status === "unsubscribe");
+      list = list.filter(log => log.status === "click" || log.status === "clicked");
     } else if (campaignRecipientFilter === "unsubscribe" || campaignRecipientFilter === "unsubscribed") {
       list = list.filter(log => log.status === "unsubscribe" || log.status === "unsubscribed");
     } else if (campaignRecipientFilter === "bounce" || campaignRecipientFilter === "bounced") {
@@ -1139,7 +1156,7 @@ export default function EmailCenter() {
     }
   };
 
-  // Save Manual Template to MongoDB
+  // Save or Update Manual / Edited Template to MongoDB
   const handleSaveManualTemplate = async () => {
     const content = manualTemplateMode === 'html'
       ? manualTemplateHtml.trim()
@@ -1155,26 +1172,31 @@ export default function EmailCenter() {
     }
     setSavingManualTemplate(true);
     try {
-      const res = await api.post('/templates', {
-        name: manualTemplateName.trim(),
-        subject: manualTemplateSubject.trim() || manualTemplateName.trim(),
-        category: manualTemplateCategory || 'General',
-        content,
-        isAiGenerated: false,
-      });
-      toast.success('Template saved successfully!');
-      setTemplates(prev => [res.data, ...prev]);
+      if (editingTemplateId) {
+        const res = await api.put(`/templates/${editingTemplateId}`, {
+          name: manualTemplateName.trim(),
+          subject: manualTemplateSubject.trim() || manualTemplateName.trim(),
+          category: manualTemplateCategory || 'General',
+          content,
+        });
+        toast.success('Template updated successfully!');
+        setTemplates(prev => prev.map(t => t._id === editingTemplateId ? res.data : t));
+      } else {
+        const res = await api.post('/templates', {
+          name: manualTemplateName.trim(),
+          subject: manualTemplateSubject.trim() || manualTemplateName.trim(),
+          category: manualTemplateCategory || 'General',
+          content,
+          isAiGenerated: false,
+        });
+        toast.success('Template saved successfully!');
+        setTemplates(prev => [res.data, ...prev]);
+      }
       fetchTemplates(true);
       setIsManualTemplateModalOpen(false);
-      // Reset form
-      setManualTemplateName('');
-      setManualTemplateSubject('');
-      setManualTemplateCategory('General');
-      setManualTemplateHtml('');
-      setManualTemplateMode('editor');
-      if (manualEditorRef.current) manualEditorRef.current.innerHTML = '';
+      resetManualTemplateModalState();
     } catch (err: any) {
-      toast.error(err.response?.data?.error || 'Failed to save template.');
+      toast.error(err.response?.data?.error || (editingTemplateId ? 'Failed to update template.' : 'Failed to save template.'));
     } finally {
       setSavingManualTemplate(false);
     }
@@ -1690,6 +1712,7 @@ export default function EmailCenter() {
   }, []);
 
   const resetManualTemplateModalState = useCallback(() => {
+    setEditingTemplateId(null);
     setManualTemplateName('');
     setManualTemplateSubject('');
     setManualTemplateCategory('General');
@@ -2240,8 +2263,11 @@ export default function EmailCenter() {
         setAiPrompt("");
       } else {
         const res = await api.post("/emails/ai-generate-email", {
-          leadId: selectedConversation?._id || "64cb20790d96d741a4bc5171",
+          leadId: selectedConversation?._id || undefined,
           leadType: selectedConversation?.leadType || "main_lead",
+          contactName: selectedConversation?.name || undefined,
+          leadName: selectedConversation?.name || undefined,
+          recipientName: selectedConversation?.name || undefined,
           userPrompt: aiPrompt.trim()
         });
 
@@ -3310,6 +3336,14 @@ export default function EmailCenter() {
                                     </button>
                                     <button
                                       type="button"
+                                      onClick={() => handleOpenEditTemplate(tpl)}
+                                      className="h-8 px-2.5 bg-accent/60 hover:bg-accent text-foreground rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
+                                      title="Edit Template"
+                                    >
+                                      <Edit2 size={12} /> Edit
+                                    </button>
+                                    <button
+                                      type="button"
                                       onClick={() => injectDbTemplate(tpl)}
                                       className="h-8 px-3 bg-primary text-white hover:bg-primary/90 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
                                     >
@@ -3365,6 +3399,14 @@ export default function EmailCenter() {
                                 title="Quick Preview Template"
                               >
                                 <Eye size={12} /> Preview
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditTemplate(tpl)}
+                                className="h-8 px-2.5 bg-accent/60 hover:bg-accent text-foreground rounded-xl text-xs font-bold flex items-center gap-1 transition-all shadow-xs shrink-0 cursor-pointer"
+                                title="Edit Template"
+                              >
+                                <Edit2 size={12} /> Edit
                               </button>
                               <button
                                 type="button"
@@ -6093,8 +6135,8 @@ export default function EmailCenter() {
 
                             const isBouncedOrBlocked = log.status === "bounce" || log.status === "bounced" || log.status === "blocked" || log.status === "failed";
                             const isUnsubscribed = log.status === "unsubscribe" || log.status === "unsubscribed";
-                            const isClicked = log.status === "click" || log.status === "clicked" || isUnsubscribed;
-                            const isOpened = log.status === "open" || log.status === "opened" || isClicked;
+                            const isClicked = log.status === "click" || log.status === "clicked";
+                            const isOpened = log.status === "open" || log.status === "opened" || isClicked || isUnsubscribed;
                             const isDelivered = !isBouncedOrBlocked;
 
                             return (
@@ -6929,9 +6971,14 @@ export default function EmailCenter() {
                 <FileText size={16} className="text-primary" />
               </div>
               <div>
-                <DialogTitle className="text-sm font-bold leading-tight">Create Email Template</DialogTitle>
+                <DialogTitle className="text-sm font-bold leading-tight">
+                  {editingTemplateId ? "Edit Email Template" : "Create Email Template"}
+                </DialogTitle>
                 <DialogDescription className="text-[11px] text-muted-foreground mt-0.5">
-                  Build a reusable email template to use in campaigns.
+                  {editingTemplateId
+                    ? "Update and refine your reusable email template layout and content."
+                    : "Build a reusable email template to use in campaigns."
+                  }
                 </DialogDescription>
               </div>
             </div>
@@ -7455,7 +7502,7 @@ export default function EmailCenter() {
                 {savingManualTemplate ? (
                   <><Loader2 size={12} className="animate-spin" /> Saving...</>
                 ) : (
-                  <><CheckCircle size={12} /> Save Template</>
+                  <><CheckCircle size={12} /> {editingTemplateId ? "Update Template" : "Save Template"}</>
                 )}
               </button>
             </div>
@@ -7574,16 +7621,28 @@ export default function EmailCenter() {
                 Close
               </button>
               {selectedTemplateForPreview && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsTemplatePreviewModalOpen(false);
-                    injectDbTemplate(selectedTemplateForPreview);
-                  }}
-                  className="btn-primary text-xs h-9 px-4 bg-primary hover:bg-primary/95 text-white flex items-center gap-1.5 shadow-sm font-bold"
-                >
-                  <Send size={13} /> Use in New Campaign
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsTemplatePreviewModalOpen(false);
+                      handleOpenEditTemplate(selectedTemplateForPreview);
+                    }}
+                    className="h-9 px-3.5 bg-accent/60 hover:bg-accent text-foreground border rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Edit2 size={12} /> Edit Template
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsTemplatePreviewModalOpen(false);
+                      injectDbTemplate(selectedTemplateForPreview);
+                    }}
+                    className="btn-primary text-xs h-9 px-4 bg-primary hover:bg-primary/95 text-white flex items-center gap-1.5 shadow-sm font-bold"
+                  >
+                    <Send size={13} /> Use in New Campaign
+                  </button>
+                </>
               )}
             </div>
           </DialogFooter>

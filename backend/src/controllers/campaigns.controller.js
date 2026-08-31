@@ -115,24 +115,18 @@ export const sendEmail = async (req, res, next) => {
 // --- Existing AI generate draft ---
 export const generateEmailMessage = async (req, res) => {
     try {
-        const { leadId, leadType, contactName, userPrompt } = req.body;
-
-        if (!leadId) {
-            return res.status(400).json({ error: 'leadId is required' });
-        }
+        const { leadId, leadType, contactName, leadName, recipientName, userPrompt } = req.body;
 
         let lead = null;
-        if (leadType === 'ea_lead') {
-            lead = await EALead.findById(leadId).lean();
-        } else {
-            lead = await Lead.findById(leadId).lean();
+        if (leadId && mongoose.Types.ObjectId.isValid(leadId)) {
+            if (leadType === 'ea_lead') {
+                lead = await EALead.findById(leadId).lean();
+            } else {
+                lead = await Lead.findById(leadId).lean();
+            }
         }
 
-        if (!lead) {
-            return res.status(404).json({ error: 'Lead not found' });
-        }
-
-        if (leadType !== 'ea_lead' && req.currentUserRole === 'sales_rep') {
+        if (lead && leadType !== 'ea_lead' && req.currentUserRole === 'sales_rep') {
             const assignedId = lead.assigned_to ? lead.assigned_to.toString() : null;
             if (assignedId && assignedId !== req.user.id) {
                 return res.status(403).json({ error: 'Access denied. This lead is not assigned to you.' });
@@ -140,26 +134,31 @@ export const generateEmailMessage = async (req, res) => {
         }
 
         let recentNotes = [];
-        try {
-            const notes = await Note.find({ lead_id: leadId }).sort({ createdAt: -1 }).limit(5).lean();
-            recentNotes = notes.map(n => ({
-                type: n.type,
-                content: n.content,
-                date: n.createdAt
-            }));
-        } catch (e) {
-            console.warn('Could not fetch notes for email AI context:', e.message);
+        if (lead && lead._id) {
+            try {
+                const notes = await Note.find({ lead_id: lead._id }).sort({ createdAt: -1 }).limit(5).lean();
+                recentNotes = notes.map(n => ({
+                    type: n.type,
+                    content: n.content,
+                    date: n.createdAt
+                }));
+            } catch (e) {
+                console.warn('Could not fetch notes for email AI context:', e.message);
+            }
         }
 
-        const personName = contactName || lead.contacts?.[0]?.name || lead.main_contact_name || '';
-        const personTitle = lead.contacts?.[0]?.title || '';
+        const orgName = lead?.name || leadName || 'Partner Organization';
+        const personName = contactName || lead?.contacts?.[0]?.name || lead?.main_contact_name || recipientName || '';
+        const personTitle = lead?.contacts?.[0]?.title || '';
+        const leadStatus = lead?.status || 'Active';
+        const leadCategory = lead?.category_group || lead?.type || 'Youth Sports & School Partnerships';
 
         const result = await aiService.generateEmailMessage({
-            leadName:     lead.name,
+            leadName:     orgName,
             contactName:  personName,
             contactTitle: personTitle,
-            leadStatus:   lead.status,
-            leadCategory: lead.category_group || lead.type || '',
+            leadStatus:   leadStatus,
+            leadCategory: leadCategory,
             recentNotes,
             userPrompt:   userPrompt || ''
         });

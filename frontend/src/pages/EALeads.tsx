@@ -574,25 +574,31 @@ export default function EALeads() {
     }
   };
 
-  // Poll for messages when view dialog is open and active tab is "messages"
+  // Poll for messages or calls when view dialog is open and active tab is "messages" or "calls"
   useEffect(() => {
-    if (!viewDialogOpen || !selectedLead || activeTab !== "messages") return;
+    if (!viewDialogOpen || !selectedLead || (activeTab !== "messages" && activeTab !== "calls")) return;
 
     const interval = setInterval(async () => {
       try {
         const res = await api.get(`/ea-leads/${selectedLead._id}`);
-        // Only update if there are new messages to avoid state jump
-        if (JSON.stringify(res.data.smsHistory) !== JSON.stringify(selectedLead.smsHistory)) {
-          setSelectedLead(res.data);
-          setLeads(prev => prev.map(l => l._id === selectedLead._id ? res.data : l));
+        if (activeTab === "messages") {
+          if (JSON.stringify(res.data.smsHistory) !== JSON.stringify(selectedLead.smsHistory)) {
+            setSelectedLead(res.data);
+            setLeads(prev => prev.map(l => l._id === selectedLead._id ? res.data : l));
+          }
+        } else if (activeTab === "calls") {
+          if (JSON.stringify(res.data.callHistory) !== JSON.stringify(selectedLead.callHistory)) {
+            setSelectedLead(res.data);
+            setLeads(prev => prev.map(l => l._id === selectedLead._id ? res.data : l));
+          }
         }
       } catch (err) {
-        console.error("Error polling messages:", err);
+        console.error("Error polling EA lead updates:", err);
       }
-    }, 5000);
+    }, 4000);
 
     return () => clearInterval(interval);
-  }, [viewDialogOpen, selectedLead?._id, activeTab, selectedLead?.smsHistory]);
+  }, [viewDialogOpen, selectedLead?._id, activeTab, selectedLead?.smsHistory, selectedLead?.callHistory]);
 
   // Open Delete Dialog
   const handleOpenDelete = (lead: EALead) => {

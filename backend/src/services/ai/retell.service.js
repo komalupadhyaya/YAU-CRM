@@ -515,8 +515,39 @@ export async function syncKnowledgeBaseToRetell(kb) {
     };
 }
 
+/**
+ * Fetches call details directly from Retell AI REST API
+ * @param {string} callId - Retell call ID
+ */
+export async function getRetellCallDetails(callId) {
+    const apiKey = getRetellApiKey();
+    if (!apiKey || !callId) return null;
+
+    try {
+        const res = await axios.get(`${RETELL_API_BASE}/get-call/${callId}`, {
+            headers: {
+                Authorization: `Bearer ${apiKey}`,
+                'Content-Type': 'application/json'
+            }
+        }).catch(async () => {
+            return axios.get(`${RETELL_API_BASE}/v2/get-call/${callId}`, {
+                headers: {
+                    Authorization: `Bearer ${apiKey}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+        });
+
+        return res.data || null;
+    } catch (err) {
+        console.warn(`[Retell Service] Could not fetch call ${callId} details:`, err.response?.data?.message || err.message);
+        return null;
+    }
+}
+
 export default {
     buildPromptFromKnowledgeBase,
     getRetellAgentDetails,
-    syncKnowledgeBaseToRetell
+    syncKnowledgeBaseToRetell,
+    getRetellCallDetails
 };

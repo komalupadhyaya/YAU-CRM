@@ -227,7 +227,47 @@ export const getLeadById = async (req, res, next) => {
         // Fetch contacts for this lead
         const contacts = await Contact.find({ lead_id: lead._id }).sort({ is_primary: -1, createdAt: 1 }).lean();
         
-        res.json({ ...lead, contacts });
+        // Fetch authoritative calls from Call collection for this lead
+        const callRecords = await Call.find({
+            $or: [
+                ...(lead.calls && lead.calls.length > 0 ? [{ _id: { $in: lead.calls } }] : []),
+                { lead_id: lead._id }
+            ]
+        }).sort({ timestamp: -1 }).lean();
+
+        // Merge call records into lead.callHistory ensuring full backward compatibility and fresh AI summaries
+        const callMap = new Map();
+        callRecords.forEach(c => {
+            const key = c.callSid || c.retellCallId || c._id.toString();
+            callMap.set(key, {
+                _id: c._id,
+                callSid: c.callSid,
+                parentCallSid: c.parentCallSid,
+                direction: c.direction,
+                duration: c.duration,
+                recordingUrl: c.recordingUrl,
+                status: c.status,
+                timestamp: c.timestamp,
+                source: c.source || 'twilio',
+                retellCallId: c.retellCallId,
+                aiSummary: c.aiSummary,
+                callerSentiment: c.callerSentiment,
+                transcript: c.transcript
+            });
+        });
+
+        if (lead.callHistory && lead.callHistory.length > 0) {
+            lead.callHistory.forEach(c => {
+                const key = c.callSid || c.retellCallId || c._id?.toString();
+                if (key && !callMap.has(key)) {
+                    callMap.set(key, c);
+                }
+            });
+        }
+
+        const consolidatedCallHistory = Array.from(callMap.values()).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+        res.json({ ...lead, callHistory: consolidatedCallHistory, contacts });
     } catch (err) {
         next(err);
     }
@@ -667,16 +707,31 @@ export const deleteAllLeadCallHistory = async (req, res, next) => {
         if (!lead) {
             return res.status(404).json({ message: 'Lead not found' });
         }
-        lead.callHistory = [];
 
-        // Save updated lead and delete associated Call and Note records concurrently
+        const callIdsToUnlink = (lead.calls || []).map(c => c.toString());
+        const callSids = (lead.callHistory || []).map(c => c.callSid).filter(Boolean);
+        const retellIds = (lead.callHistory || []).map(c => c.retellCallId).filter(Boolean);
+
+        lead.callHistory = [];
+        lead.calls = [];
+        lead.markModified('callHistory');
+        lead.markModified('calls');
+
+        const callOrConditions = [
+            { lead_id: id },
+            ...(callIdsToUnlink.length > 0 ? [{ _id: { $in: callIdsToUnlink } }] : []),
+            ...(callSids.length > 0 ? [{ callSid: { $in: callSids } }] : []),
+            ...(retellIds.length > 0 ? [{ retellCallId: { $in: retellIds } }] : [])
+        ];
+
+        // Unlink Call records (disassociate lead_id) and delete lead timeline Notes, preserving Call collection documents
         await Promise.all([
             lead.save(),
-            Call.deleteMany({ lead_id: id }),
+            Call.updateMany({ $or: callOrConditions }, { $set: { lead_id: null } }),
             Note.deleteMany({ lead_id: id, type: 'call' })
         ]);
 
-        res.json({ message: 'All call history for this lead deleted successfully' });
+        res.json({ message: 'All call history unlinked from lead successfully' });
     } catch (err) {
         next(err);
     }
@@ -691,29 +746,56 @@ export const deleteSingleLeadCallHistory = async (req, res, next) => {
         }
         
         // Remove from lead.callHistory array
-        lead.callHistory = lead.callHistory.filter(call => call.callSid !== callSid && call.parentCallSid !== callSid);
+        lead.callHistory = (lead.callHistory || []).filter(call => 
+            call.callSid !== callSid && 
+            call.parentCallSid !== callSid && 
+            call.retellCallId !== callSid && 
+            call._id?.toString() !== callSid
+        );
 
-        // Save updated lead and delete Call and Note records concurrently
+        // Find the call document across all possible identifiers
+        const isObjectId = callSid.match(/^[0-9a-fA-F]{24}$/);
+        const callQuery = {
+            $or: [
+                { callSid: callSid },
+                { parentCallSid: callSid },
+                { retellCallId: callSid },
+                ...(isObjectId ? [{ _id: callSid }] : [])
+            ]
+        };
+
+        const callToUnlink = await Call.findOne(callQuery);
+
+        if (callToUnlink && lead.calls) {
+            lead.calls = lead.calls.filter(cid => cid.toString() !== callToUnlink._id.toString());
+        }
+        if (isObjectId && lead.calls) {
+            lead.calls = lead.calls.filter(cid => cid.toString() !== callSid);
+        }
+
+        lead.markModified('callHistory');
+        lead.markModified('calls');
+
+        // Save updated lead, disassociate Call lead_id, and delete timeline Note, preserving Call collection document
         await Promise.all([
             lead.save(),
-            Call.deleteMany({ 
-                $or: [
-                    { callSid: callSid },
-                    { parentCallSid: callSid }
-                ],
-                lead_id: id
-            }),
+            Call.updateMany(callQuery, { $set: { lead_id: null } }),
             Note.deleteMany({ 
                 lead_id: id, 
                 type: 'call',
                 $or: [
                     { 'metadata.callSid': callSid },
-                    { 'metadata.parentCallSid': callSid }
+                    { 'metadata.parentCallSid': callSid },
+                    { 'metadata.retellCallId': callSid },
+                    ...(callToUnlink ? [
+                        { 'metadata.callSid': callToUnlink.callSid },
+                        { 'metadata.retellCallId': callToUnlink.retellCallId }
+                    ] : [])
                 ]
             })
         ]);
 
-        res.json({ message: 'Call record deleted successfully' });
+        res.json({ message: 'Call record unlinked from lead successfully' });
     } catch (err) {
         next(err);
     }

@@ -60,6 +60,7 @@ export interface EmailConversation {
   isConsent: boolean;
   lastMessage: string;
   lastMessageTimestamp: string;
+  leadId?: string;
 }
 
 export interface EmailHistoryItem {
