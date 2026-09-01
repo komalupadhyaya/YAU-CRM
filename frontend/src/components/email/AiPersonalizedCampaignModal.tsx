@@ -372,10 +372,12 @@ export default function AiPersonalizedCampaignModal({
               <div className="p-4 rounded-2xl bg-card border border-border shadow-2xs space-y-3">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1.5 flex items-center gap-1">
+                    <label htmlFor="ai-campaign-title-input" className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1.5 flex items-center gap-1 cursor-pointer">
                       Campaign Title <span className="text-destructive">*</span>
                     </label>
                     <input
+                      id="ai-campaign-title-input"
+                      name="ai_campaign_title"
                       type="text"
                       placeholder="e.g. Spring 2025 Athletic Partner Outreach"
                       value={campaignTitle}
@@ -385,10 +387,12 @@ export default function AiPersonalizedCampaignModal({
                   </div>
 
                   <div>
-                    <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1.5 flex items-center gap-1">
+                    <label htmlFor="ai-campaign-segment-select" className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1.5 flex items-center gap-1 cursor-pointer">
                       Target List / Segment <span className="text-destructive">*</span>
                     </label>
                     <select
+                      id="ai-campaign-segment-select"
+                      name="ai_campaign_segment_id"
                       value={selectedSegmentId}
                       onChange={e => setSelectedSegmentId(e.target.value)}
                       className="input-field w-full h-10 text-xs font-medium bg-background cursor-pointer rounded-xl"
@@ -410,7 +414,7 @@ export default function AiPersonalizedCampaignModal({
                   {/* Sample Design Template Dropdown */}
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
-                      <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                      <label htmlFor="ai-campaign-template-select" className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1 cursor-pointer">
                         <Layout size={13} className="text-purple-500" /> Sample Design Template
                       </label>
                       {activeTemplate && (
@@ -424,6 +428,8 @@ export default function AiPersonalizedCampaignModal({
                       )}
                     </div>
                     <select
+                      id="ai-campaign-template-select"
+                      name="ai_campaign_template_id"
                       value={selectedTemplateId}
                       onChange={e => setSelectedTemplateId(e.target.value)}
                       className="input-field w-full h-10 text-xs font-medium bg-background cursor-pointer rounded-xl"
@@ -439,10 +445,12 @@ export default function AiPersonalizedCampaignModal({
 
                   {/* Tone of Voice Dropdown */}
                   <div>
-                    <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1.5 flex items-center gap-1">
+                    <label htmlFor="ai-campaign-tone-select" className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1.5 flex items-center gap-1 cursor-pointer">
                       <Palette size={13} className="text-blue-500" /> Tone of Voice
                     </label>
                     <select
+                      id="ai-campaign-tone-select"
+                      name="ai_campaign_tone"
                       value={selectedTone}
                       onChange={e => setSelectedTone(e.target.value)}
                       className="input-field w-full h-10 text-xs font-medium bg-background cursor-pointer rounded-xl"
@@ -475,7 +483,7 @@ export default function AiPersonalizedCampaignModal({
               <div className="p-4 rounded-2xl bg-card border border-border shadow-2xs space-y-3">
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                    <label htmlFor="ai-campaign-instructions-textarea" className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1 cursor-pointer">
                       Campaign Objective & Instructions <span className="text-destructive">*</span>
                     </label>
                     <span className="text-[11px] text-muted-foreground">
@@ -484,6 +492,8 @@ export default function AiPersonalizedCampaignModal({
                   </div>
                   
                   <textarea
+                    id="ai-campaign-instructions-textarea"
+                    name="ai_campaign_instructions"
                     rows={3}
                     placeholder="Describe what you want to achieve with this campaign. (e.g. Introduce our upcoming youth sports clinic and follow up on where we left off...)"
                     value={campaignGoal}
@@ -580,6 +590,9 @@ export default function AiPersonalizedCampaignModal({
                   <div className="relative w-full">
                     <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
                     <input
+                      id="ai-campaign-search-input"
+                      name="ai_campaign_search"
+                      aria-label="Search recipient or subject"
                       type="text"
                       placeholder="Search recipient or subject..."
                       value={searchQuery}
@@ -703,10 +716,12 @@ export default function AiPersonalizedCampaignModal({
 
                             {/* Subject Line Field */}
                             <div>
-                              <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">
+                              <label htmlFor={`ai-campaign-subject-${draft.email}`} className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block cursor-pointer">
                                 Subject Line
                               </label>
                               <input
+                                id={`ai-campaign-subject-${draft.email}`}
+                                name="ai_campaign_draft_subject"
                                 type="text"
                                 value={draft.subject}
                                 onChange={e => handleUpdateDraft(draft.email, "subject", e.target.value)}
@@ -717,7 +732,7 @@ export default function AiPersonalizedCampaignModal({
                             {/* Body Content View / Edit Toolbar */}
                             <div>
                               <div className="flex items-center justify-between mb-1.5 flex-wrap gap-2">
-                                <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                                <label htmlFor={`ai-campaign-body-${draft.email}`} className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground cursor-pointer">
                                   Personalized Message Body {activeTemplate ? "(Template Design Applied)" : ""}
                                 </label>
                                 <div className="flex items-center gap-1.5">
@@ -765,6 +780,8 @@ export default function AiPersonalizedCampaignModal({
                               ) : (
                                 <div className="border rounded-xl bg-slate-950 p-3 min-h-[280px] flex flex-col">
                                   <textarea
+                                    id={`ai-campaign-body-${draft.email}`}
+                                    name="ai_campaign_draft_body"
                                     rows={12}
                                     value={draft.body}
                                     onChange={e => handleUpdateDraft(draft.email, "body", e.target.value)}
@@ -798,10 +815,12 @@ export default function AiPersonalizedCampaignModal({
                             {/* Custom Regenerate Prompt Box */}
                             {showRegenBox && (
                               <div className="p-3 rounded-lg bg-accent/60 border border-border space-y-2 mt-2">
-                                <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">
+                                <label htmlFor={`ai-campaign-custom-regen-${draft.email}`} className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block cursor-pointer">
                                   Custom Instruction for {draft.name || 'this contact'} (Optional):
                                 </label>
                                 <input
+                                  id={`ai-campaign-custom-regen-${draft.email}`}
+                                  name="ai_campaign_custom_regen"
                                   type="text"
                                   placeholder="e.g. Focus on basketball gym schedule and keep it under 3 paragraphs..."
                                   value={customRegenPrompt[draft.email] || ""}
@@ -842,6 +861,7 @@ export default function AiPersonalizedCampaignModal({
                   <input
                     type="checkbox"
                     id="scheduleCampaign"
+                    name="ai_campaign_is_scheduled"
                     checked={isScheduled}
                     onChange={e => setIsScheduled(e.target.checked)}
                     className="w-4 h-4 rounded accent-primary cursor-pointer"
@@ -854,6 +874,9 @@ export default function AiPersonalizedCampaignModal({
                 {isScheduled && (
                   <div className="space-y-1">
                     <input
+                      id="ai-campaign-send-at-input"
+                      name="ai_campaign_send_at"
+                      aria-label="Schedule send date and time"
                       type="datetime-local"
                       value={scheduledDate}
                       min={(() => {

@@ -35,9 +35,15 @@ export const createTemplate = async (req, res, next) => {
 export const updateTemplate = async (req, res, next) => {
     try {
         const { name, category, subject, content } = req.body;
+        const updateData = {};
+        if (name !== undefined) updateData.name = name;
+        if (category !== undefined) updateData.category = category;
+        if (subject !== undefined) updateData.subject = subject;
+        if (content !== undefined) updateData.content = content;
+
         const template = await EmailTemplate.findByIdAndUpdate(
             req.params.id,
-            { name, category, subject, content },
+            updateData,
             { new: true }
         );
 

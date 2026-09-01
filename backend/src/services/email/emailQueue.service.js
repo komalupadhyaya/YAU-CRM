@@ -45,9 +45,17 @@ export const startQueueWorker = (io) => {
                         campaignId: job.campaignId
                     });
                     
-                    const logStatus = result.success ? 'sent' : 'failed';
-                    const msgId = result.success ? result.messageId : null;
                     const errStr = result.success ? null : result.error;
+                    const isBounceError = !result.success && errStr && (
+                        errStr.includes('550') ||
+                        errStr.includes('5.1.1') ||
+                        errStr.toLowerCase().includes('does not exist') ||
+                        errStr.toLowerCase().includes('user unknown') ||
+                        errStr.toLowerCase().includes('bounce') ||
+                        errStr.toLowerCase().includes('nosuchuser')
+                    );
+                    const logStatus = result.success ? 'sent' : (isBounceError ? 'bounce' : 'failed');
+                    const msgId = result.success ? result.messageId : null;
                     
                     if (result.success) {
                         // Delete successfully sent job from the queue to keep the collection small and fast

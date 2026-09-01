@@ -522,11 +522,15 @@ export const handleSendGridWebhook = async (req, res) => {
                     (log.messageId && sgMsgId && log.messageId.startsWith(sgMsgId)) ||
                     (log.email && email && log.email.toLowerCase() === email.toLowerCase())
                 );
+                const isBounceEvent = ['bounce', 'blocked', 'dropped', 'spamreport'].includes(eventType) ||
+                    (event.reason && (event.reason.includes('550') || event.reason.includes('5.1.1') || event.reason.toLowerCase().includes('does not exist') || event.reason.toLowerCase().includes('user unknown'))) ||
+                    (event.response && (event.response.includes('550') || event.response.includes('5.1.1') || event.response.toLowerCase().includes('does not exist')));
+
                 if (logItem) {
                     if (event.sg_message_id && !logItem.messageId) {
                         logItem.messageId = event.sg_message_id;
                     }
-                    if (['bounce', 'blocked', 'dropped'].includes(eventType)) {
+                    if (isBounceEvent) {
                         logItem.status = 'bounce';
                         logItem.error = event.reason || event.response || `SendGrid Event: ${eventType}`;
                     } else if (isUnsubscribeEvent) {
@@ -535,6 +539,9 @@ export const handleSendGridWebhook = async (req, res) => {
                     } else if (logItem.status === 'unsubscribe') {
                         // CRITICAL: Preserve unsubscribe status! Never downgrade back to 'click', 'open', or 'delivered'
                         console.log(`[SendGrid Webhook] Preserving 'unsubscribe' status for ${email} (ignored lower-priority event: ${eventType})`);
+                    } else if (logItem.status === 'bounce') {
+                        // CRITICAL: Preserve bounce status! Never downgrade back to 'delivered'
+                        console.log(`[SendGrid Webhook] Preserving 'bounce' status for ${email}`);
                     } else {
                         logItem.status = eventType;
                     }
@@ -552,23 +559,26 @@ export const handleSendGridWebhook = async (req, res) => {
 
                 campaign.recipientLogs.forEach(log => {
                     const status = log.status;
+                    const isBounced = status === 'bounce' || status === 'bounced' || status === 'blocked' || status === 'failed' || (log.error && (log.error.includes('550') || log.error.includes('5.1.1') || log.error.toLowerCase().includes('does not exist')));
+
                     if (['sent', 'processed', 'delivered', 'open', 'click', 'unsubscribe', 'bounce', 'failed'].includes(status)) {
                         sentCount++;
                     }
-                    if (['delivered', 'open', 'click'].includes(status)) {
-                        deliveredCount++;
-                    }
-                    if (['open', 'click'].includes(status)) {
-                        opensCount++;
-                    }
-                    if (status === 'click') {
-                        clicksCount++;
-                    }
-                    if (status === 'unsubscribe') {
-                        unsubscribesCount++;
-                    }
-                    if (status === 'bounce') {
+                    if (isBounced) {
                         bouncesCount++;
+                    } else {
+                        if (['delivered', 'open', 'click', 'unsubscribe'].includes(status)) {
+                            deliveredCount++;
+                        }
+                        if (['open', 'click', 'unsubscribe'].includes(status)) {
+                            opensCount++;
+                        }
+                        if (status === 'click') {
+                            clicksCount++;
+                        }
+                        if (status === 'unsubscribe') {
+                            unsubscribesCount++;
+                        }
                     }
                 });
 

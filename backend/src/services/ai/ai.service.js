@@ -286,7 +286,8 @@ EMAIL DESIGN & HTML RULES (follow strictly):
    - The current calendar year is ${currentYear}. Always reference the current year (${currentYear}) for any program dates, seasonal titles (e.g. "Summer Skills Camp ${currentYear}"), or copyright disclaimers (e.g. "© ${currentYear} Youth Athlete University"). Never reference past years.
 6. PERSONALIZATION: Use {{name}} as the dynamic placeholder for the recipient's name (e.g. "Hi {{name}},").
 7. STRICT TEMPLATE & DESIGN PRESERVATION: If existing HTML template code is provided, you MUST STRICTLY PRESERVE the entire surrounding HTML table layout, inline CSS styles, containers, background colors, header banners, borders, and CTA button structure/styling. Do NOT discard or alter the visual design or formatting. ONLY replace or insert the textual content (headlines, greeting, body paragraphs, bullet points, button text) according to the user's prompt.
-8. RESPONSE FORMAT: Return strictly JSON format with keys "name", "subject", "content", and "category". All double quotes inside "content" must be escaped with \\". Do NOT use raw unescaped linebreaks inside strings.
+8. HIGH-CONVERTING ACTION LAYOUT: Focus on clean, modern, single-column action-oriented layouts (vibrant hero banner, compelling value proposition, key highlights/bullets, high-contrast CTA button, and coaching team sign-off). Avoid cluttered, generic multi-column newsletter digest formats.
+9. RESPONSE FORMAT: Return strictly JSON format with keys "name", "subject", "content", and "category". All double quotes inside "content" must be escaped with \\". Do NOT use raw unescaped linebreaks inside strings.
 
 Example output format:
 {
