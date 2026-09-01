@@ -1,6 +1,7 @@
 import EALead from '../models/eaLead.model.js';
 import Lead from '../models/lead.model.js';
 import Contact from '../models/contact.model.js';
+import User from '../models/user.model.js';
 import EmailSegment from '../models/emailSegment.model.js';
 
 // ── SEGMENT HELPERS ─────────────────────────────────────────────────────────
@@ -415,6 +416,79 @@ export const removeSegmentContact = async (req, res, next) => {
             totalCount: segment.contacts.length,
             segment
         });
+    } catch (err) {
+        next(err);
+    }
+};
+
+export const getAvailableContacts = async (req, res, next) => {
+    try {
+        const [contacts, eaLeads, teamMembers] = await Promise.all([
+            Contact.find({ email: { $exists: true, $ne: '' } }).populate('lead_id', 'name isEmailConsent status').lean(),
+            EALead.find({ email: { $exists: true, $ne: '' } }).lean(),
+            User.find({ email: { $exists: true, $ne: '' }, isActive: { $ne: false } }).select('_id name username email phone role').lean()
+        ]);
+
+        const combined = [];
+
+        // 1. Process CRM Leads (Contacts collection - both primary and secondary)
+        for (const c of contacts) {
+            const email = c.email ? c.email.toLowerCase().trim() : '';
+            if (!email || !email.includes('@')) continue;
+
+            const leadName = c.lead_id?.name || 'CRM Lead';
+            const isPrimary = !!c.is_primary;
+            const displayName = c.name || (leadName ? `${leadName} (${isPrimary ? 'Primary' : 'Contact'})` : email.split('@')[0]);
+
+            combined.push({
+                _id: c._id.toString(),
+                leadId: c.lead_id?._id?.toString() || null,
+                leadName,
+                name: displayName,
+                email,
+                phone: c.direct_phone || '',
+                leadType: 'main_lead',
+                categoryTag: isPrimary ? 'Primary Contact' : 'Secondary Contact',
+                isPrimary,
+                isConsent: c.lead_id?.isEmailConsent !== false
+            });
+        }
+
+        // 2. Process EA Leads (EALead collection)
+        for (const ea of eaLeads) {
+            const email = ea.email ? ea.email.toLowerCase().trim() : '';
+            if (!email || !email.includes('@')) continue;
+
+            combined.push({
+                _id: ea._id.toString(),
+                leadId: ea._id.toString(),
+                leadName: ea.name || 'EA Lead',
+                name: ea.name || email.split('@')[0],
+                email,
+                phone: ea.phone || '',
+                leadType: 'ea_lead',
+                categoryTag: 'EA Lead',
+                isConsent: ea.isEmailConsent !== false && ea.isConsent !== false
+            });
+        }
+
+        // 3. Process Team Members (User collection)
+        for (const member of teamMembers) {
+            const email = member.email ? member.email.toLowerCase().trim() : '';
+            if (!email || !email.includes('@')) continue;
+
+            combined.push({
+                _id: member._id.toString(),
+                leadType: 'team_member',
+                name: member.name || member.username || 'Team Member',
+                email,
+                phone: member.phone || '',
+                categoryTag: member.role ? `Team (${member.role})` : 'Team Member',
+                isConsent: true
+            });
+        }
+
+        res.json(combined);
     } catch (err) {
         next(err);
     }

@@ -484,9 +484,9 @@ export default function EmailCenter() {
     let list = selectedCampaign.recipientLogs;
 
     if (campaignRecipientFilter === "open" || campaignRecipientFilter === "opened") {
-      list = list.filter(log => log.status === "open" || log.status === "opened" || log.status === "click" || log.status === "clicked" || log.status === "unsubscribe");
+      list = list.filter(log => log.status === "open" || log.status === "opened" || log.status === "click" || log.status === "clicked" || log.status === "unsubscribe" || log.status === "unsubscribed");
     } else if (campaignRecipientFilter === "click" || campaignRecipientFilter === "clicked") {
-      list = list.filter(log => log.status === "click" || log.status === "clicked");
+      list = list.filter(log => log.status === "click" || log.status === "clicked" || log.status === "unsubscribe" || log.status === "unsubscribed");
     } else if (campaignRecipientFilter === "unsubscribe" || campaignRecipientFilter === "unsubscribed") {
       list = list.filter(log => log.status === "unsubscribe" || log.status === "unsubscribed");
     } else if (campaignRecipientFilter === "bounce" || campaignRecipientFilter === "bounced") {
@@ -811,29 +811,14 @@ export default function EmailCenter() {
   const fetchAvailableContacts = useCallback(async () => {
     setLoadingContacts(true);
     try {
-      const [convRes, teamRes, campRes] = await Promise.allSettled([
-        api.get("/emails/conversations"),
-        api.get("/team"),
+      const [contactsRes, campRes] = await Promise.allSettled([
+        api.get("/emails/segments/available-contacts"),
         api.get("/campaigns")
       ]);
 
-      let combined: any[] = [];
-      if (convRes.status === "fulfilled") {
-        combined = [...convRes.value.data];
+      if (contactsRes.status === "fulfilled" && Array.isArray(contactsRes.value.data)) {
+        setAvailableContacts(contactsRes.value.data);
       }
-      if (teamRes.status === "fulfilled") {
-        const teamContacts = teamRes.value.data.map((member: any) => ({
-          _id: member._id,
-          leadType: "team_member",
-          name: member.name || member.username,
-          email: member.email,
-          phone: member.phone || "",
-          categoryTag: "Team Member",
-          isConsent: true
-        }));
-        combined = [...combined, ...teamContacts];
-      }
-      setAvailableContacts(combined);
 
       if (campRes.status === "fulfilled" && Array.isArray(campRes.value.data)) {
         setSalesCampaigns(campRes.value.data);
@@ -2421,8 +2406,10 @@ export default function EmailCenter() {
     if (!contactsSearchQuery.trim()) return list;
     const q = contactsSearchQuery.toLowerCase().trim();
     return list.filter(c =>
-      c.name.toLowerCase().includes(q) ||
-      c.email.toLowerCase().includes(q)
+      (c.name && c.name.toLowerCase().includes(q)) ||
+      (c.email && c.email.toLowerCase().includes(q)) ||
+      (c.phone && c.phone.includes(q)) ||
+      (c.leadName && c.leadName.toLowerCase().includes(q))
     );
   }, [availableContacts, contactsSearchQuery, contactCategoryFilter]);
 
@@ -5371,16 +5358,22 @@ export default function EmailCenter() {
                                   <span className="font-bold text-xs truncate text-foreground leading-tight">
                                     {contact.name}
                                   </span>
-                                  <span className={`text-[8px] font-extrabold uppercase px-1.5 py-0.2 rounded ${contact.leadType === "ea_lead" ? "bg-violet-500/10 text-violet-500" :
-                                      contact.leadType === "team_member" ? "bg-emerald-500/10 text-emerald-500" :
-                                        "bg-blue-500/10 text-blue-500"
-                                    }`}>
-                                    {contact.leadType === "ea_lead" ? "EA" : contact.leadType === "team_member" ? "Team" : "CRM"}
+                                  <span className={`text-[8px] font-extrabold uppercase px-1.5 py-0.2 rounded ${
+                                    contact.leadType === "ea_lead" ? "bg-violet-500/10 text-violet-500" :
+                                    contact.leadType === "team_member" ? "bg-emerald-500/10 text-emerald-500" :
+                                    "bg-blue-500/10 text-blue-500"
+                                  }`}>
+                                    {contact.leadType === "ea_lead" ? "EA Lead" : 
+                                     contact.leadType === "team_member" ? "Team" : 
+                                     "CRM"}
                                   </span>
                                 </div>
-                                <span className="text-[10px] text-muted-foreground block truncate mt-0.5">
-                                  {contact.email}
-                                </span>
+                                <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground truncate mt-0.5">
+                                  <span className="truncate">{contact.email}</span>
+                                  {contact.leadName && contact.leadType === "main_lead" && contact.leadName !== "CRM Lead" && contact.leadName !== contact.name && (
+                                    <span className="opacity-75 shrink-0">• Lead: {contact.leadName}</span>
+                                  )}
+                                </div>
                               </div>
                             </div>
                           );
@@ -6135,7 +6128,7 @@ export default function EmailCenter() {
 
                             const isBouncedOrBlocked = log.status === "bounce" || log.status === "bounced" || log.status === "blocked" || log.status === "failed";
                             const isUnsubscribed = log.status === "unsubscribe" || log.status === "unsubscribed";
-                            const isClicked = log.status === "click" || log.status === "clicked";
+                            const isClicked = log.status === "click" || log.status === "clicked" || isUnsubscribed;
                             const isOpened = log.status === "open" || log.status === "opened" || isClicked || isUnsubscribed;
                             const isDelivered = !isBouncedOrBlocked;
 
