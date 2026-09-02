@@ -4,11 +4,15 @@ import Lead from '../models/lead.model.js';
 import Contact from '../models/contact.model.js';
 import Note from '../models/note.model.js';
 import EALead from '../models/eaLead.model.js';
+import Voicemail from '../models/voicemail.model.js';
+import twilio from 'twilio';
+import { sendVoicemailEmailNotification } from '../services/email/mailer.js';
 import { 
     buildPromptFromKnowledgeBase, 
     syncKnowledgeBaseToRetell, 
     getRetellAgentDetails,
-    getRetellCallDetails
+    getRetellCallDetails,
+    getSanitizedToolName
 } from '../services/ai/retell.service.js';
 
 /**
@@ -334,7 +338,112 @@ async function processRetellCallData(callData, payload) {
         }
     }
 
-    // 5. Background Direct API Fallback: If aiSummary is missing after call_ended, fetch via REST API
+    // 5. Automated Voicemail / Message Creation & Multi-Channel Targeted Alerts
+    try {
+        const isVoicemailOrMessage = 
+            /take a message|leave a message|leave a voicemail|left a message|called after hours|unattended|unavailable|voicemail|message for/i.test(transcript || '') ||
+            /message|voicemail|inquiry|after hours|unattended|transfer failed/i.test(aiSummary || '') ||
+            (durationSeconds >= 10 && Boolean(aiSummary || transcript));
+
+        if (isVoicemailOrMessage && (aiSummary || transcript)) {
+            // Determine attempted department & targeted destination phone number
+            let targetDepartment = null;
+            let targetNumber = null;
+
+            const kb = await RetellKnowledgeBase.findOne().lean();
+            const departments = kb?.transferDepartments || [
+                { departmentName: 'Executive Management & Escalations', phoneNumber: '+12027013900' },
+                { departmentName: 'Program Coordination & Support', phoneNumber: '+12023413778' }
+            ];
+
+            // Match department by tool invocation or department name mention
+            for (const dept of departments) {
+                const toolName = getSanitizedToolName(dept.departmentName);
+                if (
+                    (transcript && (transcript.includes(toolName) || transcript.toLowerCase().includes(dept.departmentName.toLowerCase()))) ||
+                    (aiSummary && aiSummary.toLowerCase().includes(dept.departmentName.toLowerCase()))
+                ) {
+                    targetDepartment = dept.departmentName;
+                    targetNumber = dept.phoneNumber;
+                    break;
+                }
+            }
+
+            if (!targetNumber) {
+                targetNumber = departments[0]?.phoneNumber || '+12027013900';
+            }
+
+            // Extract caller name if mentioned or matched from CRM leads
+            const callerName = targetMainLeads[0]?.name || targetEALeads[0]?.name || callData.call_analysis?.custom_analysis_data?.user_name || null;
+
+            // Create or update authoritative Voicemail document
+            const voicemail = await Voicemail.findOneAndUpdate(
+                { retellCallId: callId },
+                {
+                    fromNumber: callerNumber,
+                    callerName,
+                    recordingUrl: recordingUrl || '',
+                    duration: durationSeconds,
+                    callSid: `retell_${callId}`,
+                    retellCallId: callId,
+                    source: 'retell',
+                    targetDepartment,
+                    targetNumber,
+                    transcript,
+                    aiSummary,
+                    callerSentiment,
+                    lead_id: associatedMainLeadId,
+                    ea_lead_id: associatedEALeadId,
+                    createdAt: callData.start_timestamp ? new Date(callData.start_timestamp) : new Date()
+                },
+                { upsert: true, new: true }
+            );
+
+            console.log(`📼 [Retell Voicemail] Created/Updated Voicemail ${voicemail._id} for ${callerNumber} (Dept: ${targetDepartment || 'General'} -> ${targetNumber}, SMS Sent: ${Boolean(voicemail.smsAlertSent)})`);
+
+            // Send Email Notification to central admin inbox (once per call)
+            if (!voicemail.emailAlertSent) {
+                const adminEmail = process.env.ADMIN_EMAIL || 'team@yausports.com';
+                await sendVoicemailEmailNotification({
+                    to: adminEmail,
+                    fromNumber: callerNumber,
+                    callerName,
+                    targetDepartment,
+                    duration: durationSeconds,
+                    recordingUrl,
+                    aiSummary,
+                    transcript
+                }).catch(err => console.error('⚠️ [Retell Voicemail] Email alert error:', err.message));
+            }
+
+            // Send Targeted SMS Alert to department / admin phone (EXACTLY ONCE per call, with summary)
+            if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_PHONE_NUMBER && targetNumber && !voicemail.smsAlertSent) {
+                // Only dispatch if AI summary is ready or this is the final analysis stage
+                if (aiSummary || payload?.event === 'call_analyzed') {
+                    try {
+                        const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+                        const cleanSummary = aiSummary || 'Caller left a voicemail message with Retell AI.';
+                        const smsBody = `📼 New Y-A-U Voicemail from ${callerName ? `${callerName} (${callerNumber})` : callerNumber}${targetDepartment ? ` [${targetDepartment}]` : ''}:\n"${cleanSummary}"\n\n📞 Return Call: ${callerNumber}`;
+
+                        await twilioClient.messages.create({
+                            from: process.env.TWILIO_PHONE_NUMBER,
+                            to: targetNumber,
+                            body: smsBody
+                        });
+                        voicemail.smsAlertSent = true;
+                        await voicemail.save();
+                        console.log(`📱 [Retell Voicemail] Exactly 1 Targeted SMS alert sent to ${targetNumber} (Full Summary Length: ${cleanSummary.length} chars)`);
+                    } catch (smsErr) {
+                        console.warn(`⚠️ [Retell Voicemail] Failed to send SMS to ${targetNumber}:`, smsErr.message);
+                    }
+                }
+            }
+        }
+    } catch (vmErr) {
+        console.error('⚠️ [Retell Voicemail] Error handling voicemail pipeline:', vmErr.message);
+    }
+
+    // 6. Background Direct API Fallback: If aiSummary is missing after call_ended, fetch via REST API
     if (!aiSummary && (callData.end_timestamp || payload?.event === 'call_ended')) {
         setTimeout(async () => {
             try {
@@ -427,14 +536,17 @@ export async function updateKnowledgeBase(req, res, next) {
 
         // Allowed update keys
         const updateFields = [
-            'agentName', 'phoneNumber', 'welcomeMessage',
+            'agentName', 'phoneNumber', 'voiceId', 'welcomeMessage',
+            'webhookEnvironment', 'customWebhookUrl', 'webhookUrl', 'timezone',
+            'businessHours', 'afterHoursScript', 'takeMessageScript',
             'personalityTraits', 'toneRules', 'goldenRule',
             'organizationName', 'motto', 'mission', 'differentiators',
             'contactPhone', 'contactEmail', 'contactWebsite',
             'sportsPrograms', 'locations', 'gameSchedule', 'outOfAreaScript',
-            'pricingPlans', 'monthlyPrice', 'seasonalPrice', 'monthlyIncludes', 'seasonalIncludes', 'refundPolicy',
+            'pricingPlans', 'monthlyPrice', 'seasonalPrice', 'monthlyIncludes', 'seasonalIncludes', 'refundPolicy', 'refundHandlingScript',
             'inboundOpeningScript', 'hesitantCallerScript', 'positiveCloseScript',
             'thinkAboutItCloseScript', 'voicemailScript', 'warmTransferScript',
+            'cancellationHandlingScript', 'afterSchoolScript',
             'faqs', 'objections',
             'humanTransferPhone', 'humanTransferTriggers',
             'transferDepartments'

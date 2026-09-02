@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import {
     Bot,
     RefreshCw,
@@ -22,7 +22,17 @@ import {
     Lock,
     Star,
     X,
-    Pencil
+    Pencil,
+    Play,
+    Square,
+    Volume2,
+    Calendar,
+    Clock,
+    Globe,
+    Server,
+    Radio,
+    Link2,
+    Zap
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -43,7 +53,230 @@ import {
     AgentStatusResponse
 } from "../api/retell.api";
 
+const VOICE_OPTIONS = [
+    // 🌟 ElevenLabs Tier (~$0.13 – $0.15 / min)
+    {
+        id: "11labs-Lily",
+        name: "Lily",
+        provider: "ElevenLabs",
+        tier: "elevenlabs",
+        rate: "~$0.13/min",
+        gender: "Female",
+        accent: "American",
+        description: "Warm, conversational & friendly. Sounds like a real YAU team member.",
+        previewUrl: "https://retell-utils-public.s3.us-west-2.amazonaws.com/lily.mp3",
+        tag: "Recommended"
+    },
+    {
+        id: "11labs-Marissa",
+        name: "Marissa",
+        provider: "ElevenLabs",
+        tier: "elevenlabs",
+        rate: "~$0.13/min",
+        gender: "Female",
+        accent: "American",
+        description: "Enthusiastic, lively & natural. Great for high-energy parent engagement.",
+        previewUrl: "https://retell-utils-public.s3.us-west-2.amazonaws.com/marissa.mp3",
+        tag: "Natural & Warm"
+    },
+    {
+        id: "11labs-Dorothy",
+        name: "Dorothy",
+        provider: "ElevenLabs",
+        tier: "elevenlabs",
+        rate: "~$0.13/min",
+        gender: "Female",
+        accent: "American",
+        description: "Pleasant, caring & reassuring voice. Great for parent support.",
+        previewUrl: "https://retell-utils-public.s3.us-west-2.amazonaws.com/Dorothy.mp3",
+        tag: "Caring Support"
+    },
+    {
+        id: "11labs-Willa",
+        name: "Willa",
+        provider: "ElevenLabs",
+        tier: "elevenlabs",
+        rate: "~$0.13/min",
+        gender: "Female",
+        accent: "American",
+        description: "Smooth, articulate & natural conversational pacing.",
+        previewUrl: "https://retell-utils-public.s3.us-west-2.amazonaws.com/11labs-Willa.mp3",
+        tag: "Articulate"
+    },
+    {
+        id: "11labs-Billy",
+        name: "Billy",
+        provider: "ElevenLabs",
+        tier: "elevenlabs",
+        rate: "~$0.13/min",
+        gender: "Male",
+        accent: "American",
+        description: "Warm, approachable & energetic coach / mentor persona.",
+        previewUrl: "https://retell-utils-public.s3.us-west-2.amazonaws.com/billy.mp3",
+        tag: "Coach Persona"
+    },
+    {
+        id: "11labs-Brian",
+        name: "Brian",
+        provider: "ElevenLabs",
+        tier: "elevenlabs",
+        rate: "~$0.13/min",
+        gender: "Male",
+        accent: "American",
+        description: "Calm, professional & confident team leader voice.",
+        previewUrl: "https://retell-utils-public.s3.us-west-2.amazonaws.com/brian.mp3",
+        tag: "Professional"
+    },
+    {
+        id: "11labs-Adrian",
+        name: "Adrian",
+        provider: "ElevenLabs",
+        tier: "elevenlabs",
+        rate: "~$0.13/min",
+        gender: "Male",
+        accent: "American",
+        description: "Friendly, casual & confident conversational male voice.",
+        previewUrl: "https://retell-utils-public.s3.us-west-2.amazonaws.com/adrian.mp3",
+        tag: "Conversational"
+    },
+    {
+        id: "11labs-Anthony",
+        name: "Anthony",
+        provider: "ElevenLabs",
+        tier: "elevenlabs",
+        rate: "~$0.13/min",
+        gender: "Male",
+        accent: "American",
+        description: "Approachable, direct & upbeat communicator.",
+        previewUrl: "https://retell-utils-public.s3.us-west-2.amazonaws.com/anthony.mp3",
+        tag: "Upbeat"
+    },
+
+    // ⚡ Standard Tier (~$0.08 – $0.10 / min)
+    {
+        id: "retell-Cimo",
+        name: "Cimo (Original)",
+        provider: "Platform",
+        tier: "standard",
+        rate: "~$0.08/min",
+        gender: "Female",
+        accent: "American",
+        description: "Original default Cimo platform voice. Clear, familiar & standard rate.",
+        previewUrl: "https://retell-utils-public.s3.us-west-2.amazonaws.com/minimax_cimo.mp3",
+        tag: "Original Default"
+    },
+    {
+        id: "cartesia-Cleo",
+        name: "Cleo",
+        provider: "Cartesia",
+        tier: "standard",
+        rate: "~$0.08/min",
+        gender: "Female",
+        accent: "American",
+        description: "Ultra-low latency, crisp & clear conversational speech.",
+        previewUrl: "https://retell-utils-public.s3.us-west-2.amazonaws.com/cartesia-cc444464-5920-438d-ac33-e6a6dd34a955.mp3",
+        tag: "Low Latency"
+    },
+    {
+        id: "cartesia-Willa",
+        name: "Willa (Fast)",
+        provider: "Cartesia",
+        tier: "standard",
+        rate: "~$0.08/min",
+        gender: "Female",
+        accent: "American",
+        description: "High speed, instant responses for fast parent Q&A.",
+        previewUrl: "https://retell-utils-public.s3.us-west-2.amazonaws.com/cartesia-Willa.mp3",
+        tag: "Fast Response"
+    },
+    {
+        id: "cartesia-Brian",
+        name: "Brian (Fast)",
+        provider: "Cartesia",
+        tier: "standard",
+        rate: "~$0.08/min",
+        gender: "Male",
+        accent: "American",
+        description: "Articulate and rapid male voice for high-volume call handling.",
+        previewUrl: "https://retell-utils-public.s3.us-west-2.amazonaws.com/cartesia-ccb4cea5-13c8-4559-a9c8-e83bc8171c4d.mp3",
+        tag: "High Volume"
+    },
+    {
+        id: "cartesia-Adam",
+        name: "Adam (Fast)",
+        provider: "Cartesia",
+        tier: "standard",
+        rate: "~$0.08/min",
+        gender: "Male",
+        accent: "American",
+        description: "Clear and direct articulation at baseline platform pricing.",
+        previewUrl: "https://retell-utils-public.s3.us-west-2.amazonaws.com/cartesia-7cf0e2b1-8daf-4fe4-89ad-f6039398f359.mp3",
+        tag: "Standard Rate"
+    },
+    {
+        id: "retell-Alejandro",
+        name: "Alejandro",
+        provider: "Platform",
+        tier: "standard",
+        rate: "~$0.08/min",
+        gender: "Male",
+        accent: "American",
+        description: "Smooth, direct & confident male platform voice.",
+        previewUrl: "https://retell-utils-public.s3.us-west-2.amazonaws.com/minimax-Alejandro.mp3",
+        tag: "Standard Rate"
+    },
+    {
+        id: "retell-Nico",
+        name: "Nico",
+        provider: "Platform",
+        tier: "standard",
+        rate: "~$0.08/min",
+        gender: "Male",
+        accent: "American",
+        description: "Casual, steady platform voice with clear pronunciation.",
+        previewUrl: "https://retell-utils-public.s3.us-west-2.amazonaws.com/minimax_nico.mp3",
+        tag: "Standard Rate"
+    }
+];
+
+const TIMEZONE_OPTIONS = [
+    {
+        id: "America/New_York",
+        name: "Eastern Time (US / New York)",
+        region: "Washington DC, Maryland (YAU HQ)",
+        flag: "🇺🇸",
+        tag: "Default (YAU HQ)",
+        desc: "Standard for all DC Metro & Maryland practice locations and parent calls."
+    },
+    {
+        id: "Asia/Kolkata",
+        name: "India Standard Time (IST / Kolkata)",
+        region: "India Standard Time Zone",
+        flag: "🇮🇳",
+        tag: "Developer / IST",
+        desc: "Convenient for developers testing business hours and live calls during India daytime."
+    },
+    {
+        id: "America/Chicago",
+        name: "Central Time (US / Chicago)",
+        region: "US Central Time Zone",
+        flag: "🇺🇸",
+        tag: "Central",
+        desc: "Standard US Central business schedule."
+    },
+    {
+        id: "America/Los_Angeles",
+        name: "Pacific Time (US / Los Angeles)",
+        region: "US Pacific Time Zone",
+        flag: "🇺🇸",
+        tag: "Pacific",
+        desc: "Standard US Pacific business schedule."
+    }
+];
+
 export default function RetellVoiceAgent() {
+    const isDevelopment = import.meta.env.VITE_APP_ENV === 'development' || (import.meta.env.DEV && import.meta.env.VITE_APP_ENV !== 'production');
+    const [voiceTier, setVoiceTier] = useState<'standard' | 'elevenlabs'>('standard');
     const [kb, setKb] = useState<RetellKnowledgeBaseData | null>(null);
     const [compiledPrompt, setCompiledPrompt] = useState<string>("");
     const [agentStatus, setAgentStatus] = useState<AgentStatusResponse | null>(null);
@@ -51,6 +284,67 @@ export default function RetellVoiceAgent() {
     const [saving, setSaving] = useState(false);
     const [syncing, setSyncing] = useState(false);
     const [copiedPrompt, setCopiedPrompt] = useState(false);
+    const [refreshingStatus, setRefreshingStatus] = useState(false);
+
+    // Live clock for timezone previews
+    const [currentTime, setCurrentTime] = useState(new Date());
+
+    useEffect(() => {
+        const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+        return () => clearInterval(timer);
+    }, []);
+
+    const formatTzTime = (tz: string) => {
+        try {
+            return new Intl.DateTimeFormat("en-US", {
+                timeZone: tz,
+                hour: "numeric",
+                minute: "2-digit",
+                second: "2-digit",
+                hour12: true,
+                weekday: "short"
+            }).format(currentTime);
+        } catch {
+            return "";
+        }
+    };
+
+    // Audio preview state
+    const [playingVoiceId, setPlayingVoiceId] = useState<string | null>(null);
+    const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+
+    const handleRefreshStatus = async () => {
+        try {
+            setRefreshingStatus(true);
+            const status = await getRetellAgentStatus();
+            setAgentStatus(status);
+            toast.success("Retell AI live status refreshed!");
+        } catch (err: any) {
+            toast.error("Could not fetch live Retell AI status.");
+        } finally {
+            setRefreshingStatus(false);
+        }
+    };
+
+    const handlePlayVoicePreview = (voiceId: string, previewUrl: string) => {
+        if (playingVoiceId === voiceId) {
+            previewAudioRef.current?.pause();
+            setPlayingVoiceId(null);
+            return;
+        }
+        if (previewAudioRef.current) {
+            previewAudioRef.current.pause();
+        }
+        const audio = new Audio(previewUrl);
+        previewAudioRef.current = audio;
+        audio.play();
+        setPlayingVoiceId(voiceId);
+        audio.onended = () => setPlayingVoiceId(null);
+        audio.onerror = () => {
+            toast.error("Could not play audio preview.");
+            setPlayingVoiceId(null);
+        };
+    };
 
     // Active subtab
     const [activeTab, setActiveTab] = useState("personality");
@@ -548,7 +842,7 @@ export default function RetellVoiceAgent() {
 
             {/* Knowledge Base Navigation Tabs */}
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                <TabsList className="grid grid-cols-3 md:grid-cols-7 h-auto p-1 bg-muted/60 rounded-xl gap-1 border border-border/50">
+                <TabsList className={`grid ${isDevelopment ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-9' : 'grid-cols-2 sm:grid-cols-4 lg:grid-cols-8'} h-auto p-1 bg-muted/60 rounded-xl gap-1 border border-border/50`}>
                     <TabsTrigger value="personality" className="gap-1.5 text-xs py-2">
                         <Bot className="w-3.5 h-3.5" /> Personality
                     </TabsTrigger>
@@ -564,12 +858,20 @@ export default function RetellVoiceAgent() {
                     <TabsTrigger value="scripts" className="gap-1.5 text-xs py-2">
                         <MessageSquare className="w-3.5 h-3.5" /> Scripts
                     </TabsTrigger>
+                    <TabsTrigger value="business_hours" className="gap-1.5 text-xs py-2">
+                        <Clock className="w-3.5 h-3.5 text-amber-500" /> Business Hours
+                    </TabsTrigger>
                     <TabsTrigger value="faqs" className="gap-1.5 text-xs py-2">
                         <HelpCircle className="w-3.5 h-3.5" /> FAQs & Objections
                     </TabsTrigger>
                     <TabsTrigger value="transfer" className="gap-1.5 text-xs py-2">
                         <PhoneForwarded className="w-3.5 h-3.5" /> Transfers
                     </TabsTrigger>
+                    {isDevelopment && (
+                        <TabsTrigger value="webhooks" className="gap-1.5 text-xs py-2 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 font-medium">
+                            <Globe className="w-3.5 h-3.5 text-emerald-500" /> Webhooks
+                        </TabsTrigger>
+                    )}
                 </TabsList>
 
                 {/* 1. PERSONALITY & TONE TAB */}
@@ -588,17 +890,17 @@ export default function RetellVoiceAgent() {
                                 <div>
                                     <div className="flex items-center justify-between mb-1">
                                         <Label className="text-xs font-semibold">Agent Persona Name</Label>
-                                        <Badge variant="outline" className="text-[10px] gap-1 py-0 h-5 text-primary bg-primary/10 border-primary/20">
-                                            <Sparkles className="w-2.5 h-2.5" /> AI Persona
+                                        <Badge variant="outline" className="text-[10px] gap-1 py-0 h-5 text-indigo-600 dark:text-indigo-400 bg-indigo-500/10 border-indigo-500/20">
+                                            <Lock className="w-2.5 h-2.5" /> Auto-Synced with Voice
                                         </Badge>
                                     </div>
                                     <Input
-                                        value={kb.agentName || ""}
-                                        onChange={e => setKb({ ...kb, agentName: e.target.value })}
-                                        className="font-medium"
-                                        placeholder="e.g. Cimo"
+                                        value={kb.agentName || "Lily"}
+                                        disabled
+                                        className="bg-muted/50 cursor-not-allowed font-medium text-foreground/90"
+                                        placeholder="e.g. Lily"
                                     />
-                                    <p className="text-[11px] text-muted-foreground mt-1">Name the AI introduces itself as when speaking to parents.</p>
+                                    <p className="text-[11px] text-muted-foreground mt-1">Persona name is automatically tied to your selected AI Voice Model below.</p>
                                 </div>
                                 <div>
                                     <div className="flex items-center justify-between mb-1">
@@ -636,6 +938,191 @@ export default function RetellVoiceAgent() {
                                     rows={3}
                                     className="resize-none"
                                 />
+                            </div>
+                        </CardContent>
+                    </Card>
+
+                    {/* AI Voice Model Selection Card */}
+                    <Card>
+                        <CardHeader>
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                <div>
+                                    <CardTitle className="text-lg flex items-center gap-2">
+                                        <Volume2 className="w-5 h-5 text-indigo-500" /> AI Voice Model Selection
+                                    </CardTitle>
+                                    <CardDescription>
+                                        Choose your speech synthesis model. Filter between standard voices ($0.08–$0.10/min) and premium ElevenLabs voices.
+                                    </CardDescription>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0 self-start sm:self-auto flex-wrap">
+                                    <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 flex items-center gap-1.5 py-1">
+                                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                                        Live in Retell: <strong>{VOICE_OPTIONS.find(v => v.id === (agentStatus?.liveAgent?.voice_id || kb.voiceId || "11labs-Lily"))?.name || agentStatus?.liveAgent?.voice_id || kb.voiceId || "Lily"}</strong>
+                                    </Badge>
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={handleRefreshStatus}
+                                        disabled={refreshingStatus}
+                                        className="h-7 text-xs px-2"
+                                        title="Fetch live agent configuration from Retell AI"
+                                    >
+                                        <RefreshCw className={`w-3 h-3 mr-1 ${refreshingStatus ? "animate-spin text-primary" : ""}`} />
+                                        Refresh Status
+                                    </Button>
+                                </div>
+                            </div>
+
+                            {/* 2-Tier Model Filter Toggle: Standard First, ElevenLabs Second */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3">
+                                <button
+                                    type="button"
+                                    onClick={() => setVoiceTier('standard')}
+                                    className={`p-3 rounded-xl border text-left transition-all flex items-center justify-between ${
+                                        voiceTier === 'standard'
+                                            ? 'border-emerald-500 bg-emerald-500/10 shadow-xs ring-1 ring-emerald-500/30'
+                                            : 'border-border/70 bg-card hover:bg-muted/40'
+                                    }`}
+                                >
+                                    <div className="space-y-0.5">
+                                        <div className="flex items-center gap-2">
+                                            <Zap className="w-4 h-4 text-emerald-500" />
+                                            <span className="font-bold text-xs text-foreground">⚡ Standard Voices</span>
+                                        </div>
+                                        <p className="text-[11px] text-muted-foreground">Cartesia & Platform voices (incl. Cimo)</p>
+                                    </div>
+                                    <Badge variant="outline" className="text-[10px] font-mono bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 shrink-0">
+                                        ~$0.08 – $0.10/min
+                                    </Badge>
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={() => setVoiceTier('elevenlabs')}
+                                    className={`p-3 rounded-xl border text-left transition-all flex items-center justify-between ${
+                                        voiceTier === 'elevenlabs'
+                                            ? 'border-indigo-500 bg-indigo-500/10 shadow-xs ring-1 ring-indigo-500/30'
+                                            : 'border-border/70 bg-card hover:bg-muted/40'
+                                    }`}
+                                >
+                                    <div className="space-y-0.5">
+                                        <div className="flex items-center gap-2">
+                                            <Sparkles className="w-4 h-4 text-indigo-500" />
+                                            <span className="font-bold text-xs text-foreground">🌟 ElevenLabs Voices</span>
+                                        </div>
+                                        <p className="text-[11px] text-muted-foreground">Warm, natural & human conversational tone</p>
+                                    </div>
+                                    <Badge variant="outline" className="text-[10px] font-mono bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20 shrink-0">
+                                        ~$0.13 – $0.15/min
+                                    </Badge>
+                                </button>
+                            </div>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                                {VOICE_OPTIONS.filter(v => v.tier === voiceTier).map((voice) => {
+                                    const liveRetellVoiceId = agentStatus?.liveAgent?.voice_id || kb.voiceId || "11labs-Lily";
+                                    const isLiveActive = (liveRetellVoiceId === voice.id);
+                                    const isDraftSelected = ((kb.voiceId || "11labs-Lily") === voice.id && !isLiveActive);
+                                    const isPlaying = playingVoiceId === voice.id;
+
+                                    return (
+                                        <div
+                                            key={voice.id}
+                                            onClick={() => {
+                                                const cleanName = voice.name.replace(/\s*\([^)]*\)/g, '').trim();
+                                                setKb({ 
+                                                    ...kb, 
+                                                    voiceId: voice.id,
+                                                    agentName: cleanName 
+                                                });
+                                            }}
+                                            className={`p-3.5 rounded-xl border transition-all cursor-pointer space-y-2 relative flex flex-col justify-between ${
+                                                isLiveActive
+                                                    ? "bg-emerald-500/10 dark:bg-emerald-500/15 border-emerald-500 dark:border-emerald-400 shadow-md ring-2 ring-emerald-500/40"
+                                                    : isDraftSelected
+                                                    ? "bg-indigo-500/5 dark:bg-indigo-500/10 border-indigo-500/60 shadow-xs ring-1 ring-indigo-500/30"
+                                                    : "bg-card hover:bg-accent/40 border-border/70"
+                                            }`}
+                                        >
+                                            <div className="space-y-1.5">
+                                                <div className="flex items-center justify-between gap-1">
+                                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                                        <span className={`font-bold text-xs ${
+                                                            isLiveActive 
+                                                                ? "text-emerald-700 dark:text-emerald-300 font-extrabold" 
+                                                                : isDraftSelected 
+                                                                ? "text-indigo-700 dark:text-indigo-300 font-bold" 
+                                                                : "text-foreground"
+                                                        }`}>
+                                                            {voice.name}
+                                                        </span>
+                                                        <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-muted text-muted-foreground font-mono">
+                                                            {voice.gender}
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex items-center gap-1.5 shrink-0">
+                                                        {isLiveActive ? (
+                                                            <Badge className="bg-emerald-600 hover:bg-emerald-600 text-white font-bold text-[9px] px-1.5 py-0 h-4 gap-0.5 tracking-tight shrink-0 shadow-2xs">
+                                                                <CheckCircle2 className="w-2.5 h-2.5" /> LIVE IN RETELL
+                                                            </Badge>
+                                                        ) : isDraftSelected ? (
+                                                            <Badge variant="outline" className="text-indigo-600 dark:text-indigo-400 border-indigo-500/40 bg-indigo-500/10 font-semibold text-[9px] px-1.5 py-0 h-4 gap-0.5 tracking-tight shrink-0">
+                                                                <Pencil className="w-2.5 h-2.5" /> SELECTED (DRAFT)
+                                                            </Badge>
+                                                        ) : null}
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handlePlayVoicePreview(voice.id, voice.previewUrl);
+                                                            }}
+                                                            className={`w-6 h-6 rounded-full flex items-center justify-center transition-transform hover:scale-105 shrink-0 ${
+                                                                isPlaying
+                                                                    ? "bg-amber-500 text-white animate-pulse"
+                                                                    : isLiveActive
+                                                                    ? "bg-emerald-600 text-white"
+                                                                    : isDraftSelected
+                                                                    ? "bg-indigo-600 text-white"
+                                                                    : "bg-muted text-muted-foreground hover:text-foreground"
+                                                            }`}
+                                                            title={isPlaying ? "Stop Preview" : "Play Sample"}
+                                                        >
+                                                            {isPlaying ? <Square className="w-2.5 h-2.5 fill-current" /> : <Play className="w-2.5 h-2.5 fill-current ml-0.5" />}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                                <p className="text-[11px] text-muted-foreground leading-snug">
+                                                    {voice.description}
+                                                </p>
+                                            </div>
+
+                                            <div className="flex items-center justify-between pt-1 border-t border-border/40">
+                                                <span className={`text-[10px] font-mono ${
+                                                    isLiveActive 
+                                                        ? "text-emerald-700 dark:text-emerald-300 font-semibold" 
+                                                        : isDraftSelected 
+                                                        ? "text-indigo-700 dark:text-indigo-300 font-medium" 
+                                                        : "text-muted-foreground"
+                                                }`}>
+                                                    {voice.rate}
+                                                </span>
+                                                {voice.tag && (
+                                                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
+                                                        isLiveActive 
+                                                            ? "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 font-bold" 
+                                                            : isDraftSelected 
+                                                            ? "bg-indigo-500/15 text-indigo-700 dark:text-indigo-300" 
+                                                            : "bg-muted text-muted-foreground"
+                                                    }`}>
+                                                        {voice.tag}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
                             </div>
                         </CardContent>
                     </Card>
@@ -1650,6 +2137,149 @@ export default function RetellVoiceAgent() {
                     </Card>
                 </TabsContent>
 
+                {/* 6. BUSINESS HOURS & AFTER-HOURS TAB */}
+                <TabsContent value="business_hours" className="space-y-6 pt-4">
+                    {/* Live Office Schedule Card */}
+                    <Card>
+                        <CardHeader>
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <CardTitle className="text-lg flex items-center gap-2">
+                                        <Clock className="w-5 h-5 text-amber-500" /> Office Business Hours
+                                    </CardTitle>
+                                    <CardDescription>
+                                        Configure live office hours. Outside these hours, the AI politely explains the office is closed and takes a message.
+                                    </CardDescription>
+                                </div>
+                                <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 flex items-center gap-1">
+                                    <Calendar className="w-3.5 h-3.5" /> Eastern Time (America/New_York)
+                                </Badge>
+                            </div>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                <div className="p-4 rounded-xl bg-muted/40 border border-border/60 space-y-1.5">
+                                    <Label className="text-xs font-bold text-foreground">Monday – Friday</Label>
+                                    <Input
+                                        value={kb.businessHours?.monFri || "9:00 AM – 5:00 PM"}
+                                        onChange={e => setKb({
+                                            ...kb,
+                                            businessHours: {
+                                                enabled: true,
+                                                timezone: "America/New_York",
+                                                monFri: e.target.value,
+                                                sat: kb.businessHours?.sat || "10:00 AM – 2:00 PM",
+                                                sun: kb.businessHours?.sun || "Closed"
+                                            }
+                                        })}
+                                        className="h-9 text-xs font-semibold bg-background mt-1"
+                                        placeholder="9:00 AM – 5:00 PM"
+                                    />
+                                    <p className="text-[11px] text-muted-foreground">Standard weekday office hours</p>
+                                </div>
+                                <div className="p-4 rounded-xl bg-muted/40 border border-border/60 space-y-1.5">
+                                    <Label className="text-xs font-bold text-foreground">Saturday</Label>
+                                    <Input
+                                        value={kb.businessHours?.sat || "10:00 AM – 2:00 PM"}
+                                        onChange={e => setKb({
+                                            ...kb,
+                                            businessHours: {
+                                                enabled: true,
+                                                timezone: "America/New_York",
+                                                monFri: kb.businessHours?.monFri || "9:00 AM – 5:00 PM",
+                                                sat: e.target.value,
+                                                sun: kb.businessHours?.sun || "Closed"
+                                            }
+                                        })}
+                                        className="h-9 text-xs font-semibold bg-background mt-1"
+                                        placeholder="10:00 AM – 2:00 PM"
+                                    />
+                                    <p className="text-[11px] text-muted-foreground">Weekend game & practice hours</p>
+                                </div>
+                                <div className="p-4 rounded-xl bg-muted/40 border border-border/60 space-y-1.5">
+                                    <Label className="text-xs font-bold text-foreground">Sunday</Label>
+                                    <Input
+                                        value={kb.businessHours?.sun || "Closed"}
+                                        onChange={e => setKb({
+                                            ...kb,
+                                            businessHours: {
+                                                enabled: true,
+                                                timezone: "America/New_York",
+                                                monFri: kb.businessHours?.monFri || "9:00 AM – 5:00 PM",
+                                                sat: kb.businessHours?.sat || "10:00 AM – 2:00 PM",
+                                                sun: e.target.value
+                                            }
+                                        })}
+                                        className="h-9 text-xs font-semibold bg-background mt-1"
+                                        placeholder="Closed"
+                                    />
+                                    <p className="text-[11px] text-muted-foreground">Office closed for staff rest</p>
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+
+                    {/* After-Hours Script Card */}
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="text-base flex items-center gap-2">
+                                <Sparkles className="w-4 h-4 text-amber-500" /> After-Hours Acknowledgement Script
+                            </CardTitle>
+                            <CardDescription>
+                                Spoken when callers dial in outside 9am–5pm M–F or 10am–2pm Sat.
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-2">
+                            <Textarea
+                                value={kb.afterHoursScript || "Thanks for calling Youth Athlete University! Our team is currently unavailable as our office is closed (open Monday to Friday 9 to 5, Saturdays 10 to 2, Sundays closed). I would love to answer your questions, or I can take a message and have someone from our team reach out during business hours."}
+                                onChange={e => setKb({ ...kb, afterHoursScript: e.target.value })}
+                                rows={3}
+                                className="text-xs leading-relaxed"
+                                placeholder="Script spoken when caller dials outside office hours..."
+                            />
+                            <p className="text-[11px] text-muted-foreground">
+                                The AI warmly explains the office is closed, answers program questions, and offers to take down their message.
+                            </p>
+                        </CardContent>
+                    </Card>
+
+                    {/* Unattended Transfer & Message Taking Protocol */}
+                    <Card>
+                        <CardHeader>
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <CardTitle className="text-base flex items-center gap-2">
+                                        <MessageSquare className="w-4 h-4 text-primary" /> Unattended Transfer & Message Taking Protocol
+                                    </CardTitle>
+                                    <CardDescription>
+                                        Triggered when a call forward to a department goes unanswered or caller asks to leave a message.
+                                    </CardDescription>
+                                </div>
+                                <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/20">
+                                    Caller ID Captured Automatically
+                                </Badge>
+                            </div>
+                        </CardHeader>
+                        <CardContent className="space-y-3">
+                            <Textarea
+                                value={kb.takeMessageScript || "It looks like our team member is currently assisting another parent. I can take down your name and what you are calling about, and have them get back to you promptly."}
+                                onChange={e => setKb({ ...kb, takeMessageScript: e.target.value })}
+                                rows={3}
+                                className="text-xs leading-relaxed"
+                                placeholder="Script used when a transfer is unattended or caller wants to leave a message..."
+                            />
+                            <div className="p-3 bg-muted/40 rounded-xl border border-border/60 text-xs text-muted-foreground space-y-1">
+                                <p className="font-semibold text-foreground">💡 Automated Routing Behavior:</p>
+                                <ul className="list-disc list-inside space-y-0.5 text-[11px]">
+                                    <li>The AI asks only for the caller's <strong>Name</strong> and <strong>Inquiry Details</strong>.</li>
+                                    <li>The AI does <strong>NOT ask for their phone number</strong> because the system captures caller ID automatically.</li>
+                                    <li>A targeted SMS alert is automatically sent to the attempted department's mobile line, and an email with transcript is sent to <code>team@yausports.com</code>.</li>
+                                </ul>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+
                 {/* 6. FAQS & OBJECTIONS TAB */}
                 <TabsContent value="faqs" className="space-y-6 pt-4">
                     {/* FAQs */}
@@ -2434,6 +3064,220 @@ export default function RetellVoiceAgent() {
                         </CardContent>
                     </Card>
                 </TabsContent>
+
+                {/* 9. WEBHOOKS & DEPLOYMENT TAB (Developer Mode) */}
+                {isDevelopment && (
+                    <TabsContent value="webhooks" className="space-y-6 pt-4">
+                        {/* Deployment Quick Overview Banner */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            <div className="p-3.5 rounded-xl border border-border/80 bg-card flex items-center gap-3">
+                                <div className="w-9 h-9 rounded-lg bg-emerald-500/10 text-emerald-600 flex items-center justify-center shrink-0">
+                                    <Globe className="w-5 h-5" />
+                                </div>
+                                <div className="min-w-0">
+                                    <p className="text-[11px] text-muted-foreground uppercase font-semibold tracking-wider">Active Webhook</p>
+                                    <p className="text-xs font-bold text-foreground truncate">
+                                        {(kb.webhookEnvironment || 'production') === 'production' ? '🚀 Production Server' : '🛠️ Ngrok Dev Tunnel'}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="p-3.5 rounded-xl border border-border/80 bg-card flex items-center gap-3">
+                                <div className="w-9 h-9 rounded-lg bg-indigo-500/10 text-indigo-600 flex items-center justify-center shrink-0">
+                                    <Clock className="w-5 h-5" />
+                                </div>
+                                <div className="min-w-0">
+                                    <p className="text-[11px] text-muted-foreground uppercase font-semibold tracking-wider">Operating Timezone</p>
+                                    <p className="text-xs font-bold text-foreground truncate">
+                                        {(kb.timezone || 'America/New_York') === 'Asia/Kolkata' ? '🇮🇳 India Standard Time' : '🇺🇸 American Eastern Time'}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="p-3.5 rounded-xl border border-border/80 bg-card flex items-center gap-3">
+                                <div className="w-9 h-9 rounded-lg bg-amber-500/10 text-amber-600 flex items-center justify-center shrink-0">
+                                    <Radio className="w-5 h-5" />
+                                </div>
+                                <div className="min-w-0">
+                                    <p className="text-[11px] text-muted-foreground uppercase font-semibold tracking-wider">Live Agent Clock</p>
+                                    <p className="text-xs font-bold font-mono text-emerald-600 dark:text-emerald-400 truncate">
+                                        🟢 {formatTzTime(kb.timezone || 'America/New_York')}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* SECTION 1: Webhook Routing Destination Dropdown */}
+                        <Card>
+                            <CardHeader>
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <CardTitle className="text-lg flex items-center gap-2">
+                                            <Globe className="w-5 h-5 text-emerald-500" /> Retell AI Webhook Destination
+                                        </CardTitle>
+                                        <CardDescription>
+                                            Select the backend endpoint where Retell AI sends live call transcripts, recordings, and after-hours voicemail events.
+                                        </CardDescription>
+                                    </div>
+                                    <Badge 
+                                        variant="outline" 
+                                        className={`text-xs flex items-center gap-1 ${
+                                            (kb.webhookEnvironment || 'production') === 'production'
+                                                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
+                                                : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20'
+                                        }`}
+                                    >
+                                        {(kb.webhookEnvironment || 'production') === 'production' ? (
+                                            <>🚀 Production Active</>
+                                        ) : (
+                                            <>🛠️ Dev Tunnel Active</>
+                                        )}
+                                    </Badge>
+                                </div>
+                            </CardHeader>
+                            <CardContent className="space-y-4">
+                                <div className="space-y-2">
+                                    <Label className="text-xs font-semibold text-foreground">Webhook Destination Environment</Label>
+                                    <select
+                                        value={kb.webhookEnvironment || "production"}
+                                        onChange={(e) => {
+                                            const env = e.target.value as 'production' | 'development';
+                                            if (env === 'production') {
+                                                setKb({ ...kb, webhookEnvironment: 'production', webhookUrl: 'https://api.yauapp.com/api/retell/webhook' });
+                                            } else {
+                                                setKb({ ...kb, webhookEnvironment: 'development' });
+                                            }
+                                        }}
+                                        className="w-full h-11 px-3.5 py-2 text-sm bg-background border border-input rounded-xl font-medium focus:outline-none focus:ring-2 focus:ring-ring transition-all cursor-pointer shadow-sm"
+                                    >
+                                        <option value="production">🚀 Production Server (https://api.yauapp.com/api/retell/webhook) — Active Default</option>
+                                        <option value="development">🛠️ Local Development / Custom Ngrok Tunnel</option>
+                                    </select>
+                                </div>
+
+                                {(kb.webhookEnvironment || 'production') === 'production' ? (
+                                    <div className="p-4 rounded-xl bg-emerald-500/5 border border-emerald-500/20 space-y-1">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
+                                                <Check className="w-3.5 h-3.5" /> Live Production Endpoint Configured
+                                            </span>
+                                            <Badge variant="outline" className="text-[10px] bg-emerald-500/10 text-emerald-600 border-emerald-500/20">
+                                                Standard Routing
+                                            </Badge>
+                                        </div>
+                                        <p className="text-xs font-mono text-muted-foreground pt-0.5">
+                                            https://api.yauapp.com/api/retell/webhook
+                                        </p>
+                                        <p className="text-[11px] text-muted-foreground/80">
+                                            All incoming calls, live transcripts, and voicemail recordings will be securely delivered to your primary production CRM server.
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <div className="p-4 rounded-xl bg-amber-500/5 border border-amber-500/20 space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <Label className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                                                <Link2 className="w-3.5 h-3.5 text-amber-500" /> Custom Ngrok Webhook Endpoint URL
+                                            </Label>
+                                            <span className="text-[11px] text-muted-foreground">Must end with <code>/api/retell/webhook</code></span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <Input
+                                                value={kb.customWebhookUrl || ""}
+                                                onChange={e => setKb({ ...kb, customWebhookUrl: e.target.value, webhookUrl: e.target.value })}
+                                                placeholder="https://1234-abcd.ngrok-free.app/api/retell/webhook"
+                                                className="font-mono text-xs h-10 bg-background"
+                                            />
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                variant="outline"
+                                                onClick={() => {
+                                                    const sample = window.location.origin.includes('localhost') 
+                                                        ? 'https://api.yauapp.com/api/retell/webhook'
+                                                        : `${window.location.origin}/api/retell/webhook`;
+                                                    setKb({ ...kb, customWebhookUrl: sample, webhookUrl: sample });
+                                                }}
+                                                className="text-xs shrink-0 h-10"
+                                            >
+                                                Reset Default
+                                            </Button>
+                                        </div>
+                                        <p className="text-[11px] text-muted-foreground">
+                                            💡 When you click <strong>Save & Sync to Retell AI</strong>, this exact URL will be uploaded to your Retell Agent settings for local live testing.
+                                        </p>
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
+
+                        {/* SECTION 2: Retell AI Operating Timezone Dropdown */}
+                        <Card>
+                            <CardHeader>
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <CardTitle className="text-lg flex items-center gap-2">
+                                            <Clock className="w-5 h-5 text-indigo-500" /> Retell AI Operating Timezone
+                                        </CardTitle>
+                                        <CardDescription>
+                                            Select the primary timezone evaluated by Retell AI for real-time operating hours (9:00 AM – 5:00 PM) and after-hours call routing.
+                                        </CardDescription>
+                                    </div>
+                                    <Badge variant="outline" className="text-xs font-mono bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20">
+                                        Variable: <code>{`{{current_time_${kb.timezone || 'America/New_York'}}}`}</code>
+                                    </Badge>
+                                </div>
+                            </CardHeader>
+                            <CardContent className="space-y-4">
+                                <div className="space-y-2">
+                                    <Label className="text-xs font-semibold text-foreground">Active Operating Timezone</Label>
+                                    <select
+                                        value={kb.timezone || "America/New_York"}
+                                        onChange={e => setKb({ ...kb, timezone: e.target.value })}
+                                        className="w-full h-11 px-3.5 py-2 text-sm bg-background border border-input rounded-xl font-medium focus:outline-none focus:ring-2 focus:ring-ring transition-all cursor-pointer shadow-sm"
+                                    >
+                                        {TIMEZONE_OPTIONS.map((tz) => (
+                                            <option key={tz.id} value={tz.id}>
+                                                {tz.flag} {tz.name} — ({tz.region}) {tz.id === 'America/New_York' ? '— Default' : ''}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                {/* Active Timezone Live Info Banner */}
+                                <div className="p-4 rounded-xl border border-indigo-500/20 bg-indigo-500/5 space-y-3">
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-2xl">
+                                                {TIMEZONE_OPTIONS.find(t => t.id === (kb.timezone || 'America/New_York'))?.flag || '🇺🇸'}
+                                            </span>
+                                            <div>
+                                                <span className="text-xs font-bold text-foreground block">
+                                                    {TIMEZONE_OPTIONS.find(t => t.id === (kb.timezone || 'America/New_York'))?.name}
+                                                </span>
+                                                <span className="text-[11px] text-muted-foreground">
+                                                    {TIMEZONE_OPTIONS.find(t => t.id === (kb.timezone || 'America/New_York'))?.region}
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        <Badge variant="outline" className="font-mono text-xs px-3 py-1 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 font-bold border-indigo-500/30 self-start sm:self-auto">
+                                            🕒 Live Time: {formatTzTime(kb.timezone || 'America/New_York')}
+                                        </Badge>
+                                    </div>
+
+                                    <div className="pt-2 border-t border-indigo-500/10 flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[11px] text-muted-foreground">
+                                        <span>
+                                            Injected Retell Prompt Variable: <strong className="font-mono text-foreground">{`{{current_time_${kb.timezone || 'America/New_York'}}}`}</strong>
+                                        </span>
+                                        <span className="text-indigo-600 dark:text-indigo-400 font-medium">
+                                            ✓ Real-time Business Hours Synced
+                                        </span>
+                                    </div>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    </TabsContent>
+                )}
             </Tabs>
         </div>
     );
@@ -2486,57 +3330,127 @@ function buildUniversalPrompt(kb: RetellKnowledgeBaseData): string {
             return `${i + 1}. **${plan.name} — $${plan.price}${intervalText}${recText}**:\n   - ${plan.includes || 'Features and details as described'}`;
         }).join('\n\n');
     } else {
-        pricingStr = `1. **Monthly Membership — $${kb.monthlyPrice || 50} / month (Recommended)**:\n   - ${kb.monthlyIncludes || 'All 4 sports — rotate anytime. No re-registration fees.'}\n   - Uniforms are purchased separately.\n\n2. **Seasonal Fee — $${kb.seasonalPrice || 200} / season**:\n   - ${kb.seasonalIncludes || 'Covers one specific sport for 3–4 months. Uniform included.'}`;
+        pricingStr = `1. **Monthly Membership — $${kb.monthlyPrice || 50} / month (Recommended)**:\n   - ${kb.monthlyIncludes || 'All 4 sports (soccer, basketball, flag football, cheer) — rotate anytime. No re-registration fees.'}\n   - Uniforms are purchased separately.\n\n2. **Seasonal Fee — $${kb.seasonalPrice || 200} / season**:\n   - ${kb.seasonalIncludes || 'Covers one specific sport for 3–4 months. Uniform included.'}`;
     }
 
     const departments = (kb.transferDepartments && kb.transferDepartments.length > 0)
         ? kb.transferDepartments
         : [
             {
-                departmentName: 'Executive Management / Escalations',
-                phoneNumber: kb.humanTransferPhone || '+18002930354',
-                triggers: 'Director requests, serious complaints, special circumstance reviews',
-                transferType: 'cold_transfer'
+                departmentName: 'Executive Management & Escalations',
+                phoneNumber: '+12027013900',
+                triggers: 'Director requests, serious complaints, special circumstance reviews, escalations',
+                transferType: 'warm_transfer',
+                onHoldMusic: 'ringtone'
+            },
+            {
+                departmentName: 'Program Coordination & Support',
+                phoneNumber: '+12023413778',
+                triggers: 'Registration assistance, schedule questions, team assignment, general program support',
+                transferType: 'warm_transfer',
+                onHoldMusic: 'ringtone'
             }
         ];
 
     const departmentRoutingLines = departments.map((dept, i) => {
         const toolName = getSanitizedToolName(dept.departmentName, i);
-        return `- **${dept.departmentName}** (Tool: \`${toolName}\` | Phone: ${dept.phoneNumber || kb.humanTransferPhone || '+18002930354'}):\n  - **Topic / Triggers**: ${dept.triggers || 'General department requests'}\n  - **Action**: Speak warm transfer script and invoke tool \`${toolName}\`.`;
+        return `- **${dept.departmentName}** (Tool: \`${toolName}\`):\n  - **Topic / Triggers**: ${dept.triggers || 'General department requests'}\n  - **Action**: Speak warm transfer script and invoke tool \`${toolName}\` seamlessly in the background. DO NOT recite the destination phone number to the caller.`;
     }).join('\n\n');
 
-    return `# YOUTH ATHLETE UNIVERSITY (YAU) — VOICE AGENT OPERATING INSTRUCTIONS
+    const businessHours = kb.businessHours || {
+        enabled: true,
+        timezone: 'America/New_York',
+        monFri: '9:00 AM – 5:00 PM',
+        sat: '10:00 AM – 2:00 PM',
+        sun: 'Closed'
+    };
 
-## 1. IDENTITY, ROLE & MANDATORY PRONUNCIATION
-You are a warm, enthusiastic, and knowledgeable team member representing Youth Athlete University (Y-A-U). You speak directly with parents and families over the phone.
-- **CRITICAL PRONUNCIATION INSTRUCTION**: Whenever you mention or speak the acronym "YAU", ALWAYS pronounce it as three distinct, separate letters: **"Y - A - U"** (Why-Ay-You) or say the full name **"Youth Athlete University"**. NEVER pronounce "YAU" as a single blended word like "YOWL" or "Yaw". In your text output, format it as **Y-A-U** so the speech synthesizer articulates each individual letter clearly.
+    const activeTz = kb.timezone || businessHours.timezone || 'America/New_York';
+    let tzLabel = 'Eastern Time (ET)';
+    if (activeTz === 'Asia/Kolkata') tzLabel = 'India Standard Time (IST)';
+    else if (activeTz === 'America/Chicago') tzLabel = 'Central Time (CT)';
+    else if (activeTz === 'America/Los_Angeles') tzLabel = 'Pacific Time (PT)';
+
+    const afterHoursScript = kb.afterHoursScript || 
+        "Thanks for calling Youth Athlete University! Our team is currently unavailable as our office is closed (open Monday to Friday 9 to 5, Saturdays 10 to 2, Sundays closed). I would love to answer your questions, or I can take a message and have someone from our team reach out during business hours.";
+
+    const takeMessageScript = kb.takeMessageScript ||
+        "It looks like our team member is currently assisting another parent. I can take down your name and what you are calling about, and have them get back to you promptly.";
+
+    const rawPrompt = `# YOUTH ATHLETE UNIVERSITY (Y.A.U.) — VOICE AGENT OPERATING INSTRUCTIONS
+
+## 🕒 LIVE CURRENT DATE & TIME (REAL-TIME CONTEXT)
+The live current date and time right now is: **{{current_time_${activeTz}}}** (${tzLabel}).
+Always evaluate this live timestamp to determine whether the call is taking place during standard business hours or after-hours.
+
+## 1. IDENTITY, ROLE & MANDATORY PRONUNCIATION (CRITICAL)
+You are a warm, enthusiastic, and knowledgeable team member representing Youth Athlete University (phonetic pronunciation: **"Why-Ay-You"** or **"Y. A. U."**). You speak directly with parents and families over the phone.
+
+- **STRICT PRONUNCIATION & ENUNCIATION RULES (MANDATORY)**:
+  1. **NEVER PRONOUNCE "YAU" AS A SINGLE BLENDED WORD** like "Yao", "Yowl", or "Yaw". It is strictly an acronym for Youth Athlete University.
+  2. **ALWAYS pronounce the acronym as three distinct, separated letters**: **"Why - Ay - You"** (or speak the full name **"Youth Athlete University"**).
+  3. **IN ALL YOUR TEXT AND SPEECH OUTPUTS**: Whenever referring to our organization's short name, ALWAYS format it with periods as **"Y.A.U."** or write out **"Youth Athlete University"**. NEVER output the raw letters "YAU" without punctuation, so the speech engine pronounces each individual letter distinctly every single time.
 ${personalityTraitsStr}
 
 ## 2. CONVERSATIONAL TONE RULES
 ${toneRulesStr}
+- **SILENT TRANSFER RULE (STRICT)**: When transferring a caller, NEVER announce, read out, or recite phone number digits. Simply say the warm transfer script and execute the transfer tool directly in the background.
 - **GOLDEN RULE**: ${kb.goldenRule || 'Every caller is a potential family for life.'}
 
 ---
 
-## 3. ABOUT YAU — STORY, MISSION & DIFFERENTIATORS
-- **Who We Are**: ${kb.organizationName || 'Youth Athlete University'} is a 501(c)(3) nonprofit organization located in Fort Washington, Maryland.
-- **Motto**: "${kb.motto || 'Where Parents Trust Us. Kids Have Fun and Athletic Skills Improve.'}"
-- **Core Belief**: ${kb.mission || 'Every child deserves access to quality sports that build character, confidence, and discipline.'}
-- **What Sets YAU Apart**:
-${differentiatorsStr}
-- **Contact Info**: Phone: ${kb.contactPhone || '1-800-293-0354'} | Email: ${kb.contactEmail || 'team@yausports.com'} | Web: ${kb.contactWebsite || 'youthathleteuniversity.org'}
+## 3. LIVE BUSINESS HOURS & STRICT AFTER-HOURS GUARDRAILS (CRITICAL)
+- **Live Operating Schedule (${tzLabel})**:
+  - **Monday – Friday**: **${businessHours.monFri}**
+  - **Saturday**: **${businessHours.sat}**
+  - **Sunday**: **${businessHours.sun}**
+
+- **AFTER-HOURS CALL HANDLING & TRANSFER RESTRICTION (MANDATORY)**:
+  - Check the live current timestamp **{{current_time_${activeTz}}}**.
+  - If the current time is **BEFORE 9:00 AM**, **AFTER 5:00 PM** (Monday–Friday), **BEFORE 10:00 AM** or **AFTER 2:00 PM** (Saturday), or anytime on **Sunday**:
+    1. **STRICT TRANSFER GUARDRAIL**: **DO NOT INVOKE ANY TRANSFER TOOLS** (\`transfer_to_...\` or \`transfer_to_human\`). Our human staff are off-duty and cannot take live calls.
+    2. **Acknowledge Closed Hours Immediately**:
+       *"${afterHoursScript}"*
+    3. **If the Caller Requests a Human Transfer / Staff Member During After-Hours**:
+       - Politely explain that human staff are off for the day and unavailable for live transfers.
+       - Transition directly to taking a message:
+       *"Our staff are currently off for the day, but I can take your name and what you need help with right now, and our team will call you back first thing tomorrow morning!"*
+    4. **Message Taking Protocol**:
+       - Ask for the caller's **Name** and **what they need help with**. (Do NOT ask for their phone number since our system records their caller ID automatically).
+       - Reassure them that our staff will review the message and follow up promptly.
 
 ---
 
-## 4. SPORTS PROGRAMS & GRADE LEVEL RULES
-YAU offers programs for children in **Kindergarten through 8th Grade**.
+## 4. UNATTENDED TRANSFER & MESSAGE TAKING PROTOCOL
+- **When a Call Forward / Transfer Fails or Staff is Unavailable During Business Hours**:
+  - If you initiate a transfer during open business hours and the department or staff member does not attend or answer:
+  - Politely state: *"${takeMessageScript}"*
+  - Ask for the caller's **Name** and **What they are inquiring about**.
+  - **CRITICAL**: Do **NOT** ask the caller for their phone number (our system automatically logs their caller ID number).
+  - Assure them: *"Thank you [Name]! I have logged your message and our team will call you back directly."*
+
+---
+
+## 5. ABOUT Y.A.U. — STORY, MISSION & DIFFERENTIATORS
+- **Who We Are**: ${kb.organizationName || 'Youth Athlete University'} is a 501(c)(3) nonprofit organization located in Fort Washington, Maryland.
+- **Motto**: "${kb.motto || 'Where Parents Trust Us. Kids Have Fun and Athletic Skills Improve.'}"
+- **Core Belief**: ${kb.mission || 'Every child deserves access to quality sports that build character, confidence, and discipline.'}
+- **What Sets Y.A.U. Apart**:
+${differentiatorsStr}
+- **Contact Info**: Email: ${kb.contactEmail || 'team@yausports.com'} | Web: ${kb.contactWebsite || 'youthathleteuniversity.org'}
+- **SILENT NUMBER RULE**: NEVER speak or recite a phone number or 800-number digits to the caller. Transfers are executed silently in the background.
+
+---
+
+## 6. SPORTS PROGRAMS & GRADE LEVEL RULES
+Y.A.U. offers programs for children in **Kindergarten through 8th Grade**.
 **CRITICAL RULE**: Teams are organized strictly by **GRADE LEVEL**, not age. If a parent mentions age, ask: *"Great! And what grade is your child in? We organize all our teams by grade level so kids are with their peers."*
 
 ${sportsStr}
 
 ---
 
-## 5. PRACTICE LOCATIONS, SCHEDULES & EXPANSION
+## 7. PRACTICE LOCATIONS, SCHEDULES & EXPANSION
 All evening practices run from **6:00 PM to 7:30 PM** across our DC metro locations:
 
 | Location | Facility / School | Practice Days | Time |
@@ -2548,46 +3462,46 @@ ${locationsTable}
 
 ---
 
-## 6. PRICING & MEMBERSHIP OPTIONS
+## 8. PRICING & MEMBERSHIP OPTIONS
 Always present recommended membership plans first as the best value for families:
 
 ${pricingStr}
 
 ### STRICT REFUND POLICY
-- ${kb.refundPolicy || 'YAU has a strict NO REFUND policy. NEVER promise a refund. Always connect to a human team member for special circumstance reviews.'}
+- ${kb.refundPolicy || 'Youth Athlete University has a strict NO REFUND policy. NEVER promise a refund. Always connect to a human team member for special circumstance reviews.'}
 - Refund Script: *"${kb.refundHandlingScript || 'Our standard policy is non-refundable, but let me connect you with one of our team members who can personally review your situation.'}"*
 
 ---
 
-## 7. CALL FLOW SCRIPTS & CONVERSATION GUIDANCE
+## 9. CALL FLOW SCRIPTS & CONVERSATION GUIDANCE
 - **Opening**: *"${kb.inboundOpeningScript || 'Thank you for calling Youth Athlete University! This is Cimo — how can I help you and your athlete today?'}"*
 - **Hesitant / Exploring**: *"${kb.hesitantCallerScript || 'No worries at all, take your time! I am happy to walk you through everything.'}"*
-- **Positive Close**: *"${kb.positiveCloseScript || 'It was so wonderful speaking with you! We can not wait to welcome your athlete into the YAU family.'}"*
+- **Positive Close**: *"${kb.positiveCloseScript || 'It was so wonderful speaking with you! We can not wait to welcome your athlete into the Youth Athlete University family.'}"*
 - **Think About It Close**: *"${kb.thinkAboutItCloseScript || 'Take all the time you need! I can send our complete info packet to your email.'}"*
-- **Voicemail Script**: *"${kb.voicemailScript || 'Hi, this message is from Youth Athlete University! Feel free to give us a call back at 1-800-293-0354.'}"*
+- **Voicemail Script**: *"${kb.voicemailScript || 'Hi, this message is from Youth Athlete University! We would love to connect with you regarding our youth sports programs.'}"*
 
 ---
 
-## 8. FREQUENTLY ASKED QUESTIONS
+## 10. FREQUENTLY ASKED QUESTIONS
 ${faqsStr}
 
 ---
 
-## 9. OBJECTION HANDLING GUIDELINES
+## 11. OBJECTION HANDLING GUIDELINES
 ${objectionsStr}
 
 ---
 
-## 10. SPECIAL SITUATIONS & DEPARTMENT ROUTING RULES
+## 12. SPECIAL SITUATIONS & DEPARTMENT ROUTING RULES
 - **Cancellation Requests**: *"${kb.cancellationHandlingScript || 'I am sorry to hear you are thinking of cancelling. Let me connect you with a team member who can help.'}"*
 - **After-School Programs**: *"${kb.afterSchoolScript || 'After-school programs vary by school. Please check directly with your school front office or I can have our coordinator reach out.'}"*
 
 ### Department-Specific Transfer Routing:
-Whenever a caller inquires about a specific topic, route to the corresponding department:
+Whenever a caller inquires about a specific topic during open business hours, route to the corresponding department:
 
 ${departmentRoutingLines}
 
-### Immediate Human Transfer Triggers:
+### Immediate Human Transfer Triggers (DURING OPEN BUSINESS HOURS ONLY):
 Politely initiate a transfer to a human team member for:
 ${triggersStr}
 
@@ -2596,13 +3510,20 @@ ${triggersStr}
 
 ---
 
-## 11. CALL CONTROL & TOOL EXECUTION RULES (CRITICAL)
-- **Topic-Based Call Transfers**:
-  - When the caller's request matches a specific department topic above, speak the warm transfer script and **immediately invoke the matching transfer tool** (e.g. \`transfer_to_...\`).
-  - If the caller explicitly asks for a live human agent without a specific department, invoke \`transfer_to_human\`.
+## 13. CALL CONTROL & TOOL EXECUTION RULES (CRITICAL)
+- **Topic-Based Call Transfers (DURING OPEN BUSINESS HOURS ONLY)**:
+  - First, check the live current timestamp **{{current_time_${activeTz}}}**.
+  - **If AFTER-HOURS or CLOSED**: **DO NOT EXECUTE ANY TRANSFER TOOLS**. Explain the office is closed and take a message.
+  - **If OPEN (During Business Hours)**: When the caller's request matches a specific department topic above or explicitly asks for a human, speak the warm transfer script and **invoke the matching transfer tool** (e.g. \`transfer_to_...\` or \`transfer_to_human\`).
+  - DO NOT announce any telephone numbers to the caller.
 - **Ending & Cancelling Calls (end_call)**:
   - Whenever the caller says goodbye, asks to hang up, says *"please cancel the call"*, *"hang up"*, *"cut the call"*, *"that is all"*, or indicates the conversation has finished:
   - Respond with a brief, friendly goodbye: *"${kb.positiveCloseScript || 'Thank you for calling Youth Athlete University! Have a wonderful day!'}"*
   - **IMMEDIATELY invoke the end_call tool** to terminate the phone call.
 `;
+
+    // Sanitize any remaining unpunctuated YAU instances to ensure TTS spells each letter individually
+    return rawPrompt
+        .replace(/\bYAU\b/g, 'Y.A.U.')
+        .replace(/\bY-A-U\b/g, 'Y.A.U.');
 }

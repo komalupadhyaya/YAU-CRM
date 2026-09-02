@@ -8,6 +8,36 @@ const RetellKnowledgeBaseSchema = new mongoose.Schema({
         default: 'Thank you for calling Youth Athlete University! This is Cimo — how can I help you and your athlete today?' 
     },
     
+    // Voice & Speech Settings
+    voiceId: { type: String, default: '11labs-Lily' },
+
+    // Webhook Configuration
+    webhookEnvironment: { 
+        type: String, 
+        enum: ['production', 'development', 'custom'], 
+        default: 'production' 
+    },
+    customWebhookUrl: { type: String, default: '' },
+    webhookUrl: { type: String, default: 'https://api.yauapp.com/api/retell/webhook' },
+    timezone: { type: String, default: 'America/New_York' },
+
+    // Business Hours & After-Hours
+    businessHours: {
+        enabled: { type: Boolean, default: true },
+        timezone: { type: String, default: 'America/New_York' },
+        monFri: { type: String, default: '9:00 AM – 5:00 PM' },
+        sat: { type: String, default: '10:00 AM – 2:00 PM' },
+        sun: { type: String, default: 'Closed' }
+    },
+    afterHoursScript: {
+        type: String,
+        default: 'Thanks for calling Youth Athlete University! Our team is currently unavailable outside of our regular business hours (Monday through Friday 9:00 AM to 5:00 PM, and Saturday 10:00 AM to 2:00 PM Eastern). I would love to answer your questions about our sports programs, or I can take a message and have someone from our team reach out first thing tomorrow morning.'
+    },
+    takeMessageScript: {
+        type: String,
+        default: 'It looks like our team member is currently unavailable or on another line. No problem at all! Let me take a message for you. Go ahead and leave your name and what you need help with, and someone from our team will call you right back.'
+    },
+
     // Personality & Tone
     personalityTraits: {
         type: [String],
@@ -27,12 +57,13 @@ const RetellKnowledgeBaseSchema = new mongoose.Schema({
             'Never sound robotic or read from a script — speak naturally and conversationally',
             "Use encouraging language — 'Your child is going to love it!' or 'That is a great choice for your athlete'",
             'Keep energy up — youth sports should feel exciting, not corporate',
-            'Never rush a parent — take your time and make them feel heard'
+            'Never rush a parent — take your time and make them feel heard',
+            'Never recite or announce phone number digits aloud to the caller when transferring. Connect them directly.'
         ]
     },
     goldenRule: {
         type: String,
-        default: 'Every parent calling YAU is a potential family for life. Treat every call like you are welcoming them into the YAU family for the first time. The goal is not just to answer their question — it is to make them excited to enroll their child.'
+        default: 'Every parent calling Youth Athlete University is a potential family for life. Treat every call like you are welcoming them into the Youth Athlete University family for the first time. The goal is not just to answer their question — it is to make them excited to enroll their child.'
     },
 
     // Organization Story & Mission
@@ -58,7 +89,7 @@ const RetellKnowledgeBaseSchema = new mongoose.Schema({
             'Multi-sport access — one membership unlocks all four sports'
         ]
     },
-    contactPhone: { type: String, default: '1-800-293-0354' },
+    contactPhone: { type: String, default: '+12027013900' },
     contactEmail: { type: String, default: 'team@yausports.com' },
     contactWebsite: { type: String, default: 'youthathleteuniversity.org' },
 
@@ -83,7 +114,7 @@ const RetellKnowledgeBaseSchema = new mongoose.Schema({
     },
     outOfAreaScript: { 
         type: String, 
-        default: "We are growing and adding new locations! I'd love to take your information so we can reach out as soon as we open in your area. What's the best number and email to reach you?" 
+        default: "We are growing and adding new locations! I'd love to take your information so we can reach out as soon as we expand into your area. What's the best email to reach you?" 
     },
 
     // Pricing & Membership
@@ -106,7 +137,7 @@ const RetellKnowledgeBaseSchema = new mongoose.Schema({
     },
     refundPolicy: { 
         type: String, 
-        default: 'YAU has a strict NO REFUND policy — this applies even if the child did not participate. NEVER promise a refund. ALWAYS direct to a team member for special circumstance reviews.' 
+        default: 'Youth Athlete University has a strict NO REFUND policy — this applies even if the child did not participate. NEVER promise a refund. ALWAYS direct to a team member for special circumstance reviews.' 
     },
     refundHandlingScript: {
         type: String,
@@ -124,7 +155,7 @@ const RetellKnowledgeBaseSchema = new mongoose.Schema({
     },
     positiveCloseScript: { 
         type: String, 
-        default: "It was so great talking with you today! I think [child's name] is going to absolutely love it here. We can't wait to welcome them to the YAU family. Don't hesitate to call us back if you think of any other questions — we're always here!" 
+        default: "It was so great talking with you today! I think [child's name] is going to absolutely love it here. We can't wait to welcome them to the Youth Athlete University family. Don't hesitate to call us back if you think of any other questions — we're always here!" 
     },
     thinkAboutItCloseScript: { 
         type: String, 
@@ -132,7 +163,7 @@ const RetellKnowledgeBaseSchema = new mongoose.Schema({
     },
     voicemailScript: { 
         type: String, 
-        default: "Hi, this message is for [Name]! This is [Agent Name] calling from Youth Athlete University. You recently expressed interest in our programs and I just wanted to reach out personally to answer any questions you might have. We'd love to have your child join our team! Feel free to give us a call back at 1-800-293-0354 or I'll try you again soon. Have a wonderful day!" 
+        default: "Hi, this message is for [Name]! This is [Agent Name] calling from Youth Athlete University. You recently expressed interest in our programs and I just wanted to reach out personally to answer any questions you might have. We'd love to have your child join our team! Feel free to reach back out or I'll try you again soon. Have a wonderful day!" 
     },
     warmTransferScript: { 
         type: String, 
@@ -160,7 +191,7 @@ const RetellKnowledgeBaseSchema = new mongoose.Schema({
     }],
 
     // Human Transfer & Escalation
-    humanTransferPhone: { type: String, default: '+18002930354' },
+    humanTransferPhone: { type: String, default: '+12027013900' },
     humanTransferTriggers: {
         type: [String],
         default: [
@@ -179,7 +210,7 @@ const RetellKnowledgeBaseSchema = new mongoose.Schema({
         phoneNumber: { type: String, default: '' },
         triggers: { type: String, default: '' },
         transferType: { type: String, enum: ['cold_transfer', 'warm_transfer'], default: 'warm_transfer' },
-        onHoldMusic: { type: String, enum: ['relaxing_sound', 'uplifting_beats', 'ringtone', 'none'], default: 'relaxing_sound' }
+        onHoldMusic: { type: String, enum: ['ringtone', 'relaxing_sound', 'uplifting_beats', 'none'], default: 'ringtone' }
     }],
 
     // Sync Metadata
@@ -193,6 +224,16 @@ RetellKnowledgeBaseSchema.statics.getOrCreateDefault = async function() {
     let doc = await this.findOne();
     if (!doc) {
         doc = await this.create({
+            voiceId: '11labs-Lily',
+            businessHours: {
+                enabled: true,
+                timezone: 'America/New_York',
+                monFri: '9:00 AM – 5:00 PM',
+                sat: '10:00 AM – 2:00 PM',
+                sun: 'Closed'
+            },
+            afterHoursScript: 'Thanks for calling Youth Athlete University! Our team is currently unavailable outside of our regular business hours (Monday through Friday 9:00 AM to 5:00 PM, and Saturday 10:00 AM to 2:00 PM Eastern). I would love to answer your questions about our sports programs, or I can take a message and have someone from our team reach out first thing tomorrow morning.',
+            takeMessageScript: 'It looks like our team member is currently unavailable or on another line. No problem at all! Let me take a message for you. Go ahead and leave your name and what you need help with, and someone from our team will call you right back.',
             pricingPlans: [
                 {
                     name: 'Monthly Membership',
@@ -253,7 +294,7 @@ RetellKnowledgeBaseSchema.statics.getOrCreateDefault = async function() {
                 },
                 {
                     trigger: "What makes you different from other programs?",
-                    response: "That's such a great question and I love that you asked it. A few things really set us apart. First — no tryouts, no cuts, and no riding the bench. Every child who wants to play gets to play and gets real time on the field. Second — we connect sports to academics. We believe the discipline, focus, and teamwork your child learns here carries over directly into the classroom. And third — our pricing. For $50 a month your child can do all four sports. A lot of programs charge that much for just one. We built YAU to be accessible to every family — not just some."
+                    response: "That's such a great question and I love that you asked it. A few things really set us apart. First — no tryouts, no cuts, and no riding the bench. Every child who wants to play gets to play and gets real time on the field. Second — we connect sports to academics. We believe the discipline, focus, and teamwork your child learns here carries over directly into the classroom. And third — our pricing. For $50 a month your child can do all four sports. A lot of programs charge that much for just one. We built Youth Athlete University (Why-Ay-You) to be accessible to every family — not just some."
                 },
                 {
                     trigger: "I need to talk to my spouse first.",
@@ -262,10 +303,18 @@ RetellKnowledgeBaseSchema.statics.getOrCreateDefault = async function() {
             ],
             transferDepartments: [
                 {
-                    departmentName: "Executive Management / Escalations",
-                    phoneNumber: "+919896233745",
-                    triggers: "Director requests, serious complaints, special circumstance reviews",
-                    transferType: "cold_transfer"
+                    departmentName: "Executive Management & Escalations",
+                    phoneNumber: "+12027013900",
+                    triggers: "Director requests, management escalations, serious complaints, special circumstance reviews",
+                    transferType: "warm_transfer",
+                    onHoldMusic: "ringtone"
+                },
+                {
+                    departmentName: "Program Coordination & Support",
+                    phoneNumber: "+12023413778",
+                    triggers: "Registration questions, scheduling details, program coordinator requests, team assignments",
+                    transferType: "warm_transfer",
+                    onHoldMusic: "ringtone"
                 }
             ]
         });

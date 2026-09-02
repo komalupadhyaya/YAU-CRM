@@ -1026,8 +1026,8 @@ export async function sendEAWelcomeEmail({ name, email }) {
  * Send email notification for a new voicemail.
  * Non-blocking, fire-and-forget helper.
  */
-export async function sendVoicemailEmailNotification({ to, fromNumber, duration, recordingUrl }) {
-    const crmUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
+export async function sendVoicemailEmailNotification({ to, fromNumber, callerName, targetDepartment, duration, recordingUrl, aiSummary, transcript }) {
+    const crmUrl = process.env.FRONTEND_URL ? `${process.env.FRONTEND_URL}/voicemail-inbox` : 'http://localhost:8080/voicemail-inbox';
     const year = new Date().getFullYear().toString();
     
     // Format duration
@@ -1037,17 +1037,24 @@ export async function sendVoicemailEmailNotification({ to, fromNumber, duration,
     const durationStr = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
 
     try {
+        const callerDisplay = callerName ? `${callerName} (` : '';
+        const callerClosing = callerName ? ')' : '';
+
         const html = renderTemplate('voicemail-notification.html', {
-            FROM_NUMBER: fromNumber || 'Unknown Caller',
+            FROM_NUMBER: `${callerDisplay}${fromNumber || 'Unknown Caller'}${callerClosing}`,
+            CALLER_NAME: '',
+            TARGET_DEPARTMENT: targetDepartment || null,
             DURATION: durationStr,
-            PLAYBACK_URL: recordingUrl,
+            AI_SUMMARY: aiSummary || null,
+            TRANSCRIPT: transcript || null,
+            PLAYBACK_URL: recordingUrl || null,
             CRM_URL: crmUrl,
             YEAR: year,
         });
 
         await sendMail({
             to,
-            subject: `📼 New Voicemail from ${fromNumber || 'Unknown Caller'}`,
+            subject: `📼 New Voicemail from ${callerName ? `${callerName} (${fromNumber})` : (fromNumber || 'Unknown Caller')}`,
             html,
         });
 

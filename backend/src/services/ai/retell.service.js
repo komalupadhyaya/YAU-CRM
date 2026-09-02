@@ -16,15 +16,16 @@ export function getSanitizedToolName(deptName, index = 0) {
  * @returns {string} - Full Markdown prompt
  */
 export function buildPromptFromKnowledgeBase(kb) {
-    const personalityTraitsStr = (kb.personalityTraits || [])
+    const safeKb = kb || {};
+    const personalityTraitsStr = (safeKb.personalityTraits || [])
         .map(t => `- **${t}**`)
         .join('\n');
 
-    const toneRulesStr = (kb.toneRules || [])
+    const toneRulesStr = (safeKb.toneRules || [])
         .map(r => `- ${r}`)
         .join('\n');
 
-    const differentiatorsStr = (kb.differentiators || [])
+    const differentiatorsStr = (safeKb.differentiators || [])
         .map((d, i) => `  ${i + 1}. **${d.split('—')[0]?.trim()}**: ${d}`)
         .join('\n');
 
@@ -63,50 +64,112 @@ export function buildPromptFromKnowledgeBase(kb) {
         ? kb.transferDepartments
         : [
             {
-                departmentName: 'Executive Management / Escalations',
-                phoneNumber: kb.humanTransferPhone || '+18002930354',
-                triggers: 'Director requests, serious complaints, special circumstance reviews',
-                transferType: 'cold_transfer'
+                departmentName: 'Executive Management & Escalations',
+                phoneNumber: kb.humanTransferPhone || '+12027013900',
+                triggers: 'Director requests, management escalations, serious complaints, special circumstance reviews',
+                transferType: 'warm_transfer',
+                onHoldMusic: 'ringtone'
+            },
+            {
+                departmentName: 'Program Coordination & Support',
+                phoneNumber: '+12023413778',
+                triggers: 'Registration questions, scheduling details, program coordinator requests, team assignments',
+                transferType: 'warm_transfer',
+                onHoldMusic: 'ringtone'
             }
         ];
 
     const departmentRoutingLines = departments.map((dept, i) => {
         const toolName = getSanitizedToolName(dept.departmentName, i);
-        return `- **${dept.departmentName}** (Tool: \`${toolName}\` | Phone: ${dept.phoneNumber || kb.humanTransferPhone || '+18002930354'}):\n  - **Topic / Triggers**: ${dept.triggers || 'General department requests'}\n  - **Action**: Speak warm transfer script and invoke tool \`${toolName}\`.`;
+        return `- **${dept.departmentName}** (Tool: \`${toolName}\`):\n  - **Topic / Triggers**: ${dept.triggers || 'General department requests'}\n  - **Action**: Speak warm transfer script and invoke tool \`${toolName}\`. NEVER recite or speak the phone number digits aloud.`;
     }).join('\n\n');
 
-    return `# YOUTH ATHLETE UNIVERSITY (YAU) — VOICE AGENT OPERATING INSTRUCTIONS
+    const bh = kb.businessHours || {
+        enabled: true,
+        timezone: 'America/New_York',
+        monFri: '9:00 AM – 5:00 PM',
+        sat: '10:00 AM – 2:00 PM',
+        sun: 'Closed'
+    };
 
-## 1. IDENTITY, ROLE & MANDATORY PRONUNCIATION
-You are a warm, enthusiastic, and knowledgeable team member representing Youth Athlete University (Y-A-U). You speak directly with parents and families over the phone.
-- **CRITICAL PRONUNCIATION INSTRUCTION**: Whenever you mention or speak the acronym "YAU", ALWAYS pronounce it as three distinct, separate letters: **"Y - A - U"** (Why-Ay-You) or say the full name **"Youth Athlete University"**. NEVER pronounce "YAU" as a single blended word like "YOWL" or "Yaw". In your text output, format it as **Y-A-U** so the speech synthesizer articulates each individual letter clearly.
+    const activeTz = kb.timezone || bh.timezone || 'America/New_York';
+    let tzLabel = 'Eastern Time (ET)';
+    if (activeTz === 'Asia/Kolkata') tzLabel = 'India Standard Time (IST)';
+    else if (activeTz === 'America/Chicago') tzLabel = 'Central Time (CT)';
+    else if (activeTz === 'America/Los_Angeles') tzLabel = 'Pacific Time (PT)';
+
+    const rawPrompt = `# YOUTH ATHLETE UNIVERSITY (Y.A.U.) — VOICE AGENT OPERATING INSTRUCTIONS
+
+## 🕒 LIVE CURRENT DATE & TIME (REAL-TIME CONTEXT)
+The live current date and time right now is: **{{current_time_${activeTz}}}** (${tzLabel}).
+Always evaluate this live timestamp to determine whether the call is taking place during standard business hours or after-hours.
+
+## 1. IDENTITY, ROLE & MANDATORY PRONUNCIATION (CRITICAL)
+You are a warm, enthusiastic, and knowledgeable team member representing Youth Athlete University (phonetic pronunciation: **"Why-Ay-You"** or **"Y. A. U."**). You speak directly with parents and families over the phone.
+
+- **STRICT PRONUNCIATION & ENUNCIATION RULES (MANDATORY)**:
+  1. **NEVER PRONOUNCE "YAU" AS A SINGLE BLENDED WORD** like "Yao", "Yowl", or "Yaw". It is strictly an acronym for Youth Athlete University.
+  2. **ALWAYS pronounce the acronym as three distinct, separated letters**: **"Why - Ay - You"** (or speak the full name **"Youth Athlete University"**).
+  3. **IN ALL YOUR TEXT AND SPEECH OUTPUTS**: Whenever referring to our organization's short name, ALWAYS format it with periods as **"Y.A.U."** or write out **"Youth Athlete University"**. NEVER output the raw letters "YAU" without punctuation, so the speech engine pronounces each individual letter distinctly every single time.
 ${personalityTraitsStr}
 
-## 2. CONVERSATIONAL TONE RULES
+## 2. CONVERSATIONAL TONE RULES & SILENT TRANSFERS
 ${toneRulesStr}
+- **SILENT TRANSFER RULE (STRICT)**: When transferring a caller, NEVER announce, read out, or recite phone number digits (e.g. do not say "I am transferring you to 1-800..." or "Calling 202-..."). Simply say the warm transfer script and execute the transfer tool directly in the background.
 - **GOLDEN RULE**: ${kb.goldenRule || 'Every caller is a potential family for life.'}
 
 ---
 
-## 3. ABOUT YAU — STORY, MISSION & DIFFERENTIATORS
-- **Who We Are**: ${kb.organizationName || 'Youth Athlete University'} is a 501(c)(3) nonprofit organization located in Fort Washington, Maryland.
-- **Motto**: "${kb.motto || 'Where Parents Trust Us. Kids Have Fun and Athletic Skills Improve.'}"
-- **Core Belief**: ${kb.mission || 'Every child deserves access to quality sports that build character, confidence, and discipline.'}
-- **What Sets YAU Apart**:
-${differentiatorsStr}
-- **Contact Info**: Phone: ${kb.contactPhone || '1-800-293-0354'} | Email: ${kb.contactEmail || 'team@yausports.com'} | Web: ${kb.contactWebsite || 'youthathleteuniversity.org'}
+## 3. LIVE BUSINESS HOURS & STRICT AFTER-HOURS GUARDRAILS (CRITICAL)
+- **Live Operating Schedule (${tzLabel})**:
+  - **Monday – Friday**: ${bh.monFri || '9:00 AM – 5:00 PM'}
+  - **Saturday**: ${bh.sat || '10:00 AM – 2:00 PM'}
+  - **Sunday**: ${bh.sun || 'Closed'}
+
+- **AFTER-HOURS CALL HANDLING & TRANSFER RESTRICTION (MANDATORY)**:
+  - Check the live current timestamp **{{current_time_${activeTz}}}**.
+  - If the current time is **BEFORE 9:00 AM**, **AFTER 5:00 PM** (Monday–Friday), **BEFORE 10:00 AM** or **AFTER 2:00 PM** (Saturday), or anytime on **Sunday**:
+    1. **STRICT TRANSFER GUARDRAIL**: **DO NOT INVOKE ANY TRANSFER TOOLS** (\`transfer_to_...\` or \`transfer_to_human\`). Our human staff are off-duty and cannot take live calls.
+    2. **Acknowledge Closed Hours Immediately**:
+       *"${kb.afterHoursScript || 'Thanks for calling Youth Athlete University! Our team is currently unavailable outside of our regular business hours (Monday through Friday 9:00 AM to 5:00 PM, and Saturday 10:00 AM to 2:00 PM Eastern). I would love to answer your questions about our sports programs, or I can take a message and have someone from our team reach out first thing tomorrow morning.'}"*
+    3. **If the Caller Requests a Human Transfer / Staff Member During After-Hours**:
+       - Politely explain that human staff are off for the day and unavailable for live transfers.
+       - Transition directly to taking a message:
+       *"Our staff are currently off for the day, but I can take your name and what you need help with right now, and our team will call you back first thing tomorrow morning!"*
+    4. **Message Taking Protocol**:
+       - Ask for the caller's **Name** and **what they need help with**. (Do NOT ask for their phone number since our system records their caller ID automatically).
+       - Reassure them that our staff will review the message and follow up promptly.
 
 ---
 
-## 4. SPORTS PROGRAMS & GRADE LEVEL RULES
-YAU offers programs for children in **Kindergarten through 8th Grade**.
+## 4. UNATTENDED TRANSFER & VOICEMAIL MESSAGE PROTOCOL
+- If you initiate a call transfer during open business hours and the department or team member does not answer (unattended / busy / unavailable):
+  - Step in gracefully and say:
+  - *"${kb.takeMessageScript || 'It looks like our team member is currently unavailable or on another line. No problem at all! Let me take a message for you. Go ahead and leave your name and what you need help with, and someone from our team will call you right back.'}"*
+  - **IMPORTANT**: Do NOT ask for the caller's phone number because our system automatically captures their caller ID. Simply ask for their **name** and **what they need help with**.
+  - Reassure them that our staff will review the message and call them back promptly.
+
+---
+
+## 5. ABOUT Y.A.U. — STORY, MISSION & DIFFERENTIATORS
+- **Who We Are**: ${kb.organizationName || 'Youth Athlete University'} is a 501(c)(3) nonprofit organization located in Fort Washington, Maryland.
+- **Motto**: "${kb.motto || 'Where Parents Trust Us. Kids Have Fun and Athletic Skills Improve.'}"
+- **Core Belief**: ${kb.mission || 'Every child deserves access to quality sports that build character, confidence, and discipline.'}
+- **What Sets Y.A.U. Apart**:
+${differentiatorsStr}
+- **Contact Info**: Email: ${kb.contactEmail || 'team@yausports.com'} | Web: ${kb.contactWebsite || 'youthathleteuniversity.org'}
+
+---
+
+## 6. SPORTS PROGRAMS & GRADE LEVEL RULES
+Y.A.U. offers programs for children in **Kindergarten through 8th Grade**.
 **CRITICAL RULE**: Teams are organized strictly by **GRADE LEVEL**, not age. If a parent mentions age, ask: *"Great! And what grade is your child in? We organize all our teams by grade level so kids are with their peers."*
 
 ${sportsStr}
 
 ---
 
-## 5. PRACTICE LOCATIONS, SCHEDULES & EXPANSION
+## 7. PRACTICE LOCATIONS, SCHEDULES & EXPANSION
 All evening practices run from **6:00 PM to 7:30 PM** across our DC metro locations:
 
 | Location | Facility / School | Practice Days | Time |
@@ -118,63 +181,70 @@ ${locationsTable}
 
 ---
 
-## 6. PRICING & MEMBERSHIP OPTIONS
+## 8. PRICING & MEMBERSHIP OPTIONS
 Always present recommended membership plans first as the best value for families:
 
 ${pricingStr}
 
 ### STRICT REFUND POLICY
-- ${kb.refundPolicy || 'YAU has a strict NO REFUND policy. NEVER promise a refund. Always connect to a human team member for special circumstance reviews.'}
+- ${kb.refundPolicy || 'Youth Athlete University has a strict NO REFUND policy. NEVER promise a refund. Always connect to a human team member for special circumstance reviews.'}
 - Refund Script: *"${kb.refundHandlingScript || 'Our standard policy is non-refundable, but let me connect you with one of our team members who can personally review your situation.'}"*
 
 ---
 
-## 7. CALL FLOW SCRIPTS & CONVERSATION GUIDANCE
+## 9. CALL FLOW SCRIPTS & CONVERSATION GUIDANCE
 - **Opening**: *"${kb.inboundOpeningScript || 'Thank you for calling Youth Athlete University! This is Cimo — how can I help you and your athlete today?'}"*
 - **Hesitant / Exploring**: *"${kb.hesitantCallerScript || 'No worries at all, take your time! I am happy to walk you through everything.'}"*
-- **Positive Close**: *"${kb.positiveCloseScript || 'It was so wonderful speaking with you! We can not wait to welcome your athlete into the YAU family.'}"*
+- **Positive Close**: *"${kb.positiveCloseScript || 'It was so wonderful speaking with you! We can not wait to welcome your athlete into the Youth Athlete University family.'}"*
 - **Think About It Close**: *"${kb.thinkAboutItCloseScript || 'Take all the time you need! I can send our complete info packet to your email.'}"*
-- **Voicemail Script**: *"${kb.voicemailScript || 'Hi, this message is from Youth Athlete University! Feel free to give us a call back at 1-800-293-0354.'}"*
+- **Voicemail Outreach Script**: *"${kb.voicemailScript || 'Hi, this message is from Youth Athlete University! Feel free to reach back out or I will try you again soon.'}"*
 
 ---
 
-## 8. FREQUENTLY ASKED QUESTIONS
+## 10. FREQUENTLY ASKED QUESTIONS
 ${faqsStr}
 
 ---
 
-## 9. OBJECTION HANDLING GUIDELINES
+## 11. OBJECTION HANDLING GUIDELINES
 ${objectionsStr}
 
 ---
 
-## 10. SPECIAL SITUATIONS & DEPARTMENT ROUTING RULES
+## 12. SPECIAL SITUATIONS & DEPARTMENT ROUTING RULES
 - **Cancellation Requests**: *"${kb.cancellationHandlingScript || 'I am sorry to hear you are thinking of cancelling. Let me connect you with a team member who can help.'}"*
 - **After-School Programs**: *"${kb.afterSchoolScript || 'After-school programs vary by school. Please check directly with your school front office or I can have our coordinator reach out.'}"*
 
 ### Department-Specific Transfer Routing:
-Whenever a caller inquires about a specific topic, route to the corresponding department:
+Whenever a caller inquires about a specific topic during open business hours, route to the corresponding department:
 
 ${departmentRoutingLines}
 
-### Immediate Human Transfer Triggers:
+### Immediate Human Transfer Triggers (DURING OPEN BUSINESS HOURS ONLY):
 Politely initiate a transfer to a human team member for:
 ${triggersStr}
 
-**Warm Transfer Script**:
+**Warm Transfer Script (NEVER recite phone numbers)**:
 *"${kb.warmTransferScript || 'That is a great question and I want to make sure you get the exact right answer. Let me connect you with one of our team members right now — one moment please!'}"*
 
 ---
 
-## 11. CALL CONTROL & TOOL EXECUTION RULES (CRITICAL)
-- **Topic-Based Call Transfers**:
-  - When the caller's request matches a specific department topic above, speak the warm transfer script and **immediately invoke the matching transfer tool** (e.g. \`transfer_to_...\`).
-  - If the caller explicitly asks for a live human agent without a specific department, invoke \`transfer_to_human\`.
+## 13. CALL CONTROL & TOOL EXECUTION RULES (CRITICAL)
+- **Topic-Based Call Transfers (DURING OPEN BUSINESS HOURS ONLY)**:
+  - First, check the live current timestamp **{{current_time_${activeTz}}}**.
+  - **If AFTER-HOURS or CLOSED**: **DO NOT EXECUTE ANY TRANSFER TOOLS**. Explain the office is closed and take a message.
+  - **If OPEN (During Business Hours)**: When the caller's request matches a specific department topic or explicitly asks for a human, speak the warm transfer script and **invoke the matching transfer tool** (e.g. \`transfer_to_...\` or \`transfer_to_human\`).
+  - NEVER read phone numbers aloud.
 - **Ending & Cancelling Calls (end_call)**:
   - Whenever the caller says goodbye, asks to hang up, says *"please cancel the call"*, *"hang up"*, *"cut the call"*, *"that is all"*, or indicates the conversation has finished:
   - Respond with a brief, friendly goodbye: *"${kb.positiveCloseScript || 'Thank you for calling Youth Athlete University! Have a wonderful day!'}"*
   - **IMMEDIATELY invoke the end_call tool** to terminate the phone call.
 `;
+
+    // Sanitize any remaining unpunctuated YAU instances to ensure TTS spells each letter individually
+    return rawPrompt
+        .replace(/\bYAU\b/g, 'Y.A.U.')
+        .replace(/\bY-A-U\b/g, 'Y.A.U.');
 }
 
 /**
@@ -226,7 +296,7 @@ export async function getRetellAgentDetails(agentId) {
 /**
  * Syncs the KnowledgeBase document to Retell AI Agent prompt & tools via Retell REST API
  */
-export async function syncKnowledgeBaseToRetell(kb) {
+export async function syncKnowledgeBaseToRetell(kbParam) {
     const apiKey = getRetellApiKey();
     const agentId = getRetellAgentId();
 
@@ -238,19 +308,35 @@ export async function syncKnowledgeBaseToRetell(kb) {
         throw new Error('Retell Agent ID is not configured.');
     }
 
+    let kb = kbParam;
+    if (!kb) {
+        kb = await RetellKnowledgeBase.findOne();
+        if (!kb) {
+            kb = await RetellKnowledgeBase.create({});
+        }
+    }
+
     const compiledPrompt = buildPromptFromKnowledgeBase(kb);
     const welcomeMsg = kb.welcomeMessage || 'Thank you for calling Youth Athlete University! This is Cimo — how can I help you and your athlete today?';
-    const transferNumber = kb.humanTransferPhone || process.env.RETELL_TRANSFER_NUMBER || '+18002930354';
+    const transferNumber = kb.humanTransferPhone || process.env.RETELL_TRANSFER_NUMBER || '+12027013900';
 
     // Build dynamic transfer_call tools for each department
     const departments = (kb.transferDepartments && kb.transferDepartments.length > 0)
         ? kb.transferDepartments
         : [
             {
-                departmentName: 'Executive Management / Escalations',
-                phoneNumber: transferNumber,
-                triggers: 'Director requests, serious complaints, special circumstance reviews',
-                transferType: 'cold_transfer'
+                departmentName: 'Executive Management & Escalations',
+                phoneNumber: '+12027013900',
+                triggers: 'Director requests, management escalations, serious complaints, special circumstance reviews',
+                transferType: 'warm_transfer',
+                onHoldMusic: 'ringtone'
+            },
+            {
+                departmentName: 'Program Coordination & Support',
+                phoneNumber: '+12023413778',
+                triggers: 'Registration questions, scheduling details, program coordinator requests, team assignments',
+                transferType: 'warm_transfer',
+                onHoldMusic: 'ringtone'
             }
         ];
 
@@ -260,7 +346,7 @@ export async function syncKnowledgeBaseToRetell(kb) {
         const transferOption = isWarm
             ? {
                 type: 'warm_transfer',
-                on_hold_music: dept.onHoldMusic || 'relaxing_sound',
+                on_hold_music: dept.onHoldMusic || 'ringtone',
                 enable_bridge_audio_cue: true
             }
             : {
@@ -270,7 +356,7 @@ export async function syncKnowledgeBaseToRetell(kb) {
         return {
             type: 'transfer_call',
             name: toolName,
-            description: `Transfer call to ${dept.departmentName} when caller discusses: ${dept.triggers || 'department requests'}.`,
+            description: `Transfer call to ${dept.departmentName}. ONLY execute this tool during live business hours (Mon-Fri 9:00 AM-5:00 PM, Sat 10:00 AM-2:00 PM Eastern). DO NOT invoke during after-hours or on Sundays when the office is closed. Triggers: ${dept.triggers || 'department requests'}.`,
             transfer_destination: {
                 type: 'predefined',
                 number: dept.phoneNumber || transferNumber
@@ -284,14 +370,14 @@ export async function syncKnowledgeBaseToRetell(kb) {
         transferTools.push({
             type: 'transfer_call',
             name: 'transfer_to_human',
-            description: 'Transfer the call to a live human representative or staff member when requested by the caller.',
+            description: 'Transfer the call to a live staff member. ONLY execute this tool during live business hours (Mon-Fri 9:00 AM-5:00 PM, Sat 10:00 AM-2:00 PM Eastern). DO NOT invoke during after-hours or on Sundays when the office is closed.',
             transfer_destination: {
                 type: 'predefined',
                 number: transferNumber
             },
             transfer_option: {
                 type: 'warm_transfer',
-                on_hold_music: 'relaxing_sound',
+                on_hold_music: 'ringtone',
                 enable_bridge_audio_cue: true
             }
         });
@@ -377,10 +463,19 @@ export async function syncKnowledgeBaseToRetell(kb) {
         }
     }
 
-    // 3. Update Retell Agent (Agent Name, Metadata & Pronunciation Dictionary)
+    // 3. Update Retell Agent (Agent Name, Voice ID, Speech Tuning & Pronunciation Dictionary)
     try {
+        const selectedVoiceId = kb.voiceId || '11labs-Lily';
         const agentUpdatePayload = {
             agent_name: kb.agentName ? `YAU Support Agent (${kb.agentName})` : 'YAU Support Agent',
+            voice_id: selectedVoiceId,
+            voice_temperature: 1.0,
+            voice_speed: 1.0,
+            responsiveness: 1.0,
+            interruption_sensitivity: 0.8,
+            enable_backchannel: true,
+            backchannel_frequency: 0.8,
+            backchannel_words: ['yeah', 'uh-huh', 'got it', 'okay', 'sure'],
             pronunciation_dictionary: [
                 {
                     word: 'YAU',
@@ -396,10 +491,35 @@ export async function syncKnowledgeBaseToRetell(kb) {
                     word: 'Yau',
                     alphabet: 'ipa',
                     phoneme: 'waɪ eɪ juː'
+                },
+                {
+                    word: 'Y.A.U.',
+                    alphabet: 'ipa',
+                    phoneme: 'waɪ eɪ juː'
+                },
+                {
+                    word: 'Y-A-U',
+                    alphabet: 'ipa',
+                    phoneme: 'waɪ eɪ juː'
                 }
             ]
         };
 
+        // Resolve active Webhook URL based on environment setting
+        let resolvedWebhookUrl = 'https://api.yauapp.com/api/retell/webhook';
+        if (process.env.NODE_ENV === 'production' || kb.webhookEnvironment === 'production') {
+            resolvedWebhookUrl = process.env.RETELL_WEBHOOK_URL || 'https://api.yauapp.com/api/retell/webhook';
+        } else if (kb.webhookEnvironment === 'development' || kb.webhookEnvironment === 'custom') {
+            resolvedWebhookUrl = kb.customWebhookUrl || kb.webhookUrl || resolvedWebhookUrl;
+        } else {
+            resolvedWebhookUrl = process.env.RETELL_WEBHOOK_URL || 'https://api.yauapp.com/api/retell/webhook';
+        }
+
+        if (resolvedWebhookUrl) {
+            agentUpdatePayload.webhook_url = resolvedWebhookUrl.trim();
+        }
+
+        console.log(`[Retell Service] Updating Agent settings: Voice ID=${selectedVoiceId}, Webhook=${agentUpdatePayload.webhook_url || 'Default'}`);
         const agentRes = await axios.patch(
             `${RETELL_API_BASE}/update-agent/${agentId}`,
             agentUpdatePayload,

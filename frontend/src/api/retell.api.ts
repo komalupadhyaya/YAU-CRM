@@ -40,10 +40,28 @@ export interface TransferDepartmentItem {
     onHoldMusic?: 'relaxing_sound' | 'uplifting_beats' | 'ringtone' | 'none';
 }
 
+export interface BusinessHoursConfig {
+    enabled: boolean;
+    timezone: string;
+    monFri: string;
+    sat: string;
+    sun: string;
+}
+
 export interface RetellKnowledgeBaseData {
     agentName: string;
     phoneNumber: string;
+    voiceId?: string;
     welcomeMessage: string;
+
+    webhookEnvironment?: 'production' | 'development' | 'custom';
+    customWebhookUrl?: string;
+    webhookUrl?: string;
+    timezone?: string;
+
+    businessHours?: BusinessHoursConfig;
+    afterHoursScript?: string;
+    takeMessageScript?: string;
 
     personalityTraits: string[];
     toneRules: string[];
