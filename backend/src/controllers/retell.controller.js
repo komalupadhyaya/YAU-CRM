@@ -340,30 +340,35 @@ async function processRetellCallData(callData, payload) {
 
     // 5. Automated Voicemail / Message Creation & Multi-Channel Targeted Alerts
     try {
-        // 1. Check for explicit negative intent / declined message offer
-        const isDeclinedOrNoMessage = 
-            /(declined|refused|did not want|chose not|decided not|opted not|hung up without|without leaving)\s+(to\s+leave\s+)?(a\s+)?(message|voicemail)/i.test(aiSummary || '') ||
-            /(no\s+message\s+(was\s+)?left|caller\s+declined|no\s+voicemail\s+left|declined\s+(the\s+)?offer\s+to\s+leave\s+a\s+message)/i.test(aiSummary || '') ||
-            /(caller\s+(stated|said)\s+(they\s+)?(do\s+not|did\s+not|don't|dont)\s+want\s+to\s+leave\s+(a\s+)?(message|voicemail))/i.test(transcript || '') ||
-            /(no\s+thanks.*call\s+back\s+later|no\s+need.*call\s+back|don't\s+want\s+to\s+leave\s+a\s+message|dont\s+want\s+to\s+leave\s+a\s+message|not\s+leaving\s+a\s+message|will\s+call\s+back\s+later)/i.test(transcript || '');
+        // 1. Check if the caller specifically declined or refused the voicemail offer
+        const isCallerDeclinedVoicemail = 
+            /caller\s+(declined|refused|did not want|chose not|decided not|opted not)\s+to\s+leave\s+(a\s+)?(voice\s*mail|message)/i.test(aiSummary || '') ||
+            /(declined\s+(the\s+)?offer\s+to\s+leave\s+(a\s+)?(voice\s*mail|message)|hung\s+up\s+without\s+leaving\s+(a\s+)?(voice\s*mail|message))/i.test(aiSummary || '') ||
+            /(no\s+(voice\s*mail|message)\s+(was\s+)?left|caller\s+declined\s+(the\s+)?(voice\s*mail|message))/i.test(aiSummary || '') ||
+            /(caller\s+(stated|said)\s+(they\s+)?(do\s+not|did\s+not|don't|dont)\s+want\s+to\s+leave\s+(a\s+)?(voice\s*mail|message))/i.test(transcript || '') ||
+            /(don't\s+want\s+to\s+leave\s+(a\s+)?(voice\s*mail|message)|dont\s+want\s+to\s+leave\s+(a\s+)?(voice\s*mail|message)|not\s+leaving\s+(a\s+)?(voice\s*mail|message))/i.test(transcript || '');
 
-        // 2. Strict explicit voicemail & message intent detection
-        const isExplicitVoicemailSummary = 
-            !isDeclinedOrNoMessage && (
-                /(left|leave|leaving)\s+(a\s+)?(voice\s*mail|message)/i.test(aiSummary || '') ||
-                /(caller\s+left\s+a\s+message|voicemail\s+received|recorded\s+a\s+voicemail|caller\s+requested\s+a\s+callback)/i.test(aiSummary || '') ||
-                /voicemail\s+recorded/i.test(aiSummary || '')
+        // 2. Positive voicemail intent detection (from AI summary, transcript, or AMD)
+        const isPositiveVoicemailSummary = 
+            !isCallerDeclinedVoicemail && (
+                /voice\s*mail\s+(received|recorded|left|logged)/i.test(aiSummary || '') ||
+                /caller\s+(left|recorded|provided|gave)\s+(a\s+)?(voice\s*mail|message|callback\s+request)/i.test(aiSummary || '') ||
+                /(left|recorded)\s+(a\s+)?(voice\s*mail|message)\s+for/i.test(aiSummary || '') ||
+                /caller\s+requested\s+a\s+callback/i.test(aiSummary || '') ||
+                /(left|leaving)\s+(their\s+)?(name|contact|details|inquiry)/i.test(aiSummary || '') ||
+                /(left|leave|leaving)\s+(a\s+)?(voice\s*mail|message)/i.test(aiSummary || '')
             );
 
-        const isExplicitVoicemailTranscript = 
-            !isDeclinedOrNoMessage && (
-                /(leave\s+your\s+name\s+and\s+number|recorded\s+message|transfer\s+failed.*message)/i.test(transcript || '') ||
-                /called\s+after\s+hours.*message/i.test(transcript || '')
+        const isPositiveVoicemailTranscript = 
+            !isCallerDeclinedVoicemail && (
+                /(leave\s+a\s+voice\s*mail|left\s+a\s+voice\s*mail|recorded\s+voice\s*mail)/i.test(transcript || '') ||
+                /(leave\s+your\s+name\s+and\s+number|recorded\s+message|transfer\s+failed.*(voice\s*mail|message))/i.test(transcript || '') ||
+                /called\s+after\s+hours.*(voice\s*mail|message)/i.test(transcript || '')
             );
 
-        const isVoicemailOrMessage = !isDeclinedOrNoMessage && (
-            isExplicitVoicemailSummary || 
-            isExplicitVoicemailTranscript || 
+        const isVoicemailOrMessage = !isCallerDeclinedVoicemail && (
+            isPositiveVoicemailSummary || 
+            isPositiveVoicemailTranscript || 
             disconnectionReason === 'voicemail_reached'
         );
 

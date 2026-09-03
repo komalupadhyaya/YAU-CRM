@@ -39,11 +39,11 @@ const RetellKnowledgeBaseSchema = new mongoose.Schema({
     },
     afterHoursScript: {
         type: String,
-        default: 'Thanks for calling Youth Athlete University! Our team is currently unavailable outside of our regular business hours (Monday through Friday 9:00 AM to 5:00 PM, and Saturday 10:00 AM to 2:00 PM Eastern). I would love to answer your questions about our sports programs, or I can take a message and have someone from our team reach out first thing tomorrow morning.'
+        default: 'Thanks for calling Youth Athlete University! Our team is currently unavailable outside of our regular business hours (Monday through Friday 9:00 AM to 5:00 PM, and Saturday 10:00 AM to 2:00 PM Eastern). I would love to answer your questions about our sports programs, or you can leave a voicemail and our team will reach out first thing tomorrow morning.'
     },
     takeMessageScript: {
         type: String,
-        default: 'It looks like our team member is currently unavailable or on another line. No problem at all! Let me take a message for you. Go ahead and leave your name and what you need help with, and someone from our team will call you right back.'
+        default: 'It looks like our team member is currently unavailable or on another line. No problem at all! Would you like to leave a voicemail for our team? Go ahead and leave your name and what you need help with, and someone from our team will listen to your voicemail and call you right back.'
     },
 
     // Personality & Tone
@@ -240,8 +240,8 @@ RetellKnowledgeBaseSchema.statics.getOrCreateDefault = async function() {
                 sat: '10:00 AM – 2:00 PM',
                 sun: 'Closed'
             },
-            afterHoursScript: 'Thanks for calling Youth Athlete University! Our team is currently unavailable outside of our regular business hours (Monday through Friday 9:00 AM to 5:00 PM, and Saturday 10:00 AM to 2:00 PM Eastern). I would love to answer your questions about our sports programs, or I can take a message and have someone from our team reach out first thing tomorrow morning.',
-            takeMessageScript: 'It looks like our team member is currently unavailable or on another line. No problem at all! Let me take a message for you. Go ahead and leave your name and what you need help with, and someone from our team will call you right back.',
+            afterHoursScript: 'Thanks for calling Youth Athlete University! Our team is currently unavailable outside of our regular business hours (Monday through Friday 9:00 AM to 5:00 PM, and Saturday 10:00 AM to 2:00 PM Eastern). I would love to answer your questions about our sports programs, or you can leave a voicemail and our team will reach out first thing tomorrow morning.',
+            takeMessageScript: 'It looks like our team member is currently unavailable or on another line. No problem at all! Would you like to leave a voicemail for our team? Go ahead and leave your name and what you need help with, and someone from our team will listen to your voicemail and call you right back.',
             pricingPlans: [
                 {
                     name: 'Monthly Membership',

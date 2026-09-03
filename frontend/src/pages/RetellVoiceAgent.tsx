@@ -2314,28 +2314,28 @@ export default function RetellVoiceAgent() {
                         </CardHeader>
                         <CardContent className="space-y-2">
                             <Textarea
-                                value={kb.afterHoursScript || "Thanks for calling Youth Athlete University! Our team is currently unavailable as our office is closed (open Monday to Friday 9 to 5, Saturdays 10 to 2, Sundays closed). I would love to answer your questions, or I can take a message and have someone from our team reach out during business hours."}
+                                value={kb.afterHoursScript || "Thanks for calling Youth Athlete University! Our team is currently unavailable outside of our regular business hours (open Monday through Friday 9:00 AM to 5:00 PM, and Saturday 10:00 AM to 2:00 PM Eastern). I would love to answer your questions about our sports programs, or you can leave a voicemail and our team will reach out first thing tomorrow morning."}
                                 onChange={e => setKb({ ...kb, afterHoursScript: e.target.value })}
                                 rows={3}
                                 className="text-xs leading-relaxed"
                                 placeholder="Script spoken when caller dials outside office hours..."
                             />
                             <p className="text-[11px] text-muted-foreground">
-                                The AI warmly explains the office is closed, answers program questions, and offers to take down their message.
+                                The AI warmly explains the office is closed, answers program questions, and offers to record their voicemail.
                             </p>
                         </CardContent>
                     </Card>
 
-                    {/* Unattended Transfer & Message Taking Protocol */}
+                    {/* Unattended Transfer & Voicemail Protocol */}
                     <Card>
                         <CardHeader>
                             <div className="flex items-center justify-between">
                                 <div>
                                     <CardTitle className="text-base flex items-center gap-2">
-                                        <MessageSquare className="w-4 h-4 text-primary" /> Unattended Transfer & Message Taking Protocol
+                                        <MessageSquare className="w-4 h-4 text-primary" /> Unattended Transfer & Voicemail Protocol
                                     </CardTitle>
                                     <CardDescription>
-                                        Triggered when a call forward to a department goes unanswered or caller asks to leave a message.
+                                        Triggered when a call forward to a department goes unanswered or caller asks to leave a voicemail.
                                     </CardDescription>
                                 </div>
                                 <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/20">
@@ -2345,11 +2345,11 @@ export default function RetellVoiceAgent() {
                         </CardHeader>
                         <CardContent className="space-y-3">
                             <Textarea
-                                value={kb.takeMessageScript || "It looks like our team member is currently assisting another parent. I can take down your name and what you are calling about, and have them get back to you promptly."}
+                                value={kb.takeMessageScript || "It looks like our team member is currently unavailable or on another line. No problem at all! Would you like to leave a voicemail for our team? Go ahead and leave your name and what you need help with, and someone from our team will listen to your voicemail and call you right back."}
                                 onChange={e => setKb({ ...kb, takeMessageScript: e.target.value })}
                                 rows={3}
                                 className="text-xs leading-relaxed"
-                                placeholder="Script used when a transfer is unattended or caller wants to leave a message..."
+                                placeholder="Script used when a transfer is unattended or caller wants to leave a voicemail..."
                             />
                             <div className="p-3 bg-muted/40 rounded-xl border border-border/60 text-xs text-muted-foreground space-y-1">
                                 <p className="font-semibold text-foreground">💡 Automated Routing Behavior:</p>
@@ -3455,10 +3455,10 @@ function buildUniversalPrompt(kb: RetellKnowledgeBaseData): string {
     else if (activeTz === 'America/Los_Angeles') tzLabel = 'Pacific Time (PT)';
 
     const afterHoursScript = kb.afterHoursScript || 
-        "Thanks for calling Youth Athlete University! Our team is currently unavailable as our office is closed (open Monday to Friday 9 to 5, Saturdays 10 to 2, Sundays closed). I would love to answer your questions, or I can take a message and have someone from our team reach out during business hours.";
+        "Thanks for calling Youth Athlete University! Our team is currently unavailable outside of our regular business hours (open Monday through Friday 9:00 AM to 5:00 PM, and Saturday 10:00 AM to 2:00 PM Eastern). I would love to answer your questions about our sports programs, or you can leave a voicemail and our team will reach out first thing tomorrow morning.";
 
     const takeMessageScript = kb.takeMessageScript ||
-        "It looks like our team member is currently assisting another parent. I can take down your name and what you are calling about, and have them get back to you promptly.";
+        "It looks like our team member is currently unavailable or on another line. No problem at all! Would you like to leave a voicemail for our team? Go ahead and leave your name and what you need help with, and someone from our team will listen to your voicemail and call you right back.";
 
     const rawPrompt = `# YOUTH ATHLETE UNIVERSITY (Y.A.U.) — VOICE AGENT OPERATING INSTRUCTIONS
 
@@ -3496,22 +3496,22 @@ ${toneRulesStr}
        *"${afterHoursScript}"*
     3. **If the Caller Requests a Human Transfer / Staff Member During After-Hours**:
        - Politely explain that human staff are off for the day and unavailable for live transfers.
-       - Transition directly to taking a message:
-       *"Our staff are currently off for the day, but I can take your name and what you need help with right now, and our team will call you back first thing tomorrow morning!"*
-    4. **Message Taking Protocol**:
+       - Transition directly to offering a voicemail:
+       *"Our staff are currently off for the day, but you can leave a voicemail with your name and question right now, and our team will listen to your voicemail and call you back first thing tomorrow morning!"*
+    4. **Voicemail Recording Protocol**:
        - Ask for the caller's **Name** and **what they need help with**. (Do NOT ask for their phone number since our system records their caller ID automatically).
-       - Reassure them that our staff will review the message and follow up promptly.
+       - Reassure them that our staff will review the voicemail and follow up promptly.
 
 ---
 
-## 4. UNATTENDED TRANSFER & MESSAGE TAKING PROTOCOL
+## 4. UNATTENDED TRANSFER & VOICEMAIL PROTOCOL
 - **When a Call Forward / Transfer Fails or Staff is Unavailable During Business Hours**:
   - If you initiate a transfer during open business hours and the department or staff member does not attend or answer:
   - Politely state: *"${takeMessageScript}"*
-  - **If the caller agrees and leaves a message**:
+  - **If the caller agrees and leaves a voicemail**:
     - Ask for the caller's **Name** and **What they are inquiring about**. (Do NOT ask for their phone number since our system logs caller ID automatically).
-    - Assure them: *"Thank you [Name]! I have logged your message and our team will call you back directly."*
-  - **If the caller declines or refuses to leave a message** (e.g. says "no thanks", "I'll call back later", "never mind", "I don't want to leave a message"):
+    - Assure them: *"Thank you [Name]! I have recorded your voicemail for our team and someone will call you back shortly."*
+  - **If the caller declines or refuses to leave a voicemail** (e.g. says "no thanks", "I'll call back later", "never mind", "I don't want to leave a voicemail"):
     - Politely say: *"No problem at all! Feel free to call us back whenever it is convenient for you. Have a wonderful day!"*
     - **Immediately invoke the end_call tool** to terminate the call.
 
@@ -3599,7 +3599,7 @@ ${triggersStr}
 ## 13. CALL CONTROL & TOOL EXECUTION RULES (CRITICAL)
 - **Topic-Based Call Transfers (DURING OPEN BUSINESS HOURS ONLY)**:
   - First, check the live current timestamp **{{current_time_${activeTz}}}**.
-  - **If AFTER-HOURS or CLOSED**: **DO NOT EXECUTE ANY TRANSFER TOOLS**. Explain the office is closed and take a message.
+  - **If AFTER-HOURS or CLOSED**: **DO NOT EXECUTE ANY TRANSFER TOOLS**. Explain the office is closed and offer to record a voicemail.
   - **If OPEN (During Business Hours)**: When the caller's request matches a specific department topic above or explicitly asks for a human, speak the warm transfer script and **invoke the matching transfer tool** (e.g. \`transfer_to_...\` or \`transfer_to_human\`).
   - DO NOT announce any telephone numbers to the caller.
 - **Ending & Cancelling Calls (end_call)**:
