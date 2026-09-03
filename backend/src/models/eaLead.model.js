@@ -19,7 +19,8 @@ const EALeadSchema = new mongoose.Schema({
             isBulk: { type: Boolean, default: false },
             status: { type: String, enum: ['pending', 'sent', 'failed', 'received'], default: 'pending' },
             twilioSid: { type: String, default: null },
-            isRead: { type: Boolean, default: false }
+            isRead: { type: Boolean, default: false },
+            isAiReply: { type: Boolean, default: false }
         }
     ],
     calls: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Call', index: true }],

@@ -66,6 +66,10 @@ interface SettingsData {
         global: GlobalNotificationSettings;
         repSettings: RepSetting[];
     };
+    aiAutoReply?: {
+        enabled: boolean;
+        eaLeadsOnly: boolean;
+    };
     allUsers?: RepUser[];
 }
 
@@ -75,6 +79,9 @@ export default function Settings() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const { setStatusLabels } = useCampaignStore();
+
+    // AI Auto-Reply toggle state
+    const [aiAutoReplyEnabled, setAiAutoReplyEnabled] = useState(false);
 
     // Input state for adding new fallback email
     const [newFallbackEmail, setNewFallbackEmail] = useState("");
@@ -138,6 +145,7 @@ export default function Settings() {
 
             setSettings(initializedSettings);
             setStatusLabels(data.statusLabels || []);
+            setAiAutoReplyEnabled(data.aiAutoReply?.enabled ?? false);
         } catch (err) {
             console.error(err);
             toast.error("Failed to load settings");
@@ -170,6 +178,10 @@ export default function Settings() {
                         emailEnabled: globalEmail ? rs.emailEnabled : false,
                         smsForwardEnabled: globalSms ? rs.smsForwardEnabled : false
                     }))
+                },
+                aiAutoReply: {
+                    enabled: aiAutoReplyEnabled,
+                    eaLeadsOnly: true
                 }
             };
 
@@ -708,6 +720,53 @@ export default function Settings() {
                                 )}
                             </div>
                         </div>
+
+                        {/* ── AI Auto-Reply Card ─────────────────────────────────────────── */}
+                        <div className="bg-card border border-violet-500/30 rounded-xl p-6 shadow-sm space-y-4">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border/40 pb-4">
+                                <div>
+                                    <h2 className="text-lg font-bold flex items-center gap-2">
+                                        <Sparkles size={18} className="text-violet-500" />
+                                        AI Auto-Reply for EA Leads
+                                    </h2>
+                                    <p className="text-xs text-muted-foreground mt-0.5">
+                                        When enabled, the AI (Claude) will automatically reply to every inbound SMS from an EA-lead. The reply sounds like a real team member — the lead will not know it is AI-generated.
+                                    </p>
+                                </div>
+                                <Badge variant="outline" className="w-fit text-xs px-2.5 py-1 bg-violet-500/10 text-violet-600 border-violet-500/30 shrink-0">
+                                    EA Leads Only
+                                </Badge>
+                            </div>
+
+                            <div className="flex items-center justify-between p-4 rounded-lg border border-violet-500/20 bg-violet-500/5">
+                                <div className="space-y-1">
+                                    <Label className="text-sm font-semibold flex items-center gap-2">
+                                        <Sparkles size={15} className="text-violet-500" />
+                                        Enable AI Auto-Reply
+                                    </Label>
+                                    <p className="text-[11px] text-muted-foreground max-w-md">
+                                        AI will instantly reply to EA-lead inbound SMS using conversation history. Replies appear as a <span className="font-semibold text-violet-500">violet bubble</span> with an "AI Reply" badge in your inbox — invisible to the lead.
+                                    </p>
+                                </div>
+                                <Switch
+                                    id="ai-auto-reply-toggle"
+                                    checked={aiAutoReplyEnabled}
+                                    onCheckedChange={setAiAutoReplyEnabled}
+                                    className="data-[state=checked]:bg-violet-600"
+                                />
+                            </div>
+
+                            {aiAutoReplyEnabled && (
+                                <div className="flex items-start gap-2 text-[11px] text-violet-600 dark:text-violet-400 bg-violet-500/[0.08] border border-violet-500/20 rounded-lg p-3">
+                                    <Sparkles size={13} className="shrink-0 mt-0.5" />
+                                    <span>
+                                        <strong>AI Auto-Reply is active.</strong> Each inbound EA-lead SMS will trigger an Anthropic Claude API call (~$0.001). AI replies are sent via Twilio and saved with the <code className="bg-violet-500/10 px-1 rounded font-mono">isAiReply</code> flag.
+                                        Remember to click <strong>"Save All Changes"</strong> above to persist this setting.
+                                    </span>
+                                </div>
+                            )}
+                        </div>
+
                     </TabsContent>
 
                     {/* ══════════════════ TAB 2: GENERAL CRM PREFERENCES & PIPELINE ══════════════════ */}

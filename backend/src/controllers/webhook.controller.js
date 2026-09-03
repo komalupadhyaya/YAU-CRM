@@ -10,6 +10,8 @@ import EmailHistory from '../models/emailHistory.model.js';
 import smsForwarderService from '../services/sms/smsForwarder.service.js';
 import { sendSMSReplyEmailNotification } from '../services/email/mailer.js';
 import presenceService from '../services/realtime/presence.service.js';
+import twilio from 'twilio';
+import aiService from '../services/ai/ai.service.js';
 
 /**
  * Handle JotForm Webhook submissions
@@ -228,6 +230,102 @@ export const handleTwilioReply = async (req, res) => {
             await mainLead.save();
             console.log(`[Twilio Webhook] Saved inbound SMS reply to Main Lead "${mainLead.name}" (${mainLead._id})`);
         }
+
+        // ── AI Auto-Reply for EA Leads ─────────────────────────────────
+        // Fire after saving inbound message — runs in background, does not block Twilio webhook response
+        if (!isStopKeyword && matchingEALeads.length > 0) {
+            (async () => {
+                try {
+                    // Load settings and check if AI auto-reply is enabled
+                    const settings = await Settings.findOne();
+                    const aiAutoReplyEnabled = settings?.aiAutoReply?.enabled === true;
+
+                    if (!aiAutoReplyEnabled) {
+                        console.log('[AI Auto-Reply] Skipped — feature is disabled in Settings.');
+                        return;
+                    }
+
+                    const { TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER } = process.env;
+                    if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_PHONE_NUMBER) {
+                        console.error('[AI Auto-Reply] Twilio credentials not configured.');
+                        return;
+                    }
+
+                    const twilioClient = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+                    const statusCallbackUrl = `${process.env.BACKEND_URL}/api/webhooks/twilio-sms-status`;
+
+                    for (const eaLead of matchingEALeads) {
+                        // Skip opted-out leads
+                        if (eaLead.isConsent === false) {
+                            console.log(`[AI Auto-Reply] Skipping lead "${eaLead.name}" — SMS consent revoked.`);
+                            continue;
+                        }
+
+                        try {
+                            console.log(`[AI Auto-Reply] Generating reply for EA Lead "${eaLead.name}" (${eaLead._id})...`);
+
+                            // Re-fetch the lead to get the latest smsHistory (including the inbound message just saved)
+                            const freshLead = await EALead.findById(eaLead._id);
+                            if (!freshLead) continue;
+
+                            // Generate AI reply using conversation context
+                            const aiReplyText = await aiService.generateEALeadAutoReply({
+                                leadName: freshLead.name,
+                                smsHistory: freshLead.smsHistory
+                            });
+
+                            if (!aiReplyText || !aiReplyText.trim()) {
+                                console.warn(`[AI Auto-Reply] AI returned empty response for lead "${freshLead.name}". Skipping.`);
+                                continue;
+                            }
+
+                            // Trim to 160 chars as safety net
+                            const trimmedReply = aiReplyText.trim().slice(0, 160);
+
+                            // Send via Twilio
+                            const twilioMsg = await twilioClient.messages.create({
+                                body: trimmedReply,
+                                from: TWILIO_PHONE_NUMBER,
+                                to: From,
+                                statusCallback: statusCallbackUrl
+                            });
+
+                            console.log(`[AI Auto-Reply] ✅ Sent to "${freshLead.name}" (${From}) — SID: ${twilioMsg.sid}`);
+
+                            // Save AI reply to smsHistory with isAiReply: true
+                            const aiMsgEntry = {
+                                direction: 'outbound',
+                                message: trimmedReply,
+                                timestamp: new Date(),
+                                isBulk: false,
+                                status: 'pending',
+                                twilioSid: twilioMsg.sid,
+                                isRead: true,
+                                isAiReply: true
+                            };
+
+                            freshLead.smsHistory.push(aiMsgEntry);
+                            await freshLead.save();
+
+                            // Emit real-time socket event so admin inbox updates instantly
+                            const ioInstance = req.app?.get('io');
+                            if (ioInstance) {
+                                ioInstance.emit('sms:sent', {
+                                    leadId: freshLead._id,
+                                    leadType: 'ea_lead',
+                                    message: aiMsgEntry
+                                });
+                            }
+                        } catch (aiErr) {
+                            console.error(`[AI Auto-Reply] ❌ Failed for lead "${eaLead.name}":`, aiErr.message);
+                        }
+                    }
+                } catch (err) {
+                    console.error('[AI Auto-Reply] Unexpected error in auto-reply handler:', err.message);
+                }
+            })();
+        }
+        // ── End AI Auto-Reply ──────────────────────────────────────────
 
         // Compute total unread count across all leads
         const [eaUnread, mainUnread] = await Promise.all([

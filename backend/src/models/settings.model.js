@@ -37,6 +37,10 @@ const SettingsSchema = new mongoose.Schema({
             emails: { type: [String], default: [] },
             phone: { type: String, default: "" }
         }]
+    },
+    aiAutoReply: {
+        enabled: { type: Boolean, default: false },
+        eaLeadsOnly: { type: Boolean, default: true }
     }
 }, { timestamps: true });
 

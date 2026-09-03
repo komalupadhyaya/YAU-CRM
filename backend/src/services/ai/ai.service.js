@@ -215,6 +215,76 @@ async function generateSmsMessage({ leadName, contactName, leadStatus, recentMes
     return callClaude(systemPrompt, userContent, 200);
 }
 
+// ── System prompt for EA Lead auto-reply ──────────────────────────
+function buildEALeadAutoReplySystemPrompt() {
+    return `You are a real team member at Youth Athlete University (YAU Sports). You are responding to a text message from a potential student or parent who filled out a form on the YAU website.
+
+CRITICAL RULES — follow strictly:
+- You are a REAL PERSON on the YAU team. Never say you are an AI, a bot, or an automated system.
+- Sound warm, natural, and human. Like a real team member texting from their phone.
+- Keep your reply under 160 characters total. This is a hard limit.
+- Respond directly to what they said in their last message.
+- If this is their first time texting (no prior conversation), give them a warm, brief greeting and offer to help with their question about YAU programs.
+- If they asked a specific question, answer it briefly or let them know the team will follow up with details.
+- Be conversational — not robotic, not overly formal, not pushy.
+- Do NOT include any links, hashtags, or marketing language.
+- Do NOT sign off with "YAU Team" or any formal closing — just respond naturally like a real person texting.
+- Output ONLY the reply message text. No labels, no quotes, no explanation.`;
+}
+
+// ── User content builder for EA Lead auto-reply ───────────────────
+function buildEALeadAutoReplyUserContent({ leadName, smsHistory }) {
+    const recentMsgs = (smsHistory && smsHistory.length > 0)
+        ? smsHistory.slice(-8).map((m, i) => {
+            const dir = m.direction === 'inbound' ? '[THEM]' : '[YOU]';
+            const ts = m.timestamp ? new Date(m.timestamp).toLocaleString('en-US', {
+                month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+            }) : '';
+            return `  ${i + 1}. ${dir} (${ts}): ${m.message}`;
+          }).join('\n')
+        : '  (This is the first message — they just submitted the YAU interest form)';
+
+    const lastMsg = smsHistory && smsHistory.length > 0
+        ? smsHistory[smsHistory.length - 1]
+        : null;
+    const lastInbound = lastMsg && lastMsg.direction === 'inbound' ? lastMsg.message : '(no message yet)';
+
+    return `Lead name: ${leadName || 'there'}
+
+Conversation history (oldest → newest):
+${recentMsgs}
+
+Their last message to you:
+"${lastInbound}"
+
+Write your reply now (max 160 characters):`;
+}
+
+/**
+ * Generate an AI auto-reply for an inbound EA-lead SMS.
+ * The reply sounds like a real human team member.
+ * Used exclusively by the Twilio inbound webhook for EA leads.
+ *
+ * @param {Object} params
+ * @param {string} params.leadName    - EA Lead's name
+ * @param {Array}  params.smsHistory  - Full smsHistory array from EALead doc
+ * @returns {Promise<string>}         - The AI-generated reply text
+ */
+async function generateEALeadAutoReply({ leadName, smsHistory }) {
+    const systemPrompt = buildEALeadAutoReplySystemPrompt();
+    const userContent  = buildEALeadAutoReplyUserContent({ leadName, smsHistory });
+
+    if (PROVIDER === 'claude' || PROVIDER === 'anthropic') {
+        return callClaude(systemPrompt, userContent, 160);
+    }
+
+    if (PROVIDER === 'groq') {
+        return callGroq(systemPrompt, userContent, false);
+    }
+
+    return callClaude(systemPrompt, userContent, 160);
+}
+
 /**
  * Generate an AI-suggested Email subject and body for a lead.
  *
@@ -584,13 +654,15 @@ export {
     generateSmsMessage,
     generateEmailMessage,
     generateEmailTemplate,
-    generatePersonalizedEmailMessage
+    generatePersonalizedEmailMessage,
+    generateEALeadAutoReply
 };
 
 export default {
     generateSmsMessage,
     generateEmailMessage,
     generateEmailTemplate,
-    generatePersonalizedEmailMessage
+    generatePersonalizedEmailMessage,
+    generateEALeadAutoReply
 };
 

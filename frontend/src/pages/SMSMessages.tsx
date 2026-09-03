@@ -45,6 +45,7 @@ export interface SMSMessageItem {
   twilioSid?: string;
   isRead?: boolean;
   isBulk?: boolean;
+  isAiReply?: boolean;
 }
 
 export interface SMSConversation {
@@ -1028,17 +1029,24 @@ export default function SMSMessages() {
                                     </TooltipContent>
                                   </Tooltip>
                                 )}
-                                <div
-                                  className={`rounded-2xl px-4 py-3 text-xs leading-relaxed shadow-sm ${
-                                    isInbound
-                                      ? 'bg-card text-card-foreground border border-border rounded-tl-none'
-                                      : isFailed
-                                      ? 'bg-destructive/15 text-foreground border border-destructive/40 rounded-tr-none'
-                                      : 'bg-primary text-primary-foreground rounded-tr-none'
-                                  }`}
-                                >
-                                  <p className="whitespace-pre-wrap break-words font-sans">{msg.message}</p>
-                                </div>
+                                {(() => {
+                                  const isAiReply = !isInbound && msg.isAiReply === true;
+                                  return (
+                                    <div
+                                      className={`rounded-2xl px-4 py-3 text-xs leading-relaxed shadow-sm ${
+                                        isInbound
+                                          ? 'bg-card text-card-foreground border border-border rounded-tl-none'
+                                          : isFailed
+                                          ? 'bg-destructive/15 text-foreground border border-destructive/40 rounded-tr-none'
+                                          : isAiReply
+                                          ? 'bg-violet-600 text-white rounded-tr-none shadow-violet-500/25 shadow-md'
+                                          : 'bg-primary text-primary-foreground rounded-tr-none'
+                                      }`}
+                                    >
+                                      <p className="whitespace-pre-wrap break-words font-sans">{msg.message}</p>
+                                    </div>
+                                  );
+                                })()}
                               </div>
 
                               {/* Message Meta / Timestamp / Status */}
@@ -1056,6 +1064,13 @@ export default function SMSMessages() {
                                     ) : (
                                       <CheckCheck size={13} className="text-emerald-500 inline stroke-[2.5]" />
                                     )}
+                                  </span>
+                                )}
+                                {/* AI Reply Badge — only visible to admin/team, not the EA-lead */}
+                                {!isInbound && msg.isAiReply === true && (
+                                  <span className="inline-flex items-center gap-0.5 text-violet-500 dark:text-violet-400 font-bold text-[9px] uppercase tracking-wider ml-0.5">
+                                    <Sparkles size={9} className="stroke-[2.5]" />
+                                    AI Reply
                                   </span>
                                 )}
                               </div>
