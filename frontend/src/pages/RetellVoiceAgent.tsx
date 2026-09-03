@@ -3448,7 +3448,8 @@ function buildUniversalPrompt(kb: RetellKnowledgeBaseData): string {
         sun: 'Closed'
     };
 
-    const activeTz = kb.timezone || businessHours.timezone || 'America/New_York';
+    const isProduction = import.meta.env.VITE_APP_ENV === 'production' || (!import.meta.env.DEV && import.meta.env.VITE_APP_ENV !== 'development');
+    const activeTz = isProduction ? 'America/New_York' : (kb.timezone || businessHours.timezone || 'America/New_York');
     let tzLabel = 'Eastern Time (ET)';
     if (activeTz === 'Asia/Kolkata') tzLabel = 'India Standard Time (IST)';
     else if (activeTz === 'America/Chicago') tzLabel = 'Central Time (CT)';
@@ -3467,12 +3468,12 @@ The live current date and time right now is: **{{current_time_${activeTz}}}** ($
 Always evaluate this live timestamp to determine whether the call is taking place during standard business hours or after-hours.
 
 ## 1. IDENTITY, ROLE & MANDATORY PRONUNCIATION (CRITICAL)
-You are a warm, enthusiastic, and knowledgeable team member representing Youth Athlete University (phonetic pronunciation: **"Why-Ay-You"** or **"Y. A. U."**). You speak directly with parents and families over the phone.
+You are a warm, enthusiastic, and knowledgeable team member representing Youth Athlete University (spoken as **"Youth Athlete University"** or **"Y, A, U"**). You speak directly with parents and families over the phone.
 
 - **STRICT PRONUNCIATION & ENUNCIATION RULES (MANDATORY)**:
   1. **NEVER PRONOUNCE "YAU" AS A SINGLE BLENDED WORD** like "Yao", "Yowl", or "Yaw". It is strictly an acronym for Youth Athlete University.
-  2. **ALWAYS pronounce the acronym as three distinct, separated letters**: **"Why - Ay - You"** (or speak the full name **"Youth Athlete University"**).
-  3. **IN ALL YOUR TEXT AND SPEECH OUTPUTS**: Whenever referring to our organization's short name, ALWAYS format it with periods as **"Y.A.U."** or write out **"Youth Athlete University"**. NEVER output the raw letters "YAU" without punctuation, so the speech engine pronounces each individual letter distinctly every single time.
+  2. **ALWAYS speak our name naturally and professionally** as **"Youth Athlete University"** or speak the individual letters cleanly and crisply as **"Y, A, U"**.
+  3. **IN ALL YOUR TEXT AND SPEECH OUTPUTS**: Always write our name cleanly as **"Youth Athlete University"** or **"Y, A, U"**. Speak with crisp, confident customer-service articulation without trailing sighs, whispering, or drawn-out sounds.
 ${personalityTraitsStr}
 
 ## 2. CONVERSATIONAL TONE RULES
@@ -3608,8 +3609,11 @@ ${triggersStr}
   - **IMMEDIATELY invoke the end_call tool** to terminate the phone call.
 `;
 
-    // Sanitize any remaining unpunctuated YAU instances to ensure TTS spells each letter individually
+    // Sanitize any remaining instances to ensure clean, crisp pronunciation
     return rawPrompt
-        .replace(/\bYAU\b/g, 'Y.A.U.')
-        .replace(/\bY-A-U\b/g, 'Y.A.U.');
+        .replace(/Why\.\.\.\s*Ay\.\.\.\s*You\.\.\./g, 'Y, A, U')
+        .replace(/Y\.\.\.\s*A\.\.\.\s*U\.\.\./g, 'Y, A, U')
+        .replace(/\bYAU\b/g, 'Y, A, U')
+        .replace(/\bY-A-U\b/g, 'Y, A, U')
+        .replace(/\bY\.A\.U\.\b/g, 'Y, A, U');
 }
