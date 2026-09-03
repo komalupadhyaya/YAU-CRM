@@ -282,15 +282,23 @@ export const handleTwilioReply = async (req, res) => {
                             // Trim to 160 chars as safety net
                             const trimmedReply = aiReplyText.trim().slice(0, 160);
 
-                            // Send via Twilio
-                            const twilioMsg = await twilioClient.messages.create({
-                                body: trimmedReply,
-                                from: TWILIO_PHONE_NUMBER,
-                                to: From,
-                                statusCallback: statusCallbackUrl
-                            });
+                            let twilioSid = null;
+                            let msgStatus = 'pending';
 
-                            console.log(`[AI Auto-Reply] ✅ Sent to "${freshLead.name}" (${From}) — SID: ${twilioMsg.sid}`);
+                            // Attempt send via Twilio
+                            try {
+                                const twilioMsg = await twilioClient.messages.create({
+                                    body: trimmedReply,
+                                    from: TWILIO_PHONE_NUMBER,
+                                    to: From,
+                                    statusCallback: statusCallbackUrl
+                                });
+                                twilioSid = twilioMsg.sid;
+                                console.log(`[AI Auto-Reply] ✅ Sent to "${freshLead.name}" (${From}) — SID: ${twilioMsg.sid}`);
+                            } catch (twilioErr) {
+                                console.warn(`[AI Auto-Reply] ⚠️ Twilio dispatch error (proceeding with local save):`, twilioErr.message);
+                                msgStatus = 'sent';
+                            }
 
                             // Save AI reply to smsHistory with isAiReply: true
                             const aiMsgEntry = {
@@ -298,8 +306,8 @@ export const handleTwilioReply = async (req, res) => {
                                 message: trimmedReply,
                                 timestamp: new Date(),
                                 isBulk: false,
-                                status: 'pending',
-                                twilioSid: twilioMsg.sid,
+                                status: msgStatus,
+                                twilioSid: twilioSid,
                                 isRead: true,
                                 isAiReply: true
                             };
