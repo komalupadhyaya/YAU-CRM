@@ -33,12 +33,13 @@ export const getSettings = async (req, res, next) => {
  */
 export const updateSettings = async (req, res, next) => {
     try {
-        const { crmPreferences, statusLabels, notificationSettings } = req.body;
+        const { crmPreferences, statusLabels, notificationSettings, aiAutoReply } = req.body;
 
         const updateData = {};
         if (crmPreferences) updateData.crmPreferences = crmPreferences;
         if (statusLabels) updateData.statusLabels = statusLabels;
         if (notificationSettings) updateData.notificationSettings = notificationSettings;
+        if (aiAutoReply !== undefined) updateData.aiAutoReply = aiAutoReply;
 
         // Sync actual User document phone numbers from repSettings to user profile phone data
         if (notificationSettings && Array.isArray(notificationSettings.repSettings)) {
