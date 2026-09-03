@@ -340,10 +340,32 @@ async function processRetellCallData(callData, payload) {
 
     // 5. Automated Voicemail / Message Creation & Multi-Channel Targeted Alerts
     try {
-        const isVoicemailOrMessage = 
-            /take a message|leave a message|leave a voicemail|left a message|called after hours|unattended|unavailable|voicemail|message for/i.test(transcript || '') ||
-            /message|voicemail|inquiry|after hours|unattended|transfer failed/i.test(aiSummary || '') ||
-            (durationSeconds >= 10 && Boolean(aiSummary || transcript));
+        // 1. Check for explicit negative intent / declined message offer
+        const isDeclinedOrNoMessage = 
+            /(declined|refused|did not want|chose not|decided not|opted not|hung up without|without leaving)\s+(to\s+leave\s+)?(a\s+)?(message|voicemail)/i.test(aiSummary || '') ||
+            /(no\s+message\s+(was\s+)?left|caller\s+declined|no\s+voicemail\s+left|declined\s+(the\s+)?offer\s+to\s+leave\s+a\s+message)/i.test(aiSummary || '') ||
+            /(caller\s+(stated|said)\s+(they\s+)?(do\s+not|did\s+not|don't|dont)\s+want\s+to\s+leave\s+(a\s+)?(message|voicemail))/i.test(transcript || '') ||
+            /(no\s+thanks.*call\s+back\s+later|no\s+need.*call\s+back|don't\s+want\s+to\s+leave\s+a\s+message|dont\s+want\s+to\s+leave\s+a\s+message|not\s+leaving\s+a\s+message|will\s+call\s+back\s+later)/i.test(transcript || '');
+
+        // 2. Strict explicit voicemail & message intent detection
+        const isExplicitVoicemailSummary = 
+            !isDeclinedOrNoMessage && (
+                /(left|leave|leaving)\s+(a\s+)?(voice\s*mail|message)/i.test(aiSummary || '') ||
+                /(caller\s+left\s+a\s+message|voicemail\s+received|recorded\s+a\s+voicemail|caller\s+requested\s+a\s+callback)/i.test(aiSummary || '') ||
+                /voicemail\s+recorded/i.test(aiSummary || '')
+            );
+
+        const isExplicitVoicemailTranscript = 
+            !isDeclinedOrNoMessage && (
+                /(leave\s+your\s+name\s+and\s+number|recorded\s+message|transfer\s+failed.*message)/i.test(transcript || '') ||
+                /called\s+after\s+hours.*message/i.test(transcript || '')
+            );
+
+        const isVoicemailOrMessage = !isDeclinedOrNoMessage && (
+            isExplicitVoicemailSummary || 
+            isExplicitVoicemailTranscript || 
+            disconnectionReason === 'voicemail_reached'
+        );
 
         if (isVoicemailOrMessage && (aiSummary || transcript)) {
             // Determine attempted department & targeted destination phone number
@@ -537,6 +559,7 @@ export async function updateKnowledgeBase(req, res, next) {
         // Allowed update keys
         const updateFields = [
             'agentName', 'phoneNumber', 'voiceId', 'welcomeMessage',
+            'enableVoicemailDetection', 'outboundVoicemailMessage', 'voicemailDetectionTimeoutMs',
             'webhookEnvironment', 'customWebhookUrl', 'webhookUrl', 'timezone',
             'businessHours', 'afterHoursScript', 'takeMessageScript',
             'personalityTraits', 'toneRules', 'goldenRule',

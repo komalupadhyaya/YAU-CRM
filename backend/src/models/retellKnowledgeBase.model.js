@@ -11,6 +11,14 @@ const RetellKnowledgeBaseSchema = new mongoose.Schema({
     // Voice & Speech Settings
     voiceId: { type: String, default: '11labs-Lily' },
 
+    // Outbound Answering Machine Detection (AMD) & Voicemail Drop
+    enableVoicemailDetection: { type: Boolean, default: true },
+    outboundVoicemailMessage: { 
+        type: String, 
+        default: 'Hi, this is Youth Athlete University following up regarding your youth sports inquiry. We would love to connect with you and answer any questions for your athlete. Please give us a call back at 1-888-687-9139 or visit us online at yausports.com. Have a wonderful day!' 
+    },
+    voicemailDetectionTimeoutMs: { type: Number, default: 30000 },
+
     // Webhook Configuration
     webhookEnvironment: { 
         type: String, 

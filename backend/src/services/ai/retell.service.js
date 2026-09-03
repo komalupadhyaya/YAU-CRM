@@ -146,8 +146,12 @@ ${toneRulesStr}
 - If you initiate a call transfer during open business hours and the department or team member does not answer (unattended / busy / unavailable):
   - Step in gracefully and say:
   - *"${kb.takeMessageScript || 'It looks like our team member is currently unavailable or on another line. No problem at all! Let me take a message for you. Go ahead and leave your name and what you need help with, and someone from our team will call you right back.'}"*
-  - **IMPORTANT**: Do NOT ask for the caller's phone number because our system automatically captures their caller ID. Simply ask for their **name** and **what they need help with**.
-  - Reassure them that our staff will review the message and call them back promptly.
+  - **If the caller agrees and leaves a message**:
+    - Ask for their **name** and **what they need help with** (do NOT ask for their phone number since caller ID is automatic).
+    - Reassure them that our staff will review the message and follow up promptly.
+  - **If the caller declines or refuses to leave a message** (e.g. says "no thanks", "I'll call back later", "never mind", "I don't want to leave a message"):
+    - Politely say: *"No problem at all! Feel free to call us back whenever it is convenient for you. Have a wonderful day!"*
+    - **Immediately invoke the end_call tool** to terminate the call.
 
 ---
 
@@ -476,6 +480,10 @@ export async function syncKnowledgeBaseToRetell(kbParam) {
             enable_backchannel: true,
             backchannel_frequency: 0.8,
             backchannel_words: ['yeah', 'uh-huh', 'got it', 'okay', 'sure'],
+            voicemail_message: kb.enableVoicemailDetection !== false 
+                ? (kb.outboundVoicemailMessage || 'Hi, this is Youth Athlete University following up regarding your youth sports inquiry. We would love to connect with you and answer any questions for your athlete. Please give us a call back at 1-888-687-9139 or visit us online at yausports.com. Have a wonderful day!') 
+                : '',
+            voicemail_detection_timeout_ms: kb.voicemailDetectionTimeoutMs || 30000,
             pronunciation_dictionary: [
                 {
                     word: 'YAU',

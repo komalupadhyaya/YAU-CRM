@@ -52,6 +52,9 @@ export interface RetellKnowledgeBaseData {
     agentName: string;
     phoneNumber: string;
     voiceId?: string;
+    enableVoicemailDetection?: boolean;
+    outboundVoicemailMessage?: string;
+    voicemailDetectionTimeoutMs?: number;
     welcomeMessage: string;
 
     webhookEnvironment?: 'production' | 'development' | 'custom';

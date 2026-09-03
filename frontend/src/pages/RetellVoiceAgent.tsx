@@ -32,7 +32,9 @@ import {
     Server,
     Radio,
     Link2,
-    Zap
+    Zap,
+    Database,
+    PhoneOutgoing
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -278,6 +280,7 @@ export default function RetellVoiceAgent() {
     const isDevelopment = import.meta.env.VITE_APP_ENV === 'development' || (import.meta.env.DEV && import.meta.env.VITE_APP_ENV !== 'production');
     const [voiceTier, setVoiceTier] = useState<'standard' | 'elevenlabs'>('standard');
     const [kb, setKb] = useState<RetellKnowledgeBaseData | null>(null);
+    const [savedVoiceId, setSavedVoiceId] = useState<string>("11labs-Lily");
     const [compiledPrompt, setCompiledPrompt] = useState<string>("");
     const [agentStatus, setAgentStatus] = useState<AgentStatusResponse | null>(null);
     const [loading, setLoading] = useState(true);
@@ -613,6 +616,7 @@ export default function RetellVoiceAgent() {
                     ];
                 }
                 setKb(kbData);
+                setSavedVoiceId(kbData.voiceId || "11labs-Lily");
                 setCompiledPrompt(kbRes.value.compiledPrompt);
             }
             if (statusRes.status === "fulfilled") {
@@ -636,6 +640,7 @@ export default function RetellVoiceAgent() {
             setSaving(true);
             const res = await updateKnowledgeBase(kb);
             setKb(res.knowledgeBase);
+            setSavedVoiceId(res.knowledgeBase.voiceId || "11labs-Lily");
             setCompiledPrompt(res.compiledPrompt);
             if (showToast) {
                 toast.success("Knowledge Base saved successfully!");
@@ -955,9 +960,16 @@ export default function RetellVoiceAgent() {
                                     </CardDescription>
                                 </div>
                                 <div className="flex items-center gap-2 shrink-0 self-start sm:self-auto flex-wrap">
-                                    <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 flex items-center gap-1.5 py-1">
+                                    {/* Live in Retell Voice Badge */}
+                                    <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 flex items-center gap-1.5 py-1">
                                         <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                                        Live in Retell: <strong>{VOICE_OPTIONS.find(v => v.id === (agentStatus?.liveAgent?.voice_id || kb.voiceId || "11labs-Lily"))?.name || agentStatus?.liveAgent?.voice_id || kb.voiceId || "Lily"}</strong>
+                                        Live in Retell: <strong>{VOICE_OPTIONS.find(v => v.id === (agentStatus?.liveAgent?.voice_id || kb?.voiceId || "11labs-Lily"))?.name || agentStatus?.liveAgent?.voice_id || kb?.voiceId || "Lily"}</strong>
+                                    </Badge>
+
+                                    {/* Saved Voice Name Badge */}
+                                    <Badge variant="outline" className="text-xs bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/30 flex items-center gap-1.5 py-1">
+                                        <Database className="w-3.5 h-3.5 text-indigo-500" />
+                                        Saved Voice Name: <strong>{VOICE_OPTIONS.find(v => v.id === savedVoiceId)?.name || savedVoiceId || "Lily"}</strong>
                                     </Badge>
                                     <Button
                                         type="button"
@@ -973,6 +985,16 @@ export default function RetellVoiceAgent() {
                                     </Button>
                                 </div>
                             </div>
+
+                            {/* Unsynced Draft Alert Banner */}
+                            {savedVoiceId !== (agentStatus?.liveAgent?.voice_id || "11labs-Lily") && (
+                                <div className="mt-2.5 p-2 px-3 rounded-lg bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-between text-xs text-indigo-700 dark:text-indigo-300">
+                                    <span className="flex items-center gap-1.5">
+                                        <Database className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                                        <span>Saved Voice Name is <strong>{VOICE_OPTIONS.find(v => v.id === savedVoiceId)?.name || savedVoiceId}</strong> (Draft). Click <strong>"Save & Sync to Retell"</strong> at the top to apply this voice to live phone calls.</span>
+                                    </span>
+                                </div>
+                            )}
 
                             {/* 2-Tier Model Filter Toggle: Standard First, ElevenLabs Second */}
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3">
@@ -1022,9 +1044,11 @@ export default function RetellVoiceAgent() {
                         <CardContent>
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
                                 {VOICE_OPTIONS.filter(v => v.tier === voiceTier).map((voice) => {
-                                    const liveRetellVoiceId = agentStatus?.liveAgent?.voice_id || kb.voiceId || "11labs-Lily";
+                                    const liveRetellVoiceId = agentStatus?.liveAgent?.voice_id || "11labs-Lily";
+                                    const currentSelectedVoiceId = kb?.voiceId || savedVoiceId || "11labs-Lily";
                                     const isLiveActive = (liveRetellVoiceId === voice.id);
-                                    const isDraftSelected = ((kb.voiceId || "11labs-Lily") === voice.id && !isLiveActive);
+                                    const isSavedInDb = (savedVoiceId === voice.id && !isLiveActive);
+                                    const isUnsavedSelected = (currentSelectedVoiceId === voice.id && currentSelectedVoiceId !== savedVoiceId && !isLiveActive);
                                     const isPlaying = playingVoiceId === voice.id;
 
                                     return (
@@ -1032,97 +1056,156 @@ export default function RetellVoiceAgent() {
                                             key={voice.id}
                                             onClick={() => {
                                                 const cleanName = voice.name.replace(/\s*\([^)]*\)/g, '').trim();
-                                                setKb({ 
-                                                    ...kb, 
-                                                    voiceId: voice.id,
-                                                    agentName: cleanName 
-                                                });
+                                                if (kb) {
+                                                    setKb({ 
+                                                        ...kb, 
+                                                        voiceId: voice.id,
+                                                        agentName: cleanName 
+                                                    });
+                                                }
                                             }}
-                                            className={`p-3.5 rounded-xl border transition-all cursor-pointer space-y-2 relative flex flex-col justify-between ${
+                                            className={`p-3 rounded-xl border transition-all cursor-pointer h-[124px] flex flex-col justify-between relative ${
                                                 isLiveActive
                                                     ? "bg-emerald-500/10 dark:bg-emerald-500/15 border-emerald-500 dark:border-emerald-400 shadow-md ring-2 ring-emerald-500/40"
-                                                    : isDraftSelected
+                                                    : isSavedInDb
                                                     ? "bg-indigo-500/5 dark:bg-indigo-500/10 border-indigo-500/60 shadow-xs ring-1 ring-indigo-500/30"
+                                                    : isUnsavedSelected
+                                                    ? "bg-amber-500/5 dark:bg-amber-500/10 border-amber-500/60 shadow-xs ring-1 ring-amber-500/30"
                                                     : "bg-card hover:bg-accent/40 border-border/70"
                                             }`}
                                         >
-                                            <div className="space-y-1.5">
-                                                <div className="flex items-center justify-between gap-1">
-                                                    <div className="flex items-center gap-1.5 flex-wrap">
-                                                        <span className={`font-bold text-xs ${
+                                            <div>
+                                                {/* Top Row: Name + Gender on Left, Play Button on Right (Locked 1 row) */}
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                                                        <span className={`font-bold text-xs truncate ${
                                                             isLiveActive 
                                                                 ? "text-emerald-700 dark:text-emerald-300 font-extrabold" 
-                                                                : isDraftSelected 
+                                                                : isSavedInDb 
                                                                 ? "text-indigo-700 dark:text-indigo-300 font-bold" 
+                                                                : isUnsavedSelected
+                                                                ? "text-amber-700 dark:text-amber-300 font-bold"
                                                                 : "text-foreground"
                                                         }`}>
                                                             {voice.name}
                                                         </span>
-                                                        <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-muted text-muted-foreground font-mono">
+                                                        <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-muted text-muted-foreground font-mono shrink-0">
                                                             {voice.gender}
                                                         </span>
                                                     </div>
-                                                    <div className="flex items-center gap-1.5 shrink-0">
-                                                        {isLiveActive ? (
-                                                            <Badge className="bg-emerald-600 hover:bg-emerald-600 text-white font-bold text-[9px] px-1.5 py-0 h-4 gap-0.5 tracking-tight shrink-0 shadow-2xs">
-                                                                <CheckCircle2 className="w-2.5 h-2.5" /> LIVE IN RETELL
-                                                            </Badge>
-                                                        ) : isDraftSelected ? (
-                                                            <Badge variant="outline" className="text-indigo-600 dark:text-indigo-400 border-indigo-500/40 bg-indigo-500/10 font-semibold text-[9px] px-1.5 py-0 h-4 gap-0.5 tracking-tight shrink-0">
-                                                                <Pencil className="w-2.5 h-2.5" /> SELECTED (DRAFT)
-                                                            </Badge>
-                                                        ) : null}
-                                                        <button
-                                                            type="button"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                handlePlayVoicePreview(voice.id, voice.previewUrl);
-                                                            }}
-                                                            className={`w-6 h-6 rounded-full flex items-center justify-center transition-transform hover:scale-105 shrink-0 ${
-                                                                isPlaying
-                                                                    ? "bg-amber-500 text-white animate-pulse"
-                                                                    : isLiveActive
-                                                                    ? "bg-emerald-600 text-white"
-                                                                    : isDraftSelected
-                                                                    ? "bg-indigo-600 text-white"
-                                                                    : "bg-muted text-muted-foreground hover:text-foreground"
-                                                            }`}
-                                                            title={isPlaying ? "Stop Preview" : "Play Sample"}
-                                                        >
-                                                            {isPlaying ? <Square className="w-2.5 h-2.5 fill-current" /> : <Play className="w-2.5 h-2.5 fill-current ml-0.5" />}
-                                                        </button>
-                                                    </div>
+
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handlePlayVoicePreview(voice.id, voice.previewUrl);
+                                                        }}
+                                                        className={`w-6 h-6 rounded-full flex items-center justify-center transition-transform hover:scale-105 shrink-0 ${
+                                                            isPlaying
+                                                                ? "bg-amber-500 text-white animate-pulse"
+                                                                : isLiveActive
+                                                                ? "bg-emerald-600 text-white"
+                                                                : isSavedInDb
+                                                                ? "bg-indigo-600 text-white"
+                                                                : isUnsavedSelected
+                                                                ? "bg-amber-600 text-white"
+                                                                : "bg-muted text-muted-foreground hover:text-foreground"
+                                                        }`}
+                                                        title={isPlaying ? "Stop Preview" : "Play Sample"}
+                                                    >
+                                                        {isPlaying ? <Square className="w-2.5 h-2.5 fill-current" /> : <Play className="w-2.5 h-2.5 fill-current ml-0.5" />}
+                                                    </button>
                                                 </div>
-                                                <p className="text-[11px] text-muted-foreground leading-snug">
+
+                                                {/* Description: Uniform 2 lines */}
+                                                <p className="text-[11px] text-muted-foreground leading-snug line-clamp-2 mt-1.5">
                                                     {voice.description}
                                                 </p>
                                             </div>
 
-                                            <div className="flex items-center justify-between pt-1 border-t border-border/40">
-                                                <span className={`text-[10px] font-mono ${
+                                            {/* Bottom Row: Voice ID on Left, Status Badge on Right */}
+                                            <div className="flex items-center justify-between pt-1 border-t border-border/40 mt-auto">
+                                                <span className={`text-[10px] font-mono truncate max-w-[110px] ${
                                                     isLiveActive 
                                                         ? "text-emerald-700 dark:text-emerald-300 font-semibold" 
-                                                        : isDraftSelected 
+                                                        : isSavedInDb 
                                                         ? "text-indigo-700 dark:text-indigo-300 font-medium" 
+                                                        : isUnsavedSelected
+                                                        ? "text-amber-700 dark:text-amber-300 font-medium"
                                                         : "text-muted-foreground"
                                                 }`}>
-                                                    {voice.rate}
+                                                    {voice.id}
                                                 </span>
-                                                {voice.tag && (
-                                                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
-                                                        isLiveActive 
-                                                            ? "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 font-bold" 
-                                                            : isDraftSelected 
-                                                            ? "bg-indigo-500/15 text-indigo-700 dark:text-indigo-300" 
-                                                            : "bg-muted text-muted-foreground"
-                                                    }`}>
-                                                        {voice.tag}
-                                                    </span>
-                                                )}
+
+                                                <div className="flex items-center gap-1.5 shrink-0">
+                                                    {isLiveActive ? (
+                                                        <Badge className="bg-emerald-600 hover:bg-emerald-600 text-white font-bold text-[9px] px-1.5 py-0 h-4 gap-0.5 tracking-tight shrink-0 shadow-2xs">
+                                                            <CheckCircle2 className="w-2.5 h-2.5" /> LIVE
+                                                        </Badge>
+                                                    ) : isSavedInDb ? (
+                                                        <Badge variant="outline" className="text-indigo-600 dark:text-indigo-400 border-indigo-500/40 bg-indigo-500/10 font-semibold text-[9px] px-1.5 py-0 h-4 gap-0.5 tracking-tight shrink-0">
+                                                            <Database className="w-2.5 h-2.5" /> SAVED
+                                                        </Badge>
+                                                    ) : isUnsavedSelected ? (
+                                                        <Badge variant="outline" className="text-amber-600 dark:text-amber-400 border-amber-500/40 bg-amber-500/10 font-semibold text-[9px] px-1.5 py-0 h-4 gap-0.5 tracking-tight shrink-0">
+                                                            <Pencil className="w-2.5 h-2.5" /> SELECTED
+                                                        </Badge>
+                                                    ) : (
+                                                        <span className="text-[10px] text-muted-foreground">
+                                                            {voice.accent || voice.tier}
+                                                        </span>
+                                                    )}
+                                                </div>
                                             </div>
                                         </div>
                                     );
                                 })}
+                            </div>
+                        </CardContent>
+                    </Card>
+
+                    {/* Outbound Voicemail & Answering Machine Detection (AMD) Card */}
+                    <Card>
+                        <CardHeader className="pb-3">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                <div>
+                                    <CardTitle className="text-base flex items-center gap-2">
+                                        <PhoneOutgoing className="w-4 h-4 text-indigo-500" /> Outbound Answering Machine Detection (AMD) & Voicemail Drop
+                                    </CardTitle>
+                                    <CardDescription className="text-xs">
+                                        When making outbound calls to parents/athletes, Retell AI automatically detects if an answering machine answers, waits for the beep, and speaks this voicemail message before hanging up.
+                                    </CardDescription>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                    <button
+                                        type="button"
+                                        onClick={() => setKb({ ...kb, enableVoicemailDetection: !(kb.enableVoicemailDetection ?? true) })}
+                                        className={`px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                                            (kb.enableVoicemailDetection ?? true)
+                                                ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30"
+                                                : "bg-muted text-muted-foreground border border-border/70"
+                                        }`}
+                                    >
+                                        <span className={`w-2 h-2 rounded-full ${ (kb.enableVoicemailDetection ?? true) ? "bg-emerald-500 animate-pulse" : "bg-muted-foreground/50" }`} />
+                                        {(kb.enableVoicemailDetection ?? true) ? "AMD Enabled" : "AMD Disabled"}
+                                    </button>
+                                </div>
+                            </div>
+                        </CardHeader>
+                        <CardContent className="space-y-3 pt-1">
+                            <div>
+                                <Label className="text-xs font-semibold mb-1 block">Automated Outbound Voicemail Message (Spoken after the beep)</Label>
+                                <Textarea
+                                    value={kb.outboundVoicemailMessage || "Hi, this is Youth Athlete University following up regarding your youth sports inquiry. We would love to connect with you and answer any questions for your athlete. Please give us a call back at 1-888-687-9139 or visit us online at yausports.com. Have a wonderful day!"}
+                                    onChange={e => setKb({ ...kb, outboundVoicemailMessage: e.target.value })}
+                                    rows={3}
+                                    disabled={!(kb.enableVoicemailDetection ?? true)}
+                                    placeholder="Enter script the AI should speak when leaving a voicemail..."
+                                    className="text-xs resize-none"
+                                />
+                                <p className="text-[11px] text-muted-foreground mt-1">
+                                    Retell AI listens for the tone/beep (up to 30s timeout), reads this script naturally with the selected voice, and logs the call in Call History as Voicemail Left.
+                                </p>
                             </div>
                         </CardContent>
                     </Card>
@@ -3425,9 +3508,12 @@ ${toneRulesStr}
 - **When a Call Forward / Transfer Fails or Staff is Unavailable During Business Hours**:
   - If you initiate a transfer during open business hours and the department or staff member does not attend or answer:
   - Politely state: *"${takeMessageScript}"*
-  - Ask for the caller's **Name** and **What they are inquiring about**.
-  - **CRITICAL**: Do **NOT** ask the caller for their phone number (our system automatically logs their caller ID number).
-  - Assure them: *"Thank you [Name]! I have logged your message and our team will call you back directly."*
+  - **If the caller agrees and leaves a message**:
+    - Ask for the caller's **Name** and **What they are inquiring about**. (Do NOT ask for their phone number since our system logs caller ID automatically).
+    - Assure them: *"Thank you [Name]! I have logged your message and our team will call you back directly."*
+  - **If the caller declines or refuses to leave a message** (e.g. says "no thanks", "I'll call back later", "never mind", "I don't want to leave a message"):
+    - Politely say: *"No problem at all! Feel free to call us back whenever it is convenient for you. Have a wonderful day!"*
+    - **Immediately invoke the end_call tool** to terminate the call.
 
 ---
 
