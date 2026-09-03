@@ -3448,8 +3448,7 @@ function buildUniversalPrompt(kb: RetellKnowledgeBaseData): string {
         sun: 'Closed'
     };
 
-    const isProduction = import.meta.env.VITE_APP_ENV === 'production' || (!import.meta.env.DEV && import.meta.env.VITE_APP_ENV !== 'development');
-    const activeTz = isProduction ? 'America/New_York' : (kb.timezone || businessHours.timezone || 'America/New_York');
+    const activeTz = kb.timezone || businessHours.timezone || 'America/New_York';
     let tzLabel = 'Eastern Time (ET)';
     if (activeTz === 'Asia/Kolkata') tzLabel = 'India Standard Time (IST)';
     else if (activeTz === 'America/Chicago') tzLabel = 'Central Time (CT)';

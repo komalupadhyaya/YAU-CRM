@@ -92,8 +92,7 @@ export function buildPromptFromKnowledgeBase(kb) {
         sun: 'Closed'
     };
 
-    const isProduction = process.env.NODE_ENV === 'production' || kb.webhookEnvironment === 'production';
-    const activeTz = isProduction ? 'America/New_York' : (kb.timezone || bh.timezone || 'America/New_York');
+    const activeTz = kb.timezone || bh.timezone || 'America/New_York';
     let tzLabel = 'Eastern Time (ET)';
     if (activeTz === 'Asia/Kolkata') tzLabel = 'India Standard Time (IST)';
     else if (activeTz === 'America/Chicago') tzLabel = 'Central Time (CT)';
