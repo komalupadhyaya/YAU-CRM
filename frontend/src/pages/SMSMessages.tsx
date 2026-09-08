@@ -134,6 +134,29 @@ export default function SMSMessages() {
   const [aiGenerating, setAiGenerating] = useState(false);
 
   const chatScrollRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef<boolean>(true);
+  const prevSelectedLeadIdRef = useRef<string | null>(null);
+  const prevDisplayedMessagesCountRef = useRef<number>(0);
+  const [showScrollBottomButton, setShowScrollBottomButton] = useState<boolean>(false);
+
+  const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
+    if (chatScrollRef.current) {
+      chatScrollRef.current.scrollTo({
+        top: chatScrollRef.current.scrollHeight,
+        behavior
+      });
+      isNearBottomRef.current = true;
+      setShowScrollBottomButton(false);
+    }
+  };
+
+  const handleChatScroll = () => {
+    if (!chatScrollRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = chatScrollRef.current;
+    const isBottom = scrollHeight - scrollTop - clientHeight <= 120;
+    isNearBottomRef.current = isBottom;
+    setShowScrollBottomButton(!isBottom);
+  };
 
   const lastReadLeadIdRef = useRef<string | null>(null);
 
@@ -354,13 +377,6 @@ export default function SMSMessages() {
     }
   }, [selectedLeadId]);
 
-  // Scroll to bottom of chat history when selection or history changes
-  useEffect(() => {
-    if (chatScrollRef.current) {
-      chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
-    }
-  }, [selectedLeadId, conversations, chatMessageFilter]);
-
   // Selected conversation object
   const activeConversation = useMemo(() => {
     return conversations.find(c => String(c._id) === String(selectedLeadId)) || null;
@@ -387,6 +403,24 @@ export default function SMSMessages() {
       displayedMessages: filtered
     };
   }, [activeConversation, chatMessageFilter]);
+
+  // Smart auto-scroll for chat history (does NOT scroll down if user scrolled up to read past messages)
+  useEffect(() => {
+    const isNewLead = selectedLeadId !== prevSelectedLeadIdRef.current;
+    prevSelectedLeadIdRef.current = selectedLeadId;
+
+    const currentMsgCount = displayedMessages.length;
+    const hasNewMessage = currentMsgCount > prevDisplayedMessagesCountRef.current;
+    prevDisplayedMessagesCountRef.current = currentMsgCount;
+
+    if (isNewLead) {
+      // Unconditionally jump to bottom on initial conversation selection
+      scrollToBottom('auto');
+    } else if (hasNewMessage && isNearBottomRef.current) {
+      // Only auto-scroll if user is currently near the bottom
+      scrollToBottom('smooth');
+    }
+  }, [selectedLeadId, displayedMessages.length, chatMessageFilter]);
 
   // Filtered conversation list
   const filteredConversations = useMemo(() => {
@@ -534,6 +568,10 @@ export default function SMSMessages() {
           return c;
         })
       );
+
+      setTimeout(() => {
+        scrollToBottom('smooth');
+      }, 50);
     } catch (err: any) {
       console.error('Failed to send SMS:', err);
       const errMsg = err.response?.data?.error || err.response?.data?.message || 'Failed to send SMS message';
@@ -562,6 +600,10 @@ export default function SMSMessages() {
           return c;
         })
       );
+
+      setTimeout(() => {
+        scrollToBottom('smooth');
+      }, 50);
     } finally {
       setSending(false);
     }
@@ -970,115 +1012,133 @@ export default function SMSMessages() {
                 </div>
 
                 {/* Message Stream */}
-                <div ref={chatScrollRef} className="flex-1 p-6 overflow-y-auto space-y-4 custom-scrollbar">
-                  {displayedMessages.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
-                      <div className="w-14 h-14 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mb-3 border border-primary/20">
-                        <MessageSquarePlus size={28} />
+                <div className="relative flex-1 flex flex-col overflow-hidden">
+                  <div
+                    ref={chatScrollRef}
+                    onScroll={handleChatScroll}
+                    className="flex-1 p-6 overflow-y-auto space-y-4 custom-scrollbar"
+                  >
+                    {displayedMessages.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
+                        <div className="w-14 h-14 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mb-3 border border-primary/20">
+                          <MessageSquarePlus size={28} />
+                        </div>
+                        <h3 className="text-sm font-bold text-foreground">
+                          Start conversation with {activeConversation.name}
+                        </h3>
+                        <p className="text-xs text-muted-foreground max-w-sm mt-1 leading-relaxed">
+                          {chatMessageFilter === 'bulk'
+                            ? 'No bulk SMS messages for this lead.'
+                            : chatMessageFilter === 'direct'
+                            ? 'No direct SMS messages for this lead.'
+                            : 'No previous SMS messages found. Type your first message below or use AI Suggest to generate a personalized introduction.'}
+                        </p>
                       </div>
-                      <h3 className="text-sm font-bold text-foreground">
-                        Start conversation with {activeConversation.name}
-                      </h3>
-                      <p className="text-xs text-muted-foreground max-w-sm mt-1 leading-relaxed">
-                        {chatMessageFilter === 'bulk'
-                          ? 'No bulk SMS messages for this lead.'
-                          : chatMessageFilter === 'direct'
-                          ? 'No direct SMS messages for this lead.'
-                          : 'No previous SMS messages found. Type your first message below or use AI Suggest to generate a personalized introduction.'}
-                      </p>
-                    </div>
-                  ) : (
-                    (() => {
-                      let lastDateLabel = '';
-                      return displayedMessages.map((msg, index) => {
-                        const isInbound = msg.direction === 'inbound';
-                        const isFailed = !isInbound && (msg.status === 'failed' || msg.status === 'undelivered');
-                        const dateLabel = getRelativeDateLabel(msg.timestamp);
-                        const showDateSeparator = dateLabel !== lastDateLabel;
-                        if (showDateSeparator) {
-                          lastDateLabel = dateLabel;
-                        }
-                        return (
-                          <React.Fragment key={msg._id || `${msg.timestamp}-${index}`}>
-                            {showDateSeparator && (
-                              <div className="flex justify-center my-4 w-full">
-                                <span className="bg-muted text-muted-foreground text-[10px] font-bold px-3 py-1 rounded-full border border-border/50 uppercase tracking-wider shadow-xs">
-                                  {dateLabel}
-                                </span>
-                              </div>
-                            )}
-                            <div
-                              className={`flex flex-col ${isInbound ? 'items-start' : 'items-end'}`}
-                            >
-                              {/* Bubble Container */}
-                              <div className={`flex items-center gap-2 max-w-[80%] ${isInbound ? 'justify-start mr-auto' : 'justify-end ml-auto'}`}>
-                                {!isInbound && msg.isBulk && (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <div className="inline-flex items-center justify-center text-muted-foreground hover:text-foreground cursor-pointer bg-secondary border border-border p-1 rounded-full transition-colors shrink-0">
-                                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                                          <circle cx="9" cy="7" r="4" />
-                                          <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                                          <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-                                        </svg>
-                                      </div>
-                                    </TooltipTrigger>
-                                    <TooltipContent className="p-1.5 text-[10px] shadow-md bg-popover text-popover-foreground rounded border border-border">
-                                      Bulk Message
-                                    </TooltipContent>
-                                  </Tooltip>
-                                )}
-                                {(() => {
-                                  const isAiReply = !isInbound && msg.isAiReply === true;
-                                  return (
-                                    <div
-                                      className={`rounded-2xl px-4 py-3 text-xs leading-relaxed shadow-sm ${
-                                        isInbound
-                                          ? 'bg-card text-card-foreground border border-border rounded-tl-none'
-                                          : isFailed
-                                          ? 'bg-destructive/15 text-foreground border border-destructive/40 rounded-tr-none'
-                                          : isAiReply
-                                          ? 'bg-violet-600 text-white rounded-tr-none shadow-violet-500/25 shadow-md'
-                                          : 'bg-primary text-primary-foreground rounded-tr-none'
-                                      }`}
-                                    >
-                                      <p className="whitespace-pre-wrap break-words font-sans">{msg.message}</p>
-                                    </div>
-                                  );
-                                })()}
-                              </div>
-
-                              {/* Message Meta / Timestamp / Status */}
+                    ) : (
+                      (() => {
+                        let lastDateLabel = '';
+                        return displayedMessages.map((msg, index) => {
+                          const isInbound = msg.direction === 'inbound';
+                          const isFailed = !isInbound && (msg.status === 'failed' || msg.status === 'undelivered');
+                          const dateLabel = getRelativeDateLabel(msg.timestamp);
+                          const showDateSeparator = dateLabel !== lastDateLabel;
+                          if (showDateSeparator) {
+                            lastDateLabel = dateLabel;
+                          }
+                          return (
+                            <React.Fragment key={msg._id || `${msg.timestamp}-${index}`}>
+                              {showDateSeparator && (
+                                <div className="flex justify-center my-4 w-full">
+                                  <span className="bg-muted text-muted-foreground text-[10px] font-bold px-3 py-1 rounded-full border border-border/50 uppercase tracking-wider shadow-xs">
+                                    {dateLabel}
+                                  </span>
+                                </div>
+                              )}
                               <div
-                                className={`flex items-center gap-1.5 mt-1 text-[10px] text-muted-foreground px-1 font-medium`}
+                                className={`flex flex-col ${isInbound ? 'items-start' : 'items-end'}`}
                               >
-                                <span>{formatTime(msg.timestamp)}</span>
-                                {!isInbound && (
-                                  <span>
-                                    {isFailed ? (
-                                      <span className="inline-flex items-center gap-1 text-destructive font-semibold">
-                                        <AlertCircle size={12} className="inline stroke-[2.5]" />
-                                        <span>Not sent</span>
-                                      </span>
-                                    ) : (
-                                      <CheckCheck size={13} className="text-emerald-500 inline stroke-[2.5]" />
-                                    )}
-                                  </span>
-                                )}
-                                {/* AI Reply Badge — only visible to admin/team, not the EA-lead */}
-                                {!isInbound && msg.isAiReply === true && (
-                                  <span className="inline-flex items-center gap-0.5 text-violet-500 dark:text-violet-400 font-bold text-[9px] uppercase tracking-wider ml-0.5">
-                                    <Sparkles size={9} className="stroke-[2.5]" />
-                                    AI Reply
-                                  </span>
-                                )}
+                                {/* Bubble Container */}
+                                <div className={`flex items-center gap-2 max-w-[80%] ${isInbound ? 'justify-start mr-auto' : 'justify-end ml-auto'}`}>
+                                  {!isInbound && msg.isBulk && (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <div className="inline-flex items-center justify-center text-muted-foreground hover:text-foreground cursor-pointer bg-secondary border border-border p-1 rounded-full transition-colors shrink-0">
+                                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                                            <circle cx="9" cy="7" r="4" />
+                                            <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                                            <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                                          </svg>
+                                        </div>
+                                      </TooltipTrigger>
+                                      <TooltipContent className="p-1.5 text-[10px] shadow-md bg-popover text-popover-foreground rounded border border-border">
+                                        Bulk Message
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  )}
+                                  {(() => {
+                                    const isAiReply = !isInbound && msg.isAiReply === true;
+                                    return (
+                                      <div
+                                        className={`rounded-2xl px-4 py-3 text-xs leading-relaxed shadow-sm ${
+                                          isInbound
+                                            ? 'bg-card text-card-foreground border border-border rounded-tl-none'
+                                            : isFailed
+                                            ? 'bg-destructive/15 text-foreground border border-destructive/40 rounded-tr-none'
+                                            : isAiReply
+                                            ? 'bg-violet-600 text-white rounded-tr-none shadow-violet-500/25 shadow-md'
+                                            : 'bg-primary text-primary-foreground rounded-tr-none'
+                                        }`}
+                                      >
+                                        <p className="whitespace-pre-wrap break-words font-sans">{msg.message}</p>
+                                      </div>
+                                    );
+                                  })()}
+                                </div>
+
+                                {/* Message Meta / Timestamp / Status */}
+                                <div
+                                  className={`flex items-center gap-1.5 mt-1 text-[10px] text-muted-foreground px-1 font-medium`}
+                                >
+                                  <span>{formatTime(msg.timestamp)}</span>
+                                  {!isInbound && (
+                                    <span>
+                                      {isFailed ? (
+                                        <span className="inline-flex items-center gap-1 text-destructive font-semibold">
+                                          <AlertCircle size={12} className="inline stroke-[2.5]" />
+                                          <span>Not sent</span>
+                                        </span>
+                                      ) : (
+                                        <CheckCheck size={13} className="text-emerald-500 inline stroke-[2.5]" />
+                                      )}
+                                    </span>
+                                  )}
+                                  {/* AI Reply Badge — only visible to admin/team, not the EA-lead */}
+                                  {!isInbound && msg.isAiReply === true && (
+                                    <span className="inline-flex items-center gap-0.5 text-violet-500 dark:text-violet-400 font-bold text-[9px] uppercase tracking-wider ml-0.5">
+                                      <Sparkles size={9} className="stroke-[2.5]" />
+                                      AI Reply
+                                    </span>
+                                  )}
+                                </div>
                               </div>
-                            </div>
-                          </React.Fragment>
-                        );
-                      });
-                    })()
+                            </React.Fragment>
+                          );
+                        });
+                      })()
+                    )}
+                  </div>
+
+                  {/* Floating "Jump to Latest" Button */}
+                  {showScrollBottomButton && (
+                    <button
+                      type="button"
+                      onClick={() => scrollToBottom('smooth')}
+                      className="absolute bottom-4 right-6 z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary text-primary-foreground text-xs font-semibold shadow-lg hover:bg-primary/90 transition-all animate-in fade-in slide-in-from-bottom-2 cursor-pointer border border-primary-foreground/20"
+                    >
+                      <ChevronDown size={14} className="stroke-[2.5]" />
+                      <span>Latest Messages</span>
+                    </button>
                   )}
                 </div>
 

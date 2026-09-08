@@ -215,21 +215,71 @@ async function generateSmsMessage({ leadName, contactName, leadStatus, recentMes
     return callClaude(systemPrompt, userContent, 200);
 }
 
-// ── System prompt for EA Lead auto-reply ──────────────────────────
-function buildEALeadAutoReplySystemPrompt() {
-    return `You are a real team member at Youth Athlete University (YAU Sports). You are responding to a text message from a potential student or parent who filled out a form on the YAU website.
+// ── Helper to format MongoDB Knowledge Base for SMS AI prompt ─────
+function formatKnowledgeBaseForSms(kb) {
+    if (!kb) return '';
 
+    const parts = [];
+
+    if (kb.organizationName || kb.motto) {
+        parts.push(`Organization: ${kb.organizationName || 'Youth Athlete University (YAU Sports)'}`);
+        if (kb.motto) parts.push(`Motto: "${kb.motto}"`);
+    }
+
+    if (kb.sportsPrograms && kb.sportsPrograms.length > 0) {
+        const sports = kb.sportsPrograms.map(p => `${p.name} (${p.grades || 'K-8th'})`).join(', ');
+        parts.push(`Sports Offered: ${sports}`);
+    }
+
+    // Pricing
+    const monthly = kb.monthlyPrice ? `$${kb.monthlyPrice}/month (all 4 sports)` : '$50/month (all 4 sports)';
+    const seasonal = kb.seasonalPrice ? `$${kb.seasonalPrice} seasonal (1 sport)` : '$200 seasonal';
+    parts.push(`Pricing: ${monthly}, ${seasonal}`);
+
+    // Locations
+    if (kb.locations && kb.locations.length > 0) {
+        const locs = kb.locations.map(l => `${l.name} (${l.school || ''} - ${l.practiceDays || ''})`).join('; ');
+        parts.push(`Locations: ${locs}`);
+    }
+
+    // Refund Policy
+    if (kb.refundPolicy) {
+        parts.push(`Refund Policy: Strict no refunds; connect with a team member for special review.`);
+    }
+
+    // Key FAQs & Common Answers (Concise)
+    if (kb.faqs && kb.faqs.length > 0) {
+        const faqSnippet = kb.faqs.slice(0, 5).map(f => `• Q: ${f.question} -> A: ${f.answer}`).join('\n');
+        parts.push(`Frequently Asked Questions:\n${faqSnippet}`);
+    }
+
+    // Key Tone / Personality Rules
+    if (kb.toneRules && kb.toneRules.length > 0) {
+        const rules = kb.toneRules.slice(0, 4).map(r => `• ${r}`).join('\n');
+        parts.push(`Tone Guidelines:\n${rules}`);
+    }
+
+    return parts.join('\n\n');
+}
+
+// ── System prompt for EA Lead auto-reply ──────────────────────────
+function buildEALeadAutoReplySystemPrompt(knowledgeBase) {
+    const kbText = formatKnowledgeBaseForSms(knowledgeBase);
+    const kbSection = kbText ? `\n\nOFFICIAL YAU KNOWLEDGE BASE GUIDELINES (from MongoDB):\n${kbText}\n` : '';
+
+    return `You are a real team member at Youth Athlete University (YAU Sports). You are responding to a text message from a potential student or parent who filled out an inquiry on the YAU website.
+${kbSection}
 CRITICAL RULES — follow strictly:
-- You are a REAL PERSON on the YAU team. Never say you are an AI, a bot, or an automated system.
-- Sound warm, natural, and human. Like a real team member texting from their phone.
-- Keep your reply under 160 characters total. This is a hard limit.
-- Respond directly to what they said in their last message.
-- If this is their first time texting (no prior conversation), give them a warm, brief greeting and offer to help with their question about YAU programs.
-- If they asked a specific question, answer it briefly or let them know the team will follow up with details.
-- Be conversational — not robotic, not overly formal, not pushy.
-- Do NOT include any links, hashtags, or marketing language.
-- Do NOT sign off with "YAU Team" or any formal closing — just respond naturally like a real person texting.
-- Output ONLY the reply message text. No labels, no quotes, no explanation.`;
+- You are a REAL PERSON on the YAU team. Never say you are an AI, a bot, or an automated assistant.
+- Sound warm, natural, and human — like a real team member texting from their phone.
+- Keep your reply under 160 characters total (1 SMS segment). This is a hard limit.
+- Ground your answers in the Knowledge Base guidelines above (pricing, sports, locations, grades K-8).
+- If this is their first time texting (no prior history), give them a warm, brief greeting and offer to help with their inquiry.
+- If they asked a specific question, answer it concisely or let them know you'd be happy to share details.
+- Be conversational — never robotic, never overly formal, never pushy.
+- Do NOT include any links, hashtags, or marketing buzzwords.
+- Do NOT sign off with "YAU Team", robotic closing, or your title — just text naturally like a human team member.
+- Output ONLY the SMS reply text. No labels, quotes, or meta commentary.`;
 }
 
 // ── User content builder for EA Lead auto-reply ───────────────────
@@ -266,12 +316,13 @@ Write your reply now (max 160 characters):`;
  * Used exclusively by the Twilio inbound webhook for EA leads.
  *
  * @param {Object} params
- * @param {string} params.leadName    - EA Lead's name
- * @param {Array}  params.smsHistory  - Full smsHistory array from EALead doc
- * @returns {Promise<string>}         - The AI-generated reply text
+ * @param {string} params.leadName       - EA Lead's name
+ * @param {Array}  params.smsHistory     - Full smsHistory array from EALead doc
+ * @param {Object} [params.knowledgeBase]- MongoDB RetellKnowledgeBase document
+ * @returns {Promise<string>}            - The AI-generated reply text
  */
-async function generateEALeadAutoReply({ leadName, smsHistory }) {
-    const systemPrompt = buildEALeadAutoReplySystemPrompt();
+async function generateEALeadAutoReply({ leadName, smsHistory, knowledgeBase }) {
+    const systemPrompt = buildEALeadAutoReplySystemPrompt(knowledgeBase);
     const userContent  = buildEALeadAutoReplyUserContent({ leadName, smsHistory });
 
     if (PROVIDER === 'claude' || PROVIDER === 'anthropic') {

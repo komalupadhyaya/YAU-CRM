@@ -6,6 +6,7 @@ import { Note } from '../models/note.model.js';
 import { User } from '../models/user.model.js';
 import { Settings } from '../models/settings.model.js';
 import EALead from '../models/eaLead.model.js';
+import RetellKnowledgeBase from '../models/retellKnowledgeBase.model.js';
 import EmailHistory from '../models/emailHistory.model.js';
 import smsForwarderService from '../services/sms/smsForwarder.service.js';
 import { sendSMSReplyEmailNotification } from '../services/email/mailer.js';
@@ -245,6 +246,14 @@ export const handleTwilioReply = async (req, res) => {
                         return;
                     }
 
+                    // Fetch live MongoDB Knowledge Base guidelines (RetellKnowledgeBase collection)
+                    let knowledgeBase = null;
+                    try {
+                        knowledgeBase = await RetellKnowledgeBase.getOrCreateDefault();
+                    } catch (kbErr) {
+                        console.warn('[AI Auto-Reply] Could not load RetellKnowledgeBase, proceeding with defaults:', kbErr.message);
+                    }
+
                     const { TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER } = process.env;
                     if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_PHONE_NUMBER) {
                         console.error('[AI Auto-Reply] Twilio credentials not configured.');
@@ -268,10 +277,11 @@ export const handleTwilioReply = async (req, res) => {
                             const freshLead = await EALead.findById(eaLead._id);
                             if (!freshLead) continue;
 
-                            // Generate AI reply using conversation context
+                            // Generate AI reply using 3 inputs: (1) Knowledge Base from MongoDB, (2) Conversation History, (3) Latest Inbound Msg
                             const aiReplyText = await aiService.generateEALeadAutoReply({
                                 leadName: freshLead.name,
-                                smsHistory: freshLead.smsHistory
+                                smsHistory: freshLead.smsHistory,
+                                knowledgeBase
                             });
 
                             if (!aiReplyText || !aiReplyText.trim()) {
