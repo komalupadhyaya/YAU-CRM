@@ -1,11 +1,12 @@
 import { useEffect, useState, useRef } from "react";
 import api from "../api/api";
 import AppLayout from "../layout/AppLayout";
-import { AlertCircle, Clock, Calendar, CheckCircle, Phone, Filter, Search, Plus, Building, Megaphone, Info, ArrowRight, Mail, Send, Globe, ChevronDown, ChevronLeft, ChevronRight, X, PhoneCall, Edit, Trash2 } from "lucide-react";
+import { AlertCircle, Clock, Calendar, CheckCircle, Phone, Filter, Search, Plus, Building, Megaphone, Info, ArrowRight, Mail, Send, Globe, ChevronDown, ChevronLeft, ChevronRight, X, PhoneCall, Edit, Trash2, Sparkles, FileText, RefreshCw, TrendingUp, Flame, Sun, Snowflake, MessageSquare, CheckCircle2 } from "lucide-react";
 import { Link, useSearchParams, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useCampaignStore } from "../store/campaignStore";
 import { useAuth } from "../context/AuthContext";
+import { useSocket } from "../context/SocketContext";
 import { useDialerStore } from "../store/dialerStore";
 import { can } from "../utils/permissions";
 import { countryCodes } from "../utils/countryCodes";
@@ -85,6 +86,88 @@ export default function Dashboard() {
   const [selectedCampaign, setSelectedCampaign] = useState<string>("all");
   const [loading, setLoading] = useState(true);
 
+  // Weekly AI Performance Report State
+  const [weeklyReport, setWeeklyReport] = useState<any>(null);
+  const [isGeneratingWeeklyReport, setIsGeneratingWeeklyReport] = useState(false);
+  const [isWeeklyReportModalOpen, setIsWeeklyReportModalOpen] = useState(false);
+  const [loadingWeeklyReport, setLoadingWeeklyReport] = useState(true);
+
+  const loadWeeklyReport = async () => {
+    try {
+      setLoadingWeeklyReport(true);
+      const res = await api.get("/reports/weekly-ai-report/latest");
+      if (res.data?.success && res.data?.report) {
+        setWeeklyReport(res.data.report);
+      }
+    } catch (err) {
+      console.error("Failed to load weekly AI report:", err);
+    } finally {
+      setLoadingWeeklyReport(false);
+    }
+  };
+
+  const handleGenerateWeeklyReport = async () => {
+    try {
+      setIsGeneratingWeeklyReport(true);
+      toast.info("Generating Weekly AI Performance Report with Claude...");
+      const res = await api.post("/reports/weekly-ai-report/generate", { sendEmail: false });
+      if (res.data?.success) {
+        toast.success("Weekly AI Report regenerated and updated in database");
+        setWeeklyReport(res.data.report);
+      } else {
+        toast.error(res.data?.message || "Failed to generate report");
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Error generating weekly report");
+    } finally {
+      setIsGeneratingWeeklyReport(false);
+    }
+  };
+
+  const socket = useSocket();
+
+  // Live SMS Action Panel State
+  const [unreadSmsData, setUnreadSmsData] = useState<{
+    totalUnreadCount: number;
+    hotWarmCount?: number;
+    hotWarmMessages?: any[];
+    unreadMessages?: any[];
+    recentMessages: any[];
+  }>({ totalUnreadCount: 0, hotWarmCount: 0, hotWarmMessages: [], unreadMessages: [], recentMessages: [] });
+  const [loadingUnreadSms, setLoadingUnreadSms] = useState(true);
+  const [activeSmsTab, setActiveSmsTab] = useState<"hot_warm" | "all">("hot_warm");
+
+  const loadUnreadSms = async () => {
+    try {
+      setLoadingUnreadSms(true);
+      const res = await api.get("/sms/unread-count");
+      if (res.data) {
+        setUnreadSmsData(res.data);
+      }
+    } catch (err) {
+      console.error("Failed to load unread SMS messages:", err);
+    } finally {
+      setLoadingUnreadSms(false);
+    }
+  };
+
+  // Real-time socket listener for SMS action panel updates
+  useEffect(() => {
+    if (!socket?.socket) return;
+    const s = socket.socket;
+    const handleSmsUpdate = () => {
+      loadUnreadSms();
+    };
+    s.on('sms:received', handleSmsUpdate);
+    s.on('sms:sent', handleSmsUpdate);
+    s.on('lead:score_updated', handleSmsUpdate);
+    return () => {
+      s.off('sms:received', handleSmsUpdate);
+      s.off('sms:sent', handleSmsUpdate);
+      s.off('lead:score_updated', handleSmsUpdate);
+    };
+  }, [socket?.socket]);
+
   // New Follow-up Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -138,6 +221,8 @@ export default function Dashboard() {
   const [phonePrefix, setPhonePrefix] = useState("+1");
   const [campaignPage, setCampaignPage] = useState(0);
   const CAMPAIGNS_PER_PAGE = 5;
+  const [smsPage, setSmsPage] = useState(0);
+  const SMS_PER_PAGE = 5;
 
   const initiateCall = (leadToCall: Lead) => {
     if (isReadOnly) return;
@@ -179,6 +264,8 @@ export default function Dashboard() {
 
   useEffect(() => {
     load();
+    loadWeeklyReport();
+    loadUnreadSms();
     if (searchParams.get("action") === "new-followup") {
       setIsModalOpen(true);
       searchParams.delete("action");
@@ -474,6 +561,63 @@ export default function Dashboard() {
     followUpDate.trim().length > 0 ||
     followUpPriority !== "";
 
+  // Resilient weekly AI stats extraction (supports both direct and nested schemas)
+  const weeklyStats = weeklyReport?.rawStats || {};
+  const reportTotalLeads = weeklyStats.totalLeads ?? weeklyStats.leads?.total ?? 0;
+  const reportNewLeads7d = weeklyStats.newLeadsThisWeek ?? weeklyStats.leads?.newInLast7Days ?? 0;
+  const reportFollowupsDone = weeklyStats.followupStats?.completedLast7Days ?? weeklyStats.followups?.completedLast7Days ?? 0;
+  const reportOverduePending = weeklyStats.followupStats?.overduePending ?? weeklyStats.followups?.overdue ?? 0;
+
+  const eaByScore = weeklyStats.eaLeads?.byScore || [];
+  const reportHotLeads = weeklyStats.eaStats?.hotLeads ?? (eaByScore.find((s: any) => String(s.score).toLowerCase() === 'hot')?.count || 0);
+  const reportWarmLeads = weeklyStats.eaStats?.warmLeads ?? (eaByScore.find((s: any) => String(s.score).toLowerCase() === 'warm')?.count || 0);
+  const reportColdLeads = weeklyStats.eaStats?.coldLeads ?? (eaByScore.find((s: any) => String(s.score).toLowerCase() === 'cold')?.count || 0);
+  const reportStalledLeads = weeklyStats.eaStats?.stalledCount ?? weeklyStats.eaLeads?.stalled ?? 0;
+  const reportHotWarmTotal = reportHotLeads + reportWarmLeads;
+
+  const weeklyNarrativePreview = weeklyReport?.executiveSummary
+    ? weeklyReport.executiveSummary.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim()
+    : 'No narrative available.';
+
+  const getRelativeTime = (timestamp?: string) => {
+    if (!timestamp) return "";
+    const date = new Date(timestamp);
+    const diffMs = Date.now() - date.getTime();
+    const diffSec = Math.floor(diffMs / 1000);
+    const diffMin = Math.floor(diffSec / 60);
+    const diffHrs = Math.floor(diffMin / 60);
+    const diffDays = Math.floor(diffHrs / 24);
+
+    if (diffDays > 0) return `${diffDays}d ago`;
+    if (diffHrs > 0) return `${diffHrs}h ago`;
+    if (diffMin > 0) return `${diffMin}m ago`;
+    return "just now";
+  };
+
+  const tempMetrics = (dashboardMetrics as any)?.temperature;
+  const hotCount = tempMetrics?.ea?.hot ?? tempMetrics?.hot ?? reportHotLeads;
+  const warmCount = tempMetrics?.ea?.warm ?? tempMetrics?.warm ?? reportWarmLeads;
+  const coldCount = tempMetrics?.ea?.cold ?? tempMetrics?.cold ?? reportColdLeads;
+  const totalTempLeads = tempMetrics?.ea?.total ?? (hotCount + warmCount + coldCount);
+  const hotPercentage = totalTempLeads > 0 ? Math.round((hotCount / totalTempLeads) * 100) : 0;
+  const warmPercentage = totalTempLeads > 0 ? Math.round((warmCount / totalTempLeads) * 100) : 0;
+  const coldPercentage = totalTempLeads > 0 ? Math.max(0, 100 - hotPercentage - warmPercentage) : 0;
+
+  // Filter only EA leads for the Live SMS Action Panel
+  const allEaMessages = (unreadSmsData.hotWarmMessages && unreadSmsData.hotWarmMessages.length > 0)
+    ? unreadSmsData.hotWarmMessages.filter((m: any) => m.leadType === "ea" || m.leadType === "ea_lead")
+    : (unreadSmsData.recentMessages || []).filter((m: any) => m.leadType === "ea" || m.leadType === "ea_lead");
+
+  const hotWarmList = allEaMessages.filter((m: any) => m.aiScore === 'Hot' || m.aiScore === 'Warm');
+  const unreadList = (unreadSmsData.unreadMessages || []).filter((m: any) => m.leadType === "ea" || m.leadType === "ea_lead");
+
+  const displayedSmsList = activeSmsTab === "hot_warm"
+    ? (hotWarmList.length > 0 ? hotWarmList : allEaMessages)
+    : allEaMessages;
+
+  const totalSmsPages = Math.ceil(displayedSmsList.length / SMS_PER_PAGE) || 1;
+  const paginatedSmsList = displayedSmsList.slice(smsPage * SMS_PER_PAGE, (smsPage + 1) * SMS_PER_PAGE);
+
   if (loading) return <AppLayout><div className="p-12 text-center animate-pulse">Loading dashboard...</div></AppLayout>;
 
   return (
@@ -582,8 +726,128 @@ export default function Dashboard() {
         </div>
       </div>
 
+
+      {/* Lead Temperature Pipeline Section */}
+      <div className="bg-card border rounded-2xl p-6 shadow-sm mb-6 relative overflow-hidden">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-rose-500/20 to-amber-500/20 text-rose-500 flex items-center justify-center shadow-inner">
+              <Flame size={20} className="animate-pulse" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-bold text-foreground">Lead Temperature Pipeline</h2>
+                <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-accent text-muted-foreground border">
+                  {totalTempLeads} Active Leads
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Real-time engagement breakdown across Hot, Warm, and Cold outreach
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground font-medium">
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-rose-500" /> Hot ({hotPercentage}%)</span>
+            <span className="flex items-center gap-1.5 ml-2"><span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> Warm ({warmPercentage}%)</span>
+            <span className="flex items-center gap-1.5 ml-2"><span className="w-2.5 h-2.5 rounded-full bg-sky-500" /> Cold ({coldPercentage}%)</span>
+          </div>
+        </div>
+
+        {/* Segmented Pipeline Progress Gauge */}
+        <div className="h-3 w-full bg-accent/40 rounded-full overflow-hidden flex p-0.5 gap-1 mb-5">
+          <div
+            style={{ width: `${hotPercentage}%` }}
+            className="h-full bg-gradient-to-r from-rose-600 to-rose-400 rounded-full transition-all duration-700"
+            title={`Hot Leads: ${hotCount} (${hotPercentage}%)`}
+          />
+          <div
+            style={{ width: `${warmPercentage}%` }}
+            className="h-full bg-gradient-to-r from-amber-500 to-amber-400 rounded-full transition-all duration-700"
+            title={`Warm Leads: ${warmCount} (${warmPercentage}%)`}
+          />
+          <div
+            style={{ width: `${coldPercentage}%` }}
+            className="h-full bg-gradient-to-r from-sky-500 to-sky-400 rounded-full transition-all duration-700"
+            title={`Cold Leads: ${coldCount} (${coldPercentage}%)`}
+          />
+        </div>
+
+        {/* 3 Interactive Metric Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Hot Card */}
+          <div
+            onClick={() => navigate("/ea-leads?score=Hot")}
+            className="group cursor-pointer bg-gradient-to-br from-rose-500/5 via-card to-card border border-rose-500/20 hover:border-rose-500/50 rounded-2xl p-4 transition-all hover:shadow-md hover:-translate-y-0.5"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400 flex items-center gap-1.5">
+                <Flame size={14} className="text-rose-500" /> Hot Leads
+              </span>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+                Immediate Action
+              </span>
+            </div>
+            <div className="flex items-baseline justify-between mt-3">
+              <span className="text-3xl font-extrabold text-foreground tracking-tight">{hotCount}</span>
+              <span className="text-xs font-semibold text-rose-500">{hotPercentage}% of pipeline</span>
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-2 flex items-center justify-between">
+              <span>Ready for meeting / high intent</span>
+              <ArrowRight size={13} className="text-muted-foreground group-hover:text-rose-500 group-hover:translate-x-1 transition-all" />
+            </p>
+          </div>
+
+          {/* Warm Card */}
+          <div
+            onClick={() => navigate("/ea-leads?score=Warm")}
+            className="group cursor-pointer bg-gradient-to-br from-amber-500/5 via-card to-card border border-amber-500/20 hover:border-amber-500/50 rounded-2xl p-4 transition-all hover:shadow-md hover:-translate-y-0.5"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                <Sun size={14} className="text-amber-500" /> Warm Leads
+              </span>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                Nurture
+              </span>
+            </div>
+            <div className="flex items-baseline justify-between mt-3">
+              <span className="text-3xl font-extrabold text-foreground tracking-tight">{warmCount}</span>
+              <span className="text-xs font-semibold text-amber-500">{warmPercentage}% of pipeline</span>
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-2 flex items-center justify-between">
+              <span>Engaged & asking questions</span>
+              <ArrowRight size={13} className="text-muted-foreground group-hover:text-amber-500 group-hover:translate-x-1 transition-all" />
+            </p>
+          </div>
+
+          {/* Cold Card */}
+          <div
+            onClick={() => navigate("/ea-leads?score=Cold")}
+            className="group cursor-pointer bg-gradient-to-br from-sky-500/5 via-card to-card border border-sky-500/20 hover:border-sky-500/50 rounded-2xl p-4 transition-all hover:shadow-md hover:-translate-y-0.5"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-sky-600 dark:text-sky-400 flex items-center gap-1.5">
+                <Snowflake size={14} className="text-sky-500" /> Cold Leads
+              </span>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">
+                Re-engage
+              </span>
+            </div>
+            <div className="flex items-baseline justify-between mt-3">
+              <span className="text-3xl font-extrabold text-foreground tracking-tight">{coldCount}</span>
+              <span className="text-xs font-semibold text-sky-500">{coldPercentage}% of pipeline</span>
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-2 flex items-center justify-between">
+              <span>New or stalled outreach</span>
+              <ArrowRight size={13} className="text-muted-foreground group-hover:text-sky-500 group-hover:translate-x-1 transition-all" />
+            </p>
+          </div>
+        </div>
+      </div>
+
       <div className="flex flex-col lg:flex-row gap-6">
-        <div className="flex-1 lg:w-[70%] min-w-0 space-y-6">
+        {/* Left Operational Column */}
+        <div className="flex-1 lg:w-[65%] min-w-0 space-y-6">
           <div className="page-card dark:bg-card">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-lg font-bold text-foreground">Campaign Acquisition Overview</h2>
@@ -727,9 +991,299 @@ export default function Dashboard() {
               </div>
             )}
           </div>
+
+          {/* Weekly AI Executive Briefing Snapshot */}
+          <div className="bg-gradient-to-br from-card via-card to-primary/5 border border-primary/20 rounded-2xl p-6 shadow-sm relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-3xl -z-10 pointer-events-none" />
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-border/50">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shadow-inner">
+                  <Sparkles size={20} className="animate-pulse" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-base font-bold text-foreground">Weekly AI Executive Briefing</h2>
+                    <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                      Claude AI
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {weeklyReport ? (
+                      <>
+                        Week of {new Date(weeklyReport.weekStartDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })} – {new Date(weeklyReport.weekEndDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} • Sent to {weeklyReport.recipient || "play@yausports.com"}
+                      </>
+                    ) : (
+                      "Automated weekly intelligence summary generated every Monday at 8:00 AM EST"
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 self-start sm:self-auto">
+                {weeklyReport && (
+                  <button
+                    onClick={() => setIsWeeklyReportModalOpen(true)}
+                    className="btn-secondary text-xs h-9 px-3.5 font-semibold flex items-center gap-1.5 hover:border-primary/40"
+                  >
+                    <FileText size={14} /> View Full Report
+                  </button>
+                )}
+                {!isSalesrepOrReadOnly && (
+                  <button
+                    onClick={handleGenerateWeeklyReport}
+                    disabled={isGeneratingWeeklyReport}
+                    className="bg-primary hover:bg-primary/90 text-primary-foreground text-xs h-9 px-3.5 rounded-xl font-bold flex items-center gap-1.5 transition-all active:scale-95 shadow-md shadow-primary/20 disabled:opacity-50"
+                    title="Regenerate latest report and update database"
+                  >
+                    <RefreshCw size={13} className={isGeneratingWeeklyReport ? "animate-spin" : ""} />
+                    {isGeneratingWeeklyReport ? "Analyzing..." : "Regenerate"}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {loadingWeeklyReport ? (
+              <div className="py-8 text-center text-sm text-muted-foreground animate-pulse flex items-center justify-center gap-2">
+                <Sparkles size={16} className="text-primary animate-spin" /> Loading executive briefing...
+              </div>
+            ) : weeklyReport ? (
+              <div className="pt-4 space-y-4">
+                {/* Highlight KPI pills */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="bg-background/60 dark:bg-background/40 border rounded-xl p-3">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">New Leads (7d)</span>
+                    <p className="text-xl font-extrabold text-foreground mt-0.5">
+                      {reportNewLeads7d}
+                    </p>
+                  </div>
+                  <div className="bg-background/60 dark:bg-background/40 border rounded-xl p-3">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Total In Pipeline</span>
+                    <p className="text-xl font-extrabold text-primary mt-0.5">
+                      {reportTotalLeads}
+                    </p>
+                  </div>
+                  <div className="bg-background/60 dark:bg-background/40 border rounded-xl p-3">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Follow-Ups Done</span>
+                    <p className="text-xl font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5">
+                      {reportFollowupsDone}
+                    </p>
+                  </div>
+                  <div className="bg-background/60 dark:bg-background/40 border rounded-xl p-3">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Hot / Warm EA</span>
+                    <p className="text-xl font-extrabold text-amber-500 mt-0.5">
+                      {reportHotWarmTotal}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Narrative Preview */}
+                <div className="bg-background/40 border rounded-xl p-4 text-xs text-muted-foreground leading-relaxed">
+                  <div className="line-clamp-3">
+                    {weeklyNarrativePreview}
+                  </div>
+                  <button
+                    onClick={() => setIsWeeklyReportModalOpen(true)}
+                    className="text-primary font-bold hover:underline mt-2 inline-flex items-center gap-1"
+                  >
+                    Read full executive synthesis & action items <ArrowRight size={12} />
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="py-6 text-center">
+                <p className="text-xs text-muted-foreground">
+                  No weekly executive briefing has been generated yet. It runs automatically every Monday at 8:00 AM EST, or you can generate the first edition right now.
+                </p>
+              </div>
+            )}
+          </div>
         </div>
 
-        <div className="w-full lg:w-[30%] space-y-6">
+        {/* Right Operational Column */}
+        <div className="w-full lg:w-[35%] space-y-6">
+          {/* Live SMS Action Panel (Mini-Inbox) */}
+          <div className="page-card dark:bg-card p-0 overflow-hidden border border-primary/20 shadow-sm">
+            <div className="p-4 border-b flex items-center justify-between bg-gradient-to-r from-card to-primary/5">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
+                  <MessageSquare size={16} />
+                </div>
+                <div>
+                  <h2 className="text-xs font-bold uppercase tracking-wider text-foreground">Live SMS Action Panel</h2>
+                  <p className="text-[10px] text-muted-foreground">EA leads live engagement</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {displayedSmsList.length > SMS_PER_PAGE && (
+                  <div className="flex items-center gap-1.5 mr-1">
+                    <button 
+                      onClick={() => setSmsPage(p => Math.max(0, p - 1))}
+                      disabled={smsPage === 0}
+                      className={`w-7 h-7 flex items-center justify-center rounded-lg border transition-all ${
+                        smsPage === 0 ? 'opacity-20 cursor-not-allowed' : 'hover:bg-accent hover:border-primary/50 text-foreground/50 hover:text-primary shadow-sm bg-card'
+                      }`}
+                      title="Previous Page"
+                    >
+                      <ChevronLeft size={14} />
+                    </button>
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">
+                      {smsPage + 1} / {totalSmsPages}
+                    </span>
+                    <button 
+                      onClick={() => setSmsPage(p => (p + 1 < totalSmsPages ? p + 1 : p))}
+                      disabled={smsPage + 1 >= totalSmsPages}
+                      className={`w-7 h-7 flex items-center justify-center rounded-lg border transition-all ${
+                        smsPage + 1 >= totalSmsPages ? 'opacity-20 cursor-not-allowed' : 'hover:bg-accent hover:border-primary/50 text-foreground/50 hover:text-primary shadow-sm bg-card'
+                      }`}
+                      title="Next Page"
+                    >
+                      <ChevronRight size={14} className="text-emerald-500" />
+                    </button>
+                  </div>
+                )}
+                <button
+                  onClick={loadUnreadSms}
+                  disabled={loadingUnreadSms}
+                  className="p-1.5 hover:bg-accent rounded-lg text-muted-foreground hover:text-foreground transition-colors"
+                  title="Refresh SMS activity"
+                >
+                  <RefreshCw size={13} className={loadingUnreadSms ? "animate-spin" : ""} />
+                </button>
+              </div>
+            </div>
+
+            {/* Sub-Tabs: Hot & Warm vs All EA Leads */}
+            <div className="flex border-b text-xs font-semibold bg-accent/10">
+              <button
+                onClick={() => { setActiveSmsTab("hot_warm"); setSmsPage(0); }}
+                className={`flex-1 py-2.5 px-3 flex items-center justify-center gap-1.5 border-b-2 transition-all ${
+                  activeSmsTab === "hot_warm"
+                    ? "border-rose-500 text-rose-600 dark:text-rose-400 bg-background/50 font-bold"
+                    : "border-transparent text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Flame size={13} className="text-rose-500" />
+                <span>Hot & Warm</span>
+                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-rose-500/10 text-rose-600 font-bold ml-1">
+                  {hotWarmList.length}
+                </span>
+              </button>
+              <button
+                onClick={() => { setActiveSmsTab("all"); setSmsPage(0); }}
+                className={`flex-1 py-2.5 px-3 flex items-center justify-center gap-1.5 border-b-2 transition-all ${
+                  activeSmsTab === "all"
+                    ? "border-primary text-primary bg-background/50 font-bold"
+                    : "border-transparent text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <MessageSquare size={13} />
+                <span>All EA Leads</span>
+                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-primary/10 text-primary font-bold ml-1">
+                  {allEaMessages.length}
+                </span>
+              </button>
+            </div>
+
+            <div className="p-3 space-y-2">
+              {loadingUnreadSms ? (
+                <div className="py-8 text-center text-xs text-muted-foreground animate-pulse">
+                  Checking for live SMS activity...
+                </div>
+              ) : paginatedSmsList && paginatedSmsList.length > 0 ? (
+                paginatedSmsList.map((msg: any, idx: number) => {
+                  const isHot = msg.aiScore === "Hot";
+                  const isWarm = msg.aiScore === "Warm";
+                  return (
+                    <div
+                      key={msg.leadId || idx}
+                      className={`p-3 rounded-xl border bg-accent/10 hover:bg-accent/20 transition-all border-l-4 flex items-center justify-between gap-3 group ${
+                        isHot ? "border-l-rose-500 bg-rose-500/5" : isWarm ? "border-l-amber-500 bg-amber-500/5" : "border-l-sky-500 bg-sky-500/5"
+                      }`}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold text-foreground truncate">{msg.senderName}</span>
+                          {msg.unreadCount > 0 && (
+                            <span className="w-2 h-2 rounded-full bg-primary animate-pulse" title="Unread replies" />
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2.5 shrink-0">
+                        {isHot && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+                            <Flame size={12} className="text-rose-500" /> Hot
+                          </span>
+                        )}
+                        {isWarm && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                            <Sun size={12} className="text-amber-500" /> Warm
+                          </span>
+                        )}
+                        {!isHot && !isWarm && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">
+                            <Snowflake size={12} className="text-sky-500" /> Cold
+                          </span>
+                        )}
+                        <button
+                          onClick={() => navigate(`/sms?leadId=${msg.leadId}`)}
+                          className="bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold px-3 py-1.5 rounded-xl flex items-center gap-1 shadow-sm shadow-primary/20 transition-all active:scale-95"
+                          title="Open SMS conversation"
+                        >
+                          <Send size={11} /> Reply
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="py-8 px-4 text-center">
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center mx-auto mb-2 ${
+                    activeSmsTab === "hot_warm" ? "bg-rose-500/10 text-rose-500" : "bg-emerald-500/10 text-emerald-500"
+                  }`}>
+                    {activeSmsTab === "hot_warm" ? <Flame size={20} /> : <CheckCircle2 size={20} />}
+                  </div>
+                  <p className="text-xs font-bold text-foreground">
+                    {activeSmsTab === "hot_warm" ? "No Hot or Warm EA Leads" : "No EA Leads"}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    {activeSmsTab === "hot_warm"
+                      ? "Hot and Warm EA leads will appear here."
+                      : "No EA leads found with recent SMS activity."}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Bottom Pagination if displayedSmsList.length > SMS_PER_PAGE */}
+            {displayedSmsList.length > SMS_PER_PAGE && (
+              <div className="flex items-center justify-center gap-4 py-3 px-4 border-t border-border/50">
+                <button 
+                  onClick={() => setSmsPage(p => Math.max(0, p - 1))}
+                  disabled={smsPage === 0}
+                  className={`w-8 h-8 flex items-center justify-center rounded-xl border transition-all ${
+                    smsPage === 0 ? 'opacity-20 cursor-not-allowed' : 'hover:bg-accent hover:border-primary/50 text-foreground/50 hover:text-primary shadow-sm bg-card'
+                  }`}
+                  title="Previous Page"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <span className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">
+                  PAGE {smsPage + 1} OF {totalSmsPages}
+                </span>
+                <button 
+                  onClick={() => setSmsPage(p => (p + 1 < totalSmsPages ? p + 1 : p))}
+                  disabled={smsPage + 1 >= totalSmsPages}
+                  className={`w-8 h-8 flex items-center justify-center rounded-xl border transition-all ${
+                    smsPage + 1 >= totalSmsPages ? 'opacity-20 cursor-not-allowed' : 'hover:bg-accent hover:border-primary/50 text-foreground/50 hover:text-primary shadow-sm bg-card'
+                  }`}
+                  title="Next Page"
+                >
+                  <ChevronRight size={16} className="text-emerald-500" />
+                </button>
+              </div>
+            )}
+          </div>
           <div className="page-card dark:bg-card p-0 overflow-hidden">
             <div className="p-4 border-b">
               <h2 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Tasks & Follow-Ups</h2>
@@ -1340,6 +1894,143 @@ export default function Dashboard() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Weekly AI Executive Briefing Full Modal */}
+      <Dialog open={isWeeklyReportModalOpen} onOpenChange={setIsWeeklyReportModalOpen}>
+        <DialogContent className="w-[95vw] max-w-5xl xl:max-w-6xl max-h-[92vh] flex flex-col p-6 sm:p-8">
+          <DialogHeader className="pb-2 border-b border-border/40">
+            <div className="flex items-center gap-3">
+              <span className="p-3 rounded-2xl bg-primary/10 text-primary">
+                <Sparkles size={24} />
+              </span>
+              <div>
+                <DialogTitle className="text-xl sm:text-2xl font-bold">
+                  Weekly AI Executive Briefing
+                </DialogTitle>
+                <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">
+                  {weeklyReport?.weekStartDate && (
+                    <>
+                      Coverage: {new Date(weeklyReport.weekStartDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })} – {new Date(weeklyReport.weekEndDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} • Delivered to {weeklyReport.recipient || "play@yausports.com"}
+                    </>
+                  )}
+                </p>
+              </div>
+            </div>
+          </DialogHeader>
+
+          {weeklyReport && (
+            <div className="flex-1 overflow-y-auto pr-2 space-y-6 my-4">
+              {/* Status Badge & Meta */}
+              <div className="flex flex-wrap items-center justify-between gap-2 p-3 sm:p-4 bg-accent/30 rounded-2xl border text-xs sm:text-sm">
+                <div className="flex items-center gap-3">
+                  <span className={`px-2.5 py-1 rounded-full font-bold uppercase text-[11px] ${
+                    weeklyReport.status === 'sent' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
+                  }`}>
+                    Status: {weeklyReport.status || 'sent'}
+                  </span>
+                  <span className="text-muted-foreground">
+                    Generated: {new Date(weeklyReport.generatedAt || Date.now()).toLocaleString()}
+                  </span>
+                </div>
+                <span className="text-xs text-muted-foreground font-semibold">
+                  AI Model: Claude Sonnet 4.6
+                </span>
+              </div>
+
+              {/* Two Column Layout Grid */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                {/* Left Column: KPI Summary & EA Lead Scoring (5 of 12 columns) */}
+                <div className="lg:col-span-5 space-y-5">
+                  {/* Executive KPI Summary */}
+                  <div className="bg-card/60 border rounded-2xl p-5 shadow-sm space-y-3">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                      <TrendingUp size={15} className="text-primary" /> Executive KPI Summary
+                    </h4>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="bg-background/80 dark:bg-card border rounded-xl p-3.5 shadow-sm">
+                        <span className="text-[10px] uppercase text-muted-foreground font-bold">New Leads (7d)</span>
+                        <p className="text-2xl font-extrabold text-foreground mt-0.5">{reportNewLeads7d}</p>
+                      </div>
+                      <div className="bg-background/80 dark:bg-card border rounded-xl p-3.5 shadow-sm">
+                        <span className="text-[10px] uppercase text-muted-foreground font-bold">Total In Pipeline</span>
+                        <p className="text-2xl font-extrabold text-primary mt-0.5">{reportTotalLeads}</p>
+                      </div>
+                      <div className="bg-background/80 dark:bg-card border rounded-xl p-3.5 shadow-sm">
+                        <span className="text-[10px] uppercase text-muted-foreground font-bold">Followups Done</span>
+                        <p className="text-2xl font-extrabold text-emerald-600 mt-0.5">{reportFollowupsDone}</p>
+                      </div>
+                      <div className="bg-background/80 dark:bg-card border rounded-xl p-3.5 shadow-sm">
+                        <span className="text-[10px] uppercase text-muted-foreground font-bold">Pending Overdue</span>
+                        <p className="text-2xl font-extrabold text-red-500 mt-0.5">{reportOverduePending}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* EA Lead Distribution */}
+                  {weeklyReport.rawStats && (
+                    <div className="bg-card/60 border rounded-2xl p-5 shadow-sm space-y-3">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                        <Sparkles size={15} className="text-amber-500" /> EA AI Lead Scoring Breakdown
+                      </h4>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="bg-background/80 dark:bg-card border rounded-xl p-3.5 shadow-sm">
+                          <span className="text-[10px] uppercase text-amber-600 font-bold">🔥 Hot Leads</span>
+                          <p className="text-2xl font-extrabold mt-0.5">{reportHotLeads}</p>
+                        </div>
+                        <div className="bg-background/80 dark:bg-card border rounded-xl p-3.5 shadow-sm">
+                          <span className="text-[10px] uppercase text-blue-600 font-bold">☀️ Warm Leads</span>
+                          <p className="text-2xl font-extrabold mt-0.5">{reportWarmLeads}</p>
+                        </div>
+                        <div className="bg-background/80 dark:bg-card border rounded-xl p-3.5 shadow-sm">
+                          <span className="text-[10px] uppercase text-slate-500 font-bold">❄️ Cold Leads</span>
+                          <p className="text-2xl font-extrabold mt-0.5">{reportColdLeads}</p>
+                        </div>
+                        <div className="bg-background/80 dark:bg-card border rounded-xl p-3.5 shadow-sm">
+                          <span className="text-[10px] uppercase text-red-500 font-bold">⚠️ Stalled Leads</span>
+                          <p className="text-2xl font-extrabold mt-0.5">{reportStalledLeads}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Right Column: Claude AI Executive Synthesis (7 of 12 columns) */}
+                <div className="lg:col-span-7 space-y-3">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                    <Sparkles size={15} className="text-primary" /> Claude AI Executive Synthesis
+                  </h4>
+                  <div
+                    className="bg-accent/20 border rounded-2xl p-6 sm:p-7 text-sm text-foreground/90 leading-relaxed font-normal shadow-sm [&_h3]:text-base [&_h3]:font-bold [&_h3]:text-foreground [&_h3]:mt-5 [&_h3]:mb-2 [&_h3:first-child]:mt-0 [&_p]:mb-3 [&_p:last-child]:mb-0 [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:mb-3 [&_li]:mb-1 [&_strong]:text-foreground [&_strong]:font-semibold [&_em]:text-muted-foreground [&_hr]:my-4 [&_hr]:border-border/60"
+                    dangerouslySetInnerHTML={{ __html: weeklyReport.executiveSummary || '<p>No narrative available.</p>' }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="pt-2 border-t border-border/40">
+            <button
+              onClick={() => setIsWeeklyReportModalOpen(false)}
+              className="btn-secondary px-5"
+            >
+              Close
+            </button>
+            {!isSalesrepOrReadOnly && (
+              <button
+                onClick={() => {
+                  setIsWeeklyReportModalOpen(false);
+                  handleGenerateWeeklyReport();
+                }}
+                disabled={isGeneratingWeeklyReport}
+                className="btn-primary flex items-center gap-2 px-5"
+              >
+                <RefreshCw size={15} className={isGeneratingWeeklyReport ? "animate-spin" : ""} />
+                Regenerate
+              </button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 }

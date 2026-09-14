@@ -15,4 +15,9 @@ router.get('/followup-activity', auth, requireRole(...allRoles), reportsControll
 // Export — admin and manager only
 router.get('/export', auth, requireRole('admin', 'manager'), reportsController.exportData);
 
+// Weekly AI Performance Report
+router.get('/weekly-ai-report/latest', auth, requireRole(...allRoles), reportsController.getLatestWeeklyReport);
+router.get('/weekly-ai-report/history', auth, requireRole(...allRoles), reportsController.getWeeklyReportsHistory);
+router.post('/weekly-ai-report/generate', auth, requireRole('admin', 'manager'), reportsController.triggerWeeklyReportManual);
+
 export default router;

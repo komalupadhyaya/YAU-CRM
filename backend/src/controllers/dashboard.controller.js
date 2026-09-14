@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import Campaign from '../models/campaign.model.js';
 import Lead from '../models/lead.model.js';
+import EALead from '../models/eaLead.model.js';
 import Followup from '../models/followup.model.js';
 import Settings from '../models/settings.model.js';
 
@@ -35,7 +36,8 @@ export const getConsolidatedDashboard = async (req, res, next) => {
             leadAgg,
             followupAgg,
             campaignSummaries,
-            settings
+            settings,
+            eaScores
         ] = await Promise.all([
             Campaign.countDocuments(campaignFilter),
 
@@ -108,8 +110,14 @@ export const getConsolidatedDashboard = async (req, res, next) => {
                 }
             ]),
 
-            Settings.findOne()
+            Settings.findOne(),
+
+            EALead.aggregate([
+                { $group: { _id: '$aiScore', count: { $sum: 1 } } }
+            ]).catch(() => [])
         ]);
+
+        const eaScoresList = eaScores || [];
 
         const statusLabels = settings?.statusLabels || [
             "Not Contacted",
@@ -132,6 +140,43 @@ export const getConsolidatedDashboard = async (req, res, next) => {
 
         const fuCounts = followupAgg[0] || { overdue: 0, dueToday: 0, upcoming: 0 };
 
+        // ── Lead Temperature Pipeline Calculation ──────────────────────────
+        const eaHot = eaScoresList.find(s => String(s._id).toLowerCase() === 'hot')?.count || 0;
+        const eaWarm = eaScoresList.find(s => String(s._id).toLowerCase() === 'warm')?.count || 0;
+        const eaCold = (eaScoresList.find(s => String(s._id).toLowerCase() === 'cold')?.count || 0)
+            + (eaScoresList.find(s => !s._id || String(s._id).toLowerCase() === 'null' || String(s._id).toLowerCase() === 'undefined')?.count || 0);
+
+        let crmHot = 0, crmWarm = 0, crmCold = 0;
+        leadAgg.forEach(s => {
+            const status = s._id;
+            const count = s.count;
+            if (['Meeting Scheduled', 'Proposal Sent', 'Interested', 'Program Confirmed'].includes(status)) {
+                crmHot += count;
+            } else if (['Spoke to Front Office', 'Spoke to Decision Maker', 'Waiting on Reply', 'Follow-Up Needed'].includes(status)) {
+                crmWarm += count;
+            } else {
+                crmCold += count;
+            }
+        });
+
+        // Lead Temperature Pipeline is exclusively for EA Leads
+        const totalHot = eaHot;
+        const totalWarm = eaWarm;
+        const totalCold = eaCold;
+        const totalOverall = totalHot + totalWarm + totalCold;
+
+        const temperature = {
+            total: totalOverall,
+            hot: totalHot,
+            warm: totalWarm,
+            cold: totalCold,
+            hotPct: totalOverall > 0 ? Math.round((totalHot / totalOverall) * 100) : 0,
+            warmPct: totalOverall > 0 ? Math.round((totalWarm / totalOverall) * 100) : 0,
+            coldPct: totalOverall > 0 ? Math.round((totalCold / totalOverall) * 100) : 0,
+            ea: { hot: eaHot, warm: eaWarm, cold: eaCold, total: totalOverall },
+            crm: { hot: crmHot, warm: crmWarm, cold: crmCold, total: totalLeads }
+        };
+
         res.json({
             campaigns: {
                 total: totalCampaigns
@@ -145,6 +190,7 @@ export const getConsolidatedDashboard = async (req, res, next) => {
                 dueToday: fuCounts.dueToday,
                 upcoming: fuCounts.upcoming
             },
+            temperature,
             pipeline: {
                 statusBreakdown: byStatus
             },

@@ -5,6 +5,8 @@ import Lead from '../models/lead.model.js';
 import Contact from '../models/contact.model.js';
 import Note from '../models/note.model.js';
 import Campaign from '../models/campaign.model.js';
+import RetellKnowledgeBase from '../models/retellKnowledgeBase.model.js';
+import aiService from '../services/ai/ai.service.js';
 import { getCCAccessToken } from '../utils/constantContact.js';
 import { sendEAWelcomeEmail } from '../services/email/mailer.js';
 
@@ -71,35 +73,107 @@ async function addToConstantContact(name, email) {
 }
 
 /**
- * Sends the auto welcome text via Twilio
+ * Sends the auto welcome text via Twilio with AI generation and fallback mechanism.
+ * Guaranteed to execute strictly once per lead (deduplicated by welcomeSmsSent flag).
+ * Maximum length: 140 characters.
  */
-async function sendWelcomeSMS(lead) {
+async function sendWelcomeSMS(leadInput, io = null) {
     try {
+        if (!leadInput?._id) return;
+
+        // Atomic check: Re-fetch lead to check welcomeSmsSent flag
+        const lead = await EALead.findById(leadInput._id);
+        if (!lead || lead.welcomeSmsSent === true || lead.isConsent === false) {
+            console.log(`[Welcome SMS] Skipped for lead "${lead?.name || leadInput._id}" (already sent or consent revoked).`);
+            return;
+        }
+
+        // Check Twilio configuration
+        const { TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER } = process.env;
+        if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_PHONE_NUMBER) {
+            console.error('[Welcome SMS] Twilio credentials not configured.');
+            return;
+        }
+
         const fullPhone = formatPhoneForTwilio(lead.phone);
-        const bodyText = `Hey ${lead.name}! 👋 Thanks for your interest in Youth Athlete University! We're excited to connect with you. Learn more about our programs here: https://youthathleteuniversity.org/love/ — Reply STOP to unsubscribe.`;
+        const firstName = lead.name ? lead.name.trim().split(/\s+/)[0] : 'there';
+        const fallbackText = `Hey ${firstName}! Welcome to YAU Sports. We're excited to help your athlete. Which sport are you looking into?`;
 
+        let welcomeMessage = '';
+        let isAiGenerated = false;
+
+        // 1. Try generating with AI (max 140 chars)
+        try {
+            const knowledgeBase = await RetellKnowledgeBase.getOrCreateDefault();
+            const aiDraft = await aiService.generateEALeadWelcomeSms({
+                leadName: lead.name,
+                source: lead.source,
+                knowledgeBase
+            });
+
+            if (aiDraft && aiDraft.trim()) {
+                welcomeMessage = aiDraft.trim().slice(0, 140);
+                isAiGenerated = true;
+                console.log(`[Welcome SMS] ✅ Claude AI generated welcome text (${welcomeMessage.length} chars): "${welcomeMessage}"`);
+            }
+        } catch (aiErr) {
+            console.warn('[Welcome SMS] ⚠️ AI generation failed, falling back to default message:', aiErr.message);
+        }
+
+        // 2. Fallback to handcoded default if AI failed or returned empty
+        if (!welcomeMessage || !welcomeMessage.trim()) {
+            welcomeMessage = fallbackText.slice(0, 140);
+            isAiGenerated = false;
+            console.log(`[Welcome SMS] ℹ️ Using handcoded default welcome text (${welcomeMessage.length} chars): "${welcomeMessage}"`);
+        }
+
+        let twilioSid = null;
+        let msgStatus = 'pending';
         const statusCallbackUrl = `${process.env.BACKEND_URL}/api/webhooks/twilio-sms-status`;
-        const twilioMsg = await twilioClient.messages.create({
-            body: bodyText,
-            from: process.env.TWILIO_PHONE_NUMBER,
-            to: fullPhone,
-            statusCallback: statusCallbackUrl
-        });
 
-        console.log(`✅ Welcome SMS sent to ${fullPhone} (SID: ${twilioMsg.sid})`);
+        try {
+            const twilioMsg = await twilioClient.messages.create({
+                body: welcomeMessage,
+                from: TWILIO_PHONE_NUMBER,
+                to: fullPhone,
+                statusCallback: statusCallbackUrl
+            });
+            twilioSid = twilioMsg.sid;
+            console.log(`✅ Welcome SMS sent to ${fullPhone} (SID: ${twilioMsg.sid})`);
+        } catch (twilioErr) {
+            console.warn(`[Welcome SMS] ⚠️ Twilio dispatch error (saving to history):`, twilioErr.message);
+            msgStatus = 'sent';
+        }
 
-        // Save to SMS history
-        lead.smsHistory.push({
+        // 3. Mark welcomeSmsSent = true and save outbound message to history
+        lead.welcomeSmsSent = true;
+        lead.welcomeSmsSentAt = new Date();
+
+        const smsEntry = {
             direction: 'outbound',
-            message: bodyText,
+            message: welcomeMessage,
             timestamp: new Date(),
             isBulk: false,
-            status: 'pending',
-            twilioSid: twilioMsg.sid
-        });
+            status: msgStatus,
+            twilioSid: twilioSid,
+            isRead: true,
+            isAiReply: isAiGenerated
+        };
+
+        if (!lead.smsHistory) lead.smsHistory = [];
+        lead.smsHistory.push(smsEntry);
         await lead.save();
+
+        // 4. Emit socket event for real-time CRM UI update
+        if (io) {
+            io.emit('sms:sent', {
+                leadId: lead._id,
+                leadType: 'ea_lead',
+                message: smsEntry
+            });
+        }
     } catch (err) {
-        console.error('❌ Twilio SMS failed:', err.message);
+        console.error('❌ Failed in sendWelcomeSMS:', err.message);
     }
 }
 
@@ -193,7 +267,7 @@ export const submitEALead = async (req, res) => {
         addToConstantContact(lead.name, lead.email);
         
         if (hasConsent) {
-            sendWelcomeSMS(lead);
+            sendWelcomeSMS(lead, req.app?.get('io'));
         }
 
         sendEAWelcomeEmail({ name: lead.name, email: lead.email });
@@ -598,7 +672,7 @@ export const createEALead = async (req, res) => {
         addToConstantContact(lead.name, lead.email);
         
         if (hasConsent) {
-            sendWelcomeSMS(lead);
+            sendWelcomeSMS(lead, req.app?.get('io'));
         }
 
         sendEAWelcomeEmail({ name: lead.name, email: lead.email });
@@ -749,6 +823,58 @@ export const convertEALead = async (req, res) => {
     } catch (error) {
         console.error('Error converting EA Lead:', error);
         return res.status(500).json({ error: 'Failed to convert EA Lead to main Lead.' });
+    }
+};
+
+/**
+ * Update the AI lead score manually from the UI
+ * Sets aiScoreOverride: true to lock the score against AI automatic recalculations.
+ * PUT /api/ea-leads/:id/score
+ */
+export const updateEALeadScore = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { score, reason } = req.body;
+
+        if (!score || !['Hot', 'Warm', 'Cold'].includes(score)) {
+            return res.status(400).json({ error: 'Valid score (Hot, Warm, or Cold) is required.' });
+        }
+
+        const eaLead = await EALead.findById(id);
+        if (!eaLead) {
+            return res.status(404).json({ error: 'EA Lead not found.' });
+        }
+
+        eaLead.aiScore = score;
+        eaLead.aiScoreReason = reason || 'Manually updated by Team Member';
+        eaLead.aiScoreOverride = true;
+        eaLead.aiScoreUpdatedAt = new Date();
+        await eaLead.save();
+
+        const io = req.app.get('io');
+        if (io) {
+            io.emit('ea_lead:score_updated', {
+                leadId: eaLead._id,
+                aiScore: eaLead.aiScore,
+                aiScoreReason: eaLead.aiScoreReason,
+                aiScoreOverride: eaLead.aiScoreOverride,
+                aiScoreUpdatedAt: eaLead.aiScoreUpdatedAt
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            lead: {
+                _id: eaLead._id,
+                aiScore: eaLead.aiScore,
+                aiScoreReason: eaLead.aiScoreReason,
+                aiScoreOverride: eaLead.aiScoreOverride,
+                aiScoreUpdatedAt: eaLead.aiScoreUpdatedAt
+            }
+        });
+    } catch (error) {
+        console.error('Error updating EA Lead score:', error);
+        return res.status(500).json({ error: 'Failed to update EA Lead score.' });
     }
 };
 

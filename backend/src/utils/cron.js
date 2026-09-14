@@ -9,6 +9,7 @@ import { invalidatedUsers } from './sessionCache.js';
 import EmailCampaign from '../models/emailCampaign.model.js';
 import { resolveSegmentRecipients } from '../controllers/segments.controller.js';
 import { dispatchCampaignInBackground } from '../controllers/campaigns.controller.js';
+import { generateAndSendWeeklyPerformanceReport } from '../controllers/reports.controller.js';
 
 export const initCronJobs = () => {
 
@@ -210,5 +211,19 @@ export const initCronJobs = () => {
         }
     });
 
-    console.log('✅ Cron jobs initialized: Daily summary (8AM EST) + 30-min reminders (every minute) + campaign sender (every minute).');
+    // ── 4. Weekly AI Performance Report — Every Monday at 8:00 AM EST ─────────
+    cron.schedule('0 8 * * 1', async () => {
+        console.log('[CRON] Generating Weekly AI Performance Report (Monday 8:00 AM EST)...');
+        try {
+            await generateAndSendWeeklyPerformanceReport('play@yausports.com', true);
+            console.log('[CRON] Weekly AI Performance Report completed and sent to play@yausports.com.');
+        } catch (err) {
+            console.error('[CRON] Failed to generate Weekly AI Performance Report:', err.message);
+        }
+    }, {
+        scheduled: true,
+        timezone: 'America/New_York'
+    });
+
+    console.log('✅ Cron jobs initialized: Daily summary (8AM EST) + 30-min reminders (every minute) + campaign sender (every minute) + weekly AI performance report (Monday 8AM EST).');
 };

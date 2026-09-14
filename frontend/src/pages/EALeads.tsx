@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import api from "../api/api";
 import AppLayout from "../layout/AppLayout";
 import { useAuth } from "../context/AuthContext";
+import { useSocket } from "../context/SocketContext";
 import { can } from "../utils/permissions";
 import { getRelativeDateLabel } from "../utils/dateHelpers";
 import { Button } from "@/components/ui/button";
@@ -64,11 +65,15 @@ import {
   Headphones,
   Copy,
   Check,
+  CheckCheck,
   Play,
   Pause,
   ExternalLink,
   Bot,
-  FileText
+  FileText,
+  Flame,
+  Zap,
+  Snowflake
 } from "lucide-react";
 
 interface EALead {
@@ -80,6 +85,12 @@ interface EALead {
   dateSubmitted: string;
   submissionCount: number;
   isConsent: boolean;
+  welcomeSmsSent?: boolean;
+  welcomeSmsSentAt?: string;
+  aiScore?: 'Hot' | 'Warm' | 'Cold';
+  aiScoreReason?: string;
+  aiScoreOverride?: boolean;
+  aiScoreUpdatedAt?: string;
   createdAt: string;
   updatedAt: string;
   smsHistory?: Array<{
@@ -87,7 +98,8 @@ interface EALead {
     message: string;
     timestamp: string;
     isBulk?: boolean;
-    status?: 'pending' | 'sent' | 'failed' | 'received';
+    isAiReply?: boolean;
+    status?: 'pending' | 'sent' | 'failed' | 'received' | 'undelivered' | 'delivered';
     twilioSid?: string;
     _id?: string;
   }>;
@@ -110,6 +122,7 @@ interface EALead {
 
 export default function EALeads() {
   const { currentUser } = useAuth();
+  const socket = useSocket();
   const permissions = can(currentUser?.role);
   const isPrivileged = currentUser?.role === 'admin' || currentUser?.role === 'manager';
 
@@ -241,6 +254,49 @@ export default function EALeads() {
   useEffect(() => {
     fetchLeads();
   }, [refreshTrigger]);
+
+  // Real-time socket listener for dynamic EA lead score updates
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleScoreUpdated = (data: {
+      leadId: string;
+      aiScore: 'Hot' | 'Warm' | 'Cold';
+      aiScoreReason?: string;
+      aiScoreOverride?: boolean;
+      aiScoreUpdatedAt?: string;
+    }) => {
+      setLeads(prev =>
+        prev.map(l =>
+          String(l._id) === String(data.leadId)
+            ? {
+                ...l,
+                aiScore: data.aiScore,
+                aiScoreReason: data.aiScoreReason,
+                aiScoreOverride: data.aiScoreOverride,
+                aiScoreUpdatedAt: data.aiScoreUpdatedAt
+              }
+            : l
+        )
+      );
+      setSelectedLead(prev =>
+        prev && String(prev._id) === String(data.leadId)
+          ? {
+              ...prev,
+              aiScore: data.aiScore,
+              aiScoreReason: data.aiScoreReason,
+              aiScoreOverride: data.aiScoreOverride,
+              aiScoreUpdatedAt: data.aiScoreUpdatedAt
+            }
+          : prev
+      );
+    };
+
+    socket.on('ea_lead:score_updated', handleScoreUpdated);
+    return () => {
+      socket.off('ea_lead:score_updated', handleScoreUpdated);
+    };
+  }, [socket]);
 
   // Reset page to 1 when search query or leads list changes
   useEffect(() => {
@@ -532,6 +588,124 @@ export default function EALeads() {
     }
   };
 
+  const handleUpdateScore = async (leadId: string, newScore: "Hot" | "Warm" | "Cold") => {
+    try {
+      await api.put(`/ea-leads/${leadId}/score`, { score: newScore });
+      toast.success(`Lead score updated to ${newScore}`);
+      setLeads(prev =>
+        prev.map(l =>
+          l._id === leadId
+            ? { ...l, aiScore: newScore, aiScoreOverride: true, aiScoreReason: "Manually updated by Team Member" }
+            : l
+        )
+      );
+      if (selectedLead && selectedLead._id === leadId) {
+        setSelectedLead(prev =>
+          prev
+            ? { ...prev, aiScore: newScore, aiScoreOverride: true, aiScoreReason: "Manually updated by Team Member" }
+            : null
+        );
+      }
+    } catch (err: any) {
+      console.error("Failed to update lead score:", err);
+      toast.error(err.response?.data?.error || "Failed to update lead score");
+    }
+  };
+
+  const renderLeadScoreBadge = (lead: EALead, interactive: boolean = true) => {
+    const score = lead.aiScore || "Cold";
+    const reason = lead.aiScoreReason || (score === "Cold" ? "New lead — awaiting client response" : "Scored based on conversation");
+    const isOverridden = lead.aiScoreOverride === true;
+
+    let badgeClass = "bg-blue-500/10 border-blue-500/30 text-blue-600 dark:text-blue-400";
+    let IconComponent = Snowflake;
+    let iconClass = "text-blue-500";
+
+    if (score === "Hot") {
+      badgeClass = "bg-red-500/10 border-red-500/30 text-red-600 dark:text-red-400";
+      IconComponent = Flame;
+      iconClass = "text-red-500";
+    } else if (score === "Warm") {
+      badgeClass = "bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400";
+      IconComponent = Zap;
+      iconClass = "text-amber-500";
+    }
+
+    const badgeContent = (
+      <span
+        className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold border transition-all ${badgeClass} ${
+          interactive && permissions.createEdit ? "cursor-pointer hover:opacity-80 active:scale-95" : ""
+        }`}
+      >
+        <IconComponent size={12} className={iconClass} />
+        <span>{score}</span>
+        {isOverridden && (
+          <span className="text-[9px] opacity-75 ml-0.5 font-normal" title="Manually edited">
+            (Manual)
+          </span>
+        )}
+      </span>
+    );
+
+    if (!interactive || !permissions.createEdit) {
+      return (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>{badgeContent}</TooltipTrigger>
+            <TooltipContent className="max-w-xs text-xs">
+              <p className="font-semibold">{score} Lead {isOverridden ? "(Manual Override)" : ""}</p>
+              <p className="text-muted-foreground mt-0.5">{reason}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
+    }
+
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <DropdownMenu>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <button type="button" className="outline-none focus:ring-2 focus:ring-primary/20 rounded-full inline-block">
+                  {badgeContent}
+                </button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs text-xs">
+              <p className="font-semibold">{score} Lead {isOverridden ? "(Manual Override)" : ""}</p>
+              <p className="text-muted-foreground mt-0.5">{reason}</p>
+              <p className="text-[10px] text-primary mt-1 font-medium">Click badge to change score</p>
+            </TooltipContent>
+            <DropdownMenuContent align="center" className="w-36 bg-card border-border text-foreground shadow-lg">
+              <DropdownMenuItem
+                onClick={() => handleUpdateScore(lead._id, "Hot")}
+                className="gap-2 cursor-pointer text-xs font-semibold text-red-600 dark:text-red-400"
+              >
+                <Flame size={14} className="text-red-500" />
+                <span>Hot Lead</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => handleUpdateScore(lead._id, "Warm")}
+                className="gap-2 cursor-pointer text-xs font-semibold text-amber-600 dark:text-amber-400"
+              >
+                <Zap size={14} className="text-amber-500" />
+                <span>Warm Lead</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => handleUpdateScore(lead._id, "Cold")}
+                className="gap-2 cursor-pointer text-xs font-semibold text-blue-600 dark:text-blue-400"
+              >
+                <Snowflake size={14} className="text-blue-500" />
+                <span>Cold Lead</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </Tooltip>
+      </TooltipProvider>
+    );
+  };
+
   // Open View Dialog
   const handleOpenView = async (lead: EALead) => {
     setSelectedLead(lead);
@@ -573,6 +747,17 @@ export default function EALeads() {
       console.error("Failed to fetch fresh lead details:", err);
     }
   };
+
+  // Auto-open messages modal if leadId query param is present
+  useEffect(() => {
+    const targetLeadId = searchParams.get("leadId");
+    if (targetLeadId && leads.length > 0 && !viewDialogOpen) {
+      const target = leads.find(l => String(l._id) === String(targetLeadId));
+      if (target) {
+        handleOpenMessages(target);
+      }
+    }
+  }, [leads, searchParams]);
 
   // Poll for messages or calls when view dialog is open and active tab is "messages" or "calls"
   useEffect(() => {
@@ -673,8 +858,12 @@ export default function EALeads() {
     }
   };
 
-  // Filter leads based on query
+  // Filter leads based on query and score parameter
+  const scoreParam = searchParams.get("score");
   const filteredLeads = leads.filter(lead => {
+    if (scoreParam && (lead.aiScore || "Cold").toLowerCase() !== scoreParam.toLowerCase()) {
+      return false;
+    }
     const q = searchQuery.toLowerCase().trim();
     if (!q) return true;
     return (
@@ -1018,6 +1207,7 @@ export default function EALeads() {
                     <TableHead>Email Address</TableHead>
                     <TableHead>Phone Number</TableHead>
                     <TableHead className="text-center">Source</TableHead>
+                    <TableHead className="text-center">Lead Score</TableHead>
                     <TableHead>Consent</TableHead>
                     <TableHead>Date Submitted</TableHead>
                     <TableHead className="w-[80px] text-center pr-4">Actions</TableHead>
@@ -1047,6 +1237,9 @@ export default function EALeads() {
                         <span className="inline-flex items-center gap-1 rounded-full bg-secondary border border-border px-2.5 py-0.5 text-xs font-semibold text-muted-foreground">
                           {lead.source}
                         </span>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {renderLeadScoreBadge(lead, true)}
                       </TableCell>
                       <TableCell>
                         <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold border ${lead.isConsent ? "bg-green-500/10 border-green-500/30 text-green-500" : "bg-red-500/10 border-red-500/30 text-red-500"}`}>
@@ -1238,13 +1431,62 @@ export default function EALeads() {
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-3 items-start gap-4 pb-1">
+                  <div className="grid grid-cols-3 items-start gap-4 border-b border-border/50 pb-2">
                     <span className="font-semibold text-muted-foreground flex items-center gap-1.5">
                       <Hash size={14} /> Submissions:
                     </span>
                     <span className="col-span-2 font-semibold text-foreground">
                       {selectedLead.submissionCount} {selectedLead.submissionCount === 1 ? "time" : "times"}
                     </span>
+                  </div>
+
+                  {/* AI Lead Scoring Section (Placed at the bottom of details) */}
+                  <div className="rounded-xl border border-border/70 bg-muted/20 p-3.5 space-y-3 mt-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                        <Sparkles size={13} className="text-primary" /> AI Lead Scoring
+                      </span>
+                      <div>
+                        {selectedLead.aiScoreOverride ? (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                            👤 Manually Overridden
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
+                            🤖 Dynamic AI Evaluation
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 items-center gap-4">
+                      <span className="font-semibold text-muted-foreground text-xs flex items-center gap-1.5">
+                        <Flame size={13} className="text-red-500" /> Current Score:
+                      </span>
+                      <div className="col-span-2">
+                        {renderLeadScoreBadge(selectedLead, true)}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 items-start gap-4">
+                      <span className="font-semibold text-muted-foreground text-xs flex items-center gap-1.5">
+                        <FileText size={13} className="text-primary" /> Score Reason:
+                      </span>
+                      <div className="col-span-2 text-xs text-foreground bg-background/80 border border-border/60 rounded-lg p-2.5 italic">
+                        "{selectedLead.aiScoreReason || (selectedLead.aiScore === 'Cold' ? 'New lead — awaiting client response' : 'Scored based on conversation.')}"
+                      </div>
+                    </div>
+
+                    {selectedLead.aiScoreUpdatedAt && (
+                      <div className="grid grid-cols-3 items-center gap-4 text-[11px] text-muted-foreground pt-1 border-t border-border/40">
+                        <span className="font-medium flex items-center gap-1.5">
+                          <Calendar size={12} /> Last Scored:
+                        </span>
+                        <span className="col-span-2 font-medium text-foreground">
+                          {formatDateDisplay(selectedLead.aiScoreUpdatedAt)}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
               </TabsContent>
@@ -1264,8 +1506,8 @@ export default function EALeads() {
                           let lastDateLabel = '';
                           return selectedLead.smsHistory.map((msg, i) => {
                             const isInbound = msg.direction === 'inbound';
-                            const isFailed = !isInbound && msg.status === 'failed';
-                            const isPending = !isInbound && msg.status === 'pending';
+                            const isFailed = !isInbound && (msg.status === 'failed' || msg.status === 'undelivered');
+                            const isAiReply = !isInbound && msg.isAiReply === true;
                             const dateLabel = getRelativeDateLabel(msg.timestamp);
                             const showDateSeparator = dateLabel !== lastDateLabel;
                             if (showDateSeparator) {
@@ -1281,7 +1523,7 @@ export default function EALeads() {
                                   </div>
                                 )}
                                 <div
-                                  className={`flex flex-col max-w-[80%] ${isInbound ? 'self-start mr-auto' : 'self-end ml-auto items-end'}`}
+                                  className={`flex flex-col max-w-[80%] ${isInbound ? 'self-start mr-auto items-start' : 'self-end ml-auto items-end'}`}
                                 >
                                   <div className={`flex items-center gap-2 ${isInbound ? 'justify-start' : 'justify-end'}`}>
                                     {!isInbound && msg.isBulk && (
@@ -1297,27 +1539,42 @@ export default function EALeads() {
                                       </Tooltip>
                                     )}
                                     <div
-                                      className={`rounded-2xl px-3 py-2 text-xs leading-relaxed ${
+                                      className={`rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed ${
                                         isInbound
-                                          ? 'bg-muted text-foreground rounded-tl-none'
+                                          ? 'bg-card text-card-foreground border border-border rounded-tl-none'
                                           : isFailed
-                                            ? 'bg-destructive/90 text-white rounded-tr-none'
+                                            ? 'bg-destructive/15 text-foreground border border-destructive/40 rounded-tr-none'
+                                            : isAiReply
+                                            ? 'bg-violet-600 text-white rounded-tr-none shadow-violet-500/25 shadow-md'
                                             : 'bg-primary text-primary-foreground rounded-tr-none'
                                       }`}
                                     >
-                                      {msg.message}
+                                      <p className="whitespace-pre-wrap break-words">{msg.message}</p>
                                     </div>
                                   </div>
-                                  <div className="flex items-center gap-1.5 mt-1 px-1">
-                                    {isFailed && (
-                                      <span className="inline-flex items-center gap-0.5 text-[9px] bg-destructive/15 text-destructive border border-destructive/30 px-1.5 py-0.5 rounded-full font-semibold leading-tight">
-                                        <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                                        Failed
-                                      </span>
-                                    )}
-                                    <span className="text-[10px] text-muted-foreground">
+                                  <div className="flex items-center gap-1.5 mt-1 text-[10px] text-muted-foreground px-1 font-medium">
+                                    <span>
                                       {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                     </span>
+                                    {!isInbound && (
+                                      <span>
+                                        {isFailed ? (
+                                          <span className="inline-flex items-center gap-1 text-destructive font-semibold">
+                                            <AlertCircle size={11} className="inline stroke-[2.5]" />
+                                            <span>Not sent</span>
+                                          </span>
+                                        ) : (
+                                          <CheckCheck size={12} className="text-emerald-500 inline stroke-[2.5]" />
+                                        )}
+                                      </span>
+                                    )}
+                                    {/* AI Reply Badge */}
+                                    {!isInbound && isAiReply && (
+                                      <span className="inline-flex items-center gap-0.5 text-violet-500 dark:text-violet-400 font-bold text-[9px] uppercase tracking-wider ml-0.5">
+                                        <Sparkles size={9} className="stroke-[2.5]" />
+                                        AI Reply
+                                      </span>
+                                    )}
                                   </div>
                                 </div>
                               </React.Fragment>

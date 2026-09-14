@@ -4,6 +4,7 @@ import AppLayout from '../layout/AppLayout';
 import api from '../api/api';
 import { useSMS } from '../context/SMSContext';
 import { useAuth } from '../context/AuthContext';
+import { useSocket } from '../context/SocketContext';
 import { can } from '../utils/permissions';
 import { formatConversationTimestamp, getRelativeDateLabel } from '../utils/dateHelpers';
 import { Button } from '@/components/ui/button';
@@ -31,9 +32,18 @@ import {
   Filter,
   Wand2,
   X,
-  ChevronDown
+  ChevronDown,
+  Flame,
+  Zap,
+  Snowflake
 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem
+} from '@/components/ui/dropdown-menu';
 import { MessageSquarePlus, Plus, PhoneOff, CheckCircle2 } from 'lucide-react';
 
 export interface SMSMessageItem {
@@ -60,6 +70,10 @@ export interface SMSConversation {
   lastMessage: string;
   lastMessageTimestamp: string;
   smsHistory: SMSMessageItem[];
+  aiScore?: 'Hot' | 'Warm' | 'Cold';
+  aiScoreReason?: string;
+  aiScoreOverride?: boolean;
+  aiScoreUpdatedAt?: string;
 }
 
 export interface AvailableLeadItem {
@@ -80,6 +94,7 @@ export default function SMSMessages() {
   const permissions = can(currentUser?.role);
   const isPrivileged = currentUser?.role === 'admin' || currentUser?.role === 'manager';
   const { markAsRead } = useSMS();
+  const socket = useSocket();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
 
@@ -122,16 +137,54 @@ export default function SMSMessages() {
   const [allConsentedLeads, setAllConsentedLeads] = useState<AvailableLeadItem[]>([]);
   const [loadingConsentedLeads, setLoadingConsentedLeads] = useState(false);
 
+  // Bulk AI state
+  const [showBulkAiPanel, setShowBulkAiPanel] = useState(false);
+  const [bulkAiPrompt, setBulkAiPrompt] = useState('');
+  const [bulkAiGenerating, setBulkAiGenerating] = useState(false);
+
   // Keep ref synchronized with state
   useEffect(() => {
     selectedLeadIdRef.current = selectedLeadId;
     setChatMessageFilter('all');
   }, [selectedLeadId]);
 
-  // AI Suggest state
+  // AI Suggest state (1-on-1 chat)
   const [showAiPanel, setShowAiPanel] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiGenerating, setAiGenerating] = useState(false);
+
+  const handleBulkAiGenerate = async (customPromptOverride?: string) => {
+    const promptToUse = customPromptOverride !== undefined ? customPromptOverride : bulkAiPrompt;
+    if (!promptToUse.trim() && !bulkSmsMessage.trim()) {
+      toast.error('Please enter a campaign goal or instruction for the AI.');
+      return;
+    }
+
+    setBulkAiGenerating(true);
+    try {
+      const res = await api.post('/sms/ai-generate-sms', {
+        isBulk: true,
+        prompt: promptToUse.trim() || undefined,
+        currentText: bulkSmsMessage.trim() || undefined
+      });
+
+      const draft: string = res.data.draftMessage || res.data.draft || '';
+      if (!draft) {
+        toast.error('AI returned an empty draft. Please try again.');
+        return;
+      }
+
+      setBulkSmsMessage(draft);
+      setShowBulkAiPanel(false);
+      setBulkAiPrompt('');
+      toast.success('Bulk SMS template ready!');
+    } catch (err: any) {
+      console.error('Bulk AI generate error:', err);
+      toast.error(err.response?.data?.error || 'Failed to generate bulk SMS draft');
+    } finally {
+      setBulkAiGenerating(false);
+    }
+  };
 
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const isNearBottomRef = useRef<boolean>(true);
@@ -188,6 +241,8 @@ export default function SMSMessages() {
   const handleOpenBulkSms = async () => {
     setShowBulkSmsModal(true);
     setBulkSmsMessage('');
+    setShowBulkAiPanel(false);
+    setBulkAiPrompt('');
     setSelectedBulkLeadIds({});
     setBulkLeadSearch('');
     setBulkFilter('all');
@@ -358,6 +413,152 @@ export default function SMSMessages() {
     }, 5000);
     return () => clearInterval(interval);
   }, []);
+
+  // Real-time socket listener for dynamic EA lead score updates
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleScoreUpdated = (data: {
+      leadId: string;
+      aiScore: 'Hot' | 'Warm' | 'Cold';
+      aiScoreReason?: string;
+      aiScoreOverride?: boolean;
+      aiScoreUpdatedAt?: string;
+    }) => {
+      setConversations(prev =>
+        prev.map(c =>
+          String(c._id) === String(data.leadId)
+            ? {
+                ...c,
+                aiScore: data.aiScore,
+                aiScoreReason: data.aiScoreReason,
+                aiScoreOverride: data.aiScoreOverride,
+                aiScoreUpdatedAt: data.aiScoreUpdatedAt
+              }
+            : c
+        )
+      );
+    };
+
+    socket.on('ea_lead:score_updated', handleScoreUpdated);
+    return () => {
+      socket.off('ea_lead:score_updated', handleScoreUpdated);
+    };
+  }, [socket]);
+
+  const handleUpdateScore = async (leadId: string, newScore: 'Hot' | 'Warm' | 'Cold') => {
+    try {
+      await api.put(`/ea-leads/${leadId}/score`, { score: newScore });
+      toast.success(`Lead score updated to ${newScore}`);
+      setConversations(prev =>
+        prev.map(c =>
+          String(c._id) === String(leadId)
+            ? {
+                ...c,
+                aiScore: newScore,
+                aiScoreOverride: true,
+                aiScoreReason: 'Manually updated by Team Member'
+              }
+            : c
+        )
+      );
+    } catch (err: any) {
+      console.error('Failed to update lead score:', err);
+      toast.error(err.response?.data?.error || 'Failed to update lead score');
+    }
+  };
+
+  const renderLeadScoreBadge = (conv: SMSConversation, interactive: boolean = true) => {
+    if (conv.leadType !== 'ea_lead') return null;
+
+    const score = conv.aiScore || 'Cold';
+    const reason = conv.aiScoreReason || (score === 'Cold' ? 'New lead — awaiting client response' : 'Scored based on conversation');
+    const isOverridden = conv.aiScoreOverride === true;
+
+    let badgeClass = 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30';
+    let IconComponent = Snowflake;
+    let iconClass = 'text-blue-500';
+
+    if (score === 'Hot') {
+      badgeClass = 'bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30';
+      IconComponent = Flame;
+      iconClass = 'text-red-500';
+    } else if (score === 'Warm') {
+      badgeClass = 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30';
+      IconComponent = Zap;
+      iconClass = 'text-amber-500';
+    }
+
+    const badgeContent = (
+      <span
+        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.2 text-[10px] font-bold border transition-all ${badgeClass} ${
+          interactive && permissions.createEdit ? 'cursor-pointer hover:opacity-80 active:scale-95' : ''
+        }`}
+      >
+        <IconComponent size={10} className={iconClass} />
+        <span>{score}</span>
+        {isOverridden && (
+          <span className="text-[8px] opacity-75 ml-0.5 font-normal" title="Manually edited">
+            (Manual)
+          </span>
+        )}
+      </span>
+    );
+
+    if (!interactive || !permissions.createEdit) {
+      return (
+        <Tooltip>
+          <TooltipTrigger asChild>{badgeContent}</TooltipTrigger>
+          <TooltipContent className="max-w-xs text-xs">
+            <p className="font-semibold">{score} Lead {isOverridden ? '(Manual Override)' : ''}</p>
+            <p className="text-muted-foreground mt-0.5">{reason}</p>
+          </TooltipContent>
+        </Tooltip>
+      );
+    }
+
+    return (
+      <Tooltip>
+        <DropdownMenu>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <button type="button" className="outline-none focus:ring-2 focus:ring-primary/20 rounded-full inline-block">
+                {badgeContent}
+              </button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-xs text-xs">
+            <p className="font-semibold">{score} Lead {isOverridden ? '(Manual Override)' : ''}</p>
+            <p className="text-muted-foreground mt-0.5">{reason}</p>
+            <p className="text-[10px] text-primary mt-1 font-medium">Click badge to change score</p>
+          </TooltipContent>
+          <DropdownMenuContent align="start" className="w-36 bg-card border-border text-foreground shadow-lg z-50">
+            <DropdownMenuItem
+              onClick={() => handleUpdateScore(conv._id, 'Hot')}
+              className="gap-2 cursor-pointer text-xs font-semibold text-red-600 dark:text-red-400"
+            >
+              <Flame size={14} className="text-red-500" />
+              <span>Hot Lead</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => handleUpdateScore(conv._id, 'Warm')}
+              className="gap-2 cursor-pointer text-xs font-semibold text-amber-600 dark:text-amber-400"
+            >
+              <Zap size={14} className="text-amber-500" />
+              <span>Warm Lead</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => handleUpdateScore(conv._id, 'Cold')}
+              className="gap-2 cursor-pointer text-xs font-semibold text-blue-600 dark:text-blue-400"
+            >
+              <Snowflake size={14} className="text-blue-500" />
+              <span>Cold Lead</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </Tooltip>
+    );
+  };
 
   // Mark active conversation as read when selected
   useEffect(() => {
@@ -610,19 +811,21 @@ export default function SMSMessages() {
   };
 
   // Handle AI message generation
-  const handleAiGenerate = async () => {
+  const handleAiGenerate = async (customPromptOverride?: string) => {
     if (!activeConversation || aiGenerating) return;
+
+    const promptToUse = customPromptOverride !== undefined ? customPromptOverride : aiPrompt;
 
     setAiGenerating(true);
     try {
       const res = await api.post('/sms/ai-generate-sms', {
-        leadId:    activeConversation._id,
-        leadType:  activeConversation.leadType,
-        userPrompt: aiPrompt.trim() || undefined
+        leadId: activeConversation._id,
+        leadType: activeConversation.leadType,
+        prompt: promptToUse.trim() || undefined,
+        currentText: replyText.trim() || undefined
       });
-      toast.info("Anthropic API key is hit", { description: "Model: Claude Sonnet 4.6" });
 
-      const draft: string = res.data.draft || '';
+      const draft: string = res.data.draftMessage || res.data.draft || '';
       if (!draft) {
         toast.error('AI returned an empty draft. Please try again.');
         return;
@@ -838,7 +1041,7 @@ export default function SMSMessages() {
                           </span>
                         </div>
 
-                        <div className="flex items-center gap-1.5 mt-0.5">
+                        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                           <span
                             className={`text-[9px] font-extrabold px-1.5 py-0.2 rounded uppercase tracking-wider ${
                               conv.leadType === 'ea_lead'
@@ -848,6 +1051,7 @@ export default function SMSMessages() {
                           >
                             {conv.categoryTag}
                           </span>
+                          {conv.leadType === 'ea_lead' && renderLeadScoreBadge(conv, false)}
                           {conv.isConsent === false && (
                             <span className="text-[9px] font-extrabold px-1.5 py-0.2 rounded uppercase tracking-wider bg-red-500/15 text-red-600 border border-red-500/30 shrink-0">
                               Opted Out
@@ -922,7 +1126,7 @@ export default function SMSMessages() {
                       {activeConversation.name.charAt(0).toUpperCase()}
                     </div>
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <h3 className="text-sm font-bold text-foreground truncate">
                           {activeConversation.name}
                         </h3>
@@ -935,6 +1139,7 @@ export default function SMSMessages() {
                         >
                           {activeConversation.categoryTag}
                         </span>
+                        {activeConversation.leadType === 'ea_lead' && renderLeadScoreBadge(activeConversation, true)}
                       </div>
                       <p className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5 truncate">
                         <span>{activeConversation.phone}</span>
@@ -1169,32 +1374,58 @@ export default function SMSMessages() {
                   ) : (
                     <form onSubmit={handleSendSMS} className="space-y-2">
 
-                      {/* AI Suggest Panel - Hidden for production build */}
-                      {false && showAiPanel && (
-                        <div className="mb-2 rounded-xl border border-violet-500/30 bg-violet-500/5 p-3 space-y-2.5 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                      {/* AI Suggest Panel */}
+                      {showAiPanel && (
+                        <div className="mb-2 rounded-xl border border-violet-500/30 bg-violet-500/5 dark:bg-violet-950/20 p-3 space-y-2.5 animate-in fade-in slide-in-from-bottom-2 duration-200 shadow-sm">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-1.5">
-                              <Wand2 size={13} className="text-violet-500" />
-                              <span className="text-[11px] font-bold text-violet-600 dark:text-violet-400">
-                                AI Message Assistant
+                              <div className="w-5 h-5 rounded-md bg-violet-500/20 flex items-center justify-center text-violet-600 dark:text-violet-400">
+                                <Sparkles size={12} />
+                              </div>
+                              <span className="text-xs font-bold text-violet-600 dark:text-violet-400">
+                                AI SMS Writing Assistant
                               </span>
                             </div>
                             <button
                               type="button"
                               onClick={() => { setShowAiPanel(false); setAiPrompt(''); }}
-                              className="text-muted-foreground hover:text-foreground transition-colors"
+                              className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded-md hover:bg-violet-500/10"
                             >
-                              <X size={13} />
+                              <X size={14} />
                             </button>
                           </div>
 
-                          <div className="space-y-1.5">
-                            <p className="text-[10px] text-muted-foreground">
-                              What's the goal of this message?
-                            </p>
+                          {/* Quick Suggestion Chips */}
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[10px] text-muted-foreground font-medium mr-0.5">Quick goals:</span>
+                            {[
+                              'Follow up on basketball program',
+                              'Explain no-tryouts policy',
+                              'Share practice schedule & location',
+                              'Provide registration & pricing info'
+                            ].map((chip, idx) => (
+                              <button
+                                key={idx}
+                                type="button"
+                                onClick={() => {
+                                  setAiPrompt(chip);
+                                }}
+                                disabled={aiGenerating}
+                                className={`text-[10px] font-medium px-2 py-0.5 rounded-full border transition-all hover:scale-[1.02] active:scale-95 text-left disabled:opacity-50 ${
+                                  aiPrompt === chip
+                                    ? 'bg-violet-600 text-white border-violet-600 shadow-xs font-semibold'
+                                    : 'bg-violet-500/10 hover:bg-violet-500/20 text-violet-700 dark:text-violet-300 border-violet-500/20'
+                                }`}
+                              >
+                                {chip}
+                              </button>
+                            ))}
+                          </div>
+
+                          <div className="space-y-1">
                             <Textarea
                               id="ai-prompt-input"
-                              placeholder='e.g. "Follow up on proposal", "Schedule a meeting", "Check if they got our email"'
+                              placeholder='Type specific instructions or goal (e.g., "Confirm Bowie location at 10 AM Saturday", "Ask if their 8yo has played before")...'
                               value={aiPrompt}
                               onChange={e => setAiPrompt(e.target.value)}
                               onKeyDown={e => {
@@ -1209,28 +1440,42 @@ export default function SMSMessages() {
                                   setAiPrompt('');
                                 }
                               }}
-                              className="min-h-[56px] max-h-28 text-xs bg-background border-border resize-none py-2 custom-scrollbar"
+                              className="min-h-[50px] max-h-24 text-xs bg-background border-violet-500/20 focus-visible:ring-violet-500/40 resize-none py-2 custom-scrollbar"
                               autoFocus
                             />
+                            {replyText.trim() && (
+                              <p className="text-[10px] text-violet-600 dark:text-violet-400/80 italic">
+                                ✨ Tip: AI will incorporate and refine your currently typed text.
+                              </p>
+                            )}
                           </div>
 
-                          <div className="flex items-center gap-2">
-                            <Button
-                              id="ai-generate-btn"
-                              type="button"
-                              size="sm"
-                              onClick={handleAiGenerate}
-                              disabled={aiGenerating}
-                              className="h-7 px-3 text-[11px] font-semibold gap-1.5 bg-violet-600 hover:bg-violet-700 text-white shadow-sm"
-                            >
-                              {aiGenerating ? (
-                                <><Loader2 size={12} className="animate-spin" /> Generating...</>
-                              ) : (
-                                <><Wand2 size={12} /> Generate Draft</>
-                              )}
-                            </Button>
-                            <p className="text-[10px] text-muted-foreground">
-                              Analyses last 10 messages · Fills compose box
+                          <div className="flex items-center justify-between pt-0.5">
+                            <div className="flex items-center gap-2">
+                              <Button
+                                id="ai-generate-btn"
+                                type="button"
+                                size="sm"
+                                onClick={() => handleAiGenerate()}
+                                disabled={aiGenerating}
+                                className="h-7 px-3 text-[11px] font-semibold gap-1.5 bg-violet-600 hover:bg-violet-700 text-white shadow-xs transition-all active:scale-95"
+                              >
+                                {aiGenerating ? (
+                                  <><Loader2 size={12} className="animate-spin" /> Generating Draft...</>
+                                ) : (
+                                  <><Wand2 size={12} /> Generate SMS Draft</>
+                                )}
+                              </Button>
+                              <button
+                                type="button"
+                                onClick={() => { setShowAiPanel(false); setAiPrompt(''); }}
+                                className="text-[11px] text-muted-foreground hover:text-foreground font-medium px-2 py-1"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                            <p className="text-[10px] text-muted-foreground hidden sm:block">
+                              Analyses lead context & chat history · Fills compose box
                             </p>
                           </div>
                         </div>
@@ -1265,26 +1510,22 @@ export default function SMSMessages() {
                         </Button>
                       </div>
 
-                      {/* Footer Info / Segment Count */}
+                      {/* Footer Info / Segment Count & AI Toggle */}
                       <div className="flex items-center justify-between text-[11px] text-muted-foreground px-1">
-                        {/* AI Suggest toggle button - Hidden for production build */}
-                        {false && (
-                          <button
-                            type="button"
-                            id="ai-suggest-toggle"
-                            onClick={() => setShowAiPanel(prev => !prev)}
-                            className={`flex items-center gap-1 font-semibold transition-colors ${
-                              showAiPanel
-                                ? 'text-violet-600 dark:text-violet-400'
-                                : 'text-muted-foreground hover:text-violet-500'
-                            }`}
-                          >
-                            <Wand2 size={12} />
-                            <span>AI Suggest</span>
-                            <ChevronDown size={11} className={`transition-transform ${showAiPanel ? 'rotate-180' : ''}`} />
-                          </button>
-                        )}
-                        <div />
+                        <button
+                          type="button"
+                          id="ai-suggest-toggle"
+                          onClick={() => setShowAiPanel(prev => !prev)}
+                          className={`flex items-center gap-1.5 font-semibold text-xs transition-all px-2 py-0.5 rounded-md ${
+                            showAiPanel
+                              ? 'bg-violet-500/15 text-violet-600 dark:text-violet-400 border border-violet-500/30'
+                              : 'text-violet-600 dark:text-violet-400 hover:bg-violet-500/10'
+                          }`}
+                        >
+                          <Sparkles size={13} className="text-violet-500" />
+                          <span>AI Assist</span>
+                          <ChevronDown size={12} className={`transition-transform duration-200 ${showAiPanel ? 'rotate-180' : ''}`} />
+                        </button>
                         <span className="font-semibold">
                           {smsSegments.chars} / {smsSegments.max} chars ({smsSegments.segments} SMS)
                         </span>
@@ -1518,8 +1759,9 @@ export default function SMSMessages() {
             {/* Split layout inside Modal */}
             <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-h-[400px]">
               {/* Left Column: Composer */}
-              <form onSubmit={handleSendBulkSMS} className="w-full md:w-1/2 p-5 border-r border-border flex flex-col justify-between space-y-4">
-                <div className="space-y-4 flex-1">
+              <form onSubmit={handleSendBulkSMS} className="w-full md:w-1/2 p-5 border-r border-border flex flex-col justify-between space-y-4 overflow-y-auto custom-scrollbar">
+                <div className="space-y-3 flex-1">
+                  {/* 1. Message Body Field */}
                   <div className="space-y-1.5">
                     <label htmlFor="bulk-message-text" className="text-xs font-bold text-foreground">
                       Message Body
@@ -1529,13 +1771,106 @@ export default function SMSMessages() {
                       placeholder="Type your message here... Use {{name}} to insert the recipient's name."
                       value={bulkSmsMessage}
                       onChange={e => setBulkSmsMessage(e.target.value)}
-                      className="min-h-[160px] text-xs bg-background border-border resize-none py-3 custom-scrollbar"
+                      className="min-h-[140px] text-xs bg-background border-border resize-none py-3 custom-scrollbar"
                       required
                     />
                     <p className="text-[10px] text-muted-foreground">
                       Template variable support: <span className="font-mono bg-muted px-1.5 py-0.5 rounded text-foreground">{"{{name}}"}</span> will be replaced by the recipient's name.
                     </p>
                   </div>
+
+                  {/* 2. AI Assist Button & Collapsible Panel (After Message Body) */}
+                  <div className="pt-1">
+                    <button
+                      type="button"
+                      id="bulk-ai-suggest-toggle"
+                      onClick={() => setShowBulkAiPanel(prev => !prev)}
+                      className={`flex items-center gap-1.5 font-semibold text-xs transition-all px-2.5 py-1 rounded-lg ${
+                        showBulkAiPanel
+                          ? 'bg-violet-500/15 text-violet-600 dark:text-violet-400 border border-violet-500/30 shadow-xs'
+                          : 'text-violet-600 dark:text-violet-400 hover:bg-violet-500/10 border border-violet-500/20'
+                      }`}
+                    >
+                      <Sparkles size={13} className="text-violet-500" />
+                      <span>AI Assist</span>
+                      <ChevronDown size={12} className={`transition-transform duration-200 ${showBulkAiPanel ? 'rotate-180' : ''}`} />
+                    </button>
+                  </div>
+
+                  {/* Bulk AI Campaign Assistant Panel */}
+                  {showBulkAiPanel && (
+                    <div className="rounded-xl border border-violet-500/30 bg-violet-500/5 dark:bg-violet-950/20 p-3 space-y-2 animate-in fade-in slide-in-from-top-2 duration-200 shadow-sm">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-5 h-5 rounded-md bg-violet-500/20 flex items-center justify-center text-violet-600 dark:text-violet-400">
+                            <Sparkles size={12} />
+                          </div>
+                          <span className="text-xs font-bold text-violet-600 dark:text-violet-400">
+                            AI Bulk Campaign Assistant
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => { setShowBulkAiPanel(false); setBulkAiPrompt(''); }}
+                          className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded-md hover:bg-violet-500/10"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+
+                      <div className="space-y-1">
+                        <Textarea
+                          id="bulk-ai-prompt-input"
+                          placeholder='Type campaign objective (e.g. "Announce spring basketball registration discount ending Friday with sign-up details")...'
+                          value={bulkAiPrompt}
+                          onChange={e => setBulkAiPrompt(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault();
+                              handleBulkAiGenerate();
+                            }
+                            if (e.key === 'Escape') {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setShowBulkAiPanel(false);
+                              setBulkAiPrompt('');
+                            }
+                          }}
+                          className="min-h-[44px] max-h-20 text-xs bg-background border-violet-500/20 focus-visible:ring-violet-500/40 resize-none py-2 custom-scrollbar"
+                          autoFocus
+                        />
+                        <p className="text-[10px] text-violet-600 dark:text-violet-400/80 italic">
+                          ✨ Tip: AI will automatically include the {"{{name}}"} tag and YAU details.
+                        </p>
+                      </div>
+
+                      <div className="flex items-center justify-between pt-0.5">
+                        <div className="flex items-center gap-2">
+                          <Button
+                            id="bulk-ai-generate-btn"
+                            type="button"
+                            size="sm"
+                            onClick={() => handleBulkAiGenerate()}
+                            disabled={bulkAiGenerating}
+                            className="h-7 px-3 text-[11px] font-semibold gap-1.5 bg-violet-600 hover:bg-violet-700 text-white shadow-xs transition-all active:scale-95"
+                          >
+                            {bulkAiGenerating ? (
+                              <><Loader2 size={12} className="animate-spin" /> Generating Draft...</>
+                            ) : (
+                              <><Wand2 size={12} /> Generate Bulk Draft</>
+                            )}
+                          </Button>
+                          <button
+                            type="button"
+                            onClick={() => { setShowBulkAiPanel(false); setBulkAiPrompt(''); }}
+                            className="text-[11px] text-muted-foreground hover:text-foreground font-medium px-2 py-1"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="pt-3 border-t border-border flex items-center justify-between text-xs text-muted-foreground">

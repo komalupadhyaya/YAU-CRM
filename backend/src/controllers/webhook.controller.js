@@ -322,6 +322,7 @@ export const handleTwilioReply = async (req, res) => {
                                 isAiReply: true
                             };
 
+                            if (!freshLead.smsHistory) freshLead.smsHistory = [];
                             freshLead.smsHistory.push(aiMsgEntry);
                             await freshLead.save();
 
@@ -333,6 +334,45 @@ export const handleTwilioReply = async (req, res) => {
                                     leadType: 'ea_lead',
                                     message: aiMsgEntry
                                 });
+                            }
+
+                            // Dynamic Lead Scoring (Hot / Warm / Cold) based on chat conversation
+                            // Evaluated ONLY when client chats and AI replies (skipped if Admin manually set aiScoreOverride)
+                            if (freshLead.aiScoreOverride !== true) {
+                                (async () => {
+                                    try {
+                                        console.log(`[AI Lead Scoring] Evaluating score for "${freshLead.name}" (${freshLead._id})...`);
+                                        const scoreResult = await aiService.evaluateEALeadScore({
+                                            leadName: freshLead.name,
+                                            smsHistory: freshLead.smsHistory,
+                                            source: freshLead.source
+                                        });
+
+                                        if (scoreResult && scoreResult.score) {
+                                            const leadToScore = await EALead.findById(freshLead._id);
+                                            if (leadToScore && leadToScore.aiScoreOverride !== true) {
+                                                leadToScore.aiScore = scoreResult.score;
+                                                leadToScore.aiScoreReason = scoreResult.reason;
+                                                leadToScore.aiScoreUpdatedAt = new Date();
+                                                await leadToScore.save();
+
+                                                console.log(`[AI Lead Scoring] ✅ Updated "${leadToScore.name}" -> Score: ${leadToScore.aiScore} (${leadToScore.aiScoreReason})`);
+
+                                                if (ioInstance) {
+                                                    ioInstance.emit('ea_lead:score_updated', {
+                                                        leadId: leadToScore._id,
+                                                        aiScore: leadToScore.aiScore,
+                                                        aiScoreReason: leadToScore.aiScoreReason,
+                                                        aiScoreOverride: leadToScore.aiScoreOverride,
+                                                        aiScoreUpdatedAt: leadToScore.aiScoreUpdatedAt
+                                                    });
+                                                }
+                                            }
+                                        }
+                                    } catch (scoreErr) {
+                                        console.warn(`[AI Lead Scoring] ⚠️ Failed to evaluate score for "${freshLead.name}":`, scoreErr.message);
+                                    }
+                                })();
                             }
                         } catch (aiErr) {
                             console.error(`[AI Auto-Reply] ❌ Failed for lead "${eaLead.name}":`, aiErr.message);

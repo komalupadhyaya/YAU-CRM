@@ -1092,7 +1092,9 @@ const Campaigns = () => {
         leadId: selectedLead._id,
         leadType: 'main_lead',
         contactName: contactPerson,
-        userPrompt: emailAiPrompt.trim() || undefined
+        prompt: emailAiPrompt.trim() || undefined,
+        currentSubject: emailData.subject.trim() || undefined,
+        currentBody: emailData.body.trim() || undefined
       });
       toast.info("Anthropic API key is hit", { description: "Model: Claude Sonnet 4.6" });
 
@@ -1154,16 +1156,15 @@ const Campaigns = () => {
     if (!selectedLead || smsAiGenerating) return;
     setSmsAiGenerating(true);
     try {
-      const contactPerson = (selectedLead as Lead)?.contacts?.[0]?.name || (selectedLead as any)?.main_contact_name || "";
       const res = await api.post('/sms/ai-generate-sms', {
         leadId: selectedLead._id,
         leadType: 'main_lead',
-        contactName: contactPerson,
-        userPrompt: smsAiPrompt.trim() || undefined
+        prompt: smsAiPrompt.trim() || undefined,
+        currentText: smsMessage.trim() || undefined
       });
       toast.info("Anthropic API key is hit", { description: "Model: Claude Sonnet 4.6" });
 
-      const draft: string = res.data.draft || '';
+      const draft: string = res.data.draftMessage || res.data.draft || '';
       if (!draft) {
         toast.error('AI returned an empty draft. Please try again.');
         return;
@@ -3269,26 +3270,22 @@ const Campaigns = () => {
               <div className="grid gap-2">
                 <div className="flex items-center justify-between">
                   <label className="text-sm font-medium">Message Body <span className="text-destructive">*</span></label>
-                  {/* AI Email Assistant Toggle Button - Hidden for production build */}
-                  {false && (
-                    <button
-                      type="button"
-                      onClick={() => setShowEmailAiPanel(prev => !prev)}
-                      className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg border transition-all ${
-                        showEmailAiPanel
-                          ? 'bg-violet-500/15 border-violet-500/30 text-violet-600 dark:text-violet-400 shadow-sm'
-                          : 'bg-violet-500/5 hover:bg-violet-500/10 border-violet-500/20 text-violet-600 dark:text-violet-400'
-                      }`}
-                    >
-                      <Wand2 size={12} className="text-violet-500" />
-                      <span>AI Email Assistant</span>
-                      <ChevronDown size={11} className={`transition-transform duration-200 ${showEmailAiPanel ? 'rotate-180' : ''}`} />
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => setShowEmailAiPanel(prev => !prev)}
+                    className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg border transition-all ${
+                      showEmailAiPanel
+                        ? 'bg-violet-500/15 border-violet-500/30 text-violet-600 dark:text-violet-400 shadow-sm'
+                        : 'bg-violet-500/5 hover:bg-violet-500/10 border-violet-500/20 text-violet-600 dark:text-violet-400'
+                    }`}
+                  >
+                    <Wand2 size={12} className="text-violet-500" />
+                    <span>AI Email Assistant</span>
+                    <ChevronDown size={11} className={`transition-transform duration-200 ${showEmailAiPanel ? 'rotate-180' : ''}`} />
+                  </button>
                 </div>
 
-                {/* AI Assistant Panel - Hidden for production build */}
-                {false && showEmailAiPanel && (
+                {showEmailAiPanel && (
                   <div className="rounded-xl border border-violet-500/30 bg-violet-500/5 p-3.5 space-y-2.5 animate-in fade-in slide-in-from-bottom-2 duration-200">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-1.5">
@@ -3412,26 +3409,22 @@ const Campaigns = () => {
               <div className="grid gap-2">
                 <div className="flex items-center justify-between">
                   <label className="text-sm font-medium">Message <span className="text-destructive">*</span></label>
-                  {/* AI Message Assistant Toggle Button - Hidden for production build */}
-                  {false && (
-                    <button
-                      type="button"
-                      onClick={() => setShowSmsAiPanel(prev => !prev)}
-                      className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg border transition-all ${
-                        showSmsAiPanel
-                          ? 'bg-violet-500/15 border-violet-500/30 text-violet-600 dark:text-violet-400 shadow-sm'
-                          : 'bg-violet-500/5 hover:bg-violet-500/10 border-violet-500/20 text-violet-600 dark:text-violet-400'
-                      }`}
-                    >
-                      <Wand2 size={12} className="text-violet-500" />
-                      <span>AI Message Assistant</span>
-                      <ChevronDown size={11} className={`transition-transform duration-200 ${showSmsAiPanel ? 'rotate-180' : ''}`} />
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => setShowSmsAiPanel(prev => !prev)}
+                    className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg border transition-all ${
+                      showSmsAiPanel
+                        ? 'bg-violet-500/15 border-violet-500/30 text-violet-600 dark:text-violet-400 shadow-sm'
+                        : 'bg-violet-500/5 hover:bg-violet-500/10 border-violet-500/20 text-violet-600 dark:text-violet-400'
+                    }`}
+                  >
+                    <Wand2 size={12} className="text-violet-500" />
+                    <span>AI Message Assistant</span>
+                    <ChevronDown size={11} className={`transition-transform duration-200 ${showSmsAiPanel ? 'rotate-180' : ''}`} />
+                  </button>
                 </div>
 
-                {/* AI Suggest Panel - Hidden for production build */}
-                {false && showSmsAiPanel && (
+                {showSmsAiPanel && (
                   <div className="rounded-xl border border-violet-500/30 bg-violet-500/5 p-3 space-y-2.5 animate-in fade-in slide-in-from-bottom-2 duration-200">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-1.5">

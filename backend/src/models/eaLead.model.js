@@ -9,6 +9,26 @@ const EALeadSchema = new mongoose.Schema({
     submissionCount: { type: Number, default: 1 },
     isConsent: { type: Boolean, default: true },
     isEmailConsent: { type: Boolean, default: true },
+    welcomeSmsSent: { type: Boolean, default: false },
+    welcomeSmsSentAt: { type: Date, default: null },
+    aiScore: {
+        type: String,
+        enum: ['Hot', 'Warm', 'Cold'],
+        default: 'Cold',
+        index: true
+    },
+    aiScoreReason: {
+        type: String,
+        default: 'New lead — awaiting client response'
+    },
+    aiScoreOverride: {
+        type: Boolean,
+        default: false
+    },
+    aiScoreUpdatedAt: {
+        type: Date,
+        default: null
+    },
     assigned_to: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null, index: true },
     unreadCount: { type: Number, default: 0 },
     smsHistory: [

@@ -8,6 +8,7 @@ import EmailHistory from '../models/emailHistory.model.js';
 import EmailQueue from '../models/emailQueue.model.js';
 import { sendSendGridMail } from '../services/email/sendgrid.service.js';
 import aiService from '../services/ai/ai.service.js';
+import RetellKnowledgeBase from '../models/retellKnowledgeBase.model.js';
 import dns from 'dns/promises';
 import mongoose from 'mongoose';
 import { resolveSegmentRecipients } from './segments.controller.js';
@@ -115,52 +116,101 @@ export const sendEmail = async (req, res, next) => {
 // --- Existing AI generate draft ---
 export const generateEmailMessage = async (req, res) => {
     try {
-        const { leadId, leadType, contactName, leadName, recipientName, userPrompt } = req.body;
+        const { leadId, leadType, contactName, leadName, recipientName, userPrompt, prompt, currentSubject, currentBody } = req.body;
 
         let lead = null;
+        let recentNotes = [];
+        let knowledgeBase = null;
+
+        const dbTasks = [];
+
+        // Task 1: Fetch Knowledge Base in parallel
+        dbTasks.push(
+            RetellKnowledgeBase.getOrCreateDefault()
+                .then(kb => ({ type: 'kb', data: kb }))
+                .catch(err => {
+                    console.warn('[AI Email Assistant] KB fetch fallback:', err.message);
+                    return { type: 'kb', data: null };
+                })
+        );
+
+        // Task 2: Fetch Lead in parallel if valid leadId provided
         if (leadId && mongoose.Types.ObjectId.isValid(leadId)) {
-            if (leadType === 'ea_lead') {
-                lead = await EALead.findById(leadId).lean();
-            } else {
-                lead = await Lead.findById(leadId).lean();
+            const fetchLeadPromise = (async () => {
+                try {
+                    if (leadType === 'ea_lead') {
+                        return await EALead.findById(leadId).lean();
+                    } else {
+                        return await Lead.findById(leadId).lean();
+                    }
+                } catch (leadErr) {
+                    console.warn('[AI Email Assistant] Lead fetch fallback:', leadErr.message);
+                    return null;
+                }
+            })().then(l => ({ type: 'lead', data: l }));
+
+            dbTasks.push(fetchLeadPromise);
+
+            // Task 3: Fetch Notes in parallel
+            const fetchNotesPromise = Note.find({ lead_id: leadId })
+                .sort({ createdAt: -1 })
+                .limit(5)
+                .lean()
+                .then(notes => ({
+                    type: 'notes',
+                    data: (notes || []).map(n => ({
+                        type: n.type,
+                        content: n.content,
+                        date: n.createdAt
+                    }))
+                }))
+                .catch(nErr => {
+                    console.warn('[AI Email Assistant] Notes fetch fallback:', nErr.message);
+                    return { type: 'notes', data: [] };
+                });
+
+            dbTasks.push(fetchNotesPromise);
+        }
+
+        // Execute all DB queries simultaneously in parallel
+        const taskResults = await Promise.allSettled(dbTasks);
+        for (const resItem of taskResults) {
+            if (resItem.status === 'fulfilled' && resItem.value) {
+                if (resItem.value.type === 'kb') {
+                    knowledgeBase = resItem.value.data;
+                } else if (resItem.value.type === 'lead') {
+                    lead = resItem.value.data;
+                } else if (resItem.value.type === 'notes') {
+                    recentNotes = resItem.value.data;
+                }
             }
         }
 
+        // Sales rep access check for main leads
         if (lead && leadType !== 'ea_lead' && req.currentUserRole === 'sales_rep') {
             const assignedId = lead.assigned_to ? lead.assigned_to.toString() : null;
-            if (assignedId && assignedId !== req.user.id) {
+            if (assignedId && assignedId !== req.user?.id) {
                 return res.status(403).json({ error: 'Access denied. This lead is not assigned to you.' });
             }
         }
 
-        let recentNotes = [];
-        if (lead && lead._id) {
-            try {
-                const notes = await Note.find({ lead_id: lead._id }).sort({ createdAt: -1 }).limit(5).lean();
-                recentNotes = notes.map(n => ({
-                    type: n.type,
-                    content: n.content,
-                    date: n.createdAt
-                }));
-            } catch (e) {
-                console.warn('Could not fetch notes for email AI context:', e.message);
-            }
-        }
-
         const orgName = lead?.name || leadName || 'Partner Organization';
-        const personName = contactName || lead?.contacts?.[0]?.name || lead?.main_contact_name || recipientName || '';
+        const personName = contactName || lead?.contacts?.[0]?.name || lead?.main_contact_name || recipientName || 'Valued Partner';
         const personTitle = lead?.contacts?.[0]?.title || '';
         const leadStatus = lead?.status || 'Active';
         const leadCategory = lead?.category_group || lead?.type || 'Youth Sports & School Partnerships';
 
         const result = await aiService.generateEmailMessage({
-            leadName:     orgName,
-            contactName:  personName,
-            contactTitle: personTitle,
-            leadStatus:   leadStatus,
-            leadCategory: leadCategory,
+            leadName:       orgName,
+            contactName:    personName,
+            contactTitle:   personTitle,
+            leadStatus:     leadStatus,
+            leadCategory:   leadCategory,
             recentNotes,
-            userPrompt:   userPrompt || ''
+            userPrompt:     prompt || userPrompt || '',
+            currentSubject: currentSubject || '',
+            currentBody:    currentBody || '',
+            knowledgeBase
         });
 
         return res.json({
@@ -171,9 +221,30 @@ export const generateEmailMessage = async (req, res) => {
 
     } catch (error) {
         console.error('AI Generate Email Error:', error);
-        return res.status(500).json({
-            error: error.message || 'Failed to generate AI email'
-        });
+        // Fallback email draft generation so user is never blocked
+        try {
+            const fallbackResult = await aiService.generateEmailMessage({
+                leadName:       req.body.leadName || 'Partner Organization',
+                contactName:    req.body.contactName || req.body.recipientName || 'Valued Partner',
+                contactTitle:   '',
+                leadStatus:     'Active',
+                leadCategory:   'Youth Sports & School Partnerships',
+                recentNotes:    [],
+                userPrompt:     req.body.prompt || req.body.userPrompt || '',
+                currentSubject: req.body.currentSubject || '',
+                currentBody:    req.body.currentBody || '',
+                knowledgeBase:  null
+            });
+            return res.json({
+                success: true,
+                subject: fallbackResult.subject,
+                body:    fallbackResult.body
+            });
+        } catch (fallbackErr) {
+            return res.status(500).json({
+                error: error.message || 'Failed to generate AI email'
+            });
+        }
     }
 };
 

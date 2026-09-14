@@ -21,5 +21,6 @@ router.put('/:id', auth, requireRole(...canWrite), eaLeadController.updateEALead
 router.delete('/:id', auth, requireRole(...canDelete), eaLeadController.deleteEALead);
 router.post('/:id/send-sms', auth, requireRole(...canWrite), eaLeadController.sendSingleSMS);
 router.post('/:id/convert', auth, requireRole(...canWrite), eaLeadController.convertEALead);
+router.put('/:id/score', auth, requireRole(...canWrite), eaLeadController.updateEALeadScore);
 
 export default router;

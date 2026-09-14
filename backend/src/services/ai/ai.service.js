@@ -36,27 +36,33 @@ function getGroqClient() {
 }
 
 // ── System prompt builder for SMS ─────────────────────────────────
-function buildSmsSystemPrompt() {
-    return `You are a professional CRM sales assistant for YAU Sports — a company that coordinates sports programs with schools and organizations.
+function buildSmsSystemPrompt(knowledgeBase) {
+    const kbText = formatKnowledgeBaseForSms(knowledgeBase);
+    const kbSection = kbText ? `\n\nOFFICIAL YAU KNOWLEDGE BASE GUIDELINES (from MongoDB):\n${kbText}\n` : '';
 
-Your job is to write a short, warm, and effective SMS message on behalf of the sales team.
+    return `You are a professional CRM communications assistant writing on behalf of a team member at YAU Sports (Youth Athlete University).
+${kbSection}
+Your job is to write a warm, clear, concise, and high-converting SMS message tailored to the lead and the agent's goal.
 
 RULES (follow strictly):
-- Keep the message under 160 characters (one SMS segment). This is a hard limit.
+- Keep the message under 160 characters when possible (standard 1 SMS segment), or at most 200 characters if detailed information is requested.
 - Be friendly, professional, and action-oriented.
-- Do NOT be spammy, pushy, or overly salesy.
-- If the lead's last message was inbound (they reached out), respond naturally to what they said.
-- If a user goal/prompt is provided, use it as the primary objective of the message.
-- If no goal is provided, suggest a natural, context-aware follow-up based on the conversation history.
-- Output ONLY the SMS text. No explanation, no quotes, no labels, no extra commentary.
-- Never include placeholder text like [Name] or [Company] — use actual names if available.`;
+- Ground your answers in the Knowledge Base guidelines above (pricing: $50/mo all 4 sports, no tryouts/cuts, no refunds).
+- If the lead's previous messages are available, naturally continue the conversation.
+- If a team member goal/prompt is provided, address it directly.
+- If existing compose text is provided, refine and improve it according to the instructions.
+- Output ONLY the SMS text draft. No explanation, no quotes, no labels, no meta commentary.
+- Never include placeholder text like [Name] or [Link] — use actual names if provided.`;
 }
 
 // ── User content builder for SMS ──────────────────────────────────
-function buildSmsUserContent({ leadName, contactName, leadStatus, recentMessages, userPrompt }) {
+function buildSmsUserContent({ leadName, contactName, leadType, leadStatus, recentMessages, userPrompt, currentText }) {
+    const displayName = contactName || leadName || 'Parent / Athlete';
+    const firstName = displayName.trim().split(/\s+/)[0];
+
     const formattedMessages = (recentMessages && recentMessages.length > 0)
-        ? recentMessages.map((m, i) => {
-            const dir = m.direction === 'inbound' ? '[THEM]' : '[YOU]';
+        ? recentMessages.slice(-10).map((m, i) => {
+            const dir = m.direction === 'inbound' ? '[CLIENT]' : '[YAU TEAM]';
             const ts = m.timestamp ? new Date(m.timestamp).toLocaleString('en-US', {
                 month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
             }) : '';
@@ -66,35 +72,40 @@ function buildSmsUserContent({ leadName, contactName, leadStatus, recentMessages
 
     const goal = userPrompt && userPrompt.trim()
         ? userPrompt.trim()
-        : 'Not specified — generate a natural, context-appropriate follow-up.';
+        : 'Draft a helpful, friendly message tailored to this lead.';
 
     return `Lead Information:
-- Organization / Lead Name: ${leadName || 'Unknown'}
-- Contact Person: ${contactName || 'Primary Contact'}
-- Current CRM Status: ${leadStatus || 'Unknown'}
+- Recipient: ${displayName} (First Name: ${firstName})
+- Lead Type: ${leadType === 'ea_lead' ? 'Evening Activity Lead' : 'Main CRM Lead'}
+- Current CRM Status / Category: ${leadStatus || 'Active'}
 
 Last ${(recentMessages || []).length} SMS messages (oldest → newest):
 ${formattedMessages}
 
-Your goal for this new message:
+Team Member Goal / Instructions:
 ${goal}
+${currentText && currentText.trim() ? `\nCurrent Compose Text to Refine / Improve:\n"${currentText.trim()}"` : ''}
 
-Write the SMS now:`;
+Write the SMS message draft now:`;
 }
 
 // ── System prompt builder for Email ───────────────────────────────
-function buildEmailSystemPrompt() {
+function buildEmailSystemPrompt(knowledgeBase) {
+    const kbText = formatKnowledgeBaseForSms(knowledgeBase);
+    const kbSection = kbText ? `\n\nOFFICIAL YAU KNOWLEDGE BASE GUIDELINES (from MongoDB):\n${kbText}\n` : '';
     const currentYear = new Date().getFullYear();
     return `You are a professional CRM sales and partnership assistant for YAU Sports — an organization providing youth athletics programs, sports clinics, after-school camps, and sports enrichment for schools and organizations.
-
+${kbSection}
 Your job is to compose a polite, compelling, well-structured email on behalf of the sales / partnerships team.
 
 RULES (follow strictly):
 - Generate a clear, engaging subject line and an email body formatted with HTML tags (such as <p>, <br>, <ul>, <li>, <strong>) suitable for a rich-text email editor.
 - Address the recipient respectfully by name if provided.
 - Tone: Professional, warm, consultative, and concise.
+- If existing subject or body content is provided, refine and improve it according to the rep's instructions.
 - If a user goal/prompt is provided, address it directly (e.g. follow-up after call, introducing athletic programs, scheduling a meeting, sharing information).
 - If no goal is provided, craft an effective introductory or follow-up email tailored to the lead's status and organization.
+- Ground any specific program details in the Knowledge Base guidelines above (sports offered, pricing: $50/mo, grades K-8, no tryouts/cuts).
 - CURRENT CALENDAR YEAR: The current year is ${currentYear}. Always reference the current year (${currentYear}) for any seasons, program dates, or schedules.
 - Sign off professionally from "The YAU Sports Team".
 - NEVER generate or include any "Unsubscribe" text, link, or opt-out footer in the email body.
@@ -107,7 +118,7 @@ Example output format:
 }
 
 // ── User content builder for Email ────────────────────────────────
-function buildEmailUserContent({ leadName, contactName, contactTitle, leadStatus, leadCategory, recentNotes, userPrompt }) {
+function buildEmailUserContent({ leadName, contactName, contactTitle, leadStatus, leadCategory, recentNotes, userPrompt, currentSubject, currentBody }) {
     const formattedNotes = (recentNotes && recentNotes.length > 0)
         ? recentNotes.map((n, i) => `  ${i + 1}. [${(n.type || 'NOTE').toUpperCase()}] ${n.content}`).join('\n')
         : '  (No previous notes logged)';
@@ -115,6 +126,14 @@ function buildEmailUserContent({ leadName, contactName, contactTitle, leadStatus
     const goal = userPrompt && userPrompt.trim()
         ? userPrompt.trim()
         : 'Generate a professional introductory or follow-up email tailored to this organization.';
+
+    let currentDraftSection = '';
+    if (currentSubject && currentSubject.trim()) {
+        currentDraftSection += `\nCurrent Compose Subject to Refine / Improve:\n"${currentSubject.trim()}"\n`;
+    }
+    if (currentBody && currentBody.trim() && currentBody.trim() !== '<p></p>' && currentBody.trim() !== '<p><br></p>') {
+        currentDraftSection += `\nCurrent Compose Body to Refine / Improve:\n"${currentBody.trim()}"\n`;
+    }
 
     return `Lead Details:
 - Organization Name: ${leadName || 'Unknown'}
@@ -127,7 +146,7 @@ Recent Lead Activity Notes:
 ${formattedNotes}
 
 Rep's Goal for this email:
-${goal}
+${goal}${currentDraftSection}
 
 Generate the email JSON now:`;
 }
@@ -199,25 +218,106 @@ async function callClaude(systemPrompt, userContent, maxTokens = 1200) {
  * @param {string} [params.userPrompt]   - Optional goal/intent from the sales rep
  * @returns {Promise<string>}            - The AI-generated SMS draft text
  */
-async function generateSmsMessage({ leadName, contactName, leadStatus, recentMessages, userPrompt }) {
-    const systemPrompt = buildSmsSystemPrompt();
-    const userContent  = buildSmsUserContent({ leadName, contactName, leadStatus, recentMessages, userPrompt });
+async function generateSmsMessage({ leadName, contactName, leadType, leadStatus, recentMessages, userPrompt, currentText, knowledgeBase }) {
+    const systemPrompt = buildSmsSystemPrompt(knowledgeBase);
+    const userContent  = buildSmsUserContent({ leadName, contactName, leadType, leadStatus, recentMessages, userPrompt, currentText });
 
+    let raw = '';
     if (PROVIDER === 'claude' || PROVIDER === 'anthropic') {
-        return callClaude(systemPrompt, userContent, 200);
+        raw = await callClaude(systemPrompt, userContent, 250);
+    } else if (PROVIDER === 'groq') {
+        raw = await callGroq(systemPrompt, userContent, false);
+    } else {
+        raw = await callClaude(systemPrompt, userContent, 250);
     }
 
-    if (PROVIDER === 'groq') {
-        return callGroq(systemPrompt, userContent, false);
+    let cleanDraft = (raw || '').trim();
+    if ((cleanDraft.startsWith('"') && cleanDraft.endsWith('"')) || (cleanDraft.startsWith('\'') && cleanDraft.endsWith('\''))) {
+        cleanDraft = cleanDraft.slice(1, -1).trim();
     }
 
-    // Default to Claude
-    return callClaude(systemPrompt, userContent, 200);
+    return cleanDraft;
+}
+
+// ── Bulk SMS Generation ──────────────────────────────────────────
+function buildBulkSmsSystemPrompt(knowledgeBase) {
+    const kbText = formatKnowledgeBaseForSms(knowledgeBase);
+
+    return `You are the lead communications specialist at Youth Athlete University (YAU Sports).
+You write engaging, high-converting, and compliant broadcast SMS messages for bulk text campaigns.
+
+CRITICAL INSTRUCTIONS:
+1. TARGET AUDIENCE: Parents and youth sports contacts (K-8th grade).
+2. PERSONALIZATION: Always include the personalization token "{{name}}" naturally in the greeting or message (e.g., "Hey {{name}}!").
+3. TONE: Warm, energetic, encouraging, and clear.
+4. LENGTH: Keep the entire SMS concise (ideally 1-2 short sentences, 100-160 characters, max 200 characters).
+5. YAU KNOWLEDGE & RULES:
+   - Sports: Basketball, Soccer, Flag Football, Cheer/Dance.
+   - Core philosophy: NO tryouts, NO cuts — every athlete plays and develops skills.
+   - Pricing: $50/month (all 4 sports included) or $200 seasonal.
+   - Locations: Bowie, Brandywine, National Harbor.
+6. OUTPUT FORMAT:
+   - Return ONLY the exact SMS message text with "{{name}}".
+   - Do NOT wrap in quotes.
+   - Do NOT add markdown formatting, preamble, or commentary.
+
+${kbText ? `--- YAU KNOWLEDGE BASE ---\n${kbText}\n--- END KNOWLEDGE BASE ---` : ''}`;
+}
+
+function buildBulkSmsUserContent({ userPrompt, currentText }) {
+    const parts = [];
+    if (userPrompt) {
+        parts.push(`Campaign Goal / Instructions: "${userPrompt}"`);
+    }
+    if (currentText) {
+        parts.push(`Current draft started by team member: "${currentText}" (refine and polish this into a compelling broadcast message with {{name}})`);
+    }
+    if (parts.length === 0) {
+        parts.push('Campaign Goal: Craft an engaging follow-up message about YAU youth sports programs and registration.');
+    }
+    parts.push('Generate the complete broadcast SMS text now:');
+    return parts.join('\n\n');
+}
+
+/**
+ * Generate an AI-suggested Bulk Broadcast SMS template.
+ *
+ * @param {Object} params
+ * @param {string} [params.userPrompt]   - Campaign objective/instructions
+ * @param {string} [params.currentText]  - Pre-existing draft text to polish
+ * @param {Object} [params.knowledgeBase]- YAU Knowledge base object
+ * @returns {Promise<string>}            - The AI-generated bulk SMS template
+ */
+async function generateBulkSmsMessage({ userPrompt, currentText, knowledgeBase }) {
+    const systemPrompt = buildBulkSmsSystemPrompt(knowledgeBase);
+    const userContent  = buildBulkSmsUserContent({ userPrompt, currentText });
+
+    let raw = '';
+    if (PROVIDER === 'claude' || PROVIDER === 'anthropic') {
+        raw = await callClaude(systemPrompt, userContent, 250);
+    } else if (PROVIDER === 'groq') {
+        raw = await callGroq(systemPrompt, userContent, false);
+    } else {
+        raw = await callClaude(systemPrompt, userContent, 250);
+    }
+
+    let cleanDraft = (raw || '').trim();
+    if ((cleanDraft.startsWith('"') && cleanDraft.endsWith('"')) || (cleanDraft.startsWith('\'') && cleanDraft.endsWith('\''))) {
+        cleanDraft = cleanDraft.slice(1, -1).trim();
+    }
+
+    return cleanDraft;
 }
 
 // ── Helper to format MongoDB Knowledge Base for SMS AI prompt ─────
 function formatKnowledgeBaseForSms(kb) {
-    if (!kb) return '';
+    if (!kb) {
+        return `Organization: Youth Athlete University (YAU Sports)
+Motto: "Parents Trust Us. Kids Have Fun. Skills Improve."
+Sports Offered: Basketball (K-8th), Volleyball (K-8th), Flag Football (K-8th), Soccer (K-8th), Cheer (K-8th)
+Pricing: $50/month (all sports included, no re-registration fees), $200 seasonal (1 sport)
+Key Rules: No tryouts, no cuts, grade-based teams, strict no refund policy.`;
+    }
 
     const parts = [];
 
@@ -336,6 +436,140 @@ async function generateEALeadAutoReply({ leadName, smsHistory, knowledgeBase }) 
     return callClaude(systemPrompt, userContent, 160);
 }
 
+// ── System prompt for EA Lead welcome SMS ────────────────────────
+function buildEALeadWelcomeSmsSystemPrompt(knowledgeBase) {
+    const kbText = formatKnowledgeBaseForSms(knowledgeBase);
+    const kbSection = kbText ? `\n\nOFFICIAL YAU KNOWLEDGE BASE GUIDELINES (from MongoDB):\n${kbText}\n` : '';
+
+    return `You are a real team member at Youth Athlete University (YAU Sports). You are writing an initial welcome text message to a parent or student who JUST submitted an inquiry on the YAU website.
+${kbSection}
+CRITICAL RULES — follow strictly:
+- You are a REAL PERSON on the YAU team. Never say you are an AI, a bot, or an automated assistant.
+- Sound warm, enthusiastic, and human — like a team member sending a quick, friendly welcome text.
+- STRICT LENGTH LIMIT: Your output MUST be 140 characters or fewer total.
+- Greet them warmly by first name, welcome them to YAU Sports, and ask a friendly opening question (such as which sport their athlete is interested in).
+- Do NOT include any links, URLs, hashtags, or marketing buzzwords.
+- Do NOT sign off with "YAU Team", robotic closing, or formal job titles.
+- Output ONLY the SMS reply text. No labels, quotes, or meta commentary.`;
+}
+
+// ── User content builder for EA Lead welcome SMS ──────────────────
+function buildEALeadWelcomeSmsUserContent({ leadName, source }) {
+    const firstName = leadName ? leadName.trim().split(/\s+/)[0] : 'there';
+    return `Lead Name: ${leadName || 'Parent / Student'} (First Name: ${firstName})
+Inquiry Source: ${source || 'YAU Website'}
+
+Write the welcome SMS now (STRICTLY MAXIMUM 140 CHARACTERS):`;
+}
+
+/**
+ * Generate an AI welcome SMS for a newly created EA-lead.
+ * Hard limit: 140 characters.
+ *
+ * @param {Object} params
+ * @param {string} params.leadName       - EA Lead's name
+ * @param {string} [params.source]       - Source of inquiry
+ * @param {Object} [params.knowledgeBase]- MongoDB RetellKnowledgeBase document
+ * @returns {Promise<string>}            - The AI-generated welcome SMS text (<= 140 chars)
+ */
+async function generateEALeadWelcomeSms({ leadName, source, knowledgeBase }) {
+    const systemPrompt = buildEALeadWelcomeSmsSystemPrompt(knowledgeBase);
+    const userContent  = buildEALeadWelcomeSmsUserContent({ leadName, source });
+
+    let reply = '';
+    if (PROVIDER === 'claude' || PROVIDER === 'anthropic') {
+        reply = await callClaude(systemPrompt, userContent, 140);
+    } else if (PROVIDER === 'groq') {
+        reply = await callGroq(systemPrompt, userContent, false);
+    } else {
+        reply = await callClaude(systemPrompt, userContent, 140);
+    }
+
+    if (reply && reply.length > 140) {
+        return reply.slice(0, 140).trim();
+    }
+    return reply?.trim() || '';
+}
+
+// ── System prompt for EA Lead scoring ────────────────────────────
+function buildEALeadScoreSystemPrompt() {
+    return `You are an expert sales analyst for YAU Sports (Youth Athlete University).
+Your job is to analyze the SMS conversation history between a prospective parent/student and the YAU team to determine the lead's buying temperature and qualification score.
+
+CATEGORIES (choose strictly one):
+1. "Hot" — The client is showing high purchase intent, asking how to register/sign up, asking for payment links, eager to enroll immediately, or asking about specific start dates for their child.
+2. "Warm" — The client is actively engaged, asking informational/exploratory questions (such as practice locations, schedules, pricing details, or age/grade fit), but hasn't committed to registering yet.
+3. "Cold" — The client is unresponsive, expresses disinterest, gives cold/one-word non-committal answers, or raises hard objections without interest.
+
+OUTPUT FORMAT:
+Return strictly a valid JSON object with:
+{
+  "score": "Hot" | "Warm" | "Cold",
+  "reason": "1 concise sentence explaining the exact reason based on what the client said."
+}`;
+}
+
+// ── User content builder for EA Lead scoring ─────────────────────
+function buildEALeadScoreUserContent({ leadName, smsHistory, source }) {
+    const formattedHistory = (smsHistory && smsHistory.length > 0)
+        ? smsHistory.slice(-10).map((m, i) => {
+            const dir = m.direction === 'inbound' ? '[CLIENT]' : '[YAU TEAM]';
+            return `  ${i + 1}. ${dir}: ${m.message}`;
+          }).join('\n')
+        : '  (No conversation history yet)';
+
+    return `Lead Name: ${leadName || 'Unknown'}
+Inquiry Source: ${source || 'YAU Website'}
+
+Conversation History (oldest → newest):
+${formattedHistory}
+
+Evaluate the lead's buying temperature and return the JSON score now:`;
+}
+
+/**
+ * Dynamically evaluate and score an EA Lead based on conversation history.
+ *
+ * @param {Object} params
+ * @param {string} params.leadName   - EA Lead's name
+ * @param {Array}  params.smsHistory - SMS history array
+ * @param {string} [params.source]   - Lead source
+ * @returns {Promise<{ score: 'Hot' | 'Warm' | 'Cold', reason: string }>}
+ */
+async function evaluateEALeadScore({ leadName, smsHistory, source }) {
+    const systemPrompt = buildEALeadScoreSystemPrompt();
+    const userContent  = buildEALeadScoreUserContent({ leadName, smsHistory, source });
+
+    let raw = '';
+    if (PROVIDER === 'claude' || PROVIDER === 'anthropic') {
+        raw = await callClaude(systemPrompt, userContent, 250);
+    } else if (PROVIDER === 'groq') {
+        raw = await callGroq(systemPrompt, userContent, true);
+    } else {
+        raw = await callClaude(systemPrompt, userContent, 250);
+    }
+
+    try {
+        const jsonMatch = raw.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]);
+            const validScores = ['Hot', 'Warm', 'Cold'];
+            const score = validScores.find(s => s.toLowerCase() === (parsed.score || '').toLowerCase()) || 'Warm';
+            return {
+                score,
+                reason: parsed.reason || `Evaluated as ${score} based on recent conversation.`
+            };
+        }
+    } catch (err) {
+        console.warn('[AI Lead Scoring] Failed to parse JSON score:', err.message);
+    }
+
+    return {
+        score: 'Warm',
+        reason: 'Engaged in conversation with YAU team.'
+    };
+}
+
 /**
  * Generate an AI-suggested Email subject and body for a lead.
  *
@@ -349,37 +583,64 @@ async function generateEALeadAutoReply({ leadName, smsHistory, knowledgeBase }) 
  * @param {string} [params.userPrompt]   - Optional goal/intent from the sales rep
  * @returns {Promise<{ subject: string, body: string, provider: string, apiHit: boolean }>} - Draft subject and HTML body
  */
-async function generateEmailMessage({ leadName, contactName, contactTitle, leadStatus, leadCategory, recentNotes, userPrompt }) {
-    const systemPrompt = buildEmailSystemPrompt();
-    const userContent  = buildEmailUserContent({ leadName, contactName, contactTitle, leadStatus, leadCategory, recentNotes, userPrompt });
+async function generateEmailMessage({ leadName, contactName, contactTitle, leadStatus, leadCategory, recentNotes, userPrompt, currentSubject, currentBody, knowledgeBase }) {
+    const systemPrompt = buildEmailSystemPrompt(knowledgeBase);
+    const userContent  = buildEmailUserContent({ leadName, contactName, contactTitle, leadStatus, leadCategory, recentNotes, userPrompt, currentSubject, currentBody });
 
     let raw = '';
     if (PROVIDER === 'claude' || PROVIDER === 'anthropic') {
-        raw = await callClaude(systemPrompt, userContent, 1000);
+        raw = await callClaude(systemPrompt, userContent, 1200);
     } else if (PROVIDER === 'groq') {
         raw = await callGroq(systemPrompt, userContent, true);
     } else {
-        raw = await callClaude(systemPrompt, userContent, 1000);
+        raw = await callClaude(systemPrompt, userContent, 1200);
     }
 
     try {
-        const jsonMatch = raw.match(/\{[\s\S]*\}/);
+        let cleanRaw = raw.trim();
+        if (cleanRaw.startsWith('```json')) {
+            cleanRaw = cleanRaw.replace(/^```json\s*/, '').replace(/\s*```$/, '').trim();
+        } else if (cleanRaw.startsWith('```')) {
+            cleanRaw = cleanRaw.replace(/^```\s*/, '').replace(/\s*```$/, '').trim();
+        }
+
+        const jsonMatch = cleanRaw.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
-            const parsed = JSON.parse(jsonMatch[0]);
-            return {
-                subject: parsed.subject || `Partnering with YAU Sports - ${leadName || ''}`,
-                body: parsed.body || `<p>${raw.replace(/\n/g, '<br/>')}</p>`,
-                provider: 'anthropic',
-                apiHit: true
-            };
+            try {
+                const parsed = JSON.parse(jsonMatch[0]);
+                if (parsed.subject || parsed.body) {
+                    return {
+                        subject: parsed.subject || `Partnering with YAU Sports - ${leadName || ''}`,
+                        body: parsed.body || `<p>${cleanRaw}</p>`,
+                        provider: 'anthropic',
+                        apiHit: true
+                    };
+                }
+            } catch (jsonErr) {
+                // Secondary regex extraction if JSON string had unescaped newlines/quotes
+                const subjMatch = jsonMatch[0].match(/"subject"\s*:\s*"([^"\r\n]+)"/);
+                const bodyMatch = jsonMatch[0].match(/"body"\s*:\s*"([\s\S]+?)"\s*[\},]\s*$/);
+                if (subjMatch || bodyMatch) {
+                    const extractedSubj = subjMatch ? subjMatch[1] : `Partnering with YAU Sports - ${leadName || ''}`;
+                    let extractedBody = bodyMatch ? bodyMatch[1] : cleanRaw;
+                    extractedBody = extractedBody.replace(/\\n/g, '<br/>').replace(/\\"/g, '"');
+                    return {
+                        subject: extractedSubj,
+                        body: extractedBody,
+                        provider: 'anthropic',
+                        apiHit: true
+                    };
+                }
+            }
         }
     } catch (e) {
         console.warn('Failed to parse AI email JSON, falling back to text:', e);
     }
 
+    const fallbackBody = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     return {
         subject: `Partnering with YAU Sports - ${leadName || ''}`,
-        body: `<p>${raw.replace(/\n/g, '<br/>')}</p>`,
+        body: `<p>${fallbackBody.replace(/\n/g, '<br/>')}</p>`,
         provider: 'anthropic',
         apiHit: true
     };
@@ -701,19 +962,79 @@ async function generatePersonalizedEmailMessage({
     };
 }
 
+// ── Weekly Performance Report Executive Summary ──────────────────
+function buildWeeklyReportSystemPrompt() {
+    const currentYear = new Date().getFullYear();
+    return `You are the Chief Commercial Officer & Senior Operations Strategist for YAU Sports (Youth Athlete University) — a premier youth athletics development and school sports partnership organization ($50/mo, sports: Basketball, Volleyball, Flag Football, Soccer, Cheer; Grades K-8, no tryouts/cuts).
+
+Your job is to analyze the weekly CRM performance metrics and write an inspiring, highly analytical, and actionable Executive Performance Briefing for the executive team and sales reps.
+
+GUIDELINES FOR THE EXECUTIVE BRIEFING:
+1. Executive Takeaway: 2-3 powerful sentences summarizing the week's sales velocity, conversion health, and operational momentum.
+2. Key Wins & Positive Momentum: Highlight closed deals, high-intent Hot leads acquired, completed follow-up streaks, and strong campaign engagement.
+3. Pipeline Bottlenecks & Attention Areas: Highlight overdue follow-ups, stalling leads, or conversion leaks with specific constructive guidance.
+4. Strategic Action Items for This Week: 3-4 concrete, prioritized action items for the sales and operations team.
+5. Tone: Strategic, executive, professional, motivating, and data-grounded. Use bold metrics (e.g. **15 new leads**, **82% completed**) to make it scannable.
+6. Format: Return cleanly formatted HTML tags (<p>, <h3>, <ul>, <li>, <strong>, <em>) without wrapping inside <html> or <body> tags. Do NOT use markdown code blocks like \`\`\`html.`;
+}
+
+function buildWeeklyReportUserContent(stats) {
+    return `Here are the raw CRM performance statistics for the past week:
+${JSON.stringify(stats, null, 2)}
+
+Analyze these figures and produce the Weekly AI Executive Briefing HTML now:`;
+}
+
+/**
+ * Generate a high-level executive performance summary from weekly CRM statistics.
+ *
+ * @param {Object} stats - Raw metrics collected across leads, followups, campaigns, etc.
+ * @returns {Promise<string>} - Formatted HTML narrative
+ */
+async function generateWeeklyExecutiveSummary(stats) {
+    const systemPrompt = buildWeeklyReportSystemPrompt();
+    const userContent  = buildWeeklyReportUserContent(stats);
+
+    let raw = '';
+    if (PROVIDER === 'claude' || PROVIDER === 'anthropic') {
+        raw = await callClaude(systemPrompt, userContent, 1500);
+    } else if (PROVIDER === 'groq') {
+        raw = await callGroq(systemPrompt, userContent, false);
+    } else {
+        raw = await callClaude(systemPrompt, userContent, 1500);
+    }
+
+    let clean = (raw || '').trim();
+    if (clean.startsWith('```html')) {
+        clean = clean.replace(/^```html\s*/i, '').replace(/\s*```$/i, '').trim();
+    } else if (clean.startsWith('```')) {
+        clean = clean.replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+    }
+
+    return clean;
+}
+
 export {
     generateSmsMessage,
+    generateBulkSmsMessage,
     generateEmailMessage,
     generateEmailTemplate,
     generatePersonalizedEmailMessage,
-    generateEALeadAutoReply
+    generateEALeadAutoReply,
+    generateEALeadWelcomeSms,
+    evaluateEALeadScore,
+    generateWeeklyExecutiveSummary
 };
 
 export default {
     generateSmsMessage,
+    generateBulkSmsMessage,
     generateEmailMessage,
     generateEmailTemplate,
     generatePersonalizedEmailMessage,
-    generateEALeadAutoReply
+    generateEALeadAutoReply,
+    generateEALeadWelcomeSms,
+    evaluateEALeadScore,
+    generateWeeklyExecutiveSummary
 };
 

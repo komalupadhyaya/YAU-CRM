@@ -3,6 +3,7 @@ import Lead from '../models/lead.model.js';
 import EALead from '../models/eaLead.model.js';
 import Note from '../models/note.model.js';
 import Contact from '../models/contact.model.js';
+import RetellKnowledgeBase from '../models/retellKnowledgeBase.model.js';
 import aiService from '../services/ai/ai.service.js';
 
 export const sendSms = async (req, res, next) => {
@@ -186,7 +187,11 @@ export const getConversations = async (req, res) => {
                 unreadCount: lead.unreadCount || 0,
                 lastMessage: lastMsg ? lastMsg.message : '',
                 lastMessageTimestamp: lastMsg ? lastMsg.timestamp : lead.updatedAt,
-                smsHistory: history
+                smsHistory: history,
+                aiScore: lead.aiScore || 'Cold',
+                aiScoreReason: lead.aiScoreReason || '',
+                aiScoreOverride: lead.aiScoreOverride || false,
+                aiScoreUpdatedAt: lead.aiScoreUpdatedAt || null
             });
         });
 
@@ -367,48 +372,113 @@ export const getUnreadCount = async (req, res) => {
 
         const totalUnreadCount = (eaUnread[0]?.total || 0) + (mainUnread[0]?.total || 0);
 
-        const [eaLeads, mainLeads] = await Promise.all([
-            EALead.find({ unreadCount: { $gt: 0 } }).select('name phone smsHistory unreadCount updatedAt'),
+        // 1. Fetch leads with unreadCount > 0
+        const [eaUnreadLeads, mainUnreadLeads] = await Promise.all([
+            EALead.find({ unreadCount: { $gt: 0 } }).select('name phone smsHistory unreadCount aiScore updatedAt'),
             Lead.find({ unreadCount: { $gt: 0 } }).select('name telephone smsHistory unreadCount updatedAt')
         ]);
 
-        const recentMessages = [];
+        // 2. Fetch EA Leads with active SMS history (Hot, Warm, Cold)
+        const eaSmsLeads = await EALead.find({
+            'smsHistory.0': { $exists: true }
+        }).select('name phone smsHistory unreadCount aiScore updatedAt');
 
-        eaLeads.forEach(l => {
-            const unreadItems = (l.smsHistory || []).filter(m => m.direction === 'inbound' && !m.isRead);
+        const unreadMessages = [];
+
+        eaUnreadLeads.forEach(l => {
+            let unreadItems = (l.smsHistory || []).filter(m => m.direction === 'inbound' && !m.isRead);
+            if (unreadItems.length === 0 && (l.smsHistory || []).length > 0) {
+                const latestInbound = [...l.smsHistory].reverse().find(m => m.direction === 'inbound');
+                if (latestInbound) unreadItems = [latestInbound];
+            }
             unreadItems.forEach(m => {
-                recentMessages.push({
+                unreadMessages.push({
                     leadId: l._id,
                     leadType: 'ea_lead',
                     senderName: l.name,
                     phone: l.phone,
+                    aiScore: l.aiScore || 'Hot',
                     categoryTag: 'EA Lead',
                     message: m.message,
-                    timestamp: m.timestamp
+                    direction: m.direction,
+                    timestamp: m.timestamp,
+                    unreadCount: l.unreadCount || 1
                 });
             });
         });
 
-        mainLeads.forEach(l => {
-            const unreadItems = (l.smsHistory || []).filter(m => m.direction === 'inbound' && !m.isRead);
+        mainUnreadLeads.forEach(l => {
+            let unreadItems = (l.smsHistory || []).filter(m => m.direction === 'inbound' && !m.isRead);
+            if (unreadItems.length === 0 && (l.smsHistory || []).length > 0) {
+                const latestInbound = [...l.smsHistory].reverse().find(m => m.direction === 'inbound');
+                if (latestInbound) unreadItems = [latestInbound];
+            }
             unreadItems.forEach(m => {
-                recentMessages.push({
+                unreadMessages.push({
                     leadId: l._id,
                     leadType: 'main_lead',
                     senderName: l.name,
                     phone: l.telephone,
                     categoryTag: 'CRM Lead',
                     message: m.message,
-                    timestamp: m.timestamp
+                    direction: m.direction,
+                    timestamp: m.timestamp,
+                    unreadCount: l.unreadCount || 1
                 });
             });
         });
 
-        recentMessages.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+        // Map EA Leads to active SMS conversation snippets, prioritized by Hot -> Warm -> Cold
+        const hotWarmMessages = [];
+        eaSmsLeads.forEach(l => {
+            const history = l.smsHistory || [];
+            if (history.length === 0) return;
+
+            // Prioritize latest inbound reply, or latest overall message
+            const latestInbound = [...history].reverse().find(m => m.direction === 'inbound');
+            const latestMsg = latestInbound || history[history.length - 1];
+
+            hotWarmMessages.push({
+                leadId: l._id,
+                leadType: 'ea_lead',
+                senderName: l.name,
+                phone: l.phone,
+                aiScore: l.aiScore || 'Cold',
+                categoryTag: 'EA Lead',
+                message: latestMsg.message,
+                direction: latestMsg.direction,
+                timestamp: latestMsg.timestamp,
+                unreadCount: l.unreadCount || 0
+            });
+        });
+
+        const scoreWeight = { 'Hot': 3, 'Warm': 2, 'Cold': 1 };
+        hotWarmMessages.sort((a, b) => {
+            const weightDiff = (scoreWeight[b.aiScore] || 0) - (scoreWeight[a.aiScore] || 0);
+            if (weightDiff !== 0) return weightDiff;
+            return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+        });
+
+        unreadMessages.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+        // For backwards compatibility and immediate display:
+        // Combine unread messages with hotWarm messages (deduping by leadId)
+        const combinedMap = new Map();
+        unreadMessages.forEach(m => combinedMap.set(String(m.leadId), m));
+        hotWarmMessages.forEach(m => {
+            if (!combinedMap.has(String(m.leadId))) {
+                combinedMap.set(String(m.leadId), m);
+            }
+        });
+
+        const recentMessages = Array.from(combinedMap.values()).slice(0, 50);
 
         return res.status(200).json({
             totalUnreadCount,
-            recentMessages: recentMessages.slice(0, 10)
+            hotWarmCount: hotWarmMessages.length,
+            hotWarmMessages: hotWarmMessages.slice(0, 50),
+            unreadMessages: unreadMessages.slice(0, 50),
+            recentMessages
         });
     } catch (error) {
         console.error('Error fetching SMS unread count:', error);
@@ -572,71 +642,6 @@ export const sendChatSms = async (req, res) => {
     } catch (error) {
         console.error('Send Chat SMS Error:', error);
         return res.status(500).json({ error: error.message || 'Failed to send SMS message' });
-    }
-};
-
-/**
- * Generate an AI-suggested SMS draft for a lead
- * POST /api/sms/ai-generate-sms
- *
- * Body: { leadId, leadType, userPrompt? }
- * Returns: { success: true, draft: "..." }
- */
-export const generateSmsMessage = async (req, res) => {
-    try {
-        const { leadId, leadType, contactName, userPrompt } = req.body;
-
-        if (!leadId) {
-            return res.status(400).json({ error: 'leadId is required' });
-        }
-
-        // Fetch the lead — supports main leads and EA leads
-        let lead = null;
-        if (leadType === 'ea_lead') {
-            lead = await EALead.findById(leadId).lean();
-        } else {
-            // Default: main lead
-            lead = await Lead.findById(leadId).lean();
-        }
-
-        if (!lead) {
-            return res.status(404).json({ error: 'Lead not found' });
-        }
-
-        // Sales rep access check for main leads
-        if (leadType !== 'ea_lead' && req.currentUserRole === 'sales_rep') {
-            const assignedId = lead.assigned_to ? lead.assigned_to.toString() : null;
-            if (assignedId && assignedId !== req.user.id) {
-                return res.status(403).json({ error: 'Access denied. This lead is not assigned to you.' });
-            }
-        }
-
-        // Extract last 10 SMS messages from smsHistory
-        const smsHistory = lead.smsHistory || [];
-        const recentMessages = smsHistory.slice(-10);
-
-        const contactPersonName = contactName || lead.contacts?.[0]?.name || lead.main_contact_name || '';
-
-        // Call AI service
-        const draft = await aiService.generateSmsMessage({
-            leadName:       lead.name,
-            contactName:    contactPersonName,
-            leadStatus:     lead.status,
-            recentMessages,
-            userPrompt:     userPrompt || ''
-        });
-
-        if (!draft) {
-            return res.status(500).json({ error: 'AI returned an empty response. Please try again.' });
-        }
-
-        return res.json({ success: true, draft });
-
-    } catch (error) {
-        console.error('AI Generate SMS Error:', error);
-        return res.status(500).json({
-            error: error.message || 'Failed to generate AI SMS message'
-        });
     }
 };
 
@@ -895,3 +900,157 @@ export const updateConsent = async (req, res) => {
         return res.status(500).json({ error: error.message || 'Failed to update SMS consent' });
     }
 };
+
+/**
+ * Generate an AI-assisted SMS draft message
+ * POST /api/sms/ai-generate-sms
+ */
+export const generateSmsMessage = async (req, res) => {
+    try {
+        const { leadId, leadType, prompt, currentText, isBulk } = req.body;
+
+        if (isBulk) {
+            let knowledgeBase = null;
+            try {
+                knowledgeBase = await RetellKnowledgeBase.getOrCreateDefault();
+            } catch (kbErr) {
+                console.warn('[AI Bulk SMS Assistant] Could not load knowledge base:', kbErr.message);
+            }
+
+            const draft = await aiService.generateBulkSmsMessage({
+                userPrompt: prompt || '',
+                currentText: currentText || '',
+                knowledgeBase
+            });
+
+            return res.status(200).json({
+                success: true,
+                draft: draft || '',
+                draftMessage: draft || ''
+            });
+        }
+
+        // Parallel execution with resilient fallbacks for 1-on-1 SMS
+        let targetLead = null;
+        let contactName = req.body.contactName || '';
+        let leadName = req.body.leadName || '';
+        let leadStatus = 'Active';
+        let smsHistory = [];
+        let knowledgeBase = null;
+
+        const dbTasks = [];
+
+        // Task 1: Fetch Knowledge Base in parallel
+        dbTasks.push(
+            RetellKnowledgeBase.getOrCreateDefault()
+                .then(kb => ({ type: 'kb', data: kb }))
+                .catch(err => {
+                    console.warn('[AI SMS Assistant] KB fetch fallback:', err.message);
+                    return { type: 'kb', data: null };
+                })
+        );
+
+        // Task 2: Fetch Lead in parallel if valid leadId provided
+        if (leadId) {
+            const fetchLeadPromise = (async () => {
+                try {
+                    if (leadType === 'ea_lead') {
+                        return await EALead.findById(leadId).lean();
+                    } else {
+                        return await Lead.findById(leadId).lean();
+                    }
+                } catch (leadErr) {
+                    console.warn('[AI SMS Assistant] Lead fetch fallback:', leadErr.message);
+                    return null;
+                }
+            })().then(l => ({ type: 'lead', data: l }));
+
+            dbTasks.push(fetchLeadPromise);
+        }
+
+        // Execute all DB queries simultaneously in parallel
+        const taskResults = await Promise.allSettled(dbTasks);
+        for (const resItem of taskResults) {
+            if (resItem.status === 'fulfilled' && resItem.value) {
+                if (resItem.value.type === 'kb') {
+                    knowledgeBase = resItem.value.data;
+                } else if (resItem.value.type === 'lead' && resItem.value.data) {
+                    targetLead = resItem.value.data;
+                }
+            }
+        }
+
+        // Extract lead properties if lead was found
+        if (targetLead) {
+            leadName = targetLead.name || leadName;
+            smsHistory = targetLead.smsHistory || [];
+
+            if (leadType === 'ea_lead') {
+                contactName = contactName || targetLead.name || '';
+                leadStatus = targetLead.source || 'EA Lead';
+            } else {
+                leadStatus = targetLead.status || targetLead.type || 'CRM Lead';
+                if (!contactName) {
+                    try {
+                        const primaryContact = await Contact.findOne({ lead_id: targetLead._id, is_primary: true }).lean() ||
+                                               await Contact.findOne({ lead_id: targetLead._id }).lean();
+                        if (primaryContact) {
+                            contactName = primaryContact.name || '';
+                        }
+                    } catch (cErr) {
+                        console.warn('[AI SMS Assistant] Contact fetch fallback:', cErr.message);
+                    }
+                }
+            }
+
+            // Sales rep access check for main leads
+            if (leadType !== 'ea_lead' && req.currentUserRole === 'sales_rep') {
+                const assignedId = targetLead.assigned_to ? targetLead.assigned_to.toString() : null;
+                if (assignedId && assignedId !== req.user?.id) {
+                    return res.status(403).json({ error: 'Access denied. This lead is not assigned to you.' });
+                }
+            }
+        }
+
+        // Generate draft with Claude Sonnet 4.6 (even if DB is unavailable, safe defaults apply)
+        const draft = await aiService.generateSmsMessage({
+            leadName: leadName || req.body.recipientName || 'Parent / Athlete',
+            contactName: contactName || leadName || req.body.recipientName || 'Parent / Athlete',
+            leadType: leadType || (targetLead instanceof EALead ? 'ea_lead' : 'main_lead'),
+            leadStatus,
+            recentMessages: smsHistory,
+            userPrompt: prompt || req.body.userPrompt || '',
+            currentText: currentText || '',
+            knowledgeBase
+        });
+
+        return res.status(200).json({
+            success: true,
+            draft: draft || '',
+            draftMessage: draft || ''
+        });
+    } catch (error) {
+        console.error('Error generating AI SMS draft:', error);
+        // Fallback draft generation so user is never blocked
+        try {
+            const fallbackDraft = await aiService.generateSmsMessage({
+                leadName: req.body.leadName || req.body.recipientName || 'Parent / Athlete',
+                contactName: req.body.contactName || 'Parent / Athlete',
+                leadType: req.body.leadType || 'main_lead',
+                leadStatus: 'Active',
+                recentMessages: [],
+                userPrompt: req.body.prompt || req.body.userPrompt || '',
+                currentText: req.body.currentText || '',
+                knowledgeBase: null
+            });
+            return res.status(200).json({
+                success: true,
+                draft: fallbackDraft || '',
+                draftMessage: fallbackDraft || ''
+            });
+        } catch (fallbackErr) {
+            return res.status(500).json({ error: error.message || 'Failed to generate AI SMS draft' });
+        }
+    }
+};
+
