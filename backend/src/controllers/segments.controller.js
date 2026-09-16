@@ -3,6 +3,7 @@ import Lead from '../models/lead.model.js';
 import Contact from '../models/contact.model.js';
 import User from '../models/user.model.js';
 import EmailSegment from '../models/emailSegment.model.js';
+import MarketingContact from '../models/emailMarketingContact.model.js';
 
 // ── SEGMENT HELPERS ─────────────────────────────────────────────────────────
 
@@ -25,6 +26,15 @@ export const resolveSegmentRecipients = async (segment) => {
                         if (primContact) {
                             leadId = primContact.lead_id;
                             leadModel = 'Lead';
+                        } else {
+                            const mc = await MarketingContact.findOne({ email: contact.email.toLowerCase().trim() }).lean();
+                            if (mc) {
+                                if (mc.status === 'opted_out' || mc.isEmailConsent === false) {
+                                    continue; // Exclude opted-out marketing contacts
+                                }
+                                leadId = mc._id;
+                                leadModel = 'MarketingContact';
+                            }
                         }
                     }
 
@@ -32,7 +42,11 @@ export const resolveSegmentRecipients = async (segment) => {
                         email: contact.email.toLowerCase().trim(),
                         leadId,
                         leadModel,
-                        name: contact.name || contact.email.split('@')[0]
+                        name: contact.name || contact.email.split('@')[0],
+                        phone: contact.phone || '',
+                        school: contact.school || '',
+                        location: contact.location || '',
+                        source: contact.source || ''
                     });
                 }
             }
@@ -149,7 +163,7 @@ export const createSegment = async (req, res, next) => {
     try {
         const { name, description, type, filters, contacts } = req.body;
         
-        // Deduplicate contacts by email
+        // Deduplicate contacts by email and filter out any opted-out marketing contacts
         let uniqueContacts = [];
         if (contacts && Array.isArray(contacts)) {
             const seenEmails = new Set();
@@ -159,6 +173,23 @@ export const createSegment = async (req, res, next) => {
                 if (!seenEmails.has(normalized)) {
                     seenEmails.add(normalized);
                     uniqueContacts.push({ ...c, email: normalized });
+                }
+            }
+
+            // Exclude any contacts that are opted out in MarketingContact
+            if (uniqueContacts.length > 0) {
+                const emailsToCheck = uniqueContacts.map(c => c.email);
+                const optedOutList = await MarketingContact.find({
+                    email: { $in: emailsToCheck },
+                    $or: [
+                        { status: 'opted_out' },
+                        { isEmailConsent: false }
+                    ]
+                }).select('email').lean();
+                
+                if (optedOutList.length > 0) {
+                    const optedOutEmails = new Set(optedOutList.map(o => o.email.toLowerCase().trim()));
+                    uniqueContacts = uniqueContacts.filter(c => !optedOutEmails.has(c.email));
                 }
             }
         }
@@ -281,7 +312,7 @@ export const updateSegment = async (req, res, next) => {
         // Handle contacts update or appending
         if (contacts && Array.isArray(contacts)) {
             const seenEmails = new Set();
-            const uniqueContacts = [];
+            let uniqueContacts = [];
             for (const c of contacts) {
                 if (!c || !c.email) continue;
                 const normalized = c.email.toLowerCase().trim();
@@ -294,6 +325,24 @@ export const updateSegment = async (req, res, next) => {
                     });
                 }
             }
+
+            // Exclude any contacts that are opted out in MarketingContact
+            if (uniqueContacts.length > 0) {
+                const emailsToCheck = uniqueContacts.map(c => c.email);
+                const optedOutList = await MarketingContact.find({
+                    email: { $in: emailsToCheck },
+                    $or: [
+                        { status: 'opted_out' },
+                        { isEmailConsent: false }
+                    ]
+                }).select('email').lean();
+                
+                if (optedOutList.length > 0) {
+                    const optedOutEmails = new Set(optedOutList.map(o => o.email.toLowerCase().trim()));
+                    uniqueContacts = uniqueContacts.filter(c => !optedOutEmails.has(c.email));
+                }
+            }
+
             segment.contacts = uniqueContacts;
         } else if (newContacts && Array.isArray(newContacts) && newContacts.length > 0) {
             // Append new contacts while maintaining uniqueness
@@ -423,10 +472,11 @@ export const removeSegmentContact = async (req, res, next) => {
 
 export const getAvailableContacts = async (req, res, next) => {
     try {
-        const [contacts, eaLeads, teamMembers] = await Promise.all([
+        const [contacts, eaLeads, teamMembers, marketingContacts] = await Promise.all([
             Contact.find({ email: { $exists: true, $ne: '' } }).populate('lead_id', 'name isEmailConsent status').lean(),
             EALead.find({ email: { $exists: true, $ne: '' } }).lean(),
-            User.find({ email: { $exists: true, $ne: '' }, isActive: { $ne: false } }).select('_id name username email phone role').lean()
+            User.find({ email: { $exists: true, $ne: '' }, isActive: { $ne: false } }).select('_id name username email phone role').lean(),
+            MarketingContact.find({ email: { $exists: true, $ne: '' } }).lean()
         ]);
 
         const combined = [];
@@ -488,7 +538,64 @@ export const getAvailableContacts = async (req, res, next) => {
             });
         }
 
+        // 4. Process Marketing Contacts (from Registrations across 4 entry points)
+        for (const mc of marketingContacts) {
+            const email = mc.email ? mc.email.toLowerCase().trim() : '';
+            if (!email || !email.includes('@')) continue;
+
+            let tag = 'Marketing Contact';
+            if (mc.entryPoint === 'school') tag = `School (${mc.schoolName || 'Afterschool'})`;
+            else if (mc.entryPoint === 'location') tag = `Location (${mc.locationName || 'Evening'})`;
+            else if (mc.entryPoint === 'free_app') tag = 'Free App Member';
+            else if (mc.entryPoint === 'ea_lead') tag = 'EA Inquiry';
+
+            combined.push({
+                _id: mc._id.toString(),
+                leadId: mc._id.toString(),
+                leadName: mc.schoolName || mc.locationName || 'Marketing Registration',
+                name: mc.parentName || email.split('@')[0],
+                email,
+                phone: mc.phone || '',
+                leadType: 'marketing_contact',
+                categoryTag: tag,
+                school: mc.schoolName,
+                location: mc.locationName,
+                source: mc.source,
+                isConsent: mc.isEmailConsent !== false && mc.status === 'active'
+            });
+        }
+
         res.json(combined);
+    } catch (err) {
+        next(err);
+    }
+};
+
+export const getMarketingContactsForSegment = async (req, res, next) => {
+    try {
+        const contacts = await MarketingContact.find({
+            status: 'active',
+            isEmailConsent: { $ne: false }
+        })
+        .select('_id parentName email phone entryPoint schoolName schoolId locationName locationId source createdAt')
+        .sort({ createdAt: -1 })
+        .lean();
+
+        res.json({
+            success: true,
+            contacts: contacts.map(c => ({
+                _id: c._id.toString(),
+                name: c.parentName || c.email.split('@')[0],
+                email: c.email.toLowerCase().trim(),
+                phone: c.phone || '',
+                entryPoint: c.entryPoint || 'school',
+                schoolName: c.schoolName || '',
+                schoolId: c.schoolId || '',
+                locationName: c.locationName || '',
+                locationId: c.locationId || '',
+                source: c.source || 'Marketing Registration'
+            }))
+        });
     } catch (err) {
         next(err);
     }

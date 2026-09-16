@@ -1,6 +1,7 @@
 import express from 'express';
 import * as webhookController from '../controllers/webhook.controller.js';
 import { submitEALead } from '../controllers/eaLead.controller.js';
+import { handleMarketingRegistration, getMarketingWebhookHealth } from '../controllers/marketingWebhook.controller.js';
 
 const router = express.Router();
 
@@ -21,6 +22,10 @@ router.post('/twilio-sms-status', webhookController.handleTwilioSmsStatus);
 
 // Public endpoint for SendGrid Event Webhook
 router.post('/sendgrid', webhookController.handleSendGridWebhook);
+
+// Public endpoint for Single Unified Marketing Registration Webhook (All 4 Entry Points & Admin List Sync)
+router.post('/marketing-registration', handleMarketingRegistration);
+router.get('/marketing-registration/health', getMarketingWebhookHealth);
 
 export default router;
 

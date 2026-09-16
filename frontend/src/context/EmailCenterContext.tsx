@@ -9,6 +9,9 @@ export interface Segment {
   name: string;
   description?: string;
   type: "dynamic" | "static" | "campaign" | "csv";
+  category?: "school" | "location" | "app_members" | "ea_leads" | "csv" | "custom" | "campaign";
+  externalId?: string;
+  isSystemList?: boolean;
   filters?: {
     source?: string;
     sport?: string;
@@ -19,6 +22,12 @@ export interface Segment {
   contacts?: {
     name?: string;
     email: string;
+    phone?: string;
+    school?: string;
+    location?: string;
+    source?: string;
+    registrationCount?: number;
+    lastRegisteredAt?: string;
     status: "active" | "opted_out" | "bounced" | "failed";
   }[];
 }

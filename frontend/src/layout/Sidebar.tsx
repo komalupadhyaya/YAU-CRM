@@ -58,7 +58,14 @@ const topNavItems = [
   { to: "/lead-scheduler",  label: "Lead Scheduler",  icon: UserCheck },
   { to: "/ea-leads",        label: "EA Leads",        icon: Sparkles },
   { to: "/sms",             label: "SMS Messages",    icon: MessageSquare },
-  { to: "/email-center",    label: "Email Center",    icon: Mail },
+  { 
+    label: "Email Center", 
+    icon: Mail,
+    children: [
+      { to: "/email-center",        label: "Email Center",        icon: Mail },
+      { to: "/marketing-contacts",  label: "Marketing Contacts",  icon: Users },
+    ]
+  },
   { to: "/candidates",      label: "HC Candidates",      icon: UserPlus },
   // { to: "/history",      label: "History",         icon: History },
   { to: "/team",            label: "Team",            icon: Users },
@@ -124,6 +131,9 @@ export default function Sidebar() {
   const visibleTopNavItems = topNavItems.map(item => {
     if (item.children) {
       const visibleChildren = item.children.filter(child => {
+        if (child.to === '/email-center' || child.to === '/marketing-contacts') {
+          return permissions.viewEmailCenter; // admin only
+        }
         if (child.to === '/meetings/hr') return true;
         return true;
       });
@@ -135,6 +145,7 @@ export default function Sidebar() {
     
     if (item.to === '/team') return permissions.viewTeam;
     if (item.to === '/email-center') return permissions.viewEmailCenter; // admin only
+    if (item.to === '/marketing-contacts') return permissions.viewEmailCenter; // admin only
     if (item.to === '/lead-scheduler') return permissions.assignToOthers;
     if (item.to === '/candidates') return permissions.assignToOthers; // admin + manager only
     if (item.to === '/ea-leads') return permissions.viewEALeads; // admin + manager only

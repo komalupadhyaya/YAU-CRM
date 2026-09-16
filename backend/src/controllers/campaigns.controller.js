@@ -9,6 +9,7 @@ import EmailQueue from '../models/emailQueue.model.js';
 import { sendSendGridMail } from '../services/email/sendgrid.service.js';
 import aiService from '../services/ai/ai.service.js';
 import RetellKnowledgeBase from '../models/retellKnowledgeBase.model.js';
+import MarketingContact from '../models/emailMarketingContact.model.js';
 import dns from 'dns/promises';
 import mongoose from 'mongoose';
 import { resolveSegmentRecipients } from './segments.controller.js';
@@ -487,7 +488,14 @@ export const unsubscribeLead = async (req, res, next) => {
         const isValidLeadId = leadId && mongoose.Types.ObjectId.isValid(leadId) && leadId !== 'direct';
 
         if (isValidLeadId) {
-            if (model === 'EALead') {
+            if (model === 'MarketingContact') {
+                const mc = await MarketingContact.findByIdAndUpdate(
+                    leadId, 
+                    { status: 'opted_out', isEmailConsent: false }, 
+                    { new: true }
+                );
+                if (mc && mc.email) emailToOptOut = mc.email.toLowerCase().trim();
+            } else if (model === 'EALead') {
                 const ea = await EALead.findByIdAndUpdate(leadId, { isEmailConsent: false }, { new: true });
                 if (ea && ea.email) emailToOptOut = ea.email.toLowerCase().trim();
             } else {
@@ -499,8 +507,13 @@ export const unsubscribeLead = async (req, res, next) => {
             }
         }
 
-        // Opt out from all segment lists matching this email address
+        // Opt out from all marketing contacts and segment lists matching this email address
         if (emailToOptOut) {
+            await MarketingContact.updateMany(
+                { email: emailToOptOut },
+                { $set: { status: 'opted_out', isEmailConsent: false } }
+            );
+
             const EmailSegment = mongoose.model('EmailSegment');
             await EmailSegment.updateMany(
                 { "contacts.email": emailToOptOut },
@@ -932,8 +945,13 @@ export const resubscribeLead = async (req, res, next) => {
             }
         }
 
-        // 3. Update all EmailSegment contacts with this email to "active"
+        // 3. Update all EmailSegment contacts and MarketingContacts with this email to "active"
         if (cleanEmail) {
+            await MarketingContact.updateMany(
+                { email: cleanEmail },
+                { $set: { status: 'active', isEmailConsent: true } }
+            );
+
             const EmailSegment = mongoose.model('EmailSegment');
             await EmailSegment.updateMany(
                 { "contacts.email": cleanEmail },

@@ -62,9 +62,23 @@ import {
   X,
   HelpCircle,
   Edit2,
-  UserPlus
+  UserPlus,
+  ShieldCheck
 } from "lucide-react";
 import { toast } from "sonner";
+
+interface MarketingContactItem {
+  _id: string;
+  name: string;
+  email: string;
+  phone?: string;
+  entryPoint: "school" | "location" | "free_app";
+  schoolName?: string;
+  schoolId?: string;
+  locationName?: string;
+  locationId?: string;
+  source?: string;
+}
 import ReactQuill from "react-quill-new";
 import "react-quill-new/dist/quill.snow.css";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -77,7 +91,10 @@ interface Segment {
   _id: string;
   name: string;
   description?: string;
-  type: "dynamic" | "static" | "campaign" | "csv";
+  type: "dynamic" | "static" | "campaign" | "csv" | "marketing";
+  category?: "school" | "location" | "app_members" | "ea_leads" | "csv" | "custom" | "campaign" | "marketing";
+  externalId?: string;
+  isSystemList?: boolean;
   filters?: {
     source?: string;
     sport?: string;
@@ -88,6 +105,12 @@ interface Segment {
   contacts?: {
     name?: string;
     email: string;
+    phone?: string;
+    school?: string;
+    location?: string;
+    source?: string;
+    registrationCount?: number;
+    lastRegisteredAt?: string;
     status: "active" | "opted_out" | "bounced" | "failed";
   }[];
 }
@@ -228,6 +251,10 @@ export default function EmailCenter() {
     fetchHistory,
     resubscribeContact
   } = useEmailCenter();
+
+  // Webhook Integration Guide State
+  const [isWebhookGuideOpen, setIsWebhookGuideOpen] = useState(false);
+  const [copiedWebhookPayload, setCopiedWebhookPayload] = useState<string | null>(null);
 
   // Database Template & Groq AI States
   const [isAiTemplateModalOpen, setIsAiTemplateModalOpen] = useState(false);
@@ -422,7 +449,7 @@ export default function EmailCenter() {
   const [segmentForm, setSegmentForm] = useState({
     name: "",
     description: "",
-    type: "csv" as "csv" | "static" | "campaign" | "dynamic",
+    type: "csv" as "csv" | "static" | "campaign" | "dynamic" | "marketing",
     filters: {
       source: "",
       sport: "",
@@ -477,8 +504,15 @@ export default function EmailCenter() {
   const [existingSegmentContacts, setExistingSegmentContacts] = useState<{ name: string; email: string; status?: string }[]>([]);
   const [existingSelectedEmails, setExistingSelectedEmails] = useState<string[]>([]);
   const [existingContactsSearch, setExistingContactsSearch] = useState("");
-  const [segmentTab, setSegmentTab] = useState<"existing" | "csv" | "static" | "campaign">("csv");
+  const [segmentTab, setSegmentTab] = useState<"existing" | "csv" | "static" | "campaign" | "marketing">("csv");
   const [customContactsSearch, setCustomContactsSearch] = useState("");
+
+  // Marketing List Segment State
+  const [marketingListContacts, setMarketingListContacts] = useState<MarketingContactItem[]>([]);
+  const [selectedMarketingIds, setSelectedMarketingIds] = useState<string[]>([]);
+  const [loadingMarketingContacts, setLoadingMarketingContacts] = useState(false);
+  const [marketingSearchQuery, setMarketingSearchQuery] = useState("");
+  const [marketingChannelFilter, setMarketingChannelFilter] = useState<string>("all");
 
   const filteredExistingContacts = React.useMemo(() => {
     if (!existingContactsSearch.trim()) return existingSegmentContacts;
@@ -497,6 +531,24 @@ export default function EmailCenter() {
       (c.email && c.email.toLowerCase().includes(q))
     );
   }, [segmentForm.customContacts, customContactsSearch]);
+
+  const filteredMarketingContacts = React.useMemo(() => {
+    let list = marketingListContacts;
+    if (marketingChannelFilter && marketingChannelFilter !== "all") {
+      list = list.filter(c => c.entryPoint === marketingChannelFilter);
+    }
+    if (marketingSearchQuery.trim()) {
+      const q = marketingSearchQuery.toLowerCase().trim();
+      list = list.filter(c =>
+        (c.name && c.name.toLowerCase().includes(q)) ||
+        (c.email && c.email.toLowerCase().includes(q)) ||
+        (c.schoolName && c.schoolName.toLowerCase().includes(q)) ||
+        (c.locationName && c.locationName.toLowerCase().includes(q)) ||
+        (c.phone && c.phone.toLowerCase().includes(q))
+      );
+    }
+    return list;
+  }, [marketingListContacts, marketingChannelFilter, marketingSearchQuery]);
 
   const handleCopyEmail = (email: string) => {
     navigator.clipboard.writeText(email);
@@ -663,14 +715,19 @@ export default function EmailCenter() {
   const filteredSegments = React.useMemo(() => {
     let list = segments;
     if (segmentTypeFilter !== "all") {
-      list = list.filter(s => s.type === segmentTypeFilter);
+      if (["school", "location", "app_members", "ea_leads"].includes(segmentTypeFilter)) {
+        list = list.filter(s => s.category === segmentTypeFilter);
+      } else {
+        list = list.filter(s => s.type === segmentTypeFilter);
+      }
     }
     if (segmentsSearchQuery.trim()) {
       const q = segmentsSearchQuery.toLowerCase().trim();
       list = list.filter(s =>
         s.name.toLowerCase().includes(q) ||
         (s.description && s.description.toLowerCase().includes(q)) ||
-        s.type.toLowerCase().includes(q)
+        s.type.toLowerCase().includes(q) ||
+        (s.category && s.category.toLowerCase().includes(q))
       );
     }
     return list;
@@ -706,6 +763,7 @@ export default function EmailCenter() {
 
     const customCount = segmentForm.customContacts.length;
     const campaignCount = campaignSelectedIds.length;
+    const marketingCount = selectedMarketingIds.length;
 
     const totalSet = new Set<string>();
 
@@ -744,6 +802,13 @@ export default function EmailCenter() {
       }
     });
 
+    // 5. Marketing List
+    marketingListContacts.forEach(c => {
+      if (selectedMarketingIds.includes(c._id) && c.email) {
+        totalSet.add(c.email.toLowerCase().trim());
+      }
+    });
+
     return {
       totalUnique: totalSet.size,
       existingCount,
@@ -752,9 +817,10 @@ export default function EmailCenter() {
       eaCount,
       teamCount,
       campaignCount,
-      customCount
+      customCount,
+      marketingCount
     };
-  }, [editingSegmentId, existingSegmentContacts, existingSelectedEmails, csvSelectedEmails, csvParsedContacts, segmentForm.leadIds, availableContacts, segmentForm.customContacts, campaignSelectedIds, campaignPreviewContacts]);
+  }, [editingSegmentId, existingSegmentContacts, existingSelectedEmails, csvSelectedEmails, csvParsedContacts, segmentForm.leadIds, availableContacts, segmentForm.customContacts, campaignSelectedIds, campaignPreviewContacts, selectedMarketingIds, marketingListContacts]);
 
   const handleInlineCsvSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -906,6 +972,20 @@ export default function EmailCenter() {
     }
   }, []);
 
+  const fetchMarketingListContacts = useCallback(async () => {
+    setLoadingMarketingContacts(true);
+    try {
+      const res = await api.get("/emails/segments/marketing-contacts");
+      if (res.data?.success && Array.isArray(res.data.contacts)) {
+        setMarketingListContacts(res.data.contacts);
+      }
+    } catch (err) {
+      console.error("Failed to load marketing contacts for segment:", err);
+    } finally {
+      setLoadingMarketingContacts(false);
+    }
+  }, []);
+
   // Auto-fetch sales campaigns on mount and when opening segment modal
   useEffect(() => {
     fetchSalesCampaigns();
@@ -915,8 +995,9 @@ export default function EmailCenter() {
     if (isSegmentModalOpen) {
       fetchSalesCampaigns();
       fetchAvailableContacts();
+      fetchMarketingListContacts();
     }
-  }, [isSegmentModalOpen, fetchSalesCampaigns, fetchAvailableContacts]);
+  }, [isSegmentModalOpen, fetchSalesCampaigns, fetchAvailableContacts, fetchMarketingListContacts]);
 
   // CSV Import State
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -1921,6 +2002,9 @@ export default function EmailCenter() {
     setExistingContactsSearch("");
     setSegmentTab("csv");
     setCustomContactsSearch("");
+    setSelectedMarketingIds([]);
+    setMarketingSearchQuery("");
+    setMarketingChannelFilter("all");
     loadedCampaignIdsRef.current = "";
   }, []);
 
@@ -2101,12 +2185,18 @@ export default function EmailCenter() {
       .filter((c: any) => campaignSelectedIds.includes(c.leadId || c.email))
       .map((c: any) => ({ name: c.name, email: c.email, status: "active" }));
 
+    // 6. Selected Marketing List contacts (Active Subscribed Only)
+    const selectedMarketingContacts = marketingListContacts
+      .filter(c => selectedMarketingIds.includes(c._id))
+      .map(c => ({ name: c.name, email: c.email, status: "active" }));
+
     let contacts = [
       ...retainedExistingContacts,
       ...selectedCsvContacts,
       ...selectedCRMContacts,
       ...selectedCustomContacts,
-      ...selectedCampaignContacts
+      ...selectedCampaignContacts,
+      ...selectedMarketingContacts
     ];
 
     // Deduplicate contacts list by email (case-insensitive)
@@ -2140,10 +2230,12 @@ export default function EmailCenter() {
     let finalType = segmentForm.type;
     if (editingSegmentId) {
       finalType = segmentForm.type;
-    } else if (selectedCsvContacts.length > 0 && selectedCRMContacts.length === 0 && selectedCustomContacts.length === 0 && selectedCampaignContacts.length === 0) {
+    } else if (selectedCsvContacts.length > 0 && selectedCRMContacts.length === 0 && selectedCustomContacts.length === 0 && selectedCampaignContacts.length === 0 && selectedMarketingContacts.length === 0) {
       finalType = "csv";
-    } else if (selectedCampaignContacts.length > 0 && selectedCsvContacts.length === 0 && selectedCRMContacts.length === 0 && selectedCustomContacts.length === 0) {
+    } else if (selectedCampaignContacts.length > 0 && selectedCsvContacts.length === 0 && selectedCRMContacts.length === 0 && selectedCustomContacts.length === 0 && selectedMarketingContacts.length === 0) {
       finalType = "campaign";
+    } else if (selectedMarketingContacts.length > 0 && selectedCsvContacts.length === 0 && selectedCRMContacts.length === 0 && selectedCustomContacts.length === 0 && selectedCampaignContacts.length === 0) {
+      finalType = "marketing";
     } else {
       finalType = "static";
     }
@@ -2250,7 +2342,7 @@ export default function EmailCenter() {
   // Open Unified Edit Segment Modal (Pre-populates existing contacts into dedicated panel)
   const handleOpenEditSegment = (seg: Segment) => {
     setEditingSegmentId(seg._id);
-    const segType = seg.type === "dynamic" ? "dynamic" : seg.type === "campaign" ? "campaign" : seg.type === "csv" ? "csv" : "static";
+    const segType = seg.type === "dynamic" ? "dynamic" : seg.type === "campaign" ? "campaign" : seg.type === "csv" ? "csv" : seg.type === "marketing" ? "marketing" : "static";
 
     const activeCampId = typeof seg.filters?.campaignId === "object" && seg.filters?.campaignId ? (seg.filters.campaignId as any)._id : (seg.filters?.campaignId as string || "");
     const activeCampIds = (seg.filters as any)?.campaignIds || (activeCampId ? [activeCampId] : []);
@@ -2661,6 +2753,47 @@ export default function EmailCenter() {
     }));
   };
 
+  const getSegmentBadge = (seg: Segment) => {
+    if (seg.category === "school") {
+      return (
+        <span className="text-[9px] px-2.5 py-0.5 rounded-full font-extrabold uppercase border bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20">
+          🏫 School List
+        </span>
+      );
+    }
+    if (seg.category === "location") {
+      return (
+        <span className="text-[9px] px-2.5 py-0.5 rounded-full font-extrabold uppercase border bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20">
+          📍 Location List
+        </span>
+      );
+    }
+    if (seg.category === "app_members") {
+      return (
+        <span className="text-[9px] px-2.5 py-0.5 rounded-full font-extrabold uppercase border bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20">
+          📱 Free App Members
+        </span>
+      );
+    }
+    if (seg.category === "ea_leads") {
+      return (
+        <span className="text-[9px] px-2.5 py-0.5 rounded-full font-extrabold uppercase border bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20">
+          ⚡ EA Leads
+        </span>
+      );
+    }
+    return (
+      <span className={`text-[9px] px-2.5 py-0.5 rounded-full font-extrabold uppercase border ${
+        seg.type === "csv" ? "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20" :
+        seg.type === "campaign" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20" :
+        seg.type === "marketing" ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20" :
+        "bg-teal-500/10 text-teal-600 dark:text-teal-400 border-teal-500/20"
+      }`}>
+        {seg.type === "csv" ? "CSV Import" : seg.type === "campaign" ? "Sales Campaign" : seg.type === "marketing" ? "Marketing List" : "Static List"}
+      </span>
+    );
+  };
+
   return (
     <AppLayout>
       <div className="p-4 pt-1 space-y-3 max-w-7xl mx-auto flex-1 flex flex-col min-h-0">
@@ -2852,6 +2985,10 @@ export default function EmailCenter() {
                       title="Filter lists and segments by Type"
                     >
                       <option value="all">All Types</option>
+                      <option value="school">🏫 School Audiences</option>
+                      <option value="location">📍 Location Audiences</option>
+                      <option value="app_members">📱 Free App Members</option>
+                      <option value="ea_leads">⚡ EA Leads</option>
                       <option value="csv">CSV Import</option>
                       <option value="static">Manual / Static List</option>
                       <option value="campaign">Sales Campaign</option>
@@ -2886,6 +3023,14 @@ export default function EmailCenter() {
                       </button>
                     </div>
 
+                    <button
+                      type="button"
+                      onClick={() => setIsWebhookGuideOpen(true)}
+                      className="btn-secondary h-9 text-xs font-bold flex items-center gap-1.5 rounded-xl shrink-0"
+                      title="API Bridge Documentation: Single Webhook Endpoint & JSON Payload"
+                    >
+                      <Code2 size={14} className="text-primary" /> Webhook API Guide
+                    </button>
                     <button
                       onClick={() => setIsImportModalOpen(true)}
                       className="btn-secondary h-9 text-xs font-bold flex items-center gap-1.5 rounded-xl shrink-0"
@@ -3302,12 +3447,7 @@ export default function EmailCenter() {
                                   )}
                                 </td>
                                 <td className="p-3.5 align-middle">
-                                  <span className={`text-[9px] px-2.5 py-0.5 rounded-full font-extrabold uppercase border ${seg.type === "csv" ? "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20" :
-                                      seg.type === "campaign" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20" :
-                                        "bg-teal-500/10 text-teal-600 dark:text-teal-400 border-teal-500/20"
-                                    }`}>
-                                    {seg.type === "csv" ? "CSV Import" : seg.type === "campaign" ? "Sales Campaign" : "Static List"}
-                                  </span>
+                                  {getSegmentBadge(seg)}
                                 </td>
                                 <td className="p-3.5 align-middle">
                                   <span className="font-bold text-foreground text-xs flex items-center gap-1.5">
@@ -3373,12 +3513,7 @@ export default function EmailCenter() {
                         >
                           <div>
                             <div className="flex items-center justify-between gap-2">
-                              <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-extrabold uppercase border ${seg.type === "csv" ? "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20" :
-                                  seg.type === "campaign" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20" :
-                                    "bg-teal-500/10 text-teal-600 dark:text-teal-400 border-teal-500/20"
-                                }`}>
-                                {seg.type === "csv" ? "CSV Import" : seg.type === "campaign" ? "Sales Campaign" : "Static List"}
-                              </span>
+                              {getSegmentBadge(seg)}
                               <span className="text-[11px] font-bold text-muted-foreground flex items-center gap-1 bg-accent/30 px-2.5 py-1 rounded-full">
                                 <Users size={12} className="text-primary" /> {seg.contacts?.length || 0} Recipients
                               </span>
@@ -4856,7 +4991,7 @@ export default function EmailCenter() {
 
       {/* --- DIALOG 2: SEGMENT BUILDER DIALOG (CREATE & EDIT) --- */}
       <Dialog open={isSegmentModalOpen} onOpenChange={(open) => { if (!open) resetSegmentModalState(); setIsSegmentModalOpen(open); }}>
-        <DialogContent className={`w-[95vw] transition-all duration-300 ${segmentForm.type === "dynamic" ? "max-w-lg" : "max-w-3xl"} max-h-[85vh] p-0 flex flex-col overflow-hidden dark:bg-card`}>
+        <DialogContent className={`w-[96vw] transition-all duration-300 ${segmentForm.type === "dynamic" ? "max-w-lg" : "max-w-5xl xl:max-w-6xl"} h-[88vh] max-h-[88vh] min-h-[600px] p-0 flex flex-col overflow-hidden dark:bg-card`}>
           <DialogHeader className="p-5 pb-3 border-b shrink-0">
             <div className="flex items-center gap-2">
               {editingSegmentId ? <Edit2 className="text-primary h-5 w-5" /> : <Users className="text-primary h-5 w-5" />}
@@ -4978,6 +5113,20 @@ export default function EmailCenter() {
                               <strong className="text-foreground/80">How to use:</strong> Select one or more sales campaigns from the dropdown, preview all linked leads, and select specific leads or all campaign recipients.
                             </p>
                           </div>
+
+                          {/* Marketing List */}
+                          <div className="p-2.5 rounded-lg bg-accent/30 border border-border/60 space-y-1">
+                            <div className="flex items-center gap-1.5 font-bold text-emerald-600 dark:text-emerald-400">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
+                              <span>4. Marketing List</span>
+                            </div>
+                            <p className="text-[11px] text-foreground/90 font-medium">
+                              Import parent contacts from the Marketing database.
+                            </p>
+                            <p className="text-[10px] text-muted-foreground">
+                              <strong className="text-foreground/80">Opt-Out Protection:</strong> Only verified active subscribers are displayed. Opted-out / unsubscribed parents are strictly omitted.
+                            </p>
+                          </div>
                         </div>
 
                         <div className="pt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground border-t">
@@ -4990,16 +5139,16 @@ export default function EmailCenter() {
                 </div>
                 {/* Segment Selection / Edit Tab Toggle Pills */}
                 {editingSegmentId ? (
-                  <div className="flex bg-accent/40 border p-1 rounded-xl w-full gap-1">
+                  <div className="flex flex-wrap bg-accent/40 border p-1 rounded-xl w-full gap-1">
                     <button
                       type="button"
                       onClick={() => setSegmentTab("existing")}
-                      className={`flex-1 py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                      className={`flex-1 min-w-[120px] py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
                         segmentTab === "existing" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
                       }`}
                     >
                       <Users size={13} />
-                      <span>1. Current Contacts ({existingSelectedEmails.length}/{existingSegmentContacts.length})</span>
+                      <span>1. Current ({existingSelectedEmails.length}/{existingSegmentContacts.length})</span>
                     </button>
                     <button
                       type="button"
@@ -5007,12 +5156,12 @@ export default function EmailCenter() {
                         setSegmentTab("csv");
                         setSegmentForm(prev => ({ ...prev, type: "csv" }));
                       }}
-                      className={`flex-1 py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                      className={`flex-1 min-w-[100px] py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
                         segmentTab === "csv" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
                       }`}
                     >
                       <Upload size={13} />
-                      <span>2. Append CSV</span>
+                      <span>2. CSV</span>
                     </button>
                     <button
                       type="button"
@@ -5020,12 +5169,12 @@ export default function EmailCenter() {
                         setSegmentTab("static");
                         setSegmentForm(prev => ({ ...prev, type: "static" }));
                       }}
-                      className={`flex-1 py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                      className={`flex-1 min-w-[100px] py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
                         segmentTab === "static" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
                       }`}
                     >
                       <UserCheck size={13} />
-                      <span>3. Append CRM</span>
+                      <span>3. CRM</span>
                     </button>
                     <button
                       type="button"
@@ -5033,23 +5182,36 @@ export default function EmailCenter() {
                         setSegmentTab("campaign");
                         setSegmentForm(prev => ({ ...prev, type: "campaign" }));
                       }}
-                      className={`flex-1 py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                      className={`flex-1 min-w-[100px] py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
                         segmentTab === "campaign" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
                       }`}
                     >
                       <Sparkles size={13} />
-                      <span>4. Append Campaign</span>
+                      <span>4. Campaign</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSegmentTab("marketing");
+                        setSegmentForm(prev => ({ ...prev, type: "marketing" }));
+                      }}
+                      className={`flex-1 min-w-[110px] py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                        segmentTab === "marketing" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      <ShieldCheck size={13} />
+                      <span>5. Marketing List</span>
                     </button>
                   </div>
                 ) : (
-                  <div className="flex bg-accent/40 border p-1 rounded-xl w-full gap-1">
+                  <div className="flex flex-wrap bg-accent/40 border p-1 rounded-xl w-full gap-1">
                     <button
                       type="button"
                       onClick={() => {
                         setSegmentTab("csv");
                         setSegmentForm(prev => ({ ...prev, type: "csv" }));
                       }}
-                      className={`flex-1 py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all ${
+                      className={`flex-1 min-w-[90px] py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all ${
                         segmentForm.type === "csv" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
                       }`}
                     >
@@ -5061,7 +5223,7 @@ export default function EmailCenter() {
                         setSegmentTab("static");
                         setSegmentForm(prev => ({ ...prev, type: "static" }));
                       }}
-                      className={`flex-1 py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all ${
+                      className={`flex-1 min-w-[90px] py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all ${
                         segmentForm.type === "static" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
                       }`}
                     >
@@ -5073,11 +5235,24 @@ export default function EmailCenter() {
                         setSegmentTab("campaign");
                         setSegmentForm(prev => ({ ...prev, type: "campaign" }));
                       }}
-                      className={`flex-1 py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all ${
+                      className={`flex-1 min-w-[90px] py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all ${
                         segmentForm.type === "campaign" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
                       }`}
                     >
                       Sales Campaign
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSegmentTab("marketing");
+                        setSegmentForm(prev => ({ ...prev, type: "marketing" }));
+                      }}
+                      className={`flex-1 min-w-[110px] py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                        segmentForm.type === "marketing" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      <ShieldCheck size={13} className="shrink-0" />
+                      <span>Marketing List</span>
                     </button>
                   </div>
                 )}
@@ -5119,6 +5294,11 @@ export default function EmailCenter() {
                   {selectionBreakdown.campaignCount > 0 && (
                     <span className="px-2 py-0.5 rounded-md font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400">
                       Campaign: +{selectionBreakdown.campaignCount}
+                    </span>
+                  )}
+                  {selectionBreakdown.marketingCount > 0 && (
+                    <span className="px-2 py-0.5 rounded-md font-bold bg-emerald-600/10 text-emerald-600 dark:text-emerald-400">
+                      Marketing: +{selectionBreakdown.marketingCount}
                     </span>
                   )}
                   {selectionBreakdown.customCount > 0 && (
@@ -5195,7 +5375,7 @@ export default function EmailCenter() {
                   </div>
 
                   {/* Contacts List */}
-                  <div className="border border-border rounded-xl p-2 max-h-72 overflow-y-auto custom-scrollbar space-y-1 bg-accent/5">
+                  <div className="border border-border rounded-xl p-2.5 min-h-[380px] max-h-[460px] overflow-y-auto custom-scrollbar space-y-1 bg-accent/5 flex-1">
                     {existingSegmentContacts.length === 0 ? (
                       <div className="py-12 text-center text-muted-foreground space-y-1">
                         <Users size={28} className="mx-auto opacity-30" />
@@ -5615,7 +5795,7 @@ export default function EmailCenter() {
                     </div>
 
                     {/* Checklist Container */}
-                    <div className="max-h-60 overflow-y-auto border border-border rounded-xl p-2.5 space-y-1.5 bg-accent/5 custom-scrollbar flex-1">
+                    <div className="min-h-[380px] max-h-[460px] overflow-y-auto border border-border rounded-xl p-2.5 space-y-1.5 bg-accent/5 custom-scrollbar flex-1">
                       {loadingContacts ? (
                         <div className="flex justify-center items-center py-10">
                           <Loader2 className="animate-spin text-primary h-5 w-5" />
@@ -5905,7 +6085,7 @@ export default function EmailCenter() {
                     </div>
 
                     {/* Contacts List Container */}
-                    <div className="max-h-60 overflow-y-auto border border-border rounded-xl p-2.5 space-y-1.5 bg-accent/5 custom-scrollbar flex-1">
+                    <div className="min-h-[380px] max-h-[460px] overflow-y-auto border border-border rounded-xl p-2.5 space-y-1.5 bg-accent/5 custom-scrollbar flex-1">
                       {!segmentForm.filters.campaignId ? (
                         <p className="text-[11px] text-muted-foreground text-center py-10">Select a Sales Campaign on the left to view contacts.</p>
                       ) : loadingCampaignPreview ? (
@@ -5959,6 +6139,224 @@ export default function EmailCenter() {
                         })
                       )}
                     </div>
+                  </div>
+                </div>
+              ) : segmentTab === "marketing" || (segmentForm.type === "marketing" && !editingSegmentId) ? (
+                /* Marketing List Tab Panel */
+                <div className="space-y-3.5 border-t pt-4 animate-in fade-in duration-200 text-left">
+                  {/* Header & Description */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <h4 className="text-xs font-bold uppercase text-primary flex items-center gap-1.5">
+                        <ShieldCheck size={14} className="text-emerald-500" /> Marketing List Contacts
+                      </h4>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Select parent names and emails from the marketing database. All active opted-in parents are available below.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-2.5 py-1 rounded-full border border-emerald-500/20">
+                        {selectedMarketingIds.length} / {marketingListContacts.length} Selected
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Guaranteed Opt-Out / Unsubscribe Compliance Notice */}
+                  <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-start gap-2.5">
+                    <ShieldCheck className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                    <div className="text-[11px] leading-relaxed text-emerald-950 dark:text-emerald-200">
+                      <strong className="font-semibold text-emerald-800 dark:text-emerald-300">Opt-Out & Unsubscribe Protection Active:</strong> Any parent who has unsubscribed or opted out has been strictly excluded from this list and cannot be imported. Only parents with verified active consent are eligible.
+                    </div>
+                  </div>
+
+                  {/* Channel Filter Badges */}
+                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide mr-1">Filter Channel:</span>
+                    <button
+                      type="button"
+                      onClick={() => setMarketingChannelFilter("all")}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
+                        marketingChannelFilter === "all" || !marketingChannelFilter
+                          ? "bg-primary text-white shadow-xs"
+                          : "bg-muted/40 text-muted-foreground hover:text-foreground hover:bg-muted/70"
+                      }`}
+                    >
+                      All Channels ({marketingListContacts.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMarketingChannelFilter("school")}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
+                        marketingChannelFilter === "school"
+                          ? "bg-blue-600 text-white shadow-xs"
+                          : "bg-muted/40 text-muted-foreground hover:text-foreground hover:bg-muted/70"
+                      }`}
+                    >
+                      Schools ({marketingListContacts.filter(c => c.entryPoint === "school").length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMarketingChannelFilter("location")}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
+                        marketingChannelFilter === "location"
+                          ? "bg-emerald-600 text-white shadow-xs"
+                          : "bg-muted/40 text-muted-foreground hover:text-foreground hover:bg-muted/70"
+                      }`}
+                    >
+                      Locations ({marketingListContacts.filter(c => c.entryPoint === "location").length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMarketingChannelFilter("free_app")}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
+                        marketingChannelFilter === "free_app"
+                          ? "bg-amber-600 text-white shadow-xs"
+                          : "bg-muted/40 text-muted-foreground hover:text-foreground hover:bg-muted/70"
+                      }`}
+                    >
+                      Free App ({marketingListContacts.filter(c => c.entryPoint === "free_app").length})
+                    </button>
+                  </div>
+
+                  {/* Search and Bulk Selection Controls */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                    <div className="relative flex-1">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                      <input
+                        id="marketing-contacts-search-input"
+                        name="marketing_contacts_search"
+                        aria-label="Search marketing contacts by name, email, school, or location"
+                        type="text"
+                        placeholder="Search by parent name, email, school, or location..."
+                        value={marketingSearchQuery}
+                        onChange={e => setMarketingSearchQuery(e.target.value)}
+                        className="!pl-9 pr-8 h-9 input-field text-xs w-full bg-card"
+                      />
+                      {marketingSearchQuery && (
+                        <button
+                          type="button"
+                          onClick={() => setMarketingSearchQuery("")}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
+                        >
+                          <X size={13} />
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const allFilteredIds = filteredMarketingContacts.map(c => c._id);
+                          setSelectedMarketingIds(prev => Array.from(new Set([...prev, ...allFilteredIds])));
+                        }}
+                        className="text-[11px] font-bold text-primary hover:underline cursor-pointer"
+                      >
+                        Select All Filtered ({filteredMarketingContacts.length})
+                      </button>
+                      <span className="text-muted-foreground">|</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const allFilteredIds = filteredMarketingContacts.map(c => c._id);
+                          setSelectedMarketingIds(prev => prev.filter(id => !allFilteredIds.includes(id)));
+                        }}
+                        className="text-[11px] font-bold text-muted-foreground hover:text-foreground hover:underline cursor-pointer"
+                      >
+                        Deselect All Filtered
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Contacts Checklist List Container */}
+                  <div className="min-h-[380px] max-h-[460px] overflow-y-auto border border-border rounded-xl p-2.5 space-y-2 bg-accent/5 custom-scrollbar flex-1">
+                    {loadingMarketingContacts ? (
+                      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-2">
+                        <Loader2 className="animate-spin text-primary h-6 w-6" />
+                        <span className="text-xs">Loading marketing contacts...</span>
+                      </div>
+                    ) : marketingListContacts.length === 0 ? (
+                      <div className="py-12 text-center text-muted-foreground space-y-1">
+                        <ShieldCheck size={28} className="mx-auto opacity-30 text-emerald-500" />
+                        <p className="text-xs font-semibold">No active subscribed marketing contacts found.</p>
+                        <p className="text-[11px]">Parents will appear here once captured through marketing channels.</p>
+                      </div>
+                    ) : filteredMarketingContacts.length === 0 ? (
+                      <div className="py-10 text-center text-muted-foreground text-xs">
+                        {marketingSearchQuery.trim()
+                          ? `No contacts found matching "${marketingSearchQuery}".`
+                          : "No contacts found for the selected channel."}
+                      </div>
+                    ) : (
+                      filteredMarketingContacts.map((contact, idx) => {
+                        const isSelected = selectedMarketingIds.includes(contact._id);
+                        const channelLabel =
+                          contact.entryPoint === "school"
+                            ? "School"
+                            : contact.entryPoint === "location"
+                            ? "Location"
+                            : "Free App";
+
+                        const channelColor =
+                          contact.entryPoint === "school"
+                            ? "bg-blue-500/10 text-blue-600 dark:text-blue-400"
+                            : contact.entryPoint === "location"
+                            ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                            : "bg-amber-500/10 text-amber-600 dark:text-amber-400";
+
+                        const contextDetail =
+                          contact.schoolName || contact.locationName || contact.source || "";
+
+                        return (
+                          <div
+                            key={contact._id || idx}
+                            onClick={() => {
+                              setSelectedMarketingIds(prev =>
+                                prev.includes(contact._id)
+                                  ? prev.filter(id => id !== contact._id)
+                                  : [...prev, contact._id]
+                              );
+                            }}
+                            className={`flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-colors border ${
+                              isSelected
+                                ? "bg-card border-border/80 shadow-2xs text-foreground"
+                                : "hover:bg-accent/30 border-transparent text-muted-foreground hover:text-foreground opacity-75"
+                            }`}
+                          >
+                            <input
+                              id={`marketing-contact-check-${idx}`}
+                              name="marketing_contact_check"
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {}}
+                              className="rounded border-input text-primary focus:ring-primary h-4 w-4 shrink-0 pointer-events-none cursor-pointer"
+                            />
+                            <div className="flex-1 min-w-0 text-left">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-xs truncate text-foreground">
+                                  {contact.name || "Parent Contact"}
+                                </span>
+                                <span className={`text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-md shrink-0 ${channelColor}`}>
+                                  {channelLabel}
+                                </span>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground mt-0.5">
+                                <span className="font-mono text-foreground/80">{contact.email}</span>
+                                {contact.phone && (
+                                  <span className="opacity-75">• {contact.phone}</span>
+                                )}
+                                {contextDetail && (
+                                  <span className="opacity-75 truncate">• {contextDetail}</span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="shrink-0 flex items-center gap-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md">
+                              <ShieldCheck size={11} />
+                              <span>Subscribed</span>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
                   </div>
                 </div>
               ) : (
@@ -6558,14 +6956,7 @@ export default function EmailCenter() {
                   <Users className="text-primary h-5 w-5 shrink-0" />
                   {selectedSegmentForView?.name || "Segment Contacts"}
                 </DialogTitle>
-                <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-extrabold uppercase shrink-0 border ${selectedSegmentForView?.type === "csv" ? "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20" :
-                    selectedSegmentForView?.type === "campaign" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20" :
-                      "bg-teal-500/10 text-teal-600 dark:text-teal-400 border-teal-500/20"
-                  }`}>
-                  {selectedSegmentForView?.type === "csv" ? "CSV Import" :
-                    selectedSegmentForView?.type === "campaign" ? "Sales Campaign" :
-                      selectedSegmentForView?.type || "Static List"}
-                </span>
+                {selectedSegmentForView && getSegmentBadge(selectedSegmentForView)}
               </div>
               {selectedSegmentForView?.description && (
                 <p className="text-xs text-muted-foreground truncate">{selectedSegmentForView.description}</p>
@@ -6648,8 +7039,35 @@ export default function EmailCenter() {
                           {initials}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <span className="font-bold text-foreground block truncate">{displayName}</span>
-                          <span className="text-[11px] text-muted-foreground block truncate mt-0.5">{contact.email}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-foreground block truncate">{displayName}</span>
+                            {contact.registrationCount && contact.registrationCount > 1 && (
+                              <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-primary/10 text-primary font-bold border border-primary/20 shrink-0" title={`Registered ${contact.registrationCount} times (Deduplicated)`}>
+                                {contact.registrationCount}x Registered
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 text-[11px] text-muted-foreground flex-wrap mt-0.5">
+                            <span className="truncate">{contact.email}</span>
+                            {contact.phone && (
+                              <>
+                                <span className="opacity-40">•</span>
+                                <span className="text-foreground/80 font-medium">{contact.phone}</span>
+                              </>
+                            )}
+                            {(contact.school || contact.location) && (
+                              <>
+                                <span className="opacity-40">•</span>
+                                <span className="text-primary font-medium">{contact.school || contact.location}</span>
+                              </>
+                            )}
+                            {contact.source && (
+                              <>
+                                <span className="opacity-40">•</span>
+                                <span className="text-muted-foreground text-[10px]">{contact.source}</span>
+                              </>
+                            )}
+                          </div>
                         </div>
                       </div>
 
@@ -6693,6 +7111,304 @@ export default function EmailCenter() {
               className="btn-secondary text-xs h-9 px-4"
             >
               Close Inspector
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* --- DIALOG 6: UNIFIED MARKETING WEBHOOK INTEGRATION GUIDE --- */}
+      <Dialog open={isWebhookGuideOpen} onOpenChange={setIsWebhookGuideOpen}>
+        <DialogContent className="w-[95vw] max-w-4xl max-h-[90vh] p-0 flex flex-col overflow-hidden dark:bg-card">
+          <DialogHeader className="p-5 pb-3 border-b shrink-0 bg-card">
+            <div className="flex items-center gap-2.5">
+              <div className="h-9 w-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-bold shrink-0">
+                <Code2 className="h-5 w-5" />
+              </div>
+              <div className="text-left">
+                <DialogTitle className="text-base font-extrabold tracking-tight text-foreground">
+                  API Bridge: Unified Marketing Registration Webhook
+                </DialogTitle>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Single webhook endpoint for all platforms (Mobile App, Registration Portal, Evening Inquiries & Admin Panel).
+                </p>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="p-5 space-y-4 flex-1 overflow-y-auto custom-scrollbar text-left text-xs">
+            {/* Endpoint URL Pill */}
+            <div className="p-3.5 bg-accent/20 border border-border/80 rounded-xl space-y-2">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <span className="font-bold text-foreground uppercase tracking-wider text-[10px] flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
+                  Single Ingestion Webhook URL
+                </span>
+                <span className="text-[10px] bg-primary/10 text-primary font-bold px-2 py-0.5 rounded-full">
+                  POST Method
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2 bg-card border rounded-lg p-2 px-3 font-mono text-[11px] text-foreground">
+                <span className="truncate">https://api.yauapp.com/api/webhooks/marketing-registration</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText("https://api.yauapp.com/api/webhooks/marketing-registration");
+                    setCopiedWebhookPayload("url");
+                    toast.success("Webhook URL copied to clipboard!");
+                    setTimeout(() => setCopiedWebhookPayload(null), 2000);
+                  }}
+                  className="btn-secondary h-7 px-2.5 text-[10px] font-bold shrink-0 flex items-center gap-1 cursor-pointer"
+                >
+                  {copiedWebhookPayload === "url" ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
+                  <span>{copiedWebhookPayload === "url" ? "Copied" : "Copy URL"}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Architecture Highlights */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-left">
+              <div className="p-3 rounded-xl border bg-card space-y-1">
+                <span className="font-bold text-primary flex items-center gap-1">
+                  <CheckCircle size={13} /> Strict Deduplication
+                </span>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  Parents registering multiple times with the same email update the existing contact, increment submission count, and never create duplicate records.
+                </p>
+              </div>
+              <div className="p-3 rounded-xl border bg-card space-y-1">
+                <span className="font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                  <CheckCircle size={13} /> Auto List Sync
+                </span>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  Automatically creates and maps matching School, Location, and Free App audiences in Email Center.
+                </p>
+              </div>
+              <div className="p-3 rounded-xl border bg-card space-y-1">
+                <span className="font-bold text-purple-600 dark:text-purple-400 flex items-center gap-1">
+                  <CheckCircle size={13} /> Safe Deletion Policy
+                </span>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  Any school or location deletions in the external admin panel leave the CRM list and its parent contacts 100% intact.
+                </p>
+              </div>
+            </div>
+
+            {/* Sample Payloads Section */}
+            <div className="space-y-3 pt-2">
+              <h4 className="font-extrabold text-xs text-foreground uppercase tracking-wider">
+                Payload Examples for the 4 Entry Points
+              </h4>
+
+              {/* Entry Point 1: School */}
+              <div className="border rounded-xl p-3.5 bg-card space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-xs text-blue-600 dark:text-blue-400 flex items-center gap-1.5">
+                    🏫 1. Selected School list (Afterschool Signups)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const payload = JSON.stringify({
+                        parentName: "Jane Doe",
+                        email: "jane.doe@example.com",
+                        phone: "555-123-4567",
+                        entryPoint: "school",
+                        schoolName: "Lincoln Elementary",
+                        schoolId: "sch_12345",
+                        source: "App Registration"
+                      }, null, 2);
+                      navigator.clipboard.writeText(payload);
+                      setCopiedWebhookPayload("school");
+                      toast.success("School payload copied!");
+                      setTimeout(() => setCopiedWebhookPayload(null), 2000);
+                    }}
+                    className="btn-secondary h-6.5 px-2 text-[10px] font-bold flex items-center gap-1"
+                  >
+                    {copiedWebhookPayload === "school" ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
+                    <span>{copiedWebhookPayload === "school" ? "Copied" : "Copy JSON"}</span>
+                  </button>
+                </div>
+                <pre className="p-2.5 bg-accent/20 rounded-lg text-[10px] font-mono overflow-x-auto text-foreground">
+{`{
+  "parentName": "Jane Doe",
+  "email": "jane.doe@example.com",
+  "phone": "555-123-4567",
+  "entryPoint": "school",
+  "schoolName": "Lincoln Elementary",
+  "schoolId": "sch_12345",
+  "source": "App Registration",
+  "metadata": {},
+  "status": "active" // "active" | "opted_out" (automatically set to "opted_out" when parent clicks Unsubscribe)
+}`}
+                </pre>
+              </div>
+
+              {/* Entry Point 2: Location */}
+              <div className="border rounded-xl p-3.5 bg-card space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
+                    📍 2. Selected Location list (Evening Activities Signup)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const payload = JSON.stringify({
+                        parentName: "John Smith",
+                        email: "john.smith@example.com",
+                        phone: "555-987-6543",
+                        entryPoint: "location",
+                        locationName: "North Gym",
+                        locationId: "loc_67890",
+                        source: "Evening Portal"
+                      }, null, 2);
+                      navigator.clipboard.writeText(payload);
+                      setCopiedWebhookPayload("location");
+                      toast.success("Location payload copied!");
+                      setTimeout(() => setCopiedWebhookPayload(null), 2000);
+                    }}
+                    className="btn-secondary h-6.5 px-2 text-[10px] font-bold flex items-center gap-1"
+                  >
+                    {copiedWebhookPayload === "location" ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
+                    <span>{copiedWebhookPayload === "location" ? "Copied" : "Copy JSON"}</span>
+                  </button>
+                </div>
+                <pre className="p-2.5 bg-accent/20 rounded-lg text-[10px] font-mono overflow-x-auto text-foreground">
+{`{
+  "parentName": "John Smith",
+  "email": "john.smith@example.com",
+  "phone": "555-987-6543",
+  "entryPoint": "location",
+  "locationName": "North Gym",
+  "locationId": "loc_67890",
+  "source": "Evening Portal"
+}`}
+                </pre>
+              </div>
+
+              {/* Entry Point 3: Free App Members */}
+              <div className="border rounded-xl p-3.5 bg-card space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                    📱 3. "Free App Members" list (No school or location)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const payload = JSON.stringify({
+                        parentName: "Sam Wilson",
+                        email: "sam.wilson@example.com",
+                        phone: "555-333-2222",
+                        entryPoint: "free_app",
+                        source: "Mobile App Download"
+                      }, null, 2);
+                      navigator.clipboard.writeText(payload);
+                      setCopiedWebhookPayload("free_app");
+                      toast.success("Free App payload copied!");
+                      setTimeout(() => setCopiedWebhookPayload(null), 2000);
+                    }}
+                    className="btn-secondary h-6.5 px-2 text-[10px] font-bold flex items-center gap-1"
+                  >
+                    {copiedWebhookPayload === "free_app" ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
+                    <span>{copiedWebhookPayload === "free_app" ? "Copied" : "Copy JSON"}</span>
+                  </button>
+                </div>
+                <pre className="p-2.5 bg-accent/20 rounded-lg text-[10px] font-mono overflow-x-auto text-foreground">
+{`{
+  "parentName": "Sam Wilson",
+  "email": "sam.wilson@example.com",
+  "phone": "555-333-2222",
+  "entryPoint": "free_app",
+  "source": "Mobile App Download"
+}`}
+                </pre>
+              </div>
+
+              {/* Entry Point 4: Dedicated EA Leads */}
+              <div className="border rounded-xl p-3.5 bg-card space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-xs text-purple-600 dark:text-purple-400 flex items-center gap-1.5">
+                    ⚡ 4. Dedicated EA Leads list (Evening Inquiries & SMS Pipeline)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const payload = JSON.stringify({
+                        parentName: "Diana Prince",
+                        email: "diana.prince@example.com",
+                        phone: "555-777-9999",
+                        entryPoint: "ea_lead",
+                        source: "Evening Inquiries"
+                      }, null, 2);
+                      navigator.clipboard.writeText(payload);
+                      setCopiedWebhookPayload("ea_lead");
+                      toast.success("EA Leads payload copied!");
+                      setTimeout(() => setCopiedWebhookPayload(null), 2000);
+                    }}
+                    className="btn-secondary h-6.5 px-2 text-[10px] font-bold flex items-center gap-1"
+                  >
+                    {copiedWebhookPayload === "ea_lead" ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
+                    <span>{copiedWebhookPayload === "ea_lead" ? "Copied" : "Copy JSON"}</span>
+                  </button>
+                </div>
+                <pre className="p-2.5 bg-accent/20 rounded-lg text-[10px] font-mono overflow-x-auto text-foreground">
+{`{
+  "parentName": "Diana Prince",
+  "email": "diana.prince@example.com",
+  "phone": "555-777-9999",
+  "entryPoint": "ea_lead",
+  "source": "Evening Inquiries"
+}`}
+                </pre>
+              </div>
+
+              {/* 5. Admin Panel List Sync & Retention Notification */}
+              <div className="border rounded-xl p-3.5 bg-card space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-xs text-indigo-600 dark:text-indigo-400 flex items-center gap-1.5">
+                    🔄 5. Admin Panel List Pre-Sync / Entity Creation Action
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const payload = JSON.stringify({
+                        action: "sync_list",
+                        entityType: "school",
+                        name: "Lincoln Elementary",
+                        id: "sch_12345"
+                      }, null, 2);
+                      navigator.clipboard.writeText(payload);
+                      setCopiedWebhookPayload("sync_list");
+                      toast.success("Admin sync payload copied!");
+                      setTimeout(() => setCopiedWebhookPayload(null), 2000);
+                    }}
+                    className="btn-secondary h-6.5 px-2 text-[10px] font-bold flex items-center gap-1"
+                  >
+                    {copiedWebhookPayload === "sync_list" ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
+                    <span>{copiedWebhookPayload === "sync_list" ? "Copied" : "Copy JSON"}</span>
+                  </button>
+                </div>
+                <pre className="p-2.5 bg-accent/20 rounded-lg text-[10px] font-mono overflow-x-auto text-foreground">
+{`{
+  "action": "sync_list",
+  "entityType": "school", // or "location"
+  "name": "Lincoln Elementary",
+  "id": "sch_12345"
+}`}
+                </pre>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="p-4 border-t bg-card shrink-0 flex items-center justify-between">
+            <span className="text-xs text-muted-foreground">
+              Endpoint Status: <strong className="text-emerald-600 dark:text-emerald-400">Live & Listening</strong>
+            </span>
+            <button
+              type="button"
+              onClick={() => setIsWebhookGuideOpen(false)}
+              className="btn-primary text-xs h-9 px-4 font-bold cursor-pointer"
+            >
+              Close Documentation
             </button>
           </DialogFooter>
         </DialogContent>

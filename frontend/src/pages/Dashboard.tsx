@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { useCampaignStore } from "../store/campaignStore";
 import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
+import { useSMS } from "../context/SMSContext";
 import { useDialerStore } from "../store/dialerStore";
 import { can } from "../utils/permissions";
 import { countryCodes } from "../utils/countryCodes";
@@ -74,6 +75,7 @@ export default function Dashboard() {
   const permissions = can(currentUser?.role);
   const isReadOnly = permissions.isReadOnly;
   const isSalesrepOrReadOnly = currentUser?.role === 'sales_rep' || currentUser?.role === 'view_only';
+  const isAdminOrManager = currentUser?.role === 'admin' || currentUser?.role === 'manager';
   const openDialer = useDialerStore(state => state.openDialer);
   const statsRef = useRef<HTMLDivElement>(null);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -93,6 +95,10 @@ export default function Dashboard() {
   const [loadingWeeklyReport, setLoadingWeeklyReport] = useState(true);
 
   const loadWeeklyReport = async () => {
+    if (!isAdminOrManager) {
+      setLoadingWeeklyReport(false);
+      return;
+    }
     try {
       setLoadingWeeklyReport(true);
       const res = await api.get("/reports/weekly-ai-report/latest");
@@ -126,47 +132,24 @@ export default function Dashboard() {
 
   const socket = useSocket();
 
-  // Live SMS Action Panel State
-  const [unreadSmsData, setUnreadSmsData] = useState<{
-    totalUnreadCount: number;
-    hotWarmCount?: number;
-    hotWarmMessages?: any[];
-    unreadMessages?: any[];
-    recentMessages: any[];
-  }>({ totalUnreadCount: 0, hotWarmCount: 0, hotWarmMessages: [], unreadMessages: [], recentMessages: [] });
-  const [loadingUnreadSms, setLoadingUnreadSms] = useState(true);
+  // Live SMS Action Panel State (backed by shared SMSContext)
+  const { unreadSmsData: contextUnreadSmsData, refreshUnreadCount } = useSMS();
+  const [loadingUnreadSms, setLoadingUnreadSms] = useState(false);
   const [activeSmsTab, setActiveSmsTab] = useState<"hot_warm" | "all">("hot_warm");
 
+  const unreadSmsData = contextUnreadSmsData || { totalUnreadCount: 0, hotWarmCount: 0, hotWarmMessages: [], unreadMessages: [], recentMessages: [] };
+
   const loadUnreadSms = async () => {
+    if (!isAdminOrManager) return;
     try {
       setLoadingUnreadSms(true);
-      const res = await api.get("/sms/unread-count");
-      if (res.data) {
-        setUnreadSmsData(res.data);
-      }
+      await refreshUnreadCount();
     } catch (err) {
-      console.error("Failed to load unread SMS messages:", err);
+      console.error("Failed to refresh SMS activity:", err);
     } finally {
       setLoadingUnreadSms(false);
     }
   };
-
-  // Real-time socket listener for SMS action panel updates
-  useEffect(() => {
-    if (!socket?.socket) return;
-    const s = socket.socket;
-    const handleSmsUpdate = () => {
-      loadUnreadSms();
-    };
-    s.on('sms:received', handleSmsUpdate);
-    s.on('sms:sent', handleSmsUpdate);
-    s.on('lead:score_updated', handleSmsUpdate);
-    return () => {
-      s.off('sms:received', handleSmsUpdate);
-      s.off('sms:sent', handleSmsUpdate);
-      s.off('lead:score_updated', handleSmsUpdate);
-    };
-  }, [socket?.socket]);
 
   // New Follow-up Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -264,8 +247,9 @@ export default function Dashboard() {
 
   useEffect(() => {
     load();
-    loadWeeklyReport();
-    loadUnreadSms();
+    if (isAdminOrManager) {
+      loadWeeklyReport();
+    }
     if (searchParams.get("action") === "new-followup") {
       setIsModalOpen(true);
       searchParams.delete("action");
@@ -727,7 +711,8 @@ export default function Dashboard() {
       </div>
 
 
-      {/* Lead Temperature Pipeline Section */}
+      {/* Lead Temperature Pipeline Section — Visible to Admin & Manager only */}
+      {isAdminOrManager && (
       <div className="bg-card border rounded-2xl p-6 shadow-sm mb-6 relative overflow-hidden">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
           <div className="flex items-center gap-3">
@@ -844,6 +829,7 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+      )}
 
       <div className="flex flex-col lg:flex-row gap-6">
         {/* Left Operational Column */}
@@ -992,7 +978,8 @@ export default function Dashboard() {
             )}
           </div>
 
-          {/* Weekly AI Executive Briefing Snapshot */}
+          {/* Weekly AI Executive Briefing Snapshot — Visible to Admin & Manager only */}
+          {isAdminOrManager && (
           <div className="bg-gradient-to-br from-card via-card to-primary/5 border border-primary/20 rounded-2xl p-6 shadow-sm relative overflow-hidden">
             <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-3xl -z-10 pointer-events-none" />
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-border/50">
@@ -1097,11 +1084,13 @@ export default function Dashboard() {
               </div>
             )}
           </div>
+          )}
         </div>
 
         {/* Right Operational Column */}
         <div className="w-full lg:w-[35%] space-y-6">
-          {/* Live SMS Action Panel (Mini-Inbox) */}
+          {/* Live SMS Action Panel (Mini-Inbox) — Visible to Admin & Manager only */}
+          {isAdminOrManager && (
           <div className="page-card dark:bg-card p-0 overflow-hidden border border-primary/20 shadow-sm">
             <div className="p-4 border-b flex items-center justify-between bg-gradient-to-r from-card to-primary/5">
               <div className="flex items-center gap-2.5">
@@ -1284,6 +1273,7 @@ export default function Dashboard() {
               </div>
             )}
           </div>
+          )}
           <div className="page-card dark:bg-card p-0 overflow-hidden">
             <div className="p-4 border-b">
               <h2 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Tasks & Follow-Ups</h2>
@@ -1895,7 +1885,8 @@ export default function Dashboard() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Weekly AI Executive Briefing Full Modal */}
+      {/* Weekly AI Executive Briefing Full Modal — Admin & Manager only */}
+      {isAdminOrManager && (
       <Dialog open={isWeeklyReportModalOpen} onOpenChange={setIsWeeklyReportModalOpen}>
         <DialogContent className="w-[95vw] max-w-5xl xl:max-w-6xl max-h-[92vh] flex flex-col p-6 sm:p-8">
           <DialogHeader className="pb-2 border-b border-border/40">
@@ -2031,6 +2022,7 @@ export default function Dashboard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      )}
     </AppLayout>
   );
 }
