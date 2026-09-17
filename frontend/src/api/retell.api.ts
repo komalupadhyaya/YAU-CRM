@@ -104,6 +104,7 @@ export interface RetellKnowledgeBaseData {
     objections: ObjectionItem[];
 
     humanTransferPhone: string;
+    humanTransferHoldMusic?: 'relaxing_sound' | 'uplifting_beats' | 'ringtone' | 'none';
     humanTransferTriggers: string[];
     transferDepartments?: TransferDepartmentItem[];
 

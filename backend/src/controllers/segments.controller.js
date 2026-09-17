@@ -538,29 +538,23 @@ export const getAvailableContacts = async (req, res, next) => {
             });
         }
 
-        // 4. Process Marketing Contacts (from Registrations across 4 entry points)
+        // 4. Process Marketing Contacts (from Registrations)
         for (const mc of marketingContacts) {
             const email = mc.email ? mc.email.toLowerCase().trim() : '';
             if (!email || !email.includes('@')) continue;
 
-            let tag = 'Marketing Contact';
-            if (mc.entryPoint === 'school') tag = `School (${mc.schoolName || 'Afterschool'})`;
-            else if (mc.entryPoint === 'location') tag = `Location (${mc.locationName || 'Evening'})`;
-            else if (mc.entryPoint === 'free_app') tag = 'Free App Member';
-            else if (mc.entryPoint === 'ea_lead') tag = 'EA Inquiry';
+            const tag = mc.source || 'App Registration';
 
             combined.push({
                 _id: mc._id.toString(),
                 leadId: mc._id.toString(),
-                leadName: mc.schoolName || mc.locationName || 'Marketing Registration',
+                leadName: mc.source || 'Marketing Registration',
                 name: mc.parentName || email.split('@')[0],
                 email,
                 phone: mc.phone || '',
                 leadType: 'marketing_contact',
                 categoryTag: tag,
-                school: mc.schoolName,
-                location: mc.locationName,
-                source: mc.source,
+                source: mc.source || 'App Registration',
                 isConsent: mc.isEmailConsent !== false && mc.status === 'active'
             });
         }
@@ -577,7 +571,7 @@ export const getMarketingContactsForSegment = async (req, res, next) => {
             status: 'active',
             isEmailConsent: { $ne: false }
         })
-        .select('_id parentName email phone entryPoint schoolName schoolId locationName locationId source createdAt')
+        .select('_id parentName email phone source createdAt')
         .sort({ createdAt: -1 })
         .lean();
 
@@ -588,12 +582,8 @@ export const getMarketingContactsForSegment = async (req, res, next) => {
                 name: c.parentName || c.email.split('@')[0],
                 email: c.email.toLowerCase().trim(),
                 phone: c.phone || '',
-                entryPoint: c.entryPoint || 'school',
-                schoolName: c.schoolName || '',
-                schoolId: c.schoolId || '',
-                locationName: c.locationName || '',
-                locationId: c.locationId || '',
-                source: c.source || 'Marketing Registration'
+                source: c.source || 'App Registration',
+                entryPoint: c.source || 'free_app' // backward compatibility fallback
             }))
         });
     } catch (err) {

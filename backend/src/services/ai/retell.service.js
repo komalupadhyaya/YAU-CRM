@@ -64,18 +64,18 @@ export function buildPromptFromKnowledgeBase(kb) {
         ? kb.transferDepartments
         : [
             {
-                departmentName: 'Executive Management & Escalations',
+                departmentName: 'General Inquiries & Sports Programs',
                 phoneNumber: kb.humanTransferPhone || '+12027013900',
-                triggers: 'Director requests, management escalations, serious complaints, special circumstance reviews',
+                triggers: 'General inquiries, school info, sports programs, after school programs, basic questions about YAU',
                 transferType: 'warm_transfer',
-                onHoldMusic: 'ringtone'
+                onHoldMusic: kb.humanTransferHoldMusic || 'relaxing_sound'
             },
             {
-                departmentName: 'Program Coordination & Support',
+                departmentName: 'Membership Cancellations, Billing & HR',
                 phoneNumber: '+12023413778',
-                triggers: 'Registration questions, scheduling details, program coordinator requests, team assignments',
+                triggers: 'Membership cancellations, payments, billing, HR, job inquiries, interviews, staff questions',
                 transferType: 'warm_transfer',
-                onHoldMusic: 'ringtone'
+                onHoldMusic: 'relaxing_sound'
             }
         ];
 
@@ -142,16 +142,17 @@ ${toneRulesStr}
 
 ---
 
-## 4. UNATTENDED TRANSFER & VOICEMAIL PROTOCOL
-- If you initiate a call transfer during open business hours and the department or team member does not answer (unattended / busy / unavailable):
+## 4. HUMAN TRANSFER FIRST & VOICEMAIL PROTOCOL (STRICT PRIORITY)
+- **TRANSFER-FIRST MANDATE (BUSINESS HOURS)**: During open business hours, you must ALWAYS attempt a call transfer to the matching department (+12027013900 or +12023413778) or general live staff (+12027013900) FIRST. NEVER jump directly to offering or taking a voicemail while the office is open. Voicemail is strictly a fallback if a transfer attempt goes unanswered.
+- **UNATTENDED TRANSFER FALLBACK**: If you initiate a call transfer during open business hours and the department or team member does not answer (unattended / busy / unavailable):
   - Step in gracefully and say:
-  - *"${kb.takeMessageScript || 'It looks like our team member is currently unavailable or on another line. No problem at all! Would you like to leave a voicemail for our team? Go ahead and leave your name and what you need help with, and someone from our team will listen to your voicemail and call you right back.'}"*
+  - *"${kb.takeMessageScript || 'It looks like our team member is currently unavailable or on another line. No problem at all! Would you like to leave a voicemail for our team? Go ahead and leave your name and what you need help with, and someone from our team will listen to your voicemail and call you back right back.'}"*
   - **If the caller agrees and leaves a voicemail**:
     - Ask for their **name** and **what they need help with** (do NOT ask for their phone number since caller ID is automatic).
     - Reassure them: *"Thank you! I have recorded your voicemail for our team and someone will call you back shortly."*
   - **If the caller declines or refuses to leave a voicemail** (e.g. says "no thanks", "I'll call back later", "never mind", "I don't want to leave a voicemail"):
     - Politely say: *"No problem at all! Feel free to call us back whenever it is convenient for you. Have a wonderful day!"*
-    - **Immediately invoke the end_call tool** to terminate the call.
+    - **Immediately invoke the end_call tool** to terminate the phone call.
 
 ---
 
@@ -325,25 +326,26 @@ export async function syncKnowledgeBaseToRetell(kbParam) {
 
     const compiledPrompt = buildPromptFromKnowledgeBase(kb);
     const welcomeMsg = kb.welcomeMessage || 'Thank you for calling Youth Athlete University! This is Cimo — how can I help you and your athlete today?';
-    const transferNumber = kb.humanTransferPhone || process.env.RETELL_TRANSFER_NUMBER || '+12027013900';
+    const transferNumber = kb.humanTransferPhone || '+12027013900';
+    const fallbackHoldMusic = kb.humanTransferHoldMusic || 'relaxing_sound';
 
     // Build dynamic transfer_call tools for each department
     const departments = (kb.transferDepartments && kb.transferDepartments.length > 0)
         ? kb.transferDepartments
         : [
             {
-                departmentName: 'Executive Management & Escalations',
+                departmentName: 'General Inquiries & Sports Programs',
                 phoneNumber: '+12027013900',
-                triggers: 'Director requests, management escalations, serious complaints, special circumstance reviews',
+                triggers: 'General inquiries, school info, sports programs, after school programs, basic questions about YAU',
                 transferType: 'warm_transfer',
-                onHoldMusic: 'ringtone'
+                onHoldMusic: 'relaxing_sound'
             },
             {
-                departmentName: 'Program Coordination & Support',
+                departmentName: 'Membership Cancellations, Billing & HR',
                 phoneNumber: '+12023413778',
-                triggers: 'Registration questions, scheduling details, program coordinator requests, team assignments',
+                triggers: 'Membership cancellations, payments, billing, HR, job inquiries, interviews, staff questions',
                 transferType: 'warm_transfer',
-                onHoldMusic: 'ringtone'
+                onHoldMusic: 'relaxing_sound'
             }
         ];
 
@@ -353,7 +355,7 @@ export async function syncKnowledgeBaseToRetell(kbParam) {
         const transferOption = isWarm
             ? {
                 type: 'warm_transfer',
-                on_hold_music: dept.onHoldMusic || 'ringtone',
+                on_hold_music: dept.onHoldMusic || 'relaxing_sound',
                 enable_bridge_audio_cue: true
             }
             : {
@@ -377,14 +379,14 @@ export async function syncKnowledgeBaseToRetell(kbParam) {
         transferTools.push({
             type: 'transfer_call',
             name: 'transfer_to_human',
-            description: 'Transfer the call to a live staff member. ONLY execute this tool during live business hours (Mon-Fri 9:00 AM-5:00 PM, Sat 10:00 AM-2:00 PM Eastern). DO NOT invoke during after-hours or on Sundays when the office is closed.',
+            description: 'Transfer the call to a live staff member for general questions or assistance. ONLY execute this tool during live business hours (Mon-Fri 9:00 AM-5:00 PM, Sat 10:00 AM-2:00 PM Eastern). DO NOT invoke during after-hours or on Sundays when the office is closed.',
             transfer_destination: {
                 type: 'predefined',
                 number: transferNumber
             },
             transfer_option: {
                 type: 'warm_transfer',
-                on_hold_music: 'ringtone',
+                on_hold_music: fallbackHoldMusic,
                 enable_bridge_audio_cue: true
             }
         });

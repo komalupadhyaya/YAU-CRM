@@ -72,12 +72,12 @@ interface MarketingContactItem {
   name: string;
   email: string;
   phone?: string;
-  entryPoint: "school" | "location" | "free_app";
+  entryPoint?: string;
+  source?: string;
   schoolName?: string;
   schoolId?: string;
   locationName?: string;
   locationId?: string;
-  source?: string;
 }
 import ReactQuill from "react-quill-new";
 import "react-quill-new/dist/quill.snow.css";
@@ -535,7 +535,14 @@ export default function EmailCenter() {
   const filteredMarketingContacts = React.useMemo(() => {
     let list = marketingListContacts;
     if (marketingChannelFilter && marketingChannelFilter !== "all") {
-      list = list.filter(c => c.entryPoint === marketingChannelFilter);
+      const filterLower = marketingChannelFilter.toLowerCase();
+      list = list.filter(c => {
+        const src = (c.source || c.entryPoint || "").toLowerCase();
+        if (filterLower === "school") return src.includes("school") || Boolean(c.schoolName);
+        if (filterLower === "location") return src.includes("location") || Boolean(c.locationName);
+        if (filterLower === "free_app" || filterLower === "app") return src.includes("app") || (!c.schoolName && !c.locationName);
+        return src.includes(filterLower);
+      });
     }
     if (marketingSearchQuery.trim()) {
       const q = marketingSearchQuery.toLowerCase().trim();
@@ -6192,7 +6199,7 @@ export default function EmailCenter() {
                           : "bg-muted/40 text-muted-foreground hover:text-foreground hover:bg-muted/70"
                       }`}
                     >
-                      Schools ({marketingListContacts.filter(c => c.entryPoint === "school").length})
+                      Schools ({marketingListContacts.filter(c => (c.source || c.entryPoint || "").toLowerCase().includes("school") || Boolean(c.schoolName)).length})
                     </button>
                     <button
                       type="button"
@@ -6203,7 +6210,7 @@ export default function EmailCenter() {
                           : "bg-muted/40 text-muted-foreground hover:text-foreground hover:bg-muted/70"
                       }`}
                     >
-                      Locations ({marketingListContacts.filter(c => c.entryPoint === "location").length})
+                      Locations ({marketingListContacts.filter(c => (c.source || c.entryPoint || "").toLowerCase().includes("location") || Boolean(c.locationName)).length})
                     </button>
                     <button
                       type="button"
@@ -6214,7 +6221,7 @@ export default function EmailCenter() {
                           : "bg-muted/40 text-muted-foreground hover:text-foreground hover:bg-muted/70"
                       }`}
                     >
-                      Free App ({marketingListContacts.filter(c => c.entryPoint === "free_app").length})
+                      Free App ({marketingListContacts.filter(c => (c.source || c.entryPoint || "").toLowerCase().includes("app") || (!c.schoolName && !c.locationName)).length})
                     </button>
                   </div>
 
@@ -6289,19 +6296,19 @@ export default function EmailCenter() {
                     ) : (
                       filteredMarketingContacts.map((contact, idx) => {
                         const isSelected = selectedMarketingIds.includes(contact._id);
-                        const channelLabel =
-                          contact.entryPoint === "school"
-                            ? "School"
-                            : contact.entryPoint === "location"
-                            ? "Location"
-                            : "Free App";
+                        const isSchool = (contact.source || contact.entryPoint || "").toLowerCase().includes("school") || Boolean(contact.schoolName);
+                        const isLocation = (contact.source || contact.entryPoint || "").toLowerCase().includes("location") || Boolean(contact.locationName);
+                        const channelLabel = isSchool
+                          ? "School"
+                          : isLocation
+                          ? "Location"
+                          : (contact.source || "Free App");
 
-                        const channelColor =
-                          contact.entryPoint === "school"
-                            ? "bg-blue-500/10 text-blue-600 dark:text-blue-400"
-                            : contact.entryPoint === "location"
-                            ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                            : "bg-amber-500/10 text-amber-600 dark:text-amber-400";
+                        const channelColor = isSchool
+                          ? "bg-blue-500/10 text-blue-600 dark:text-blue-400"
+                          : isLocation
+                          ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                          : "bg-amber-500/10 text-amber-600 dark:text-amber-400";
 
                         const contextDetail =
                           contact.schoolName || contact.locationName || contact.source || "";
@@ -7200,10 +7207,11 @@ export default function EmailCenter() {
               </h4>
 
               {/* Entry Point 1: School */}
+              {/* Source 1: School */}
               <div className="border rounded-xl p-3.5 bg-card space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-xs text-blue-600 dark:text-blue-400 flex items-center gap-1.5">
-                    🏫 1. Selected School list (Afterschool Signups)
+                    🏫 1. School Registration (Afterschool Signups)
                   </span>
                   <button
                     type="button"
@@ -7212,10 +7220,9 @@ export default function EmailCenter() {
                         parentName: "Jane Doe",
                         email: "jane.doe@example.com",
                         phone: "555-123-4567",
-                        entryPoint: "school",
+                        source: "School",
                         schoolName: "Lincoln Elementary",
-                        schoolId: "sch_12345",
-                        source: "App Registration"
+                        schoolId: "sch_12345"
                       }, null, 2);
                       navigator.clipboard.writeText(payload);
                       setCopiedWebhookPayload("school");
@@ -7233,21 +7240,20 @@ export default function EmailCenter() {
   "parentName": "Jane Doe",
   "email": "jane.doe@example.com",
   "phone": "555-123-4567",
-  "entryPoint": "school",
+  "source": "School",
   "schoolName": "Lincoln Elementary",
   "schoolId": "sch_12345",
-  "source": "App Registration",
   "metadata": {},
   "status": "active" // "active" | "opted_out" (automatically set to "opted_out" when parent clicks Unsubscribe)
 }`}
                 </pre>
               </div>
 
-              {/* Entry Point 2: Location */}
+              {/* Source 2: Location */}
               <div className="border rounded-xl p-3.5 bg-card space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
-                    📍 2. Selected Location list (Evening Activities Signup)
+                    📍 2. Location Registration (Evening Activities Signup)
                   </span>
                   <button
                     type="button"
@@ -7256,10 +7262,9 @@ export default function EmailCenter() {
                         parentName: "John Smith",
                         email: "john.smith@example.com",
                         phone: "555-987-6543",
-                        entryPoint: "location",
+                        source: "Location",
                         locationName: "North Gym",
-                        locationId: "loc_67890",
-                        source: "Evening Portal"
+                        locationId: "loc_67890"
                       }, null, 2);
                       navigator.clipboard.writeText(payload);
                       setCopiedWebhookPayload("location");
@@ -7277,19 +7282,18 @@ export default function EmailCenter() {
   "parentName": "John Smith",
   "email": "john.smith@example.com",
   "phone": "555-987-6543",
-  "entryPoint": "location",
+  "source": "Location",
   "locationName": "North Gym",
-  "locationId": "loc_67890",
-  "source": "Evening Portal"
+  "locationId": "loc_67890"
 }`}
                 </pre>
               </div>
 
-              {/* Entry Point 3: Free App Members */}
+              {/* Source 3: Free App Members */}
               <div className="border rounded-xl p-3.5 bg-card space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
-                    📱 3. "Free App Members" list (No school or location)
+                    📱 3. "App Registration" (Mobile App Downloads)
                   </span>
                   <button
                     type="button"
@@ -7298,12 +7302,11 @@ export default function EmailCenter() {
                         parentName: "Sam Wilson",
                         email: "sam.wilson@example.com",
                         phone: "555-333-2222",
-                        entryPoint: "free_app",
-                        source: "Mobile App Download"
+                        source: "App Registration"
                       }, null, 2);
                       navigator.clipboard.writeText(payload);
                       setCopiedWebhookPayload("free_app");
-                      toast.success("Free App payload copied!");
+                      toast.success("App Registration payload copied!");
                       setTimeout(() => setCopiedWebhookPayload(null), 2000);
                     }}
                     className="btn-secondary h-6.5 px-2 text-[10px] font-bold flex items-center gap-1"
@@ -7317,17 +7320,16 @@ export default function EmailCenter() {
   "parentName": "Sam Wilson",
   "email": "sam.wilson@example.com",
   "phone": "555-333-2222",
-  "entryPoint": "free_app",
-  "source": "Mobile App Download"
+  "source": "App Registration"
 }`}
                 </pre>
               </div>
 
-              {/* Entry Point 4: Dedicated EA Leads */}
+              {/* Source 4: Dedicated EA Leads */}
               <div className="border rounded-xl p-3.5 bg-card space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-xs text-purple-600 dark:text-purple-400 flex items-center gap-1.5">
-                    ⚡ 4. Dedicated EA Leads list (Evening Inquiries & SMS Pipeline)
+                    ⚡ 4. Dedicated EA Leads (Evening Inquiries & SMS Pipeline)
                   </span>
                   <button
                     type="button"
@@ -7336,7 +7338,6 @@ export default function EmailCenter() {
                         parentName: "Diana Prince",
                         email: "diana.prince@example.com",
                         phone: "555-777-9999",
-                        entryPoint: "ea_lead",
                         source: "Evening Inquiries"
                       }, null, 2);
                       navigator.clipboard.writeText(payload);
@@ -7355,7 +7356,6 @@ export default function EmailCenter() {
   "parentName": "Diana Prince",
   "email": "diana.prince@example.com",
   "phone": "555-777-9999",
-  "entryPoint": "ea_lead",
   "source": "Evening Inquiries"
 }`}
                 </pre>

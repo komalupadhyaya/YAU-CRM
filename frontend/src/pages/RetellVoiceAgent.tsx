@@ -608,12 +608,26 @@ export default function RetellVoiceAgent() {
                 if (!kbData.transferDepartments || kbData.transferDepartments.length === 0) {
                     kbData.transferDepartments = [
                         {
-                            departmentName: "Executive Management / Escalations",
-                            phoneNumber: "+919896233745",
-                            triggers: "Director requests, serious complaints, special circumstance reviews",
-                            transferType: "cold_transfer"
+                            departmentName: "General Inquiries & Sports Programs",
+                            phoneNumber: "+12027013900",
+                            triggers: "General inquiries, school info, sports programs, after school programs",
+                            transferType: "warm_transfer",
+                            onHoldMusic: "relaxing_sound"
+                        },
+                        {
+                            departmentName: "Membership Cancellations, Billing & HR",
+                            phoneNumber: "+12023413778",
+                            triggers: "Membership cancellations, payments, billing, HR, job inquiries",
+                            transferType: "warm_transfer",
+                            onHoldMusic: "relaxing_sound"
                         }
                     ];
+                }
+                if (!kbData.humanTransferPhone) {
+                    kbData.humanTransferPhone = "+12027013900";
+                }
+                if (!kbData.humanTransferHoldMusic) {
+                    kbData.humanTransferHoldMusic = "relaxing_sound";
                 }
                 setKb(kbData);
                 setSavedVoiceId(kbData.voiceId || "11labs-Lily");
@@ -3012,14 +3026,31 @@ export default function RetellVoiceAgent() {
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-4">
-                            <div>
-                                <Label>General Fallback Destination Phone Number</Label>
-                                <Input
-                                    value={kb.humanTransferPhone}
-                                    onChange={e => setKb({ ...kb, humanTransferPhone: e.target.value })}
-                                    placeholder="+18002930354"
-                                    className="max-w-xs font-semibold mt-1 font-mono"
-                                />
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <Label className="text-xs font-semibold">General Fallback Destination Phone Number</Label>
+                                    <Input
+                                        value={kb.humanTransferPhone}
+                                        onChange={e => setKb({ ...kb, humanTransferPhone: e.target.value })}
+                                        placeholder="+12027013900"
+                                        className="font-semibold mt-1 font-mono text-xs h-9"
+                                    />
+                                    <p className="text-[11px] text-muted-foreground mt-1">Default staff line if caller does not specify a department.</p>
+                                </div>
+                                <div>
+                                    <Label className="text-xs font-semibold">Hold Music (While Connecting)</Label>
+                                    <select
+                                        value={kb.humanTransferHoldMusic || "relaxing_sound"}
+                                        onChange={e => setKb({ ...kb, humanTransferHoldMusic: e.target.value as any })}
+                                        className="w-full h-9 mt-1 rounded-md border border-input bg-background px-3 py-1 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring font-medium"
+                                    >
+                                        <option value="relaxing_sound">🎵 Relaxing Sound (Ambient)</option>
+                                        <option value="uplifting_beats">🎶 Uplifting Beats (Modern)</option>
+                                        <option value="ringtone">🔔 Standard Ringtone</option>
+                                        <option value="none">🔇 None (Silence / Direct)</option>
+                                    </select>
+                                    <p className="text-[11px] text-muted-foreground mt-1">Audio played to caller while connecting to general human staff.</p>
+                                </div>
                             </div>
 
                             <div>
@@ -3420,18 +3451,18 @@ function buildUniversalPrompt(kb: RetellKnowledgeBaseData): string {
         ? kb.transferDepartments
         : [
             {
-                departmentName: 'Executive Management & Escalations',
-                phoneNumber: '+12027013900',
-                triggers: 'Director requests, serious complaints, special circumstance reviews, escalations',
+                departmentName: 'General Inquiries & Sports Programs',
+                phoneNumber: kb.humanTransferPhone || '+12027013900',
+                triggers: 'General inquiries, school info, sports programs, after school programs, basic questions about YAU',
                 transferType: 'warm_transfer',
-                onHoldMusic: 'ringtone'
+                onHoldMusic: kb.humanTransferHoldMusic || 'relaxing_sound'
             },
             {
-                departmentName: 'Program Coordination & Support',
+                departmentName: 'Membership Cancellations, Billing & HR',
                 phoneNumber: '+12023413778',
-                triggers: 'Registration assistance, schedule questions, team assignment, general program support',
+                triggers: 'Membership cancellations, payments, billing, HR, job inquiries, staff questions, interviews',
                 transferType: 'warm_transfer',
-                onHoldMusic: 'ringtone'
+                onHoldMusic: 'relaxing_sound'
             }
         ];
 
@@ -3504,7 +3535,8 @@ ${toneRulesStr}
 
 ---
 
-## 4. UNATTENDED TRANSFER & VOICEMAIL PROTOCOL
+## 4. HUMAN TRANSFER FIRST & VOICEMAIL PROTOCOL (STRICT PRIORITY)
+- **TRANSFER-FIRST MANDATE (BUSINESS HOURS)**: During open business hours, you must ALWAYS attempt a call transfer to the matching department (+12027013900 or +12023413778) or general live staff (+12027013900) FIRST. NEVER jump directly to offering or taking a voicemail while the office is open. Voicemail is strictly a fallback if a transfer attempt goes unanswered.
 - **When a Call Forward / Transfer Fails or Staff is Unavailable During Business Hours**:
   - If you initiate a transfer during open business hours and the department or staff member does not attend or answer:
   - Politely state: *"${takeMessageScript}"*

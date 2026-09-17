@@ -200,6 +200,7 @@ const RetellKnowledgeBaseSchema = new mongoose.Schema({
 
     // Human Transfer & Escalation
     humanTransferPhone: { type: String, default: '+12027013900' },
+    humanTransferHoldMusic: { type: String, enum: ['ringtone', 'relaxing_sound', 'uplifting_beats', 'none'], default: 'relaxing_sound' },
     humanTransferTriggers: {
         type: [String],
         default: [
@@ -309,20 +310,22 @@ RetellKnowledgeBaseSchema.statics.getOrCreateDefault = async function() {
                     response: "Of course — that makes total sense and I think it's great that you're making this decision together! Can I send you something to share with them that has all the details — locations, pricing, and what we're all about? That way you both have everything in front of you. And honestly, the best thing is just to come out and watch a practice together. Parents always leave those saying they wish they had signed up sooner! What's the best email to send our information to?"
                 }
             ],
+            humanTransferPhone: '+12027013900',
+            humanTransferHoldMusic: 'relaxing_sound',
             transferDepartments: [
                 {
-                    departmentName: "Executive Management & Escalations",
+                    departmentName: "General Inquiries & Sports Programs",
                     phoneNumber: "+12027013900",
-                    triggers: "Director requests, management escalations, serious complaints, special circumstance reviews",
+                    triggers: "General inquiries, school info, sports programs, after school programs, basic questions about YAU",
                     transferType: "warm_transfer",
-                    onHoldMusic: "ringtone"
+                    onHoldMusic: "relaxing_sound"
                 },
                 {
-                    departmentName: "Program Coordination & Support",
+                    departmentName: "Membership Cancellations, Billing & HR",
                     phoneNumber: "+12023413778",
-                    triggers: "Registration questions, scheduling details, program coordinator requests, team assignments",
+                    triggers: "Membership cancellations, payments, billing, HR, job inquiries, interviews, staff questions",
                     transferType: "warm_transfer",
-                    onHoldMusic: "ringtone"
+                    onHoldMusic: "relaxing_sound"
                 }
             ]
         });

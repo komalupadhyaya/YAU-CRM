@@ -18,38 +18,11 @@ export const EmailMarketingContactSchema = new mongoose.Schema({
         trim: true,
         default: ''
     },
-    entryPoint: {
-        type: String,
-        enum: ['school', 'location', 'free_app'],
-        required: true,
-        index: true
-    },
-    schoolName: {
-        type: String,
-        trim: true,
-        default: ''
-    },
-    schoolId: {
-        type: String,
-        trim: true,
-        index: true,
-        default: ''
-    },
-    locationName: {
-        type: String,
-        trim: true,
-        default: ''
-    },
-    locationId: {
-        type: String,
-        trim: true,
-        index: true,
-        default: ''
-    },
     source: {
         type: String,
         default: 'App Registration',
-        trim: true
+        trim: true,
+        index: true
     },
     metadata: {
         type: mongoose.Schema.Types.Mixed,
@@ -75,8 +48,9 @@ export const EmailMarketingContactSchema = new mongoose.Schema({
     }
 }, { timestamps: true });
 
-// Compound index on email and entryPoint for fast queries
-EmailMarketingContactSchema.index({ email: 1, entryPoint: 1 });
+// Indexes for fast lookup
+EmailMarketingContactSchema.index({ email: 1 });
+EmailMarketingContactSchema.index({ source: 1 });
 
 // Registered as EmailMarketingContact targeting 'email_marketing_contacts' collection
 export const EmailMarketingContact = mongoose.models.EmailMarketingContact || 

@@ -12,7 +12,8 @@ export const getMarketingContacts = async (req, res) => {
             page = 1,
             limit = 25,
             search = '',
-            entryPoint = 'all',
+            source = 'all',
+            entryPoint = 'all', // backward compatibility
             status = 'all',
             deduplicatedOnly = 'false',
             sortBy = 'lastRegisteredAt',
@@ -28,15 +29,17 @@ export const getMarketingContacts = async (req, res) => {
                 { parentName: searchRegex },
                 { email: searchRegex },
                 { phone: searchRegex },
-                { schoolName: searchRegex },
-                { locationName: searchRegex },
                 { source: searchRegex }
             ];
         }
 
-        // 2. Entry point filter
-        if (entryPoint && entryPoint !== 'all') {
-            query.entryPoint = entryPoint;
+        // 2. Source filter (with backward compatibility for entryPoint)
+        const activeSourceFilter = (source && source !== 'all') 
+            ? source 
+            : (entryPoint && entryPoint !== 'all' ? entryPoint : null);
+
+        if (activeSourceFilter) {
+            query.source = new RegExp(activeSourceFilter.trim(), 'i');
         }
 
         // 3. Status filter
@@ -68,7 +71,7 @@ export const getMarketingContacts = async (req, res) => {
             MarketingContact.aggregate([
                 {
                     $group: {
-                        _id: '$entryPoint',
+                        _id: '$source',
                         count: { $sum: 1 },
                         deduplicated: {
                             $sum: { $cond: [{ $gt: ['$submissionCount', 1] }, 1, 0] }
@@ -76,25 +79,24 @@ export const getMarketingContacts = async (req, res) => {
                     }
                 }
             ])
-        ]) ;
+        ]);
 
         // Total deduplicated across all records
         const totalDeduplicatedResult = await MarketingContact.countDocuments({ submissionCount: { $gt: 1 } });
         const allContactsCount = await MarketingContact.countDocuments();
 
-        const stats = {
-            total: allContactsCount,
-            school: 0,
-            location: 0,
-            free_app: 0,
-            deduplicated: totalDeduplicatedResult
-        };
-
+        const bySource = {};
         statsData.forEach(item => {
-            if (item._id && stats[item._id] !== undefined) {
-                stats[item._id] = item.count;
+            if (item._id) {
+                bySource[item._id] = item.count;
             }
         });
+
+        const stats = {
+            total: allContactsCount,
+            deduplicated: totalDeduplicatedResult,
+            bySource
+        };
 
         return res.json({
             success: true,
@@ -119,31 +121,31 @@ export const getMarketingContacts = async (req, res) => {
  */
 export const getMarketingContactStats = async (req, res) => {
     try {
-        const [total, byEntryPoint, deduplicated] = await Promise.all([
+        const [total, bySourceList, deduplicated] = await Promise.all([
             MarketingContact.countDocuments(),
             MarketingContact.aggregate([
-                { $group: { _id: '$entryPoint', count: { $sum: 1 } } }
+                { $group: { _id: '$source', count: { $sum: 1 } } }
             ]),
             MarketingContact.countDocuments({ submissionCount: { $gt: 1 } })
         ]);
 
-        const breakdown = {
-            total,
-            deduplicated,
-            school: 0,
-            location: 0,
-            free_app: 0,
-            ea_lead: 0
-        };
-
-        byEntryPoint.forEach(item => {
-            if (item._id && breakdown[item._id] !== undefined) {
-                breakdown[item._id] = item.count;
+        const bySource = {};
+        bySourceList.forEach(item => {
+            if (item._id) {
+                bySource[item._id] = item.count;
             }
         });
 
-        return res.json({ success: true, stats: breakdown });
+        return res.json({ 
+            success: true, 
+            stats: {
+                total,
+                deduplicated,
+                bySource
+            } 
+        });
     } catch (error) {
+        console.error('[Get Marketing Contact Stats Error]:', error);
         return res.status(500).json({ success: false, message: 'Failed to fetch stats', error: error.message });
     }
 };
@@ -160,12 +162,13 @@ export const getMarketingContactById = async (req, res) => {
         }
         return res.json({ success: true, contact });
     } catch (error) {
-        return res.status(500).json({ success: false, message: 'Error retrieving contact', error: error.message });
+        console.error('[Get Marketing Contact By ID Error]:', error);
+        return res.status(500).json({ success: false, message: 'Failed to fetch contact details', error: error.message });
     }
 };
 
 /**
- * Delete a marketing contact by ID
+ * Delete a marketing contact
  * DELETE /api/marketing-contacts/:id
  */
 export const deleteMarketingContact = async (req, res) => {
@@ -174,29 +177,30 @@ export const deleteMarketingContact = async (req, res) => {
         if (!contact) {
             return res.status(404).json({ success: false, message: 'Marketing contact not found' });
         }
-        return res.json({ success: true, message: `Contact "${contact.parentName}" (${contact.email}) deleted successfully.` });
+        return res.json({ success: true, message: `Contact "${contact.parentName}" deleted successfully.` });
     } catch (error) {
-        return res.status(500).json({ success: false, message: 'Error deleting contact', error: error.message });
+        console.error('[Delete Marketing Contact Error]:', error);
+        return res.status(500).json({ success: false, message: 'Failed to delete contact', error: error.message });
     }
 };
 
 /**
- * Update marketing contact status (e.g. active <-> opted_out)
+ * Update contact consent / status
  * PATCH /api/marketing-contacts/:id/status
  */
 export const updateMarketingContactStatus = async (req, res) => {
     try {
-        const { id } = req.params;
         const { status } = req.body;
-
-        if (!status || !['active', 'opted_out', 'bounced'].includes(status)) {
-            return res.status(400).json({ success: false, message: 'Invalid status. Must be "active", "opted_out", or "bounced".' });
+        if (!['active', 'opted_out', 'bounced'].includes(status)) {
+            return res.status(400).json({ success: false, message: 'Invalid status value. Must be active, opted_out, or bounced.' });
         }
 
-        const isEmailConsent = status === 'active';
         const contact = await MarketingContact.findByIdAndUpdate(
-            id,
-            { status, isEmailConsent },
+            req.params.id,
+            { 
+                status,
+                isEmailConsent: (status === 'active')
+            },
             { new: true }
         );
 
@@ -217,6 +221,7 @@ export const updateMarketingContactStatus = async (req, res) => {
             contact 
         });
     } catch (error) {
+        console.error('[Update Marketing Contact Status Error]:', error);
         return res.status(500).json({ success: false, message: 'Error updating contact status', error: error.message });
     }
 };
@@ -231,12 +236,7 @@ export const createMarketingContact = async (req, res) => {
             parentName,
             email,
             phone = '',
-            entryPoint = 'free_app',
-            schoolName = '',
-            schoolId = '',
-            locationName = '',
-            locationId = '',
-            source = 'Manual CRM Entry',
+            source = 'App Registration',
             metadata = {}
         } = req.body;
 
@@ -247,9 +247,8 @@ export const createMarketingContact = async (req, res) => {
             return res.status(400).json({ success: false, message: 'A valid email address is required.' });
         }
 
-        const validEntryPoints = ['school', 'location', 'free_app'];
-        const normalizedEntryPoint = validEntryPoints.includes(entryPoint) ? entryPoint : 'free_app';
         const cleanEmail = email.toLowerCase().trim();
+        const resolvedSource = (source || req.body.entryPoint || 'Manual CRM Entry').trim();
 
         // 1. Deduplication check in MarketingContact
         let existingContact = await MarketingContact.findOne({ email: cleanEmail });
@@ -260,12 +259,7 @@ export const createMarketingContact = async (req, res) => {
             isDuplicate = true;
             existingContact.parentName = parentName.trim();
             if (phone) existingContact.phone = phone.trim();
-            existingContact.entryPoint = normalizedEntryPoint;
-            if (schoolName) existingContact.schoolName = schoolName.trim();
-            if (schoolId) existingContact.schoolId = schoolId.trim();
-            if (locationName) existingContact.locationName = locationName.trim();
-            if (locationId) existingContact.locationId = locationId.trim();
-            if (source) existingContact.source = source.trim();
+            if (resolvedSource) existingContact.source = resolvedSource;
             if (metadata && typeof metadata === 'object') {
                 existingContact.metadata = { ...existingContact.metadata, ...metadata };
             }
@@ -278,12 +272,7 @@ export const createMarketingContact = async (req, res) => {
                 parentName: parentName.trim(),
                 email: cleanEmail,
                 phone: phone ? phone.trim() : '',
-                entryPoint: normalizedEntryPoint,
-                schoolName: schoolName ? schoolName.trim() : '',
-                schoolId: schoolId ? schoolId.trim() : '',
-                locationName: locationName ? locationName.trim() : '',
-                locationId: locationId ? locationId.trim() : '',
-                source: source ? source.trim() : 'Manual CRM Entry',
+                source: resolvedSource,
                 metadata: metadata && typeof metadata === 'object' ? metadata : {},
                 submissionCount: 1,
                 lastRegisteredAt: new Date(),
@@ -317,12 +306,7 @@ export const updateMarketingContact = async (req, res) => {
             parentName,
             email,
             phone = '',
-            entryPoint = 'free_app',
-            schoolName = '',
-            schoolId = '',
-            locationName = '',
-            locationId = '',
-            source = 'Manual CRM Entry',
+            source = 'App Registration',
             status = 'active',
             metadata = {}
         } = req.body;
@@ -334,8 +318,6 @@ export const updateMarketingContact = async (req, res) => {
             return res.status(400).json({ success: false, message: 'A valid email address is required.' });
         }
 
-        const validEntryPoints = ['school', 'location', 'free_app'];
-        const normalizedEntryPoint = validEntryPoints.includes(entryPoint) ? entryPoint : 'free_app';
         const cleanEmail = email.toLowerCase().trim();
 
         const contact = await MarketingContact.findById(id);
@@ -348,12 +330,7 @@ export const updateMarketingContact = async (req, res) => {
         contact.parentName = parentName.trim();
         contact.email = cleanEmail;
         contact.phone = phone ? phone.trim() : '';
-        contact.entryPoint = normalizedEntryPoint;
-        contact.schoolName = schoolName ? schoolName.trim() : '';
-        contact.schoolId = schoolId ? schoolId.trim() : '';
-        contact.locationName = locationName ? locationName.trim() : '';
-        contact.locationId = locationId ? locationId.trim() : '';
-        contact.source = source ? source.trim() : contact.source;
+        if (source) contact.source = source.trim();
         if (['active', 'opted_out', 'bounced'].includes(status)) {
             contact.status = status;
             contact.isEmailConsent = (status === 'active');
@@ -383,6 +360,3 @@ export const updateMarketingContact = async (req, res) => {
         return res.status(500).json({ success: false, message: 'Failed to update marketing contact', error: error.message });
     }
 };
-
-
-

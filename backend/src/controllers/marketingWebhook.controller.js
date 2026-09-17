@@ -3,7 +3,7 @@ import MarketingContact from '../models/emailMarketingContact.model.js';
 /**
  * Handle Single Marketing Registration Webhook
  * URL: POST /api/webhooks/marketing-registration
- * Note: Marketing registrations strictly persist to email_marketing_contacts.
+ * Note: Marketing registrations strictly persist to email_marketing_contacts categorized by source.
  * No automated lists/segments are ever created in Email Center under any condition.
  */
 export const handleMarketingRegistration = async (req, res) => {
@@ -15,9 +15,9 @@ export const handleMarketingRegistration = async (req, res) => {
         const action = payload.action || payload.event;
         if (action === 'sync_list' || action === 'create_list' || action === 'update_list') {
             const entityType = payload.entityType || payload.type || 'entity';
-            const entityName = (payload.name || payload.schoolName || payload.locationName || '').trim();
+            const entityName = (payload.name || '').trim();
 
-            console.log(`[Marketing Webhook] Admin Sync event received for ${entityType} "${entityName}". (Automated list creation disabled - lists are created strictly manually in Email Center).`);
+            console.log(`[Marketing Webhook] Admin Sync event received for ${entityType} "${entityName}". (Lists are managed manually in Email Center).`);
             return res.status(200).json({
                 success: true,
                 message: `Admin sync event for ${entityType} "${entityName}" acknowledged.`
@@ -26,7 +26,7 @@ export const handleMarketingRegistration = async (req, res) => {
 
         if (action === 'delete_list' || action === 'delete_entity') {
             // Guarantee: Deletions in the admin panel leave CRM lists and contacts intact
-            const entityName = payload.name || payload.schoolName || payload.locationName || 'Unknown';
+            const entityName = payload.name || 'Unknown';
             console.log(`[Marketing Webhook] Received deletion notification for "${entityName}". Retaining all contacts intact per safety policy.`);
             return res.status(200).json({
                 success: true,
@@ -39,12 +39,22 @@ export const handleMarketingRegistration = async (req, res) => {
         const parentName = (payload.parentName || payload.parent_name || payload.name || '').trim();
         const rawEmail = (payload.email || payload.email_address || payload.parentEmail || '').trim();
         const rawPhone = (payload.phone || payload.phone_number || payload.telephone || '').trim();
-        const rawEntryPoint = (payload.entryPoint || payload.entry_point || '').trim().toLowerCase();
-        const schoolName = (payload.schoolName || payload.school_name || payload.school || '').trim();
-        const schoolId = (payload.schoolId || payload.school_id || '').trim();
-        const locationName = (payload.locationName || payload.location_name || payload.location || '').trim();
-        const locationId = (payload.locationId || payload.location_id || '').trim();
-        const source = (payload.source || 'App Registration').trim();
+        
+        // Resolve source with backward compatibility
+        let source = (payload.source || '').trim();
+        if (!source) {
+            if (payload.entryPoint) {
+                const ep = String(payload.entryPoint).toLowerCase();
+                source = ep === 'school' ? 'School' : ep === 'location' ? 'Location' : 'App Registration';
+            } else if (payload.schoolName || payload.school_name) {
+                source = 'School';
+            } else if (payload.locationName || payload.location_name) {
+                source = 'Location';
+            } else {
+                source = 'App Registration';
+            }
+        }
+
         const metadata = payload.metadata && typeof payload.metadata === 'object' ? payload.metadata : {};
 
         // Validation
@@ -53,16 +63,6 @@ export const handleMarketingRegistration = async (req, res) => {
         }
         if (!rawEmail || !rawEmail.includes('@')) {
             return res.status(400).json({ success: false, message: 'Valid "email" address is required.' });
-        }
-
-        // Normalize entryPoint to one of: 'school', 'location', 'free_app'
-        let entryPoint = 'free_app';
-        if (rawEntryPoint === 'school' || schoolName || schoolId) {
-            entryPoint = 'school';
-        } else if (rawEntryPoint === 'location' || locationName || locationId) {
-            entryPoint = 'location';
-        } else {
-            entryPoint = 'free_app';
         }
 
         const cleanEmail = rawEmail.toLowerCase();
@@ -78,11 +78,6 @@ export const handleMarketingRegistration = async (req, res) => {
 
             existingContact.parentName = parentName;
             if (rawPhone) existingContact.phone = rawPhone;
-            existingContact.entryPoint = entryPoint;
-            if (schoolName) existingContact.schoolName = schoolName;
-            if (schoolId) existingContact.schoolId = schoolId;
-            if (locationName) existingContact.locationName = locationName;
-            if (locationId) existingContact.locationId = locationId;
             if (source) existingContact.source = source;
             if (metadata && Object.keys(metadata).length > 0) {
                 existingContact.metadata = { ...existingContact.metadata, ...metadata };
@@ -98,11 +93,6 @@ export const handleMarketingRegistration = async (req, res) => {
                 parentName,
                 email: cleanEmail,
                 phone: rawPhone,
-                entryPoint,
-                schoolName,
-                schoolId,
-                locationName,
-                locationId,
                 source,
                 metadata,
                 submissionCount: 1,
@@ -123,9 +113,7 @@ export const handleMarketingRegistration = async (req, res) => {
                 parentName: contact.parentName,
                 email: contact.email,
                 phone: contact.phone,
-                entryPoint: contact.entryPoint,
-                schoolName: contact.schoolName,
-                locationName: contact.locationName,
+                source: contact.source,
                 submissionCount: contact.submissionCount,
                 lastRegisteredAt: contact.lastRegisteredAt
             }
@@ -148,8 +136,8 @@ export const handleMarketingRegistration = async (req, res) => {
 export const getMarketingWebhookHealth = async (req, res) => {
     try {
         const totalContacts = await MarketingContact.countDocuments();
-        const byEntryPoint = await MarketingContact.aggregate([
-            { $group: { _id: '$entryPoint', count: { $sum: 1 } } }
+        const bySource = await MarketingContact.aggregate([
+            { $group: { _id: '$source', count: { $sum: 1 } } }
         ]);
 
         return res.json({
@@ -157,11 +145,10 @@ export const getMarketingWebhookHealth = async (req, res) => {
             endpoint: '/api/webhooks/marketing-registration',
             description: 'Unified marketing registration webhook for YAU CRM',
             totalContacts,
-            entryPointsBreakdown: byEntryPoint.reduce((acc, curr) => {
-                acc[curr._id] = curr.count;
+            sourcesBreakdown: bySource.reduce((acc, curr) => {
+                if (curr._id) acc[curr._id] = curr.count;
                 return acc;
-            }, {}),
-            supportedEntryPoints: ['school', 'location', 'free_app']
+            }, {})
         });
     } catch (err) {
         return res.status(500).json({ status: 'error', error: err.message });

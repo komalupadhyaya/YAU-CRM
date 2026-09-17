@@ -17,13 +17,18 @@ import {
   Eye,
   Loader2,
   Code2,
+  Code,
   Calendar,
   Layers,
   ArrowUpDown,
   AlertCircle,
   UserPlus,
   MoreVertical,
-  Edit2
+  Edit2,
+  Edit3,
+  Phone,
+  Shield,
+  Flame
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -41,11 +46,7 @@ interface MarketingContact {
   parentName: string;
   email: string;
   phone?: string;
-  entryPoint: "school" | "location" | "free_app";
-  schoolName?: string;
-  schoolId?: string;
-  locationName?: string;
-  locationId?: string;
+  entryPoint?: string;
   source?: string;
   metadata?: Record<string, any>;
   submissionCount: number;
@@ -57,10 +58,11 @@ interface MarketingContact {
 
 interface StatsData {
   total: number;
-  school: number;
-  location: number;
-  free_app: number;
   deduplicated: number;
+  bySource?: Record<string, number>;
+  school?: number;
+  location?: number;
+  free_app?: number;
 }
 
 export default function MarketingContacts() {
@@ -71,7 +73,7 @@ export default function MarketingContacts() {
 
   // Filter & Search States
   const [searchQuery, setSearchQuery] = useState("");
-  const [entryPointFilter, setEntryPointFilter] = useState<string>("all");
+  const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [deduplicatedOnly, setDeduplicatedOnly] = useState(false);
   const [page, setPage] = useState(1);
@@ -84,10 +86,8 @@ export default function MarketingContacts() {
   // Stats
   const [stats, setStats] = useState<StatsData>({
     total: 0,
-    school: 0,
-    location: 0,
-    free_app: 0,
-    deduplicated: 0
+    deduplicated: 0,
+    bySource: {}
   });
 
   // Modal States
@@ -108,11 +108,6 @@ export default function MarketingContacts() {
     parentName: "",
     email: "",
     phone: "",
-    entryPoint: "school" as "school" | "location" | "free_app",
-    schoolName: "",
-    schoolId: "",
-    locationName: "",
-    locationId: "",
     source: "Manual CRM Entry"
   });
 
@@ -121,11 +116,6 @@ export default function MarketingContacts() {
       parentName: "",
       email: "",
       phone: "",
-      entryPoint: "school",
-      schoolName: "",
-      schoolId: "",
-      locationName: "",
-      locationId: "",
       source: "Manual CRM Entry"
     });
   };
@@ -165,12 +155,7 @@ export default function MarketingContacts() {
     parentName: "",
     email: "",
     phone: "",
-    entryPoint: "school" as "school" | "location" | "free_app",
-    schoolName: "",
-    schoolId: "",
-    locationName: "",
-    locationId: "",
-    source: "Manual CRM Entry",
+    source: "App Registration",
     status: "active" as "active" | "opted_out"
   });
 
@@ -180,12 +165,7 @@ export default function MarketingContacts() {
       parentName: contact.parentName || "",
       email: contact.email || "",
       phone: contact.phone || "",
-      entryPoint: contact.entryPoint || "school",
-      schoolName: contact.schoolName || "",
-      schoolId: contact.schoolId || "",
-      locationName: contact.locationName || "",
-      locationId: contact.locationId || "",
-      source: contact.source || "Manual CRM Entry",
+      source: contact.source || "App Registration",
       status: (contact.status === "opted_out" ? "opted_out" : "active")
     });
     setIsEditModalOpen(true);
@@ -229,7 +209,7 @@ export default function MarketingContacts() {
         page: String(page),
         limit: String(limit),
         search: searchQuery.trim(),
-        entryPoint: entryPointFilter,
+        source: sourceFilter,
         deduplicatedOnly: deduplicatedOnly ? "true" : "false",
         sortBy,
         sortOrder
@@ -255,7 +235,7 @@ export default function MarketingContacts() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [page, limit, searchQuery, entryPointFilter, statusFilter, deduplicatedOnly, sortBy, sortOrder]);
+  }, [page, limit, searchQuery, sourceFilter, statusFilter, deduplicatedOnly, sortBy, sortOrder]);
 
   useEffect(() => {
     fetchContacts();
@@ -343,15 +323,12 @@ export default function MarketingContacts() {
       return;
     }
 
-    const headers = ["Parent Name", "Email Address", "Phone Number", "Entry Point", "School", "Location", "Source", "Submissions", "Last Registered"];
+    const headers = ["Parent Name", "Email Address", "Phone Number", "Registration Source", "Submissions", "Last Registered"];
     const rows = contacts.map(c => [
       c.parentName || "",
       c.email || "",
       c.phone || "",
-      c.entryPoint || "",
-      c.schoolName || "",
-      c.locationName || "",
-      c.source || "",
+      c.source || "App Registration",
       c.submissionCount || 1,
       c.lastRegisteredAt ? new Date(c.lastRegisteredAt).toLocaleString() : ""
     ]);
@@ -369,34 +346,51 @@ export default function MarketingContacts() {
     toast.success("CSV export downloaded successfully!");
   };
 
-  const getEntryPointBadge = (entryPoint: string) => {
-    switch (entryPoint) {
-      case "school":
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase border bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20">
-            <School size={11} /> School
-          </span>
-        );
-      case "location":
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase border bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20">
-            <MapPin size={11} /> Location
-          </span>
-        );
-      case "free_app":
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase border bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20">
-            <Smartphone size={11} /> Free App
-          </span>
-        );
-      default:
-        return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border bg-muted text-muted-foreground">
-            {entryPoint}
-          </span>
-        );
-    }
+  const getSourceCount = (srcKey: string) => {
+    if (!stats.bySource) return 0;
+    if (stats.bySource[srcKey] !== undefined) return stats.bySource[srcKey];
+    let sum = 0;
+    const lower = srcKey.toLowerCase();
+    Object.entries(stats.bySource).forEach(([k, count]) => {
+      if (k.toLowerCase().includes(lower)) {
+        sum += count;
+      }
+    });
+    return sum;
   };
+
+  const getSourceBadge = (source?: string) => {
+    const src = (source || "App Registration").trim();
+    const lower = src.toLowerCase();
+
+    if (lower.includes("school")) {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase border bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20">
+          <School size={11} /> {src}
+        </span>
+      );
+    }
+    if (lower.includes("location")) {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase border bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20">
+          <MapPin size={11} /> {src}
+        </span>
+      );
+    }
+    if (lower.includes("app")) {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase border bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20">
+          <Smartphone size={11} /> {src}
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase border bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20">
+        <Sparkles size={11} /> {src}
+      </span>
+    );
+  };
+  const getEntryPointBadge = getSourceBadge;
 
   return (
     <AppLayout>
@@ -478,21 +472,27 @@ export default function MarketingContacts() {
             <span className="text-[10px] uppercase font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1">
               <School size={11} /> School Signups
             </span>
-            <div className="text-xl font-black text-blue-600 dark:text-blue-400">{stats.school}</div>
+            <div className="text-xl font-black text-blue-600 dark:text-blue-400">
+              {getSourceCount("school") || stats.school || 0}
+            </div>
           </div>
 
           <div className="p-3 bg-card border rounded-2xl shadow-2xs text-left space-y-1">
             <span className="text-[10px] uppercase font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
               <MapPin size={11} /> Location Signups
             </span>
-            <div className="text-xl font-black text-emerald-600 dark:text-emerald-400">{stats.location}</div>
+            <div className="text-xl font-black text-emerald-600 dark:text-emerald-400">
+              {getSourceCount("location") || stats.location || 0}
+            </div>
           </div>
 
           <div className="p-3 bg-card border rounded-2xl shadow-2xs text-left space-y-1">
             <span className="text-[10px] uppercase font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1">
               <Smartphone size={11} /> Free App Members
             </span>
-            <div className="text-xl font-black text-amber-600 dark:text-amber-400">{stats.free_app}</div>
+            <div className="text-xl font-black text-amber-600 dark:text-amber-400">
+              {getSourceCount("app") || stats.free_app || 0}
+            </div>
           </div>
 
           <div className="p-3 bg-card border rounded-2xl shadow-2xs text-left space-y-1 bg-gradient-to-br from-emerald-500/5 to-transparent border-emerald-500/30">
@@ -509,19 +509,19 @@ export default function MarketingContacts() {
           <div className="flex items-center bg-accent/40 border p-1 rounded-xl overflow-x-auto custom-scrollbar text-xs font-bold gap-1 shrink-0">
             {[
               { id: "all", label: "All Contacts", count: stats.total },
-              { id: "school", label: "Schools", count: stats.school },
-              { id: "location", label: "Locations", count: stats.location },
-              { id: "free_app", label: "Free App", count: stats.free_app }
+              { id: "school", label: "Schools", count: getSourceCount("school") || stats.school || 0 },
+              { id: "location", label: "Locations", count: getSourceCount("location") || stats.location || 0 },
+              { id: "app", label: "Free App", count: getSourceCount("app") || stats.free_app || 0 }
             ].map(tab => (
               <button
                 key={tab.id}
                 type="button"
                 onClick={() => {
-                  setEntryPointFilter(tab.id);
+                  setSourceFilter(tab.id);
                   setPage(1);
                 }}
                 className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
-                  entryPointFilter === tab.id
+                  sourceFilter === tab.id
                     ? "bg-card text-foreground shadow-2xs font-extrabold"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
@@ -593,8 +593,8 @@ export default function MarketingContacts() {
                 <tr className="border-b bg-muted/40 text-[11px] font-bold text-muted-foreground uppercase tracking-wider sticky top-0 bg-card z-10">
                   <th className="p-3.5 pl-5 align-middle">Parent Contact</th>
                   <th className="p-3.5 align-middle">Email Address</th>
-                  <th className="p-3.5 align-middle">Channel & Location</th>
                   <th className="p-3.5 align-middle">Registration Source</th>
+                  <th className="p-3.5 align-middle text-center">Submissions</th>
                   <th className="p-3.5 align-middle text-center">Status</th>
                   <th className="p-3.5 pr-5 align-middle text-center w-[70px]">Actions</th>
                 </tr>
@@ -616,7 +616,7 @@ export default function MarketingContacts() {
                         <Users size={36} className="opacity-40 mb-1" />
                         <span className="text-sm font-bold text-foreground">No Marketing Contacts Found</span>
                         <p className="text-xs text-muted-foreground max-w-sm">
-                          {searchQuery || entryPointFilter !== "all" || statusFilter !== "all" || deduplicatedOnly
+                          {searchQuery || sourceFilter !== "all" || statusFilter !== "all" || deduplicatedOnly
                             ? "Try adjusting your search query or filter options."
                             : "Incoming parent registrations from your mobile app, registration portal, or admin panel will appear here automatically."}
                         </p>
@@ -627,9 +627,8 @@ export default function MarketingContacts() {
                   contacts.map(contact => {
                     const initials = contact.parentName
                       ? contact.parentName.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase()
-                      : contact.email.slice(0, 2).toUpperCase();
+                      : "MC";
                     const isCopied = copiedEmail === contact._id;
-                    const isDeduplicated = (contact.submissionCount || 1) > 1;
 
                     return (
                       <tr
@@ -640,21 +639,25 @@ export default function MarketingContacts() {
                         }}
                         className="hover:bg-accent/30 transition-colors cursor-pointer group"
                       >
-                        {/* Parent Name & Phone */}
+                        {/* Parent Contact */}
                         <td className="p-3.5 pl-5 align-middle">
-                          <div className="flex items-center gap-2.5">
-                            <div className="h-8 w-8 rounded-full bg-primary/10 text-primary font-bold text-[11px] flex items-center justify-center shrink-0 border border-primary/20">
+                          <div className="flex items-center gap-3">
+                            <div className="h-9 w-9 rounded-xl bg-primary/10 text-primary font-bold text-xs flex items-center justify-center shrink-0 border border-primary/20 shadow-2xs group-hover:scale-105 transition-transform">
                               {initials}
                             </div>
-                            <div className="min-w-0 text-left">
-                              <span className="font-bold text-foreground block truncate group-hover:text-primary transition-colors">
+                            <div className="min-w-0">
+                              <div className="font-bold text-foreground text-xs truncate max-w-[180px]">
                                 {contact.parentName}
-                              </span>
-                              {contact.phone && (
-                                <div className="text-[11px] text-muted-foreground font-mono mt-0.5">
-                                  {contact.phone}
-                                </div>
-                              )}
+                              </div>
+                              <div className="text-[11px] text-muted-foreground flex items-center gap-1.5 mt-0.5">
+                                {contact.phone ? (
+                                  <span className="flex items-center gap-1 truncate max-w-[140px]">
+                                    <Phone size={10} /> {contact.phone}
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] text-muted-foreground/60 italic">No phone</span>
+                                )}
+                              </div>
                             </div>
                           </div>
                         </td>
@@ -677,24 +680,15 @@ export default function MarketingContacts() {
                           </div>
                         </td>
 
-                        {/* Channel & Location */}
-                        <td className="p-3.5 align-middle">
-                          <div className="flex flex-col items-start gap-1">
-                            {getEntryPointBadge(contact.entryPoint)}
-                            {(contact.schoolName || contact.locationName) ? (
-                              <span className="text-xs font-semibold text-foreground truncate max-w-[220px]" title={contact.schoolName || contact.locationName}>
-                                {contact.schoolName || contact.locationName}
-                              </span>
-                            ) : (
-                              <span className="text-[10px] text-muted-foreground/60 italic">N/A</span>
-                            )}
-                          </div>
-                        </td>
-
                         {/* Registration Source */}
                         <td className="p-3.5 align-middle">
-                          <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold bg-accent/40 border border-border/60 text-foreground truncate max-w-[180px]" title={contact.source || "App Registration"}>
-                            {contact.source || "App Registration"}
+                          {getSourceBadge(contact.source)}
+                        </td>
+
+                        {/* Submissions */}
+                        <td className="p-3.5 align-middle text-center">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-accent/60 text-foreground border border-border/60">
+                            <Flame size={11} className="text-amber-500" /> {contact.submissionCount || 1}
                           </span>
                         </td>
 
@@ -823,7 +817,7 @@ export default function MarketingContacts() {
               <div className="min-w-0 flex-1">
                 <DialogTitle className="text-base font-extrabold text-foreground flex items-center gap-2">
                   <span>{selectedContact?.parentName}</span>
-                  {selectedContact && getEntryPointBadge(selectedContact.entryPoint)}
+                  {selectedContact && getSourceBadge(selectedContact.source)}
                 </DialogTitle>
                 <p className="text-xs text-muted-foreground truncate">{selectedContact?.email}</p>
               </div>
@@ -841,11 +835,7 @@ export default function MarketingContacts() {
                 <span className="text-[10px] uppercase font-bold text-muted-foreground block">Phone Number</span>
                 <span className="font-bold text-foreground">{selectedContact?.phone || "None"}</span>
               </div>
-              <div>
-                <span className="text-[10px] uppercase font-bold text-muted-foreground block">School / Location</span>
-                <span className="font-bold text-foreground">{selectedContact?.schoolName || selectedContact?.locationName || "N/A"}</span>
-              </div>
-              <div>
+              <div className="col-span-2">
                 <span className="text-[10px] uppercase font-bold text-muted-foreground block">Registration Source</span>
                 <span className="font-bold text-foreground">{selectedContact?.source || "App Registration"}</span>
               </div>
@@ -866,81 +856,104 @@ export default function MarketingContacts() {
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shadow-2xs">
-                      <CheckCircle size={11} /> Active Subscriber
+                      <CheckCircle size={11} /> Active & Subscribed
                     </span>
                   )}
-                  <span className="text-[11px] text-muted-foreground">
-                    {selectedContact?.status === "opted_out" ? "Excluded from marketing campaigns" : "Eligible to receive marketing emails"}
-                  </span>
+                  {selectedContact?.isEmailConsent && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-md bg-accent/60 text-muted-foreground font-semibold">
+                      Marketing Consent Given
+                    </span>
+                  )}
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => handleToggleStatus(selectedContact!)}
-                disabled={updatingStatus}
-                className={`btn-secondary h-8 px-3 text-xs font-bold shrink-0 cursor-pointer ${
-                  selectedContact?.status === "opted_out" 
-                    ? "!bg-emerald-500/10 !text-emerald-600 dark:!text-emerald-400 border-emerald-500/30 hover:!bg-emerald-500/20" 
-                    : "!bg-rose-500/10 !text-rose-600 dark:!text-rose-400 border-rose-500/30 hover:!bg-rose-500/20"
-                }`}
-              >
-                {updatingStatus ? "Updating..." : selectedContact?.status === "opted_out" ? "Reactivate Subscriber" : "Mark Opted Out"}
-              </button>
+
+              {/* Status Toggle Button */}
+              {selectedContact && (
+                <button
+                  type="button"
+                  onClick={() => handleToggleStatus(selectedContact)}
+                  disabled={updatingStatus}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs shrink-0 ${
+                    selectedContact.status === "opted_out"
+                      ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20"
+                      : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20 hover:bg-rose-500/20"
+                  }`}
+                >
+                  {updatingStatus ? (
+                    <Loader2 size={12} className="animate-spin" />
+                  ) : selectedContact.status === "opted_out" ? (
+                    <CheckCircle size={12} />
+                  ) : (
+                    <AlertCircle size={12} />
+                  )}
+                  <span>{selectedContact.status === "opted_out" ? "Reactivate (Opt In)" : "Opt Out Contact"}</span>
+                </button>
+              )}
             </div>
 
-            {/* Deduplication Metric Strip */}
-            <div className="p-3 rounded-xl border bg-card flex items-center justify-between">
+            {/* Ingestion & Activity Details */}
+            <div className="grid grid-cols-3 gap-3 p-3.5 bg-card border rounded-xl">
               <div>
-                <span className="text-[10px] uppercase font-bold text-muted-foreground block">Submissions Merged</span>
-                <div className="text-base font-black text-foreground flex items-center gap-1.5 mt-0.5">
-                  <span>{selectedContact?.submissionCount || 1} Total Submissions</span>
-                  {(selectedContact?.submissionCount || 1) > 1 && (
-                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                      Deduplicated
-                    </span>
-                  )}
-                </div>
+                <span className="text-[10px] uppercase font-bold text-muted-foreground block">First Ingested</span>
+                <span className="font-semibold text-foreground">
+                  {selectedContact?.createdAt ? new Date(selectedContact.createdAt).toLocaleString() : "N/A"}
+                </span>
               </div>
-              <div className="text-right">
-                <span className="text-[10px] uppercase font-bold text-muted-foreground block">Last Registered</span>
-                <span className="text-xs font-semibold text-foreground">
-                  {selectedContact?.lastRegisteredAt ? new Date(selectedContact.lastRegisteredAt).toLocaleString() : "-"}
+              <div>
+                <span className="text-[10px] uppercase font-bold text-muted-foreground block">Latest Submission</span>
+                <span className="font-semibold text-foreground">
+                  {selectedContact?.lastRegisteredAt ? new Date(selectedContact.lastRegisteredAt).toLocaleString() : "N/A"}
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] uppercase font-bold text-muted-foreground block">Submission Count</span>
+                <span className="font-bold text-primary flex items-center gap-1">
+                  <Flame size={12} /> {selectedContact?.submissionCount || 1} submissions
                 </span>
               </div>
             </div>
 
-            {/* Raw Metadata Viewer */}
+            {/* Custom Metadata JSON Viewer */}
             <div className="space-y-1.5">
-              <span className="text-[10px] uppercase font-bold text-muted-foreground block">Payload Metadata</span>
-              <pre className="p-3 bg-accent/20 border rounded-xl text-[10px] font-mono overflow-x-auto text-foreground max-h-40">
-                {JSON.stringify(selectedContact?.metadata || {}, null, 2)}
-              </pre>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] uppercase font-bold text-muted-foreground">Additional Metadata Payload</span>
+                {selectedContact?.metadata && Object.keys(selectedContact.metadata).length > 0 && (
+                  <span className="text-[10px] text-primary font-bold">
+                    {Object.keys(selectedContact.metadata).length} custom fields logged
+                  </span>
+                )}
+              </div>
+              <div className="p-3 bg-accent/20 border rounded-xl font-mono text-[11px] overflow-x-auto max-h-48 custom-scrollbar">
+                {selectedContact?.metadata && Object.keys(selectedContact.metadata).length > 0 ? (
+                  <pre className="text-foreground whitespace-pre-wrap">
+                    {JSON.stringify(selectedContact.metadata, null, 2)}
+                  </pre>
+                ) : (
+                  <span className="text-muted-foreground/60 italic">No extra custom metadata submitted with this registration.</span>
+                )}
+              </div>
             </div>
           </div>
 
           <DialogFooter className="p-4 border-t bg-card shrink-0 flex items-center justify-between">
-            <span className="text-[11px] text-muted-foreground font-mono">ID: {selectedContact?._id}</span>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  if (selectedContact) {
-                    setIsDetailsModalOpen(false);
-                    handleOpenEdit(selectedContact);
-                  }
-                }}
-                className="btn-secondary text-xs h-8.5 px-3 font-bold flex items-center gap-1.5 cursor-pointer"
-              >
-                <Edit2 size={13} /> Edit Contact
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsDetailsModalOpen(false)}
-                className="btn-secondary text-xs h-8.5 px-4 font-bold cursor-pointer"
-              >
-                Close
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => {
+                if (!selectedContact) return;
+                setIsDetailsModalOpen(false);
+                handleOpenEdit(selectedContact);
+              }}
+              className="btn-secondary text-xs h-8 px-3 font-semibold flex items-center gap-1.5 cursor-pointer"
+            >
+              <Edit3 size={12} /> Edit Details
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsDetailsModalOpen(false)}
+              className="btn-primary text-xs h-8 px-4 font-bold cursor-pointer"
+            >
+              Close
+            </button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -978,39 +991,36 @@ export default function MarketingContacts() {
         </DialogContent>
       </Dialog>
 
-      {/* --- MODAL 3: WEBHOOK INTEGRATION GUIDE MODAL --- */}
+      {/* --- MODAL 2: WEBHOOK API DOCUMENTATION MODAL --- */}
       <Dialog open={isWebhookGuideOpen} onOpenChange={setIsWebhookGuideOpen}>
-        <DialogContent className="w-[95vw] max-w-4xl max-h-[90vh] p-0 flex flex-col overflow-hidden dark:bg-card">
+        <DialogContent className="w-[95vw] max-w-2xl p-0 flex flex-col overflow-hidden dark:bg-card">
           <DialogHeader className="p-5 pb-3 border-b shrink-0 bg-card">
-            <div className="flex items-center gap-2.5">
-              <div className="h-9 w-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-bold shrink-0">
-                <Code2 className="h-5 w-5" />
+            <div className="flex items-center gap-2.5 text-left">
+              <div className="h-10 w-10 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 font-bold flex items-center justify-center shrink-0 border border-purple-500/20">
+                <Code size={18} />
               </div>
-              <div className="text-left">
-                <DialogTitle className="text-base font-extrabold tracking-tight text-foreground">
-                  API Bridge: Unified Marketing Registration Webhook
-                </DialogTitle>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Single webhook endpoint for all platforms (Mobile App, Registration Portal, Evening Inquiries & Admin Panel).
-                </p>
+              <div>
+                <DialogTitle className="text-base font-extrabold text-foreground">Marketing Registration Webhook API</DialogTitle>
+                <DialogDescription className="text-xs text-muted-foreground mt-0.5">
+                  Unified ingestion endpoint for automated parent contact sync across schools, facilities, and apps.
+                </DialogDescription>
               </div>
             </div>
           </DialogHeader>
 
           <div className="p-5 space-y-4 flex-1 overflow-y-auto custom-scrollbar text-left text-xs">
-            {/* Endpoint URL */}
-            <div className="p-3.5 bg-accent/20 border border-border/80 rounded-xl space-y-2">
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <span className="font-bold text-foreground uppercase tracking-wider text-[10px] flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
-                  Single Ingestion Webhook URL
-                </span>
-                <span className="text-[10px] bg-primary/10 text-primary font-bold px-2 py-0.5 rounded-full">
-                  POST Method
+            {/* Endpoint Pill */}
+            <div className="p-3 bg-accent/20 border rounded-xl space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] uppercase font-bold text-muted-foreground">HTTP Webhook Endpoint</span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-500/15 text-emerald-600 border border-emerald-500/20">
+                  POST
                 </span>
               </div>
-              <div className="flex items-center justify-between gap-2 bg-card border rounded-lg p-2 px-3 font-mono text-[11px] text-foreground">
-                <span className="truncate">https://api.yauapp.com/api/webhooks/marketing-registration</span>
+              <div className="flex items-center gap-2">
+                <code className="p-2 bg-background dark:bg-card border rounded-lg font-mono text-xs text-foreground flex-1 select-all break-all">
+                  https://api.yauapp.com/api/webhooks/marketing-registration
+                </code>
                 <button
                   type="button"
                   onClick={() => {
@@ -1019,37 +1029,29 @@ export default function MarketingContacts() {
                     toast.success("Webhook URL copied to clipboard!");
                     setTimeout(() => setCopiedWebhookPayload(null), 2000);
                   }}
-                  className="btn-secondary h-7 px-2.5 text-[10px] font-bold shrink-0 flex items-center gap-1 cursor-pointer"
+                  className="btn-secondary h-8 px-2.5 shrink-0 text-xs font-semibold flex items-center gap-1 cursor-pointer"
                 >
                   {copiedWebhookPayload === "url" ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
-                  <span>{copiedWebhookPayload === "url" ? "Copied" : "Copy URL"}</span>
+                  <span>{copiedWebhookPayload === "url" ? "Copied" : "Copy"}</span>
                 </button>
               </div>
             </div>
 
             {/* Architecture Highlights */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-left">
-              <div className="p-3 rounded-xl border bg-card space-y-1">
-                <span className="font-bold text-primary flex items-center gap-1">
-                  <CheckCircle size={13} /> Strict Deduplication
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div className="p-3 border rounded-xl bg-card space-y-1">
+                <span className="font-bold text-foreground flex items-center gap-1.5 text-xs">
+                  <CheckCircle size={12} className="text-emerald-500" /> Smart Deduplication
                 </span>
-                <p className="text-[11px] text-muted-foreground leading-relaxed">
-                  Parents registering multiple times with the same email update the existing contact and increment submission count without creating duplicate records.
+                <p className="text-[11px] text-muted-foreground">
+                  Contacts with the same email automatically increment submission count without producing duplicates.
                 </p>
               </div>
-              <div className="p-3 rounded-xl border bg-card space-y-1">
-                <span className="font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                  <CheckCircle size={13} /> Auto List Sync
+              <div className="p-3 border rounded-xl bg-card space-y-1">
+                <span className="font-bold text-foreground flex items-center gap-1.5 text-xs">
+                  <Shield size={12} className="text-blue-500" /> Isolated Database Protection
                 </span>
-                <p className="text-[11px] text-muted-foreground leading-relaxed">
-                  Automatically creates and routes into matching School, Location, and Free App audiences in Email Center.
-                </p>
-              </div>
-              <div className="p-3 rounded-xl border bg-card space-y-1">
-                <span className="font-bold text-purple-600 dark:text-purple-400 flex items-center gap-1">
-                  <CheckCircle size={13} /> Safe Deletion Policy
-                </span>
-                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                <p className="text-[11px] text-muted-foreground">
                   Any school or location deletions in the external admin panel leave the CRM list and its parent contacts 100% intact.
                 </p>
               </div>
@@ -1066,11 +1068,6 @@ export default function MarketingContacts() {
                       parentName: "Jane Doe",
                       email: "jane.doe@example.com",
                       phone: "555-123-4567",
-                      entryPoint: "school",
-                      schoolName: "Lincoln Elementary",
-                      schoolId: "sch_12345",
-                      locationName: "North Gym",
-                      locationId: "loc_67890",
                       source: "App Registration",
                       metadata: {}
                     }, null, 2);
@@ -1090,14 +1087,9 @@ export default function MarketingContacts() {
   "parentName": "Jane Doe",
   "email": "jane.doe@example.com",
   "phone": "555-123-4567",
-  "entryPoint": "school", // "school" | "location" | "free_app"
-  "schoolName": "Lincoln Elementary",
-  "schoolId": "sch_12345",
-  "locationName": "North Gym",
-  "locationId": "loc_67890",
-  "source": "App Registration",
+  "source": "App Registration", // e.g. "School", "Location", "App Registration" or any custom source
   "metadata": {},
-  "status": "active" // "active" | "opted_out" (automatically set to "opted_out" when contact clicks Unsubscribe)
+  "status": "active" // "active" | "opted_out"
 }`}
               </pre>
             </div>
@@ -1199,106 +1191,8 @@ export default function MarketingContacts() {
                 </div>
               </div>
 
-              {/* Channel / Entry Point Selector */}
-              <div className="space-y-1.5 pt-1">
-                <label className="text-[11px] font-bold text-foreground block">
-                  Registration Channel / Entry Point <span className="text-destructive">*</span>
-                </label>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  {[
-                    { id: "school", label: "School List", desc: "Afterschool Programs", icon: School, color: "text-blue-600" },
-                    { id: "location", label: "Location List", desc: "Evening Activities", icon: MapPin, color: "text-emerald-600" },
-                    { id: "free_app", label: "Free App Member", desc: "App Downloads", icon: Smartphone, color: "text-amber-600" }
-                  ].map(channel => {
-                    const Icon = channel.icon;
-                    const isSelected = addForm.entryPoint === channel.id;
-                    return (
-                      <button
-                        key={channel.id}
-                        type="button"
-                        onClick={() => setAddForm(prev => ({ ...prev, entryPoint: channel.id as any }))}
-                        className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-2.5 ${
-                          isSelected
-                            ? "bg-primary/5 border-primary shadow-2xs"
-                            : "bg-card border-border/70 hover:border-primary/40"
-                        }`}
-                      >
-                        <div className={`p-1.5 rounded-lg shrink-0 ${isSelected ? "bg-primary text-primary-foreground" : "bg-accent/60 " + channel.color}`}>
-                          <Icon size={14} />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <span className={`font-bold block text-xs ${isSelected ? "text-primary" : "text-foreground"}`}>
-                            {channel.label}
-                          </span>
-                          <span className="text-[10px] text-muted-foreground block truncate">
-                            {channel.desc}
-                          </span>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
 
-              {/* Conditional: School Info */}
-              {addForm.entryPoint === "school" && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-blue-500/5 border border-blue-500/20 rounded-xl">
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-bold text-blue-700 dark:text-blue-400 block">
-                      School Name <span className="text-muted-foreground font-normal">(Optional)</span>
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Lincoln Elementary"
-                      value={addForm.schoolName}
-                      onChange={e => setAddForm(prev => ({ ...prev, schoolName: e.target.value }))}
-                      className="h-9 input-field text-xs w-full rounded-xl dark:bg-card px-3"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-bold text-blue-700 dark:text-blue-400 block">
-                      School ID <span className="text-muted-foreground font-normal">(Optional)</span>
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. sch_12345"
-                      value={addForm.schoolId}
-                      onChange={e => setAddForm(prev => ({ ...prev, schoolId: e.target.value }))}
-                      className="h-9 input-field text-xs w-full rounded-xl dark:bg-card px-3"
-                    />
-                  </div>
-                </div>
-              )}
 
-              {/* Conditional: Location Info */}
-              {addForm.entryPoint === "location" && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-emerald-500/5 border border-emerald-500/20 rounded-xl">
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 block">
-                      Location / Facility Name <span className="text-muted-foreground font-normal">(Optional)</span>
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. North Community Gym"
-                      value={addForm.locationName}
-                      onChange={e => setAddForm(prev => ({ ...prev, locationName: e.target.value }))}
-                      className="h-9 input-field text-xs w-full rounded-xl dark:bg-card px-3"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 block">
-                      Location ID <span className="text-muted-foreground font-normal">(Optional)</span>
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. loc_67890"
-                      value={addForm.locationId}
-                      onChange={e => setAddForm(prev => ({ ...prev, locationId: e.target.value }))}
-                      className="h-9 input-field text-xs w-full rounded-xl dark:bg-card px-3"
-                    />
-                  </div>
-                </div>
-              )}
 
               <div className="p-3 bg-accent/20 border rounded-xl text-[11px] text-muted-foreground space-y-1">
                 <span className="font-bold text-foreground flex items-center gap-1.5">
@@ -1412,106 +1306,22 @@ export default function MarketingContacts() {
                 </div>
               </div>
 
-              {/* Channel / Entry Point Selector */}
-              <div className="space-y-1.5 pt-1">
+              {/* Registration Source */}
+              <div className="space-y-1.5">
                 <label className="text-[11px] font-bold text-foreground block">
-                  Registration Channel / Entry Point <span className="text-destructive">*</span>
+                  Registration Source
                 </label>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  {[
-                    { id: "school", label: "School", icon: School, color: "text-blue-500", desc: "School flyer/fair" },
-                    { id: "location", label: "Location", icon: MapPin, color: "text-emerald-500", desc: "Facility signup" },
-                    { id: "free_app", label: "Free App", icon: Smartphone, color: "text-amber-500", desc: "Mobile user" }
-                  ].map(channel => {
-                    const Icon = channel.icon;
-                    const isSelected = editForm.entryPoint === channel.id;
-                    return (
-                      <button
-                        key={channel.id}
-                        type="button"
-                        onClick={() => setEditForm(prev => ({ ...prev, entryPoint: channel.id as any }))}
-                        className={`p-2.5 rounded-xl border text-left flex items-start gap-2 transition-all cursor-pointer ${
-                          isSelected
-                            ? "border-primary bg-primary/10 shadow-xs ring-1 ring-primary/30"
-                            : "hover:bg-accent/40 border-border"
-                        }`}
-                      >
-                        <div className={`p-1.5 rounded-lg bg-card border shrink-0 ${channel.color}`}>
-                          <Icon size={14} />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <span className={`font-bold block text-xs ${isSelected ? "text-primary" : "text-foreground"}`}>
-                            {channel.label}
-                          </span>
-                          <span className="text-[10px] text-muted-foreground block truncate">
-                            {channel.desc}
-                          </span>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
+                <input
+                  type="text"
+                  placeholder="e.g. School, Location, App Registration"
+                  value={editForm.source}
+                  onChange={e => setEditForm(prev => ({ ...prev, source: e.target.value }))}
+                  className="h-9 input-field text-xs w-full rounded-xl dark:bg-card px-3"
+                />
               </div>
 
-              {/* Conditional: School Info */}
-              {editForm.entryPoint === "school" && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-blue-500/5 border border-blue-500/20 rounded-xl">
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-bold text-blue-700 dark:text-blue-400 block">
-                      School Name <span className="text-muted-foreground font-normal">(Optional)</span>
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Lincoln Elementary"
-                      value={editForm.schoolName}
-                      onChange={e => setEditForm(prev => ({ ...prev, schoolName: e.target.value }))}
-                      className="h-9 input-field text-xs w-full rounded-xl dark:bg-card px-3"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-bold text-blue-700 dark:text-blue-400 block">
-                      School ID <span className="text-muted-foreground font-normal">(Optional)</span>
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. sch_12345"
-                      value={editForm.schoolId}
-                      onChange={e => setEditForm(prev => ({ ...prev, schoolId: e.target.value }))}
-                      className="h-9 input-field text-xs w-full rounded-xl dark:bg-card px-3"
-                    />
-                  </div>
-                </div>
-              )}
 
-              {/* Conditional: Location Info */}
-              {editForm.entryPoint === "location" && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-emerald-500/5 border border-emerald-500/20 rounded-xl">
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 block">
-                      Location / Facility Name <span className="text-muted-foreground font-normal">(Optional)</span>
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. North Community Gym"
-                      value={editForm.locationName}
-                      onChange={e => setEditForm(prev => ({ ...prev, locationName: e.target.value }))}
-                      className="h-9 input-field text-xs w-full rounded-xl dark:bg-card px-3"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 block">
-                      Location ID <span className="text-muted-foreground font-normal">(Optional)</span>
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. loc_67890"
-                      value={editForm.locationId}
-                      onChange={e => setEditForm(prev => ({ ...prev, locationId: e.target.value }))}
-                      className="h-9 input-field text-xs w-full rounded-xl dark:bg-card px-3"
-                    />
-                  </div>
-                </div>
-              )}
+
 
               <div className="p-3 bg-accent/20 border rounded-xl text-[11px] text-muted-foreground space-y-1">
                 <span className="font-bold text-foreground flex items-center gap-1.5">

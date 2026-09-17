@@ -379,8 +379,8 @@ async function processRetellCallData(callData, payload) {
 
             const kb = await RetellKnowledgeBase.findOne().lean();
             const departments = kb?.transferDepartments || [
-                { departmentName: 'Executive Management & Escalations', phoneNumber: '+12027013900' },
-                { departmentName: 'Program Coordination & Support', phoneNumber: '+12023413778' }
+                { departmentName: 'General Inquiries & Sports Programs', phoneNumber: '+12027013900' },
+                { departmentName: 'Membership Cancellations, Billing & HR', phoneNumber: '+12023413778' }
             ];
 
             // Match department by tool invocation or department name mention
@@ -529,12 +529,25 @@ export async function getKnowledgeBase(req, res, next) {
         if (!kb.transferDepartments || kb.transferDepartments.length === 0) {
             kb.transferDepartments = [
                 {
-                    departmentName: 'Executive Management / Escalations',
-                    phoneNumber: kb.humanTransferPhone || '+18002930354',
-                    triggers: 'Director requests, serious complaints, special circumstance reviews',
-                    transferType: 'cold_transfer'
+                    departmentName: 'General Inquiries & Sports Programs',
+                    phoneNumber: kb.humanTransferPhone || '+12027013900',
+                    triggers: 'General inquiries, school info, sports programs, after school programs',
+                    transferType: 'warm_transfer',
+                    onHoldMusic: 'relaxing_sound'
+                },
+                {
+                    departmentName: 'Membership Cancellations, Billing & HR',
+                    phoneNumber: '+12023413778',
+                    triggers: 'Membership cancellations, payments, billing, HR, job inquiries',
+                    transferType: 'warm_transfer',
+                    onHoldMusic: 'relaxing_sound'
                 }
             ];
+            await kb.save();
+        }
+
+        if (!kb.humanTransferHoldMusic) {
+            kb.humanTransferHoldMusic = 'relaxing_sound';
             await kb.save();
         }
 
@@ -576,7 +589,7 @@ export async function updateKnowledgeBase(req, res, next) {
             'thinkAboutItCloseScript', 'voicemailScript', 'warmTransferScript',
             'cancellationHandlingScript', 'afterSchoolScript',
             'faqs', 'objections',
-            'humanTransferPhone', 'humanTransferTriggers',
+            'humanTransferPhone', 'humanTransferHoldMusic', 'humanTransferTriggers',
             'transferDepartments'
         ];
 
