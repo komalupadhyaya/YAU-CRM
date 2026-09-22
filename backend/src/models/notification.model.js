@@ -9,7 +9,7 @@ const NotificationSchema = new mongoose.Schema({
     },
     type: {
         type: String,
-        enum: ['task_reminder', 'followup_reminder'],
+        enum: ['task_reminder', 'followup_reminder', 'activity_report', 'system'],
         required: true
     },
     title: {

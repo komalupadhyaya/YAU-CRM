@@ -29,6 +29,7 @@ import availabilityRoutes from './routes/availability.routes.js';
 import templateRoutes from './routes/templates.routes.js';
 import retellRoutes from './routes/retell.routes.js';
 import marketingRoutes from './routes/marketing.routes.js';
+import activityReportRoutes from './routes/activityReport.routes.js';
 import { startCronJobs } from './utils/cron.utils.js';
 
 const app = express();
@@ -272,6 +273,7 @@ app.use('/api/voice', voiceRoutes);
 app.use('/api/retell', retellRoutes);
 app.use('/api', templateRoutes);
 app.use('/api/marketing-contacts', marketingRoutes);
+app.use('/api/activity-reports', activityReportRoutes);
 
 
 // Error Handling Middleware

@@ -168,15 +168,18 @@ async function callGroq(systemPrompt, userContent, jsonMode = false) {
 }
 
 // ── Anthropic Claude provider (YAU Anthropic) ────────────────────
-async function callClaude(systemPrompt, userContent, maxTokens = 1200) {
+async function callClaude(systemPrompt, userContent, maxTokens = 1200, preferredModels = null) {
     const client = getAnthropicClient();
     
-    // Primary model: claude-sonnet-4-6 via official Anthropic SDK
-    const candidateModels = [
-        'claude-sonnet-4-6',
-        'claude-haiku-4-5-20251001',
-        'claude-sonnet-4-5-20250929'
-    ];
+    // Primary model: claude-sonnet-4-6 via official Anthropic SDK (or preferredModels if specified)
+    const candidateModels = preferredModels && Array.isArray(preferredModels) && preferredModels.length > 0
+        ? [...preferredModels, 'claude-3-5-haiku-20241022', 'claude-haiku-4-5-20251001', 'claude-sonnet-4-6']
+        : [
+            'claude-sonnet-4-6',
+            'claude-haiku-4-5-20251001',
+            'claude-sonnet-4-5-20250929',
+            'claude-3-5-haiku-20241022'
+        ];
 
     const uniqueModels = [...new Set(candidateModels)];
     let lastError = null;
@@ -1014,6 +1017,120 @@ async function generateWeeklyExecutiveSummary(stats) {
     return clean;
 }
 
+// ── Activity Report Feedback (Daily & Weekly) ────────────────────
+function buildActivityReportSystemPrompt() {
+    return `You are Claude, an expert sales director and performance coach for Youth Athlete University (YAU Sports).
+Team members (sales reps, managers, and admins) submit their Daily or Weekly activity reports to you.
+Your job is to read their report carefully, analyze their activity, and provide personalized, highly practical, and actionable feedback.
+
+YAU SALES & OPERATIONAL RULES:
+1. Daily Outreach Targets: Reps should ideally aim for 8-15 active lead contacts/calls per day.
+2. Voicemail Policy: Maximum 1 voicemail per lead per day. If unanswered within 24 hours, follow up via SMS text rather than repeated calling.
+3. Warm & Interested Leads: Hot or interested leads must be contacted within 24 hours (or next day) while momentum is fresh.
+4. Local Geographic Patterns: Pay attention to geographic observations (e.g., Bowie, Silver Spring, PG County) where evening vs afternoon call response rates vary.
+5. Blockers & Solutions: Address any blockers or challenges reported and provide tactical solutions.
+
+REQUIRED RESPONSE FORMAT:
+You MUST respond with a valid, clean JSON object ONLY (no surrounding explanations, markdown ticks, or preamble):
+{
+  "goingWell": "2-3 sentences highlighting positive achievements, effort, and what worked well.",
+  "patternsOrRedFlags": "2-3 sentences identifying observations, bottlenecks, low volume, missed follow-ups, or geographic insights.",
+  "recommendations": [
+    "Specific actionable recommendation 1",
+    "Specific actionable recommendation 2",
+    "Specific actionable recommendation 3 (optional if 2 are sufficient)"
+  ],
+  "performanceScore": 7.5,
+  "scoreSummary": "Brief 1-sentence performance summary (e.g., 'Strong day. Focus on Bowie timing tomorrow.')"
+}
+
+Scoring criteria (out of 10):
+- 8.5 to 10.0: Exceptional volume, closed deals/signups, proactive follow-ups, strategic insight.
+- 7.0 to 8.4: Solid activity, consistent calls/texts, good follow-through with minor areas to optimize.
+- 5.0 to 6.9: Low call volume, passive follow-ups, or unaddressed bottlenecks.
+- Below 5.0: Minimal activity or critical missed follow-ups without blocker explanations.`;
+}
+
+function buildActivityReportUserContent({ repName, reportType, reportContent }) {
+    const typeLabel = reportType === 'weekly' ? 'Weekly Report' : 'Daily Report';
+    const cleanContent = (reportContent || '').replace(/<[^>]*>?/gm, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+    return `Submitted By: ${repName || 'Team Member'}
+Report Type: ${typeLabel}
+Date: ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+
+Team Member's Report:
+"""
+${cleanContent || reportContent}
+"""
+
+Analyze this report and output the JSON feedback now:`;
+}
+
+/**
+ * Generate personalized Claude feedback and performance score for an Activity Report.
+ *
+ * @param {Object} params
+ * @param {string} params.repName       - Name of the team member
+ * @param {string} params.reportType    - 'daily' or 'weekly'
+ * @param {string} params.reportContent - The raw text of the submitted report
+ * @returns {Promise<Object>}          - Structured feedback object
+ */
+async function generateActivityReportFeedback({ repName, reportType, reportContent }) {
+    const systemPrompt = buildActivityReportSystemPrompt();
+    const userContent  = buildActivityReportUserContent({ repName, reportType, reportContent });
+
+    const fastModels = ['claude-3-5-haiku-20241022', 'claude-haiku-4-5-20251001'];
+    let raw = '';
+    if (PROVIDER === 'claude' || PROVIDER === 'anthropic') {
+        raw = await callClaude(systemPrompt, userContent, 1000, fastModels);
+    } else if (PROVIDER === 'groq') {
+        raw = await callGroq(systemPrompt, userContent, true);
+    } else {
+        raw = await callClaude(systemPrompt, userContent, 1000, fastModels);
+    }
+
+    let clean = (raw || '').trim();
+    if (clean.startsWith('```json')) {
+        clean = clean.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
+    } else if (clean.startsWith('```')) {
+        clean = clean.replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+    }
+
+    let parsed;
+    try {
+        parsed = JSON.parse(clean);
+    } catch (err) {
+        console.warn('[Activity Report AI] Failed to parse JSON, building structured fallback from raw text:', err.message);
+        // Fallback extraction
+        parsed = {
+            goingWell: clean.slice(0, 300),
+            patternsOrRedFlags: 'Keep focusing on consistent lead follow-ups and tracking responses.',
+            recommendations: [
+                'Ensure all hot leads have a scheduled next touchpoint.',
+                'Follow up with any pending voicemails via SMS within 24 hours.'
+            ],
+            performanceScore: 7.0,
+            scoreSummary: 'Good progress logged. Continue executing your daily targets.'
+        };
+    }
+
+    // Ensure score is valid number between 0 and 10
+    let score = typeof parsed.performanceScore === 'number' ? parsed.performanceScore : parseFloat(parsed.performanceScore);
+    if (isNaN(score)) score = 7.0;
+    score = Math.max(0, Math.min(10, Math.round(score * 10) / 10));
+
+    return {
+        goingWell: parsed.goingWell || 'Great effort submitting your report.',
+        patternsOrRedFlags: parsed.patternsOrRedFlags || 'No major red flags noted.',
+        recommendations: Array.isArray(parsed.recommendations) && parsed.recommendations.length > 0
+            ? parsed.recommendations.slice(0, 3)
+            : ['Continue tracking all customer responses and follow up promptly.'],
+        performanceScore: score,
+        scoreSummary: parsed.scoreSummary || `Performance score: ${score}/10`,
+        rawResponse: clean
+    };
+}
+
 export {
     generateSmsMessage,
     generateBulkSmsMessage,
@@ -1023,7 +1140,8 @@ export {
     generateEALeadAutoReply,
     generateEALeadWelcomeSms,
     evaluateEALeadScore,
-    generateWeeklyExecutiveSummary
+    generateWeeklyExecutiveSummary,
+    generateActivityReportFeedback
 };
 
 export default {
@@ -1035,6 +1153,8 @@ export default {
     generateEALeadAutoReply,
     generateEALeadWelcomeSms,
     evaluateEALeadScore,
-    generateWeeklyExecutiveSummary
+    generateWeeklyExecutiveSummary,
+    generateActivityReportFeedback
 };
+
 

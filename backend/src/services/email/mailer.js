@@ -1362,6 +1362,102 @@ export async function sendWeeklyPerformanceReportEmail({
     }
 }
 
+/**
+ * Send an email notification to Admins when a team member submits an Activity Report.
+ */
+export async function sendActivityReportAdminNotification({
+    repName,
+    repEmail,
+    reportType,
+    submissionDate,
+    rawContent,
+    aiFeedback = {},
+    reportId
+}) {
+    const adminEmail = process.env.ADMIN_EMAIL || 'admin@yaucrm.com';
+    const crmUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
+    const typeLabel = reportType === 'weekly' ? 'Weekly' : 'Daily';
+    const formattedDate = new Date(submissionDate || Date.now()).toLocaleDateString('en-US', {
+        weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit'
+    });
+
+    const score = aiFeedback.performanceScore != null ? `${aiFeedback.performanceScore} / 10` : 'Pending';
+    const recsHtml = (aiFeedback.recommendations || []).map((r, i) =>
+        `<li style="margin-bottom: 6px;"><strong>#${i + 1}:</strong> ${r}</li>`
+    ).join('');
+
+    const html = `
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="utf-8"></head>
+    <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f4f4f5; margin: 0; padding: 24px; color: #18181b;">
+        <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; border: 1px solid #e4e4e7; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
+            <div style="background: linear-gradient(135deg, #18181b 0%, #27272a 100%); padding: 24px; color: #ffffff;">
+                <p style="margin: 0 0 6px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #a1a1aa;">YAU CRM • Team Activity Notification</p>
+                <h1 style="margin: 0; font-size: 20px; font-weight: 700;">New ${typeLabel} Report Submitted</h1>
+                <p style="margin: 8px 0 0 0; font-size: 14px; color: #d4d4d8;">By <strong>${repName}</strong> (${repEmail || 'Sales Team'}) on ${formattedDate}</p>
+            </div>
+            <div style="padding: 24px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; background: #fafafa; border: 1px solid #e4e4e7; border-radius: 8px; padding: 14px; margin-bottom: 20px;">
+                    <div>
+                        <span style="font-size: 12px; color: #71717a; text-transform: uppercase; font-weight: 600;">Claude Performance Score</span>
+                        <div style="font-size: 22px; font-weight: 800; color: #0284c7; margin-top: 2px;">${score}</div>
+                    </div>
+                    <div style="text-align: right;">
+                        <span style="display: inline-block; background: #e0f2fe; color: #0369a1; padding: 4px 10px; border-radius: 9999px; font-size: 12px; font-weight: 600;">${typeLabel}</span>
+                    </div>
+                </div>
+
+                <div style="margin-bottom: 20px;">
+                    <h3 style="font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; color: #71717a; margin: 0 0 8px 0;">Team Member Report</h3>
+                    <div style="background: #ffffff; border: 1px solid #e4e4e7; border-left: 4px solid #3b82f6; border-radius: 4px; padding: 12px 16px; font-size: 14px; line-height: 1.6; white-space: pre-wrap; color: #27272a;">${rawContent}</div>
+                </div>
+
+                ${aiFeedback.goingWell ? `
+                <div style="margin-bottom: 16px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 14px;">
+                    <strong style="color: #166534; font-size: 13px; text-transform: uppercase;">🌟 What Went Well:</strong>
+                    <p style="margin: 6px 0 0 0; font-size: 13px; color: #14532d; line-height: 1.5;">${aiFeedback.goingWell}</p>
+                </div>` : ''}
+
+                ${aiFeedback.patternsOrRedFlags ? `
+                <div style="margin-bottom: 16px; background: #fefce8; border: 1px solid #fef08a; border-radius: 8px; padding: 14px;">
+                    <strong style="color: #854d0e; font-size: 13px; text-transform: uppercase;">⚠️ Observations & Patterns:</strong>
+                    <p style="margin: 6px 0 0 0; font-size: 13px; color: #713f12; line-height: 1.5;">${aiFeedback.patternsOrRedFlags}</p>
+                </div>` : ''}
+
+                ${recsHtml ? `
+                <div style="margin-bottom: 20px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 14px;">
+                    <strong style="color: #1e40af; font-size: 13px; text-transform: uppercase;">🎯 Claude Recommendations:</strong>
+                    <ul style="margin: 8px 0 0 0; padding-left: 18px; font-size: 13px; color: #1e3a8a; line-height: 1.5;">
+                        ${recsHtml}
+                    </ul>
+                </div>` : ''}
+
+                <div style="text-align: center; margin-top: 24px;">
+                    <a href="${crmUrl}/reports?reportId=${reportId || ''}" style="display: inline-block; background: #18181b; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 6px; font-weight: 600; font-size: 14px;">View in CRM Reports Feed</a>
+                </div>
+            </div>
+            <div style="background: #fafafa; border-top: 1px solid #e4e4e7; padding: 14px 24px; text-align: center; font-size: 12px; color: #a1a1aa;">
+                Youth Athlete University CRM • Automated Daily & Weekly Activity Monitoring
+            </div>
+        </div>
+    </body>
+    </html>
+    `;
+
+    try {
+        await sendMail({
+            to: adminEmail,
+            subject: `[YAU CRM] ${repName} submitted a ${typeLabel} Report (Score: ${score})`,
+            html
+        });
+        console.log(`✅ Activity report admin notification sent to ${adminEmail}`);
+    } catch (err) {
+        console.error('❌ Failed to send activity report admin notification:', err.message);
+    }
+}
+
+
 
 
 

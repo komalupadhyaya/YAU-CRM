@@ -102,7 +102,8 @@ export default function Settings() {
             const repSettingsMap = new Map<string, RepSetting>();
 
             currentRepSettings.forEach((rs) => {
-                const uid = typeof rs.userId === "object" ? rs.userId._id : rs.userId;
+                if (!rs) return;
+                const uid = (rs.userId && typeof rs.userId === "object") ? rs.userId._id : rs.userId;
                 if (uid) repSettingsMap.set(String(uid), rs);
             });
 
@@ -129,8 +130,29 @@ export default function Settings() {
                 };
             });
 
+            const defaultStatusLabels = [
+                "Not Contacted",
+                "Attempted Contact",
+                "Spoke to Front Office",
+                "Spoke to Decision Maker",
+                "Waiting on Reply",
+                "Follow-Up Needed",
+                "Meeting Scheduled",
+                "Proposal Sent",
+                "Interested",
+                "Not Interested",
+                "Program Confirmed",
+                "On Hold"
+            ];
+
+            const activeStatusLabels = (data.statusLabels && data.statusLabels.length > 0)
+                ? data.statusLabels
+                : defaultStatusLabels;
+
             const initializedSettings: SettingsData = {
                 ...data,
+                crmPreferences: data.crmPreferences || { defaultFollowupDays: 7 },
+                statusLabels: activeStatusLabels,
                 notificationSettings: {
                     global: {
                         inAppEnabled: data.notificationSettings?.global?.inAppEnabled ?? true,
@@ -144,10 +166,10 @@ export default function Settings() {
             };
 
             setSettings(initializedSettings);
-            setStatusLabels(data.statusLabels || []);
+            setStatusLabels(activeStatusLabels);
             setAiAutoReplyEnabled(data.aiAutoReply?.enabled ?? false);
         } catch (err) {
-            console.error(err);
+            console.error("Error loading settings:", err);
             toast.error("Failed to load settings");
         } finally {
             setLoading(false);
@@ -173,7 +195,7 @@ export default function Settings() {
                     ...settings.notificationSettings,
                     repSettings: (settings.notificationSettings?.repSettings || []).map((rs) => ({
                         ...rs,
-                        userId: typeof rs.userId === "object" ? rs.userId._id : rs.userId,
+                        userId: (rs?.userId && typeof rs.userId === "object") ? rs.userId._id : rs?.userId,
                         inAppEnabled: globalInApp ? rs.inAppEnabled : false,
                         emailEnabled: globalEmail ? rs.emailEnabled : false,
                         smsForwardEnabled: globalSms ? rs.smsForwardEnabled : false
@@ -278,7 +300,7 @@ export default function Settings() {
         if (!settings || !settings.notificationSettings) return;
         const currentList = settings.notificationSettings.repSettings;
         const updatedList = currentList.map((rs) => {
-            const uid = typeof rs.userId === "object" ? rs.userId._id : rs.userId;
+            const uid = (rs?.userId && typeof rs.userId === "object") ? rs.userId._id : rs?.userId;
             if (String(uid) === String(userIdStr)) {
                 return { ...rs, [field]: value };
             }
@@ -303,7 +325,7 @@ export default function Settings() {
         }
 
         const rep = settings?.notificationSettings?.repSettings.find((rs) => {
-            const uid = typeof rs.userId === "object" ? rs.userId._id : rs.userId;
+            const uid = (rs?.userId && typeof rs.userId === "object") ? rs.userId._id : rs?.userId;
             return String(uid) === String(userIdStr);
         });
 
@@ -320,7 +342,7 @@ export default function Settings() {
 
     const removeEmailFromRep = (userIdStr: string, emailToRemove: string) => {
         const rep = settings?.notificationSettings?.repSettings.find((rs) => {
-            const uid = typeof rs.userId === "object" ? rs.userId._id : rs.userId;
+            const uid = (rs?.userId && typeof rs.userId === "object") ? rs.userId._id : rs?.userId;
             return String(uid) === String(userIdStr);
         });
 
@@ -341,17 +363,18 @@ export default function Settings() {
     }
 
     const filteredRepSettings = (settings?.notificationSettings?.repSettings || []).filter((rs) => {
-        const userObj: RepUser | null = typeof rs.userId === "object" ? rs.userId : null;
+        if (!rs) return false;
+        const userObj: RepUser | null = (rs?.userId && typeof rs.userId === "object") ? rs.userId : null;
         if (!userObj) return true;
         const q = repSearchQuery.toLowerCase().trim();
         if (!q) return true;
         return (
-            userObj.name?.toLowerCase().includes(q) ||
-            userObj.username?.toLowerCase().includes(q) ||
-            userObj.email?.toLowerCase().includes(q) ||
-            userObj.role?.toLowerCase().includes(q) ||
-            rs.emails.some((e) => e.toLowerCase().includes(q)) ||
-            rs.phone.includes(q)
+            (userObj.name || "").toLowerCase().includes(q) ||
+            (userObj.username || "").toLowerCase().includes(q) ||
+            (userObj.email || "").toLowerCase().includes(q) ||
+            (userObj.role || "").toLowerCase().includes(q) ||
+            (rs.emails || []).some((e) => (e || "").toLowerCase().includes(q)) ||
+            (rs.phone || "").includes(q)
         );
     });
 
@@ -542,9 +565,9 @@ export default function Settings() {
                                         No team members match your filter query.
                                     </div>
                                 ) : (
-                                    filteredRepSettings.map((repSetting) => {
-                                        const userObj: RepUser | null = typeof repSetting.userId === "object" ? repSetting.userId : null;
-                                        const userIdStr = userObj?._id || String(repSetting.userId);
+                                    filteredRepSettings.map((repSetting, idx) => {
+                                        const userObj: RepUser | null = (repSetting?.userId && typeof repSetting.userId === "object") ? repSetting.userId : null;
+                                        const userIdStr = userObj?._id || String(repSetting?.userId || `rep-${idx}`);
                                         const repName = userObj?.name || userObj?.username || "Team Member";
                                         const repRole = userObj?.role || "sales_rep";
 
@@ -788,16 +811,17 @@ export default function Settings() {
                                                 id="followup-days"
                                                 name="followup-days"
                                                 type="number"
-                                                value={settings?.crmPreferences.defaultFollowupDays}
-                                                onChange={(e) =>
+                                                value={settings?.crmPreferences?.defaultFollowupDays ?? 7}
+                                                onChange={(e) => {
+                                                    if (!settings) return;
                                                     setSettings({
-                                                        ...settings!,
+                                                        ...settings,
                                                         crmPreferences: {
-                                                            ...settings!.crmPreferences,
+                                                            ...(settings.crmPreferences || { defaultFollowupDays: 7 }),
                                                             defaultFollowupDays: parseInt(e.target.value) || 0
                                                         }
-                                                    })
-                                                }
+                                                    });
+                                                }}
                                                 className="w-24 border-sidebar-border"
                                             />
                                             <span className="text-sm text-muted-foreground">days</span>
@@ -817,7 +841,7 @@ export default function Settings() {
                                 </div>
                                 <div className="bg-card border rounded-xl p-6 shadow-sm space-y-4">
                                     <div className="space-y-3">
-                                        {settings?.statusLabels.map((status, idx) => (
+                                        {(settings?.statusLabels || []).map((status, idx) => (
                                             <div key={idx} className="flex items-center gap-2 group">
                                                 <Input
                                                     id={`status-label-${idx}`}

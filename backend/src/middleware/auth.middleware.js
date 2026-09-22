@@ -39,7 +39,12 @@ const auth = (req, res, next) => {
             }
         }
 
-        req.user = decoded;
+        const userId = decoded.id || decoded._id;
+        req.user = {
+            ...decoded,
+            _id: userId,
+            id: userId
+        };
         next();
     } catch (err) {
         res.status(401).json({ error: 'Token is not valid' });

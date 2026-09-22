@@ -386,4 +386,72 @@ aside *::-webkit-scrollbar-thumb:hover {
 #dialerPhoneInput:-webkit-autofill::placeholder {
   color: rgb(113 113 122) !important;
   opacity: 0.6 !important;
+}
+
+/* ==========================================================================
+   Liquid Water Fluid Button Animations
+   ========================================================================== */
+
+@keyframes waterFluidRise {
+  0% {
+    transform: translateY(102%);
+  }
+  100% {
+    transform: translateY(0%);
+  }
+}
+
+@keyframes waterWaveFlow {
+  0% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(-25%);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes waterWaveSecondary {
+  0% {
+    transform: translateX(-50%);
+  }
+  50% {
+    transform: translateX(-25%);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
+@keyframes waterFluidSplash {
+  0% {
+    transform: scale(0.96);
+    filter: brightness(1.25);
+  }
+  50% {
+    transform: scale(1.03);
+    filter: brightness(1.4);
+  }
+  100% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+}
+
+.animate-water-rise {
+  animation: waterFluidRise 0.85s cubic-bezier(0.33, 1, 0.68, 1) forwards;
+}
+
+.animate-water-wave-1 {
+  animation: waterWaveFlow 2.2s linear infinite;
+}
+
+.animate-water-wave-2 {
+  animation: waterWaveSecondary 3s linear infinite;
+}
+
+.animate-water-splash {
+  animation: waterFluidSplash 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
 }

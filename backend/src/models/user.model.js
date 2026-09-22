@@ -18,7 +18,13 @@ const UserSchema = new mongoose.Schema({
         default: 'offline'
     },
     lastActiveAt: { type: Date, default: Date.now },
-    lastLoginAt: { type: Date }
+    lastLoginAt: { type: Date },
+    managerId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        default: null,
+        index: true
+    }
 }, { timestamps: true });
 
 export const User = mongoose.model('User', UserSchema);

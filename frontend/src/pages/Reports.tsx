@@ -1,12 +1,22 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import api from "../api/api";
 import AppLayout from "../layout/AppLayout";
-import { BarChart3, Download, FileSpreadsheet, PieChart, TrendingUp, Users, Building, Megaphone } from "lucide-react";
+import {
+    BarChart3,
+    FileSpreadsheet,
+    PieChart,
+    TrendingUp,
+    Building,
+    Megaphone,
+    Sparkles,
+    Eye,
+    PenSquare,
+    ArrowRight
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "../context/AuthContext";
-import { can } from "../utils/permissions";
 import {
     Table,
     TableBody,
@@ -15,6 +25,10 @@ import {
     TableHeader,
     TableRow
 } from "@/components/ui/table";
+import ReportSubmissionCard from "../components/reports/ReportSubmissionCard";
+import ClaudeFeedbackCard, { ActivityReportItem } from "../components/reports/ClaudeFeedbackCard";
+import ReportsFeed from "../components/reports/ReportsFeed";
+import { useSocket } from "../context/SocketContext";
 
 interface OverviewData {
     campaigns: { total: number };
@@ -40,16 +54,63 @@ interface CampaignPerformance {
     pendingFollowups: number;
 }
 
+type TabType = "submit" | "view" | "performance";
+
 export default function Reports() {
+    const [searchParams, setSearchParams] = useSearchParams();
+    const rawTab = searchParams.get("tab");
+
+    // Map query param to one of the 3 primary toggles
+    const getInitialTab = (): TabType => {
+        if (rawTab === "view" || rawTab === "feed") return "view";
+        if (rawTab === "performance" || rawTab === "analytics") return "performance";
+        return "submit";
+    };
+
+    const [activeTab, setActiveTab] = useState<TabType>(getInitialTab());
+
+    // Activity Reports State
+    const [latestSubmittedReport, setLatestSubmittedReport] = useState<ActivityReportItem | null>(null);
+    const [feedRefreshCounter, setFeedRefreshCounter] = useState(0);
+
+    // Analytics State
     const [overview, setOverview] = useState<OverviewData | null>(null);
     const [performance, setPerformance] = useState<CampaignPerformance[]>([]);
-    const [loading, setLoading] = useState(true);
+    const [loadingAnalytics, setLoadingAnalytics] = useState(false);
+
     const navigate = useNavigate();
     const { currentUser } = useAuth();
-    const permissions = can(currentUser?.role);
-    const isAuthorized = currentUser?.role === 'admin' || currentUser?.role === 'manager';
+    const isAuthorizedForAnalytics = currentUser?.role === "admin" || currentUser?.role === "manager";
+    const socket = useSocket();
 
-    const loadData = async () => {
+    // Listen for real-time AI evaluation completion for the submitted report
+    useEffect(() => {
+        if (!socket) return;
+
+        const handleReportEvaluated = (data: { reportId: string; report: ActivityReportItem }) => {
+            if (!data?.report) return;
+            setLatestSubmittedReport(prev => {
+                if (prev && (prev._id === data.report._id || prev._id === data.reportId)) {
+                    return { ...prev, ...data.report };
+                }
+                return prev;
+            });
+        };
+
+        socket.on("activity_report:evaluated", handleReportEvaluated);
+        return () => {
+            socket.off("activity_report:evaluated", handleReportEvaluated);
+        };
+    }, [socket]);
+
+    // Synchronize query param
+    const handleTabChange = (tab: TabType) => {
+        setActiveTab(tab);
+        setSearchParams({ tab });
+    };
+
+    const loadAnalyticsData = async () => {
+        setLoadingAnalytics(true);
         try {
             const [resOverview, resPerformance] = await Promise.all([
                 api.get("/reports/overview"),
@@ -59,28 +120,29 @@ export default function Reports() {
             setPerformance(resPerformance.data);
         } catch (err) {
             console.error(err);
-            toast.error("Failed to load reports");
+            toast.error("Failed to load analytics overview.");
         } finally {
-            setLoading(false);
+            setLoadingAnalytics(false);
         }
     };
 
     useEffect(() => {
-        loadData();
-    }, []);
+        if (activeTab === "performance" && isAuthorizedForAnalytics && !overview) {
+            loadAnalyticsData();
+        }
+    }, [activeTab, isAuthorizedForAnalytics]);
 
     const handleExport = (type: string) => {
-        if (!isAuthorized) {
-            toast.error("You have no authority");
+        if (!isAuthorizedForAnalytics) {
+            toast.error("You do not have permission to export data.");
             return;
         }
-        // Cookie is sent automatically by the api instance (withCredentials:true)
-        api.get(`/reports/export?type=${type}`, { responseType: 'blob' })
-            .then(response => {
+        api.get(`/reports/export?type=${type}`, { responseType: "blob" })
+            .then((response) => {
                 const url = window.URL.createObjectURL(new Blob([response.data]));
-                const link = document.createElement('a');
+                const link = document.createElement("a");
                 link.href = url;
-                link.setAttribute('download', `report_${type}_${new Date().toISOString().slice(0, 10)}.csv`);
+                link.setAttribute("download", `report_${type}_${new Date().toISOString().slice(0, 10)}.csv`);
                 document.body.appendChild(link);
                 link.click();
                 link.remove();
@@ -88,145 +150,279 @@ export default function Reports() {
             .catch(() => toast.error("Export failed"));
     };
 
-    if (loading) return <AppLayout><div className="flex items-center justify-center h-full text-muted-foreground">Loading reports...</div></AppLayout>;
+    const handleReportSubmitted = (newReport: ActivityReportItem) => {
+        setLatestSubmittedReport(newReport);
+        setFeedRefreshCounter((prev) => prev + 1);
+    };
 
     return (
         <AppLayout>
-            <div className="space-y-8 max-w-6xl mx-auto pb-12">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div>
-                        <h1 className="text-3xl font-bold tracking-tight">Reports & Analytics</h1>
-                        <p className="text-muted-foreground">Comprehensive CRM performance overview and data exports.</p>
+            <div className="p-4 pt-1 space-y-3 max-w-7xl mx-auto flex-1 flex flex-col min-h-0">
+                {/* Tier 1: Unified Top Header Bar matching EmailCenter */}
+                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 border-b pb-2.5 shrink-0">
+                    <div className="flex items-center gap-3">
+                        <div className="h-9 w-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-bold shrink-0">
+                            <BarChart3 className="h-5 w-5" />
+                        </div>
+                        <div>
+                            <h1 className="text-xl font-extrabold tracking-tight dark:text-foreground">Reports & Performance</h1>
+                            <p className="text-xs text-muted-foreground">Submit activity reports, review Claude AI coaching, and analyze CRM performance.</p>
+                        </div>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                        <Button 
-                            variant="outline" 
-                            size="sm" 
-                            className={`gap-2 ${!isAuthorized ? "opacity-50 blur-[0.5px]" : ""}`}
-                            onClick={() => handleExport('leads')}
+
+                    {/* Right: 3 Primary Toggle Pills */}
+                    <div className="flex items-center bg-accent/40 border p-1 rounded-xl shrink-0">
+                        {/* Toggle 1: Submit Report */}
+                        <button
+                            type="button"
+                            onClick={() => handleTabChange("submit")}
+                            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                                activeTab === "submit"
+                                    ? "bg-primary text-white shadow-2xs font-extrabold"
+                                    : "text-muted-foreground hover:text-foreground"
+                            }`}
                         >
-                            <FileSpreadsheet size={16} />
-                            Export Leads / Organizations
-                        </Button>
-                        <Button 
-                            variant="outline" 
-                            size="sm" 
-                            className={`gap-2 ${!isAuthorized ? "opacity-50 blur-[0.5px]" : ""}`}
-                            onClick={() => handleExport('followups')}
+                            <PenSquare size={13} />
+                            Submit Report
+                        </button>
+
+                        {/* Toggle 2: View Reports */}
+                        <button
+                            type="button"
+                            onClick={() => handleTabChange("view")}
+                            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                                activeTab === "view"
+                                    ? "bg-primary text-white shadow-2xs font-extrabold"
+                                    : "text-muted-foreground hover:text-foreground"
+                            }`}
                         >
-                            <FileSpreadsheet size={16} />
-                            Export Follow-ups
-                        </Button>
-                        <Button 
-                            variant="outline" 
-                            size="sm" 
-                            className={`gap-2 ${!isAuthorized ? "opacity-50 blur-[0.5px]" : ""}`}
-                            onClick={() => handleExport('campaigns')}
-                        >
-                            <FileSpreadsheet size={16} />
-                            Export Campaigns
-                        </Button>
+                            <Eye size={13} />
+                            View Reports
+                        </button>
+
+                        {/* Toggle 3: Reports & Performance */}
+                        {isAuthorizedForAnalytics && (
+                            <button
+                                type="button"
+                                onClick={() => handleTabChange("performance")}
+                                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                                    activeTab === "performance"
+                                        ? "bg-primary text-white shadow-2xs font-extrabold"
+                                        : "text-muted-foreground hover:text-foreground"
+                                }`}
+                            >
+                                <BarChart3 size={13} />
+                                Reports & Performance
+                            </button>
+                        )}
                     </div>
                 </div>
 
-                {/* Overview Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <div className="bg-card border rounded-xl p-6 shadow-sm">
-                        <div className="flex items-center gap-3 mb-4">
-                            <div className="p-2 bg-primary/10 text-primary rounded-lg">
-                                <Megaphone size={20} />
-                            </div>
-                            <h3 className="font-semibold text-sm">Campaigns</h3>
-                        </div>
-                        <p className="text-3xl font-bold">{overview?.campaigns.total}</p>
-                        <p className="text-xs text-muted-foreground mt-1">Total active campaigns</p>
-                    </div>
+                {/* ─────────────────────────────────────────────────────────────
+                    TOGGLE 1: SUBMIT REPORT
+                ────────────────────────────────────────────────────────────── */}
+                {activeTab === "submit" && (
+                    <div className="space-y-4 flex-1 flex flex-col min-h-0 animate-in fade-in-50 duration-200">
+                        {/* Report Submission Box */}
+                        <ReportSubmissionCard onReportSubmitted={handleReportSubmitted} />
 
-                    <div className="bg-card border rounded-xl p-6 shadow-sm">
-                        <div className="flex items-center gap-3 mb-4">
-                            <div className="p-2 bg-blue-500/10 text-blue-500 rounded-lg">
-                                <Building size={20} />
+                        {/* Instant Claude Feedback Banner upon submission */}
+                        {latestSubmittedReport && (
+                            <div className="space-y-2 animate-in slide-in-from-top-3 duration-400">
+                                <div className="flex items-center justify-between px-1">
+                                    <div className="flex items-center gap-2">
+                                        <span className="flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                                        <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+                                            Instant Claude AI Feedback & Score
+                                        </h3>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => handleTabChange("view")}
+                                            className="text-xs text-primary hover:text-primary gap-1 h-7 px-2"
+                                        >
+                                            View in All Reports Feed <ArrowRight size={12} />
+                                        </Button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setLatestSubmittedReport(null)}
+                                            className="text-[11px] text-muted-foreground hover:text-foreground underline"
+                                        >
+                                            Dismiss
+                                        </button>
+                                    </div>
+                                </div>
+                                <ClaudeFeedbackCard report={latestSubmittedReport} />
                             </div>
-                            <h3 className="font-semibold text-sm">Leads / Organizations</h3>
-                        </div>
-                        <p className="text-3xl font-bold">{overview?.leads.total}</p>
-                        <p className="text-xs text-muted-foreground mt-1">Across all campaigns</p>
+                        )}
                     </div>
+                )}
 
-                    <div className="bg-card border rounded-xl p-6 shadow-sm">
-                        <div className="flex items-center gap-3 mb-4">
-                            <div className="p-2 bg-orange-500/10 text-orange-500 rounded-lg">
-                                <TrendingUp size={20} />
+                {/* ─────────────────────────────────────────────────────────────
+                    TOGGLE 2: VIEW REPORTS (STREAMLINED FEED, NO DUPLICATE HEADERS)
+                ────────────────────────────────────────────────────────────── */}
+                {activeTab === "view" && (
+                    <div className="flex-1 flex flex-col min-h-0 animate-in fade-in-50 duration-200">
+                        <ReportsFeed
+                            currentUserRole={currentUser?.role}
+                            currentUserId={currentUser?._id}
+                            refreshTrigger={feedRefreshCounter}
+                        />
+                    </div>
+                )}
+
+                {/* ─────────────────────────────────────────────────────────────
+                    TOGGLE 3: REPORTS & PERFORMANCE (CRM ANALYTICS)
+                ────────────────────────────────────────────────────────────── */}
+                {activeTab === "performance" && isAuthorizedForAnalytics && (
+                    <div className="space-y-4 flex-1 flex flex-col min-h-0 animate-in fade-in-50 duration-200">
+                        {/* Export Action Bar */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 px-4 rounded-xl bg-card border shadow-2xs shrink-0">
+                            <div>
+                                <h3 className="font-bold text-xs">CRM Data Exports</h3>
+                                <p className="text-[11px] text-muted-foreground">Download live CSV database snapshots.</p>
                             </div>
-                            <h3 className="font-semibold text-sm">Tasks Pending</h3>
-                        </div>
-                        <p className="text-3xl font-bold">{overview?.followups.totalPending}</p>
-                        <p className="text-xs text-muted-foreground mt-1">
-                            <span className="text-red-500 font-medium">{overview?.followups.overdue} Overdue</span>
-                        </p>
-                    </div>
-
-                    <div className="bg-card border rounded-xl p-6 shadow-sm">
-                        <div className="flex items-center gap-3 mb-4">
-                            <div className="p-2 bg-green-500/10 text-green-500 rounded-lg">
-                                <PieChart size={20} />
+                            <div className="flex flex-wrap gap-2">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="gap-1.5 text-xs h-8"
+                                    onClick={() => handleExport("leads")}
+                                >
+                                    <FileSpreadsheet size={13} />
+                                    Export Leads
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="gap-1.5 text-xs h-8"
+                                    onClick={() => handleExport("followups")}
+                                >
+                                    <FileSpreadsheet size={13} />
+                                    Export Tasks
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="gap-1.5 text-xs h-8"
+                                    onClick={() => handleExport("campaigns")}
+                                >
+                                    <FileSpreadsheet size={13} />
+                                    Export Campaigns
+                                </Button>
                             </div>
-                            <h3 className="font-semibold text-sm">Completion</h3>
                         </div>
-                        <p className="text-3xl font-bold">{overview?.followups.totalCompleted}</p>
-                        <p className="text-xs text-muted-foreground mt-1">Resolved activities</p>
-                    </div>
-                </div>
 
-                {/* Campaign Performance Table */}
-                <div className="space-y-4">
-                    <div className="flex items-center gap-2">
-                        <BarChart3 size={20} className="text-primary" />
-                        <h2 className="text-xl font-bold">Campaign Performance</h2>
-                    </div>
-                    <div className="bg-card border rounded-lg overflow-hidden shadow-sm">
-                        <Table>
-                            <TableHeader>
-                                <TableRow>
-                                    <TableHead>Campaign Name</TableHead>
-                                    <TableHead>Total Leads</TableHead>
-                                    <TableHead>Total Tasks</TableHead>
-                                    <TableHead>Completed</TableHead>
-                                    <TableHead>Pending</TableHead>
-                                    <TableHead className="text-right">Process</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {performance.map((p) => (
-                                <TableRow key={p.campaignId} className="group">
-                                    <TableCell 
-                                        className="font-medium cursor-pointer text-foreground group-hover:text-primary transition-colors flex items-center gap-2"
-                                        onClick={() => navigate(`/campaigns?campaignId=${p.campaignId}`)}
-                                    >
-                                        <Megaphone size={14} className="text-muted-foreground group-hover:text-primary opacity-50 group-hover:opacity-100 transition-all" />
-                                        {p.campaignName}
-                                    </TableCell>
-                                        <TableCell>{p.totalLeads}</TableCell>
-                                        <TableCell>{p.totalFollowups}</TableCell>
-                                        <TableCell className="text-green-500 font-medium">{p.completedFollowups}</TableCell>
-                                        <TableCell className="text-orange-500 font-medium">{p.pendingFollowups}</TableCell>
-                                        <TableCell className="text-right">
-                                            <div className="w-24 bg-secondary h-1.5 rounded-full ml-auto overflow-hidden">
-                                                <div
-                                                    className="bg-primary h-full transition-all duration-500"
-                                                    style={{ width: `${p.totalFollowups > 0 ? (p.completedFollowups / p.totalFollowups) * 100 : 0}%` }}
-                                                />
+                        {loadingAnalytics ? (
+                            <div className="text-center py-12 text-muted-foreground text-xs">Loading analytics...</div>
+                        ) : (
+                            <>
+                                {/* Overview KPI Cards */}
+                                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 shrink-0">
+                                    <div className="bg-card border rounded-xl p-3.5 shadow-2xs">
+                                        <div className="flex items-center gap-2 mb-1.5">
+                                            <div className="p-1.5 bg-primary/10 text-primary rounded-md">
+                                                <Megaphone size={14} />
                                             </div>
-                                            <span className="text-[10px] text-muted-foreground mt-1 block">
-                                                {p.totalFollowups > 0 ? Math.round((p.completedFollowups / p.totalFollowups) * 100) : 0}% Done
-                                            </span>
-                                        </TableCell>
-                                    </TableRow>
-                                ))}
-                            </TableBody>
-                        </Table>
+                                            <h3 className="font-semibold text-[11px] text-muted-foreground uppercase tracking-wider">Campaigns</h3>
+                                        </div>
+                                        <p className="text-2xl font-bold">{overview?.campaigns?.total || 0}</p>
+                                        <p className="text-[10px] text-muted-foreground mt-0.5">Total active campaigns</p>
+                                    </div>
+
+                                    <div className="bg-card border rounded-xl p-3.5 shadow-2xs">
+                                        <div className="flex items-center gap-2 mb-1.5">
+                                            <div className="p-1.5 bg-blue-500/10 text-blue-500 rounded-md">
+                                                <Building size={14} />
+                                            </div>
+                                            <h3 className="font-semibold text-[11px] text-muted-foreground uppercase tracking-wider">Leads</h3>
+                                        </div>
+                                        <p className="text-2xl font-bold">{overview?.leads?.total || 0}</p>
+                                        <p className="text-[10px] text-muted-foreground mt-0.5">Across all campaigns</p>
+                                    </div>
+
+                                    <div className="bg-card border rounded-xl p-3.5 shadow-2xs">
+                                        <div className="flex items-center gap-2 mb-1.5">
+                                            <div className="p-1.5 bg-orange-500/10 text-orange-500 rounded-md">
+                                                <TrendingUp size={14} />
+                                            </div>
+                                            <h3 className="font-semibold text-[11px] text-muted-foreground uppercase tracking-wider">Tasks Pending</h3>
+                                        </div>
+                                        <p className="text-2xl font-bold">{overview?.followups?.totalPending || 0}</p>
+                                        <p className="text-[10px] text-muted-foreground mt-0.5">
+                                            <span className="text-red-500 font-medium">{overview?.followups?.overdue || 0} Overdue</span>
+                                        </p>
+                                    </div>
+
+                                    <div className="bg-card border rounded-xl p-3.5 shadow-2xs">
+                                        <div className="flex items-center gap-2 mb-1.5">
+                                            <div className="p-1.5 bg-green-500/10 text-green-500 rounded-md">
+                                                <PieChart size={14} />
+                                            </div>
+                                            <h3 className="font-semibold text-[11px] text-muted-foreground uppercase tracking-wider">Completed</h3>
+                                        </div>
+                                        <p className="text-2xl font-bold">{overview?.followups?.totalCompleted || 0}</p>
+                                        <p className="text-[10px] text-muted-foreground mt-0.5">Resolved activities</p>
+                                    </div>
+                                </div>
+
+                                {/* Campaign Performance Table */}
+                                <div className="space-y-2 flex-1 min-h-0">
+                                    <div className="flex items-center gap-2">
+                                        <BarChart3 size={16} className="text-primary" />
+                                        <h2 className="text-sm font-bold">Campaign Performance</h2>
+                                    </div>
+                                    <div className="bg-card border rounded-xl overflow-hidden shadow-2xs">
+                                        <Table>
+                                            <TableHeader>
+                                                <TableRow>
+                                                    <TableHead className="h-9 text-xs">Campaign Name</TableHead>
+                                                    <TableHead className="h-9 text-xs">Total Leads</TableHead>
+                                                    <TableHead className="h-9 text-xs">Total Tasks</TableHead>
+                                                    <TableHead className="h-9 text-xs">Completed</TableHead>
+                                                    <TableHead className="h-9 text-xs">Pending</TableHead>
+                                                    <TableHead className="h-9 text-xs text-right">Progress</TableHead>
+                                                </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                                {performance.map((p) => (
+                                                    <TableRow key={p.campaignId} className="group">
+                                                        <TableCell
+                                                            className="py-2.5 font-medium cursor-pointer text-xs text-foreground group-hover:text-primary transition-colors flex items-center gap-2"
+                                                            onClick={() => navigate(`/campaigns?campaignId=${p.campaignId}`)}
+                                                        >
+                                                            <Megaphone size={13} className="text-muted-foreground group-hover:text-primary opacity-50 group-hover:opacity-100 transition-all" />
+                                                            {p.campaignName}
+                                                        </TableCell>
+                                                        <TableCell className="py-2.5 text-xs">{p.totalLeads}</TableCell>
+                                                        <TableCell className="py-2.5 text-xs">{p.totalFollowups}</TableCell>
+                                                        <TableCell className="py-2.5 text-xs text-green-500 font-medium">{p.completedFollowups}</TableCell>
+                                                        <TableCell className="py-2.5 text-xs text-orange-500 font-medium">{p.pendingFollowups}</TableCell>
+                                                        <TableCell className="py-2.5 text-xs text-right">
+                                                            <div className="w-20 bg-secondary h-1.5 rounded-full ml-auto overflow-hidden">
+                                                                <div
+                                                                    className="bg-primary h-full transition-all duration-500"
+                                                                    style={{
+                                                                        width: `${p.totalFollowups > 0 ? (p.completedFollowups / p.totalFollowups) * 100 : 0}%`
+                                                                    }}
+                                                                />
+                                                            </div>
+                                                            <span className="text-[10px] text-muted-foreground mt-0.5 block">
+                                                                {p.totalFollowups > 0 ? Math.round((p.completedFollowups / p.totalFollowups) * 100) : 0}% Done
+                                                            </span>
+                                                        </TableCell>
+                                                    </TableRow>
+                                                ))}
+                                            </TableBody>
+                                        </Table>
+                                    </div>
+                                </div>
+                            </>
+                        )}
                     </div>
-                </div>
+                )}
             </div>
         </AppLayout>
     );
