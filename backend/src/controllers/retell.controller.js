@@ -6,6 +6,7 @@ import Note from '../models/note.model.js';
 import EALead from '../models/eaLead.model.js';
 import Voicemail from '../models/voicemail.model.js';
 import twilio from 'twilio';
+import { triggerNextActionEvaluation } from '../services/ai/nextAction.service.js';
 import { sendVoicemailEmailNotification } from '../services/email/mailer.js';
 import { 
     buildPromptFromKnowledgeBase, 
@@ -94,7 +95,7 @@ async function syncCallNote(leadId, callId, callData, aiSummary) {
 
         const content = `🤖 RETELL AI CALL SUMMARY:\n${aiSummary}\n\nOutcome: ${callData.status || 'completed'}`;
         if (!noteExists) {
-            await Note.create({
+            const newNote = await Note.create({
                 lead_id: leadId,
                 content,
                 type: 'call',
@@ -109,6 +110,17 @@ async function syncCallNote(leadId, callId, callData, aiSummary) {
                 }
             });
             console.log(`📝 [Retell Webhook] Created activity Note for lead ${leadId}`);
+
+            triggerNextActionEvaluation({
+                leadId,
+                leadType: 'lead',
+                activityType: 'call',
+                activityData: {
+                    _id: newNote._id,
+                    summary: `Retell AI Call: ${aiSummary.slice(0, 100)}...`,
+                    content
+                }
+            });
         } else {
             noteExists.content = content;
             noteExists.metadata = {

@@ -9,6 +9,8 @@ import fs from 'fs';
 import path from 'path';
 import User from '../models/user.model.js';
 import Call from '../models/call.model.js';
+import { triggerNextActionEvaluation } from '../services/ai/nextAction.service.js';
+import { recalculateAndSaveLeadScore } from '../utils/leadScoring.utils.js';
 
 const { AccessToken } = twilio.jwt;
 const { VoiceGrant } = AccessToken;
@@ -1126,6 +1128,19 @@ export const handleCallStatus = async (req, res, next) => {
                         console.log(`✅ Call log Note created for lead ${lead._id} (recording URL will arrive later)`);
                     }
 
+                    // Trigger AI Next Action Suggestion
+                    triggerNextActionEvaluation({
+                        leadId: lead._id,
+                        leadType: 'lead',
+                        activityType: 'call',
+                        activityData: {
+                            _id: newNote._id,
+                            summary: content,
+                            content
+                        },
+                        userId: lead.assigned_to
+                    });
+
                     // Also backfill callHistory with buffered recording if available
                     if (bufferedRecording) {
                         lead.callHistory = lead.callHistory.map(call => {
@@ -1332,6 +1347,23 @@ export const logCallOutcome = async (req, res, next) => {
         });
 
         console.log(`✅ logCallOutcome note created: ${note._id}, callSid: ${callSid}, recording: ${recordingUrl ? 'YES' : 'NO (will arrive later)'}`);
+
+        // Trigger AI Next Action Suggestion
+        triggerNextActionEvaluation({
+            leadId: lead._id,
+            leadType: 'lead',
+            activityType: 'call',
+            activityData: {
+                _id: note._id,
+                summary: `Call Outcome: ${outcome} with ${contact_name || 'Contact'}`,
+                content
+            },
+            userId: req.user?.id,
+            io: req.app?.get('io')
+        });
+
+        // Recalculate activity score
+        recalculateAndSaveLeadScore(lead._id, req.app?.get('io'));
 
         // Update callHistory if it's not already logged (ensures call appears in Call History tab)
         if (callSid) {

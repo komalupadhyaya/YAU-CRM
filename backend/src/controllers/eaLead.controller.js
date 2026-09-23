@@ -9,6 +9,7 @@ import RetellKnowledgeBase from '../models/retellKnowledgeBase.model.js';
 import aiService from '../services/ai/ai.service.js';
 import { getCCAccessToken } from '../utils/constantContact.js';
 import { sendEAWelcomeEmail } from '../services/email/mailer.js';
+import { triggerNextActionEvaluation } from '../services/ai/nextAction.service.js';
 
 const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 
@@ -597,6 +598,19 @@ export const sendSingleSMS = async (req, res) => {
             });
             await lead.save();
 
+            // Trigger AI Next Action Suggestion
+            triggerNextActionEvaluation({
+                leadId: lead._id,
+                leadType: 'ea_lead',
+                activityType: 'note',
+                activityData: {
+                    summary: `Outbound SMS sent: "${message.slice(0, 60)}${message.length > 60 ? '...' : ''}"`,
+                    content: message
+                },
+                userId: req.user?.id,
+                io: req.app?.get('io')
+            });
+
             return res.status(200).json(lead);
         } catch (err) {
             console.error(`Twilio SMS send failure:`, err.message);
@@ -861,6 +875,18 @@ export const updateEALeadScore = async (req, res) => {
                 aiScoreUpdatedAt: eaLead.aiScoreUpdatedAt
             });
         }
+
+        // Trigger AI Next Action Suggestion
+        triggerNextActionEvaluation({
+            leadId: eaLead._id,
+            leadType: 'ea_lead',
+            activityType: 'status_change',
+            activityData: {
+                summary: `Lead score updated to ${score}: ${reason || 'Score changed'}`
+            },
+            userId: req.user?.id,
+            io
+        });
 
         return res.status(200).json({
             success: true,

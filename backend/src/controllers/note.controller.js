@@ -1,5 +1,7 @@
 import Note from '../models/note.model.js';
 import Lead from '../models/lead.model.js';
+import { triggerNextActionEvaluation } from '../services/ai/nextAction.service.js';
+import { recalculateAndSaveLeadScore } from '../utils/leadScoring.utils.js';
 
 export const getNotesByLead = async (req, res, next) => {
     try {
@@ -48,6 +50,23 @@ export const createNote = async (req, res, next) => {
         // Auto update last_contacted
         lead.last_contacted = new Date();
         await lead.save();
+
+        // Recalculate activity score (if not manually locked by rep)
+        recalculateAndSaveLeadScore(lead._id, req.app?.get('io'));
+
+        // Trigger AI Next Action Suggestion in background
+        triggerNextActionEvaluation({
+            leadId: lead._id,
+            leadType: 'lead',
+            activityType: 'note',
+            activityData: {
+                _id: note._id,
+                content: note.content,
+                type: note.type
+            },
+            userId: req.user?.id,
+            io: req.app?.get('io')
+        });
 
         res.json(note);
     } catch (err) {

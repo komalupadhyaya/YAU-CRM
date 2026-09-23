@@ -13,6 +13,23 @@ export interface Contact {
     is_primary?: boolean;
 }
 
+export interface AiNextAction {
+    action: string | null;
+    reason: string | null;
+    priority: 'high' | 'medium' | 'low';
+    recommendedDueDate: string | null;
+    status: 'active' | 'accepted' | 'dismissed' | 'edited' | 'converted_to_followup' | null;
+    suggestedAt?: string | null;
+    dismissedAt?: string | null;
+    taskId?: string | null;
+    followupId?: string | null;
+    activityTrigger?: {
+        activityType?: 'call' | 'note' | 'meeting' | 'status_change';
+        activityId?: string | null;
+        summary?: string | null;
+    };
+}
+
 export interface Lead {
     _id: string;
     name: string;
@@ -30,6 +47,11 @@ export interface Lead {
     zip?: string;
     website?: string;
     status: string;
+    aiScore?: 'Hot' | 'Warm' | 'Cold' | null;
+    aiScoreReason?: string;
+    aiScoreOverride?: boolean;
+    aiScoreUpdatedAt?: string;
+    aiNextAction?: AiNextAction | null;
     last_contacted: string | null;
     createdAt: string;
     updatedAt: string;

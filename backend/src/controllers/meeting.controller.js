@@ -3,6 +3,7 @@ import UserAvailability from '../models/userAvailability.model.js';
 import Lead from '../models/lead.model.js';
 import Candidate from '../models/candidate.model.js';
 import User from '../models/user.model.js';
+import { triggerNextActionEvaluation } from '../services/ai/nextAction.service.js';
 import { sendHRMeetingEmails, sendSchoolMeetingEmails } from '../services/email/mailer.js';
 import { google } from 'googleapis';
 
@@ -1080,6 +1081,28 @@ export const updateMeeting = async (req, res, next) => {
                     console.error('Failed to trigger School meeting update emails:', err);
                 });
             }
+        }
+
+        // If meeting completed, trigger AI Next Action for associated leads
+        if (status === 'completed' && oldStatus !== 'completed') {
+            const leadList = (meeting.lead_ids && meeting.lead_ids.length > 0)
+                ? meeting.lead_ids
+                : (meeting.lead_id ? [meeting.lead_id] : []);
+
+            leadList.forEach(leadId => {
+                triggerNextActionEvaluation({
+                    leadId,
+                    leadType: 'lead',
+                    activityType: 'meeting',
+                    activityData: {
+                        _id: meeting._id,
+                        summary: `Meeting "${meeting.title}" completed. Notes: ${meeting.notes || 'None'}`,
+                        content: meeting.notes
+                    },
+                    userId: req.user?.id,
+                    io: req.app?.get('io')
+                });
+            });
         }
 
         // Sync to Google Calendar

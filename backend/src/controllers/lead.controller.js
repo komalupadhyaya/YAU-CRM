@@ -9,6 +9,8 @@ import Followup from '../models/followup.model.js';
 import Meeting from '../models/meeting.model.js';
 import Task from '../models/tasks.model.js';
 import User from '../models/user.model.js';
+import { triggerNextActionEvaluation } from '../services/ai/nextAction.service.js';
+import { recalculateAndSaveLeadScore } from '../utils/leadScoring.utils.js';
 
 /**
  * Propagates lead assignment to pending follow-ups, tasks, and scheduled meetings.
@@ -497,14 +499,32 @@ export const updateLeadStatus = async (req, res, next) => {
         }
 
         // Log status change
-        await Note.create({
+        const note = await Note.create({
             lead_id: req.params.id,
             type: 'status_change',
             content: `Status updated to: ${status}`
         });
 
+        // Trigger AI Next Action Suggestion
+        triggerNextActionEvaluation({
+            leadId: lead._id,
+            leadType: 'lead',
+            activityType: 'status_change',
+            activityData: {
+                _id: note._id,
+                content: `Status updated to: ${status}`,
+                status
+            },
+            userId: req.user?.id,
+            io: req.app?.get('io')
+        });
+
+        // Trigger Activity-based lead score recalculation (if not locked by user)
+        await recalculateAndSaveLeadScore(lead._id, req.app?.get('io'));
+
         const contacts = await Contact.find({ lead_id: lead._id }).sort({ is_primary: -1, createdAt: 1 }).lean();
-        res.json({ ...lead.toObject(), contacts });
+        const updatedLead = await Lead.findById(lead._id);
+        res.json({ ...(updatedLead ? updatedLead.toObject() : lead.toObject()), contacts });
     } catch (err) {
         next(err);
     }
@@ -830,5 +850,69 @@ export const deleteLead = async (req, res, next) => {
         next(err);
     }
 };
+
+/**
+ * Updates the lead score manually or resets to auto-calculated.
+ * PUT /api/leads/:id/score
+ */
+export const updateLeadScore = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { score, reason } = req.body;
+
+        const lead = await Lead.findById(id);
+        if (!lead) {
+            return res.status(404).json({ error: 'Lead not found.' });
+        }
+
+        const io = req.app.get('io');
+
+        // Reset to auto-calculated
+        if (score === 'Auto' || score === 'auto' || score === null) {
+            lead.aiScoreOverride = false;
+            await lead.save();
+            const updatedLead = await recalculateAndSaveLeadScore(lead._id, io);
+            return res.json({
+                success: true,
+                message: 'Score reset to auto-calculated.',
+                lead: updatedLead || lead
+            });
+        }
+
+        if (!['Hot', 'Warm', 'Cold'].includes(score)) {
+            return res.status(400).json({ error: 'Valid score (Hot, Warm, Cold, or Auto) is required.' });
+        }
+
+        lead.aiScore = score;
+        lead.aiScoreReason = reason || 'Manually updated by Team Member';
+        lead.aiScoreOverride = true;
+        lead.aiScoreUpdatedAt = new Date();
+        await lead.save();
+
+        if (io) {
+            io.emit('lead:score_updated', {
+                leadId: lead._id.toString(),
+                aiScore: lead.aiScore,
+                aiScoreReason: lead.aiScoreReason,
+                aiScoreOverride: lead.aiScoreOverride,
+                aiScoreUpdatedAt: lead.aiScoreUpdatedAt
+            });
+        }
+
+        return res.json({
+            success: true,
+            lead: {
+                _id: lead._id,
+                aiScore: lead.aiScore,
+                aiScoreReason: lead.aiScoreReason,
+                aiScoreOverride: lead.aiScoreOverride,
+                aiScoreUpdatedAt: lead.aiScoreUpdatedAt
+            }
+        });
+    } catch (err) {
+        next(err);
+    }
+};
+
 
 

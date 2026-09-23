@@ -19,6 +19,8 @@ export const getTasks = async (req, res) => {
         const tasks = await Task.find(query)
             .populate('assignedTo', 'name email role')
             .populate('createdBy', 'name email')
+            .populate('lead_id', 'name telephone')
+            .populate('ea_lead_id', 'name phone email')
             .sort({ createdAt: -1 });
         res.json(tasks);
     } catch (error) {

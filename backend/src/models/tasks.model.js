@@ -44,6 +44,19 @@ const taskSchema = new mongoose.Schema({
         ref: 'Lead',
         default: null
     },
+    ea_lead_id: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'EALead',
+        default: null
+    },
+    isAiGenerated: {
+        type: Boolean,
+        default: false
+    },
+    aiActionReason: {
+        type: String,
+        default: null
+    },
     google_event_id: {
         type: String,
         default: null

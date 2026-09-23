@@ -159,6 +159,9 @@ const RecordingPlayer = ({ url, duration }: { url?: string, duration?: number })
 import { useCampaignStore, Campaign } from "../store/campaignStore";
 import { useLeadStore, Lead, Contact } from "../store/schoolStore";
 import { useDialerStore } from "../store/dialerStore";
+import { useSocket } from "../context/SocketContext";
+import { AiNextActionCard } from "../components/leads/AiNextActionCard";
+import { LeadScoreBadge } from "../components/leads/LeadScoreBadge";
 import { toast } from "sonner";
 import { countryCodes } from "../utils/countryCodes";
 import {
@@ -253,9 +256,98 @@ const Campaigns = () => {
   const { selectedCampaign, setSelectedCampaign, campaigns, setCampaigns, statusLabels, setStatusLabels } = useCampaignStore();
   const { selectedLead, setSelectedLead } = useLeadStore();
   const openDialer = useDialerStore(state => state.openDialer);
+  const socket = useSocket();
 
   const [leads, setLeads] = useState<Lead[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
+
+  // Real-time listener for AI Next Action suggestions
+  useEffect(() => {
+    if (!socket) return;
+    const handleNextActionUpdated = (data: { leadId: string; aiNextAction: any; aiScore?: string }) => {
+      if (!data?.leadId) return;
+      setSelectedLead(prev => {
+        if (prev && prev._id === data.leadId) {
+          return { ...prev, aiNextAction: data.aiNextAction, aiScore: (data.aiScore as any) || prev.aiScore };
+        }
+        return prev;
+      });
+      setLeads(prevLeads => prevLeads.map(l => l._id === data.leadId ? { ...l, aiNextAction: data.aiNextAction, aiScore: (data.aiScore as any) || l.aiScore } : l));
+    };
+
+    const handleScoreUpdated = (data: { leadId: string; aiScore: string; aiScoreReason?: string; aiScoreOverride?: boolean; aiScoreUpdatedAt?: string }) => {
+      if (!data?.leadId) return;
+      setSelectedLead(prev => {
+        if (prev && prev._id === data.leadId) {
+          return {
+            ...prev,
+            aiScore: data.aiScore as any,
+            aiScoreReason: data.aiScoreReason,
+            aiScoreOverride: data.aiScoreOverride,
+            aiScoreUpdatedAt: data.aiScoreUpdatedAt
+          };
+        }
+        return prev;
+      });
+      setLeads(prevLeads =>
+        prevLeads.map(l =>
+          l._id === data.leadId
+            ? {
+                ...l,
+                aiScore: data.aiScore as any,
+                aiScoreReason: data.aiScoreReason,
+                aiScoreOverride: data.aiScoreOverride,
+                aiScoreUpdatedAt: data.aiScoreUpdatedAt
+              }
+            : l
+        )
+      );
+    };
+
+    socket.on('lead:next_action_updated', handleNextActionUpdated);
+    socket.on('lead:score_updated', handleScoreUpdated);
+    return () => {
+      socket.off('lead:next_action_updated', handleNextActionUpdated);
+      socket.off('lead:score_updated', handleScoreUpdated);
+    };
+  }, [socket, setSelectedLead, setLeads]);
+
+  const handleUpdateLeadScore = async (leadId: string, newScore: 'Hot' | 'Warm' | 'Cold' | 'Auto') => {
+    try {
+      const res = await api.put(`/leads/${leadId}/score`, { score: newScore });
+      toast.success(newScore === 'Auto' ? 'Score reset to auto-calculated' : `Lead marked as ${newScore}`);
+      if (res.data?.lead) {
+        const updated = res.data.lead;
+        setSelectedLead(prev => (prev && prev._id === leadId ? { ...prev, ...updated } : prev));
+        setLeads(prev => prev.map(l => (l._id === leadId ? { ...l, ...updated } : l)));
+      }
+    } catch (err: any) {
+      console.error('Failed to update lead score:', err);
+      toast.error(err.response?.data?.error || 'Failed to update score');
+    }
+  };
+
+  const [generatingNextAction, setGeneratingNextAction] = useState(false);
+
+  const handleGenerateAiNextAction = async (leadId: string) => {
+    if (!leadId) return;
+    setGeneratingNextAction(true);
+    try {
+      const res = await api.post(`/next-action/${leadId}/generate`, { leadType: 'lead' });
+      if (res.data?.success && res.data?.lead) {
+        const updated = res.data.lead;
+        setSelectedLead(prev => (prev && prev._id === leadId ? { ...prev, ...updated } : prev));
+        setLeads(prev => prev.map(l => (l._id === leadId ? { ...l, ...updated } : l)));
+        toast.success(res.data.message || 'Claude generated a new next action recommendation!');
+      }
+    } catch (err: any) {
+      console.error('Failed to generate AI next action:', err);
+      toast.error(err.response?.data?.error || 'Failed to generate AI next action');
+    } finally {
+      setGeneratingNextAction(false);
+    }
+  };
+
   const [followUps, setFollowUps] = useState<FollowUp[]>([]);
   const [activityFilter, setActivityFilter] = useState<'all' | 'calls' | 'recordings' | 'sms' | 'notes' | 'meetings' | 'emails'>('all');
   const [selectedAiCall, setSelectedAiCall] = useState<any | null>(null);
@@ -1452,11 +1544,20 @@ const Campaigns = () => {
                         <span className="text-[9px] text-muted-foreground flex items-center gap-1">
                           <MapPin size={8} /> {s.city || "Unknown"}
                         </span>
-                        <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-bold uppercase ${s.status === 'Active' ? 'bg-success/10 text-success' :
-                          s.status === 'Not Contacted' ? 'bg-muted text-muted-foreground' : 'bg-warning/10 text-warning'
-                          }`}>
-                          {s.status}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <LeadScoreBadge
+                            score={s.aiScore}
+                            reason={s.aiScoreReason}
+                            isOverridden={s.aiScoreOverride}
+                            interactive={false}
+                            size="sm"
+                          />
+                          <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-bold uppercase ${s.status === 'Active' ? 'bg-success/10 text-success' :
+                            s.status === 'Not Contacted' ? 'bg-muted text-muted-foreground' : 'bg-warning/10 text-warning'
+                            }`}>
+                            {s.status}
+                          </span>
+                        </div>
                       </div>
                       {s.last_contacted && (
                         <div className="text-xs text-gray-400 mt-1">
@@ -1488,57 +1589,57 @@ const Campaigns = () => {
             <div id="lead-detail-section" className="flex-1 flex flex-col lg:flex-row gap-4 lg:overflow-hidden">
 
               {/* Activity Feed (Middle) */}
-              <div className="flex-1 flex flex-col gap-4 min-h-0">
-
-
-                <div className="bg-card border rounded-xl p-4 shadow-sm shrink-0">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-start gap-2 min-w-0">
-                        <h1 className="text-xl font-bold text-foreground leading-tight truncate max-w-[180px] sm:max-w-[250px] xl:max-w-[350px]">{truncateName(selectedLead.name, 15)}</h1>
-                        <button
-                          onClick={() => navigate(`/lead/${selectedLead._id}`)}
-                          className="p-1.5 hover:bg-accent rounded-lg text-primary transition-all shrink-0"
-                          title="View Full Profile"
-                        >
-                          <ExternalLink size={18} />
-                        </button>
-                      </div>
-                      <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-                        <span className="text-xs text-muted-foreground flex items-center gap-1"><Info size={12} /> {selectedLead.type || "Lead Type"}</span>
-                        {selectedLead.city && (
-                          <span className="text-xs text-muted-foreground flex items-center gap-1"><MapPin size={12} /> {selectedLead.city}</span>
-                        )}
-                        {/* Assignment Status */}
-                        {selectedLead.assigned_to ? (
-                          (() => {
-                            const isMe = typeof selectedLead.assigned_to === 'object'
-                              ? selectedLead.assigned_to._id === currentUser?._id
-                              : selectedLead.assigned_to === currentUser?._id;
-                            const name = typeof selectedLead.assigned_to === 'object'
-                              ? selectedLead.assigned_to.name
-                              : 'Assigned';
-                            return (
-                              <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold flex items-center gap-1.5 transition-all shadow-sm ${
-                                isMe 
-                                  ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 dark:bg-emerald-500/20 dark:text-emerald-400' 
-                                  : 'bg-blue-500/10 text-blue-500 border border-blue-500/20 dark:bg-blue-500/20 dark:text-blue-400'
-                              }`}>
-                                <Users size={10} />
-                                {isMe ? 'Assigned to You' : `Assigned to: ${name}`}
-                              </span>
-                            );
-                          })()
-                        ) : (
-                          <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-amber-500/10 text-amber-500 border border-amber-500/20 dark:bg-amber-500/20 dark:text-amber-400 flex items-center gap-1.5 transition-all shadow-sm">
-                            <Users size={10} />
-                            Unassigned
-                          </span>
-                        )}
-
-                      </div>
+              <div className="flex-1 flex flex-col gap-4 min-h-0 overflow-y-auto custom-scrollbar pr-1.5 pb-6">
+                <div className="bg-card border rounded-xl p-3.5 sm:p-4 shadow-sm shrink-0">
+                  {/* Row 1: Full Lead Title + Profile Icon & Action Buttons */}
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <h1 className="text-lg sm:text-xl font-bold text-foreground leading-tight truncate" title={selectedLead.name}>
+                        {selectedLead.name}
+                      </h1>
+                      <button
+                        onClick={() => navigate(`/lead/${selectedLead._id}`)}
+                        className="p-1 hover:bg-accent rounded-lg text-muted-foreground hover:text-primary transition-all shrink-0"
+                        title="View Full Profile"
+                      >
+                        <ExternalLink size={15} />
+                      </button>
                     </div>
+
+                    {/* Header Action Buttons */}
                     <div className="flex items-center gap-1.5 shrink-0">
+                      {(() => {
+                        const hasActiveAiNextAction = Boolean(
+                          selectedLead?.aiNextAction?.action && selectedLead.aiNextAction.status !== 'dismissed'
+                        );
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => selectedLead && handleGenerateAiNextAction(selectedLead._id)}
+                            disabled={generatingNextAction || permissions.isReadOnly}
+                            className={`px-2.5 py-1.5 rounded-lg border transition-all shrink-0 flex items-center gap-1.5 text-xs font-semibold cursor-pointer disabled:opacity-50 ${
+                              hasActiveAiNextAction
+                                ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-500/10 hover:bg-indigo-500/20 border-indigo-500/30'
+                                : 'text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30'
+                            }`}
+                            title={hasActiveAiNextAction ? "Re-analyze activity feed and generate updated Claude suggestion" : "Analyze activity feed & generate Claude AI next action"}
+                          >
+                            {generatingNextAction ? (
+                              <Loader2 size={13} className="animate-spin" />
+                            ) : hasActiveAiNextAction ? (
+                              <RefreshCw size={13} />
+                            ) : (
+                              <Sparkles size={13} />
+                            )}
+                            <span>
+                              {generatingNextAction
+                                ? (hasActiveAiNextAction ? "Re-analyzing..." : "Analyzing...")
+                                : (hasActiveAiNextAction ? "Re-analyze" : "AI Next Action")}
+                            </span>
+                          </button>
+                        );
+                      })()}
+
                       {currentUser?.role === 'admin' && (
                         <button
                           onClick={() => setIsDeleteLeadConfirmOpen(true)}
@@ -1548,17 +1649,69 @@ const Campaigns = () => {
                           <Trash2 size={16} />
                         </button>
                       )}
-                      <button
-                        onClick={() => !permissions.isReadOnly && setIsFollowUpModalOpen(true)}
-                        disabled={permissions.isReadOnly}
-                        className={`p-1 hover:bg-accent rounded text-primary transition-colors ${permissions.isReadOnly ? 'opacity-40 blur-[0.5px] pointer-events-none cursor-not-allowed' : ''}`}
-                        title={permissions.isReadOnly ? undefined : "Schedule Follow-up"}
-                      >
-                        <Plus size={14} />
-                      </button>
                     </div>
                   </div>
+
+                  {/* Row 2: Status & Metadata Badges Bar */}
+                  <div className="flex items-center gap-2 pt-2.5 mt-2.5 border-t border-border/40 flex-wrap">
+                    <LeadScoreBadge
+                      score={selectedLead.aiScore}
+                      reason={selectedLead.aiScoreReason}
+                      isOverridden={selectedLead.aiScoreOverride}
+                      interactive={!permissions.isReadOnly}
+                      size="sm"
+                      onScoreChange={(newScore) => handleUpdateLeadScore(selectedLead._id, newScore)}
+                    />
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-muted/50 text-muted-foreground border border-border/40">
+                      <Info size={11} /> {selectedLead.type || "Lead"}
+                    </span>
+                    {selectedLead.city && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-muted/50 text-muted-foreground border border-border/40">
+                        <MapPin size={11} /> {selectedLead.city}
+                      </span>
+                    )}
+                    {/* Assignment Status */}
+                    {selectedLead.assigned_to ? (
+                      (() => {
+                        const isMe = typeof selectedLead.assigned_to === 'object'
+                          ? selectedLead.assigned_to._id === currentUser?._id
+                          : selectedLead.assigned_to === currentUser?._id;
+                        const name = typeof selectedLead.assigned_to === 'object'
+                          ? selectedLead.assigned_to.name
+                          : 'Assigned';
+                        return (
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium border shadow-xs transition-all ${
+                            isMe 
+                              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20' 
+                              : 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20'
+                          }`}>
+                            <Users size={11} />
+                            {isMe ? 'Assigned to You' : `Assigned to: ${name}`}
+                          </span>
+                        );
+                      })()
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 shadow-xs">
+                        <Users size={11} />
+                        Unassigned
+                      </span>
+                    )}
+                  </div>
                 </div>
+
+                {/* AI Next Action Suggestion Banner */}
+                {selectedLead && (
+                  <AiNextActionCard
+                    leadId={selectedLead._id}
+                    leadType="lead"
+                    aiScore={selectedLead.aiScore}
+                    aiNextAction={selectedLead.aiNextAction}
+                    onUpdate={(updated) => {
+                      setSelectedLead(prev => (prev && prev._id === updated._id ? { ...prev, ...updated } : prev));
+                      setLeads(prev => prev.map(l => l._id === updated._id ? { ...l, ...updated } : l));
+                    }}
+                  />
+                )}
 
                 {/* Quick Actions */}
                 <div className="bg-card border rounded-xl p-3 shadow-sm shrink-0">
@@ -1621,7 +1774,7 @@ const Campaigns = () => {
                   </div>
                 </div>
 
-                <div className="flex-1 flex flex-col bg-card border rounded-xl shadow-sm lg:overflow-hidden min-h-[400px] lg:min-h-0">
+                <div className="flex-1 flex flex-col bg-card border rounded-xl shadow-sm min-h-[480px] shrink-0">
 
                   <div className="p-3 border-b bg-accent/5 flex items-center justify-between flex-wrap gap-2">
                     <div className="flex items-center gap-3">

@@ -75,7 +75,41 @@ const LeadSchema = new mongoose.Schema({
         aiSummary: { type: String, default: null },
         callerSentiment: { type: String, default: null },
         transcript: { type: String, default: null }
-    }]
+    }],
+    aiScore: {
+        type: String,
+        enum: ['Hot', 'Warm', 'Cold'],
+        default: 'Cold',
+        index: true
+    },
+    aiScoreReason: {
+        type: String,
+        default: 'New lead — uncontacted'
+    },
+    aiScoreOverride: {
+        type: Boolean,
+        default: false
+    },
+    aiScoreUpdatedAt: {
+        type: Date,
+        default: null
+    },
+    aiNextAction: {
+        action: { type: String, default: null },
+        reason: { type: String, default: null },
+        priority: { type: String, enum: ['high', 'medium', 'low'], default: 'medium' },
+        recommendedDueDate: { type: Date, default: null },
+        status: { type: String, enum: ['active', 'accepted', 'dismissed', 'edited', 'converted_to_followup'], default: null },
+        suggestedAt: { type: Date, default: null },
+        dismissedAt: { type: Date, default: null },
+        taskId: { type: mongoose.Schema.Types.ObjectId, ref: 'Task', default: null },
+        followupId: { type: mongoose.Schema.Types.ObjectId, ref: 'Followup', default: null },
+        activityTrigger: {
+            activityType: { type: String, enum: ['call', 'note', 'meeting', 'status_change', 'manual_generate'], default: null },
+            activityId: { type: mongoose.Schema.Types.ObjectId, default: null },
+            summary: { type: String, default: null }
+        }
+    }
 }, { timestamps: true });
 
 export const Lead = mongoose.model('Lead', LeadSchema);

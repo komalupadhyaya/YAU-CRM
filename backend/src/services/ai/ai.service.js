@@ -1131,6 +1131,125 @@ async function generateActivityReportFeedback({ repName, reportType, reportConte
     };
 }
 
+// ── Next Action Suggestion Prompt Builders ──────────────────────
+function buildNextActionSystemPrompt() {
+    return `You are an elite AI Sales Director and CRM Strategist for YAU Sports (Youth Athlete University).
+Your objective: After any rep interaction (call logged, note saved, meeting completed, or status change), analyze the complete context of the lead and prescribe the SINGLE BEST NEXT ACTION for the sales rep to take.
+
+GUIDELINES & RULES:
+1. Be ultra-specific and actionable:
+   - Bad: "Follow up with lead."
+   - Good: "Call Coach Dave to confirm gym availability and send clinic agreement."
+   - Bad: "Send an email."
+   - Good: "Send follow-up email with 2026 pricing PDF and offer Thursday 2 PM Zoom demo."
+2. Tailor to the Lead Score and Temperature:
+   - Hot Leads: High urgency. Action should usually happen within 24 hours (today or tomorrow). Direct phone call or tailored proposal.
+   - Warm Leads: Strong interest. Action should happen within 1-2 days to keep momentum.
+   - Cold Leads: Low pressure, re-engagement or discovery. Action within 3-5 days.
+3. Consider the Trigger Event & History:
+   - If call was unanswered / voicemail: Suggest quick SMS touchpoint or call back at alternate time.
+   - If meeting was completed: Suggest sending follow-up recap with next steps or scheduling decision review.
+   - If status changed to "Interested" or "Proposal Sent": Suggest confirming receipt or answering questions.
+   - If note recorded specific objections or requests: Directly address those points in the action.
+4. Output Format:
+   Respond with ONLY a valid, raw JSON object (no markdown, no backticks, no preamble) with the following structure:
+{
+  "action": "Concise next step title (under 90 chars)",
+  "reason": "1-2 sentence rationale explaining why this action is crucial right now based on the latest interaction and lead context.",
+  "priority": "high" | "medium" | "low",
+  "recommendedDaysOffset": 0 | 1 | 2 | 3 | 5,
+  "taskType": "Call" | "Email" | "Meeting" | "Task"
+}`;
+}
+
+function buildNextActionUserContent({ leadName, leadType, score, status, triggerActivity, recentHistory }) {
+    const historyText = recentHistory && recentHistory.length > 0
+        ? recentHistory.map((h, i) => `  ${i + 1}. [${h.type?.toUpperCase() || 'NOTE'}] (${h.date ? new Date(h.date).toLocaleDateString() : 'Recent'}): ${h.content || h.summary || 'No text'}`).join('\n')
+        : '  (No prior interaction history available)';
+
+    return `LEAD PROFILE:
+- Name / Org: ${leadName || 'Unnamed Lead'}
+- Type: ${leadType === 'ea_lead' ? 'Evening Activity Lead (Parent / Athlete)' : 'Main CRM Lead (School / Partner Organization)'}
+- Current Score: ${score || 'Cold'}
+- Current CRM Status: ${status || 'Active'}
+
+LATEST INTERACTION THAT JUST OCCURRED:
+- Event Trigger: ${triggerActivity.type?.toUpperCase() || 'ACTIVITY'}
+- Summary / Details: ${triggerActivity.summary || triggerActivity.content || 'Activity logged'}
+- Recorded At: ${new Date().toLocaleString()}
+
+RECENT INTERACTION TIMELINE (Past entries, oldest to newest):
+${historyText}
+
+Based on this context, prescribe the best next action now:`;
+}
+
+/**
+ * Generates an AI-suggested next action using Claude.
+ */
+async function generateNextActionSuggestion({ leadName, leadType, score, status, triggerActivity, recentHistory }) {
+    const systemPrompt = buildNextActionSystemPrompt();
+    const userContent = buildNextActionUserContent({ leadName, leadType, score, status, triggerActivity, recentHistory });
+
+    const fastModels = ['claude-3-5-haiku-20241022', 'claude-haiku-4-5-20251001'];
+    let raw = '';
+    try {
+        if (PROVIDER === 'claude' || PROVIDER === 'anthropic') {
+            raw = await callClaude(systemPrompt, userContent, 500, fastModels);
+        } else if (PROVIDER === 'groq') {
+            raw = await callGroq(systemPrompt, userContent, true);
+        } else {
+            raw = await callClaude(systemPrompt, userContent, 500, fastModels);
+        }
+    } catch (err) {
+        console.error('[AI Next Action] Claude call failed:', err.message);
+        // Fallback default based on trigger and score
+        return {
+            action: score === 'Hot' ? `Call ${leadName || 'lead'} immediately to advance deal` : `Follow up with ${leadName || 'lead'}`,
+            reason: `Generated fallback recommendation following ${triggerActivity?.type || 'recent activity'}.`,
+            priority: score === 'Hot' ? 'high' : (score === 'Warm' ? 'medium' : 'low'),
+            recommendedDaysOffset: score === 'Hot' ? 1 : 2,
+            taskType: 'Call'
+        };
+    }
+
+    let clean = (raw || '').trim();
+    if (clean.startsWith('```json')) {
+        clean = clean.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
+    } else if (clean.startsWith('```')) {
+        clean = clean.replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+    }
+
+    let parsed;
+    try {
+        parsed = JSON.parse(clean);
+    } catch (err) {
+        console.warn('[AI Next Action] Failed to parse JSON response:', err.message, 'Raw:', clean);
+        return {
+            action: `Follow up with ${leadName || 'lead'}`,
+            reason: `Prompted by ${triggerActivity?.type || 'recent activity'}.`,
+            priority: score === 'Hot' ? 'high' : 'medium',
+            recommendedDaysOffset: 1,
+            taskType: 'Task'
+        };
+    }
+
+    const validPriorities = ['high', 'medium', 'low'];
+    const priority = validPriorities.includes(parsed.priority?.toLowerCase()) ? parsed.priority.toLowerCase() : (score === 'Hot' ? 'high' : 'medium');
+    const validTaskTypes = ['Call', 'Email', 'Meeting', 'Task'];
+    const taskType = validTaskTypes.includes(parsed.taskType) ? parsed.taskType : 'Task';
+    let offset = parseInt(parsed.recommendedDaysOffset, 10);
+    if (isNaN(offset) || offset < 0) offset = score === 'Hot' ? 1 : 2;
+
+    return {
+        action: parsed.action || `Follow up with ${leadName || 'lead'}`,
+        reason: parsed.reason || 'Recommended based on latest interaction.',
+        priority,
+        recommendedDaysOffset: offset,
+        taskType
+    };
+}
+
 export {
     generateSmsMessage,
     generateBulkSmsMessage,
@@ -1141,7 +1260,8 @@ export {
     generateEALeadWelcomeSms,
     evaluateEALeadScore,
     generateWeeklyExecutiveSummary,
-    generateActivityReportFeedback
+    generateActivityReportFeedback,
+    generateNextActionSuggestion
 };
 
 export default {
@@ -1154,7 +1274,8 @@ export default {
     generateEALeadWelcomeSms,
     evaluateEALeadScore,
     generateWeeklyExecutiveSummary,
-    generateActivityReportFeedback
+    generateActivityReportFeedback,
+    generateNextActionSuggestion
 };
 
 

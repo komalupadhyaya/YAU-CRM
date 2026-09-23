@@ -45,6 +45,12 @@ interface FollowUp {
         phone?: string;
         email?: string;
     };
+    ea_lead?: {
+        _id: string;
+        name: string;
+        phone?: string;
+        email?: string;
+    };
     campaign?: {
         _id: string;
         name: string;
@@ -53,6 +59,7 @@ interface FollowUp {
     telephone?: string;
     campaign_name?: string;
     candidate_id_val?: string;
+    ea_lead_id_val?: string;
     assigned_user?: string;
 }
 
@@ -237,6 +244,7 @@ export default function FollowUps() {
         return filtered.filter((item) => {
             const leadNameMatch = 
                 item.lead?.name?.toLowerCase().includes(query) || 
+                item.ea_lead?.name?.toLowerCase().includes(query) || 
                 item.candidate?.name?.toLowerCase().includes(query) ||
                 item.lead_name?.toLowerCase().includes(query) || 
                 false;
@@ -253,6 +261,7 @@ export default function FollowUps() {
 
     const TaskCard = ({ item, variant }: { item: FollowUp, variant: 'overdue' | 'today' | 'upcoming' }) => {
         const isCandidate = !!(item.candidate || item.candidate_id_val);
+        const isEALead = !!(item.ea_lead || item.ea_lead_id_val);
         
         const statusStyles = {
             overdue: "border-l-destructive bg-destructive/5",
@@ -260,10 +269,17 @@ export default function FollowUps() {
             upcoming: "border-l-success bg-success/5"
         }[variant] || "border-l-border bg-card";
 
-        const detailUrl = isCandidate ? "/candidates" : (item.lead?._id ? `/lead/${item.lead._id}` : "#");
+        const eaLeadId = item.ea_lead?._id || item.ea_lead_id_val;
+        const detailUrl = isCandidate 
+            ? "/candidates" 
+            : (isEALead 
+                ? (eaLeadId ? `/ea-leads?leadId=${eaLeadId}` : "/ea-leads") 
+                : (item.lead?._id ? `/lead/${item.lead._id}` : "#"));
         const nameToDisplay = isCandidate 
             ? (item.candidate?.name || item.lead_name || 'Unknown Candidate') 
-            : (item.lead?.name || 'Unknown Lead');
+            : (isEALead 
+                ? (item.ea_lead?.name || item.lead_name || 'Unknown EA Lead') 
+                : (item.lead?.name || item.lead_name || 'Unknown Lead'));
 
         return (
             <div className={`flex items-center justify-between p-4 border rounded-lg border-l-4 hover:shadow-md transition-shadow ${statusStyles}`}>
@@ -277,6 +293,8 @@ export default function FollowUps() {
                             <span className="text-[9px] font-bold uppercase tracking-wider bg-primary/10 text-primary px-1.5 py-0.5 rounded">{item.type || 'Task'}</span>
                             {isCandidate ? (
                                 <span className="text-[9px] font-bold uppercase tracking-wider bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 px-1.5 py-0.5 rounded border border-indigo-500/20">HC Candidate</span>
+                            ) : isEALead ? (
+                                <span className="text-[9px] font-bold uppercase tracking-wider bg-teal-500/10 text-teal-600 dark:text-teal-400 px-1.5 py-0.5 rounded border border-teal-500/20">EA Lead</span>
                             ) : (
                                 <span className="text-[9px] font-bold uppercase tracking-wider bg-blue-500/10 text-blue-600 dark:text-blue-400 px-1.5 py-0.5 rounded border border-blue-500/20">School Lead</span>
                             )}
@@ -294,10 +312,10 @@ export default function FollowUps() {
                                 <Calendar size={10} />
                                 {toESTDate(item.date_time).toLocaleString()}
                             </span>
-                            {(item.lead?.telephone || item.telephone) && (
+                            {(item.lead?.telephone || item.ea_lead?.phone || item.telephone) && (
                                 <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
                                     <Phone size={10} />
-                                    {item.lead?.telephone || item.telephone}
+                                    {item.lead?.telephone || item.ea_lead?.phone || item.telephone}
                                 </span>
                             )}
                             {item.priority && (

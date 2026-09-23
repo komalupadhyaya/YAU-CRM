@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, useCallback } from "react";
+import { Link } from "react-router-dom";
 import api from "../api/api";
 import AppLayout from "../layout/AppLayout";
 import {
     CheckSquare, Plus, Trash2, CheckCircle2, Clock, Calendar,
     AlertCircle, Edit2, X, Search, User as UserIcon, ChevronDown,
-    Flag, ArrowUpCircle, Minus, Loader2, History, RotateCcw
+    Flag, ArrowUpCircle, Minus, Loader2, History, RotateCcw, Eye, ExternalLink
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -44,6 +45,17 @@ interface Task {
     createdBy?: {
         name: string;
         email: string;
+    } | null;
+    lead_id?: {
+        _id: string;
+        name: string;
+        telephone?: string;
+    } | null;
+    ea_lead_id?: {
+        _id: string;
+        name: string;
+        phone?: string;
+        email?: string;
     } | null;
     createdAt: string;
     completedAt?: string;
@@ -677,11 +689,55 @@ function TaskCard({ task, onEdit, onDelete, onComplete, onRestore, onViewDetails
                                     <span className="truncate sm:hidden">{new Date(task.completedAt).toLocaleDateString()}</span>
                                 </span>
                             )}
+
+                            {task.ea_lead_id && (
+                                <Link
+                                    to={`/ea-leads?leadId=${task.ea_lead_id._id}`}
+                                    onClick={(e) => e.stopPropagation()}
+                                    title="View respective EA Lead"
+                                    className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border bg-teal-500/10 text-teal-600 dark:text-teal-400 border-teal-500/20 hover:bg-teal-500/20 transition-colors"
+                                >
+                                    <Eye size={10} />
+                                    <span className="truncate max-w-[130px]">{task.ea_lead_id.name}</span>
+                                </Link>
+                            )}
+
+                            {task.lead_id && (
+                                <Link
+                                    to={`/lead/${task.lead_id._id}`}
+                                    onClick={(e) => e.stopPropagation()}
+                                    title="View Lead"
+                                    className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border bg-primary/10 text-primary border-primary/20 hover:bg-primary/20 transition-colors"
+                                >
+                                    <Eye size={10} />
+                                    <span className="truncate max-w-[130px]">{task.lead_id.name}</span>
+                                </Link>
+                            )}
                         </div>
                     </div>
 
                     {/* Actions */}
                     <div className="flex items-center gap-1 shrink-0 sm:opacity-0 sm:group-hover:opacity-100 sm:transition-opacity">
+                        {task.ea_lead_id && !task.isDeleted && (
+                            <Link
+                                to={`/ea-leads?leadId=${task.ea_lead_id._id}`}
+                                onClick={(e) => e.stopPropagation()}
+                                title="View respective EA Lead"
+                                className="w-7 h-7 flex items-center justify-center rounded-lg border border-border text-muted-foreground hover:text-teal-600 hover:border-teal-500/40 hover:bg-teal-500/10 active:scale-95 transition-all duration-150"
+                            >
+                                <Eye size={12} />
+                            </Link>
+                        )}
+                        {task.lead_id && !task.isDeleted && (
+                            <Link
+                                to={`/lead/${task.lead_id._id}`}
+                                onClick={(e) => e.stopPropagation()}
+                                title="View Lead"
+                                className="w-7 h-7 flex items-center justify-center rounded-lg border border-border text-muted-foreground hover:text-primary hover:border-primary/40 hover:bg-primary/10 active:scale-95 transition-all duration-150"
+                            >
+                                <Eye size={12} />
+                            </Link>
+                        )}
                         {task.isDeleted ? (
                             currentUser?.role === 'admin' && (
                                 <>
@@ -1475,6 +1531,36 @@ export default function Tasks() {
                                         </div>
                                     )}
                                 </div>
+                                {selectedTaskForHistory.ea_lead_id && (
+                                    <div className="pt-2 border-t border-border/40 flex items-center justify-between">
+                                        <div>
+                                            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Associated EA Lead</p>
+                                            <p className="text-xs font-semibold text-foreground mt-0.5">
+                                                {selectedTaskForHistory.ea_lead_id.name}
+                                            </p>
+                                        </div>
+                                        <Link to={`/ea-leads?leadId=${selectedTaskForHistory.ea_lead_id._id}`}>
+                                            <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5 border-teal-500/30 text-teal-600 hover:bg-teal-500/10 font-medium">
+                                                <Eye size={12} /> View EA Lead
+                                            </Button>
+                                        </Link>
+                                    </div>
+                                )}
+                                {selectedTaskForHistory.lead_id && (
+                                    <div className="pt-2 border-t border-border/40 flex items-center justify-between">
+                                        <div>
+                                            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Associated Lead</p>
+                                            <p className="text-xs font-semibold text-foreground mt-0.5">
+                                                {selectedTaskForHistory.lead_id.name}
+                                            </p>
+                                        </div>
+                                        <Link to={`/lead/${selectedTaskForHistory.lead_id._id}`}>
+                                            <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5 border-primary/30 text-primary hover:bg-primary/10 font-medium">
+                                                <Eye size={12} /> View Lead
+                                            </Button>
+                                        </Link>
+                                    </div>
+                                )}
                             </div>
 
                             {/* Task Timeline / History Logs Section */}

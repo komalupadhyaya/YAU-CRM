@@ -23,6 +23,7 @@ router.get('/', auth, requireRole(...allRoles), leadController.getLeads);
 router.post('/', auth, requireRole(...canWrite), leadController.createLead);
 router.patch('/assign-bulk', auth, requireRole('admin', 'manager'), leadController.assignLeadsBulk);
 router.put('/:id', auth, requireRole(...canWrite), leadController.updateLead);
+router.put('/:id/score', auth, requireRole(...canWrite), leadController.updateLeadScore);
 router.patch('/:id', auth, requireRole(...canWrite), leadController.updateLeadStatus);
 router.patch('/:id/assign', auth, requireRole('admin', 'manager'), leadController.assignLead);
 router.delete('/:id/call-history', auth, requireRole('admin', 'manager'), leadController.deleteAllLeadCallHistory);

@@ -1,6 +1,9 @@
 import { useEffect, useState, useRef } from "react";
 import { useCampaignStore } from "../store/campaignStore";
 import { useLeadStore, Lead, Contact } from "../store/schoolStore";
+import { useSocket } from "../context/SocketContext";
+import { AiNextActionCard } from "../components/leads/AiNextActionCard";
+import { LeadScoreBadge } from "../components/leads/LeadScoreBadge";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "../api/api";
 import AppLayout from "../layout/AppLayout";
@@ -186,7 +189,49 @@ export default function LeadDetail() {
   const navigate = useNavigate();
   const { setSelectedLead } = useLeadStore();
   const openDialer = useDialerStore(state => state.openDialer);
+  const socket = useSocket();
   const [lead, setLead] = useState<Lead | null>(null);
+
+  // Real-time listener for AI Next Action suggestions
+  useEffect(() => {
+    if (!socket || !id) return;
+    const handleNextActionUpdated = (data: { leadId: string; aiNextAction: any; aiScore?: string }) => {
+      if (data?.leadId === id) {
+        setLead(prev => (prev ? { ...prev, aiNextAction: data.aiNextAction, aiScore: (data.aiScore as any) || prev.aiScore } : prev));
+      }
+    };
+    const handleScoreUpdated = (data: { leadId: string; aiScore: any; aiScoreReason?: string; aiScoreOverride?: boolean; aiScoreUpdatedAt?: string }) => {
+      if (data?.leadId === id) {
+        setLead(prev => (prev ? {
+          ...prev,
+          aiScore: data.aiScore,
+          aiScoreReason: data.aiScoreReason,
+          aiScoreOverride: data.aiScoreOverride,
+          aiScoreUpdatedAt: data.aiScoreUpdatedAt
+        } : prev));
+      }
+    };
+    socket.on('lead:next_action_updated', handleNextActionUpdated);
+    socket.on('lead:score_updated', handleScoreUpdated);
+    return () => {
+      socket.off('lead:next_action_updated', handleNextActionUpdated);
+      socket.off('lead:score_updated', handleScoreUpdated);
+    };
+  }, [socket, id]);
+
+  const handleUpdateLeadScore = async (leadId: string, score: 'Hot' | 'Warm' | 'Cold' | 'Auto') => {
+    try {
+      const res = await api.put(`/leads/${leadId}/score`, { score });
+      if (res.data?.success && res.data?.lead) {
+        setLead(prev => (prev ? { ...prev, ...res.data.lead } : prev));
+        toast.success(score === 'Auto' ? 'Lead score reset to automatic activity calculation' : `Lead tag updated to ${score}`);
+      }
+    } catch (err) {
+      console.error('Failed to update lead score:', err);
+      toast.error('Failed to update lead score');
+    }
+  };
+
   const primaryContact = lead?.contacts?.find(c => c.is_primary) || lead?.contacts?.[0] || null;
   const [notes, setNotes] = useState<Note[]>([]);
   const [activityFilter, setActivityFilter] = useState<'all' | 'recordings' | 'sms' | 'notes' | 'meetings' | 'emails'>('all');
@@ -1045,9 +1090,21 @@ export default function LeadDetail() {
         <div className="lg:col-span-2 space-y-6">
           <div className="page-card dark:bg-card">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
-              <h1 className="text-2xl font-bold text-foreground">
-                {isEditing ? "Edit Lead" : lead.name}
-              </h1>
+              <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="text-2xl font-bold text-foreground">
+                  {isEditing ? "Edit Lead" : lead.name}
+                </h1>
+                {!isEditing && (
+                  <LeadScoreBadge
+                    score={lead.aiScore}
+                    reason={lead.aiScoreReason}
+                    isOverridden={lead.aiScoreOverride}
+                    interactive={!isReadOnly}
+                    size="md"
+                    onScoreChange={(newScore) => handleUpdateLeadScore(lead._id, newScore)}
+                  />
+                )}
+              </div>
               <div className="flex gap-2">
                 {isEditing ? (
                   <>
@@ -1074,6 +1131,20 @@ export default function LeadDetail() {
                 )}
               </div>
             </div>
+
+            {/* AI Next Action Suggestion Banner */}
+            {lead && (
+              <div className="mb-6">
+                <AiNextActionCard
+                  leadId={lead._id}
+                  leadType="lead"
+                  aiScore={lead.aiScore}
+                  aiNextAction={lead.aiNextAction}
+                  defaultCollapsed={true}
+                  onUpdate={(updated) => setLead(prev => (prev ? { ...prev, ...updated } : prev))}
+                />
+              </div>
+            )}
 
             {/* Action Area — disabled + blurred for view_only */}
             <div className={`flex flex-wrap gap-2 mb-8 p-4 bg-accent/20 dark:bg-accent/5 rounded-2xl border border-primary/10 relative ${isReadOnly ? 'opacity-40 blur-[0.5px] pointer-events-none select-none' : ''}`}>

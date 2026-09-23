@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import api from "../api/api";
 import AppLayout from "../layout/AppLayout";
@@ -14,6 +14,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import { countryCodes } from "../utils/countryCodes";
+import { AiNextAction } from "../store/schoolStore";
+import { AiNextActionCard } from "../components/leads/AiNextActionCard";
 import {
   Table,
   TableBody,
@@ -91,6 +93,7 @@ interface EALead {
   aiScoreReason?: string;
   aiScoreOverride?: boolean;
   aiScoreUpdatedAt?: string;
+  aiNextAction?: AiNextAction | null;
   createdAt: string;
   updatedAt: string;
   smsHistory?: Array<{
@@ -140,7 +143,8 @@ export default function EALeads() {
     );
   }
 
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const leadIdParam = searchParams.get("leadId") || searchParams.get("id");
 
   // Leads state
   const [leads, setLeads] = useState<EALead[]>([]);
@@ -154,6 +158,11 @@ export default function EALeads() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("details");
   const [callSubTabs, setCallSubTabs] = useState<Record<string, 'summary' | 'transcript'>>({});
+
+  // Dedicated AI Next Action Pop-up Modal state
+  const [aiModalOpen, setAiModalOpen] = useState(false);
+  const [aiModalLead, setAiModalLead] = useState<EALead | null>(null);
+  const [generatingAiAction, setGeneratingAiAction] = useState(false);
 
   // Checkbox selection state
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -290,11 +299,45 @@ export default function EALeads() {
             }
           : prev
       );
+      setAiModalLead(prev =>
+        prev && String(prev._id) === String(data.leadId)
+          ? {
+              ...prev,
+              aiScore: data.aiScore,
+              aiScoreReason: data.aiScoreReason,
+              aiScoreOverride: data.aiScoreOverride,
+              aiScoreUpdatedAt: data.aiScoreUpdatedAt
+            }
+          : prev
+      );
+    };
+
+    const handleNextActionUpdated = (data: { leadId: string; aiNextAction: any; aiScore?: string }) => {
+      if (!data?.leadId) return;
+      setLeads(prev =>
+        prev.map(l =>
+          l._id === data.leadId
+            ? { ...l, aiNextAction: data.aiNextAction, aiScore: (data.aiScore as any) || l.aiScore }
+            : l
+        )
+      );
+      setSelectedLead(prev =>
+        prev && prev._id === data.leadId
+          ? { ...prev, aiNextAction: data.aiNextAction, aiScore: (data.aiScore as any) || prev.aiScore }
+          : prev
+      );
+      setAiModalLead(prev =>
+        prev && prev._id === data.leadId
+          ? { ...prev, aiNextAction: data.aiNextAction, aiScore: (data.aiScore as any) || prev.aiScore }
+          : prev
+      );
     };
 
     socket.on('ea_lead:score_updated', handleScoreUpdated);
+    socket.on('ea_lead:next_action_updated', handleNextActionUpdated);
     return () => {
       socket.off('ea_lead:score_updated', handleScoreUpdated);
+      socket.off('ea_lead:next_action_updated', handleNextActionUpdated);
     };
   }, [socket]);
 
@@ -720,6 +763,35 @@ export default function EALeads() {
     }
   };
 
+  // Open dedicated AI Next Action Modal
+  const handleOpenAiModal = (lead: EALead) => {
+    setAiModalLead(lead);
+    setAiModalOpen(true);
+  };
+
+  // Trigger on-demand AI Next Action generation for this EA lead
+  const handleGenerateAiNextAction = async (leadId: string) => {
+    if (!leadId) return;
+    setGeneratingAiAction(true);
+    try {
+      const res = await api.post(`/next-action/${leadId}/generate`, { leadType: 'ea_lead' });
+      if (res.data?.success && res.data?.lead) {
+        const updated = res.data.lead;
+        setAiModalLead(prev => (prev && prev._id === leadId ? { ...prev, ...updated } : prev));
+        setLeads(prev => prev.map(l => (l._id === leadId ? { ...l, ...updated } : l)));
+        setSelectedLead(prev => (prev && prev._id === leadId ? { ...prev, ...updated } : prev));
+        toast.success(res.data.message || 'Claude generated next action!');
+      } else {
+        toast.info(res.data?.message || 'AI evaluation complete');
+      }
+    } catch (err: any) {
+      console.error('Failed to generate AI next action:', err);
+      toast.error(err.response?.data?.error || 'Failed to generate AI next action');
+    } finally {
+      setGeneratingAiAction(false);
+    }
+  };
+
   // Open Messages Dialog directly
   const handleOpenMessages = async (lead: EALead) => {
     setSelectedLead(lead);
@@ -747,17 +819,6 @@ export default function EALeads() {
       console.error("Failed to fetch fresh lead details:", err);
     }
   };
-
-  // Auto-open messages modal if leadId query param is present
-  useEffect(() => {
-    const targetLeadId = searchParams.get("leadId");
-    if (targetLeadId && leads.length > 0 && !viewDialogOpen) {
-      const target = leads.find(l => String(l._id) === String(targetLeadId));
-      if (target) {
-        handleOpenMessages(target);
-      }
-    }
-  }, [leads, searchParams]);
 
   // Poll for messages or calls when view dialog is open and active tab is "messages" or "calls"
   useEffect(() => {
@@ -858,9 +919,12 @@ export default function EALeads() {
     }
   };
 
-  // Filter leads based on query and score parameter
+  // Filter leads based on query, specific leadId, and score parameter
   const scoreParam = searchParams.get("score");
   const filteredLeads = leads.filter(lead => {
+    if (leadIdParam) {
+      return String(lead._id) === String(leadIdParam);
+    }
     if (scoreParam && (lead.aiScore || "Cold").toLowerCase() !== scoreParam.toLowerCase()) {
       return false;
     }
@@ -1174,6 +1238,29 @@ export default function EALeads() {
           </div>
         </div>
 
+        {/* Filtered by Lead Alert Banner */}
+        {leadIdParam && (
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-teal-500/10 border border-teal-500/20 px-4 py-3 rounded-xl text-xs text-foreground mb-4">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-teal-500 animate-pulse shrink-0" />
+              <span className="font-semibold text-teal-600 dark:text-teal-400">Filtered by Lead:</span>
+              <span className="font-bold">{filteredLeads[0]?.name || leadIdParam}</span>
+              <span className="text-muted-foreground text-[11px]">(Showing 1 respective EA lead)</span>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setSearchParams({});
+                setSearchQuery("");
+              }}
+              className="h-7 text-xs border-teal-500/30 text-teal-600 dark:text-teal-400 hover:bg-teal-500/10 shrink-0"
+            >
+              Show All EA Leads
+            </Button>
+          </div>
+        )}
+
         {/* Leads Table */}
         <div className="bg-card border rounded-2xl shadow-sm overflow-hidden">
           {loading ? (
@@ -1206,8 +1293,8 @@ export default function EALeads() {
                     <TableHead className="w-[200px]">Name</TableHead>
                     <TableHead>Email Address</TableHead>
                     <TableHead>Phone Number</TableHead>
-                    <TableHead className="text-center">Source</TableHead>
                     <TableHead className="text-center">Lead Score</TableHead>
+                    <TableHead className="text-center w-[70px]">AI Action</TableHead>
                     <TableHead>Consent</TableHead>
                     <TableHead>Date Submitted</TableHead>
                     <TableHead className="w-[80px] text-center pr-4">Actions</TableHead>
@@ -1234,12 +1321,51 @@ export default function EALeads() {
                       <TableCell className="text-muted-foreground font-medium">{lead.email}</TableCell>
                       <TableCell className="text-muted-foreground font-medium">{lead.phone}</TableCell>
                       <TableCell className="text-center">
-                        <span className="inline-flex items-center gap-1 rounded-full bg-secondary border border-border px-2.5 py-0.5 text-xs font-semibold text-muted-foreground">
-                          {lead.source}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-center">
                         {renderLeadScoreBadge(lead, true)}
+                      </TableCell>
+                      <TableCell className="text-center w-[70px]">
+                        {lead.aiNextAction?.action && lead.aiNextAction.status !== 'dismissed' ? (
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenAiModal(lead)}
+                                  className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-primary/15 text-primary border border-primary/30 hover:bg-primary/25 hover:border-primary/50 hover:scale-105 active:scale-95 transition-all shadow-xs mx-auto group cursor-pointer"
+                                  aria-label={`AI Next Action: ${lead.aiNextAction.action}`}
+                                >
+                                  <Sparkles size={15} className="text-primary animate-pulse group-hover:scale-110 transition-transform" />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="max-w-xs text-xs">
+                                <p className="font-semibold flex items-center gap-1.5 text-primary">
+                                  <Sparkles size={12} /> AI Next Action
+                                </p>
+                                <p className="text-foreground mt-0.5">{lead.aiNextAction.action}</p>
+                                <p className="text-[10px] text-muted-foreground mt-1">Click to open advice & actions modal</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        ) : (
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenAiModal(lead)}
+                                  className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-border bg-background hover:border-primary/40 hover:bg-primary/5 text-muted-foreground hover:text-primary hover:scale-105 active:scale-95 transition-all mx-auto group cursor-pointer"
+                                  aria-label="Evaluate AI Next Action"
+                                >
+                                  <Sparkles size={14} className="text-muted-foreground group-hover:text-primary transition-colors" />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="text-xs">
+                                <p className="font-semibold">AI Next Action</p>
+                                <p className="text-muted-foreground text-[11px] mt-0.5">Click to evaluate or generate recommendation</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )}
                       </TableCell>
                       <TableCell>
                         <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold border ${lead.isConsent ? "bg-green-500/10 border-green-500/30 text-green-500" : "bg-red-500/10 border-red-500/30 text-red-500"}`}>
@@ -1289,6 +1415,14 @@ export default function EALeads() {
                             >
                               <MessageSquare size={14} className="text-primary" />
                               <span>Send / View SMS</span>
+                            </DropdownMenuItem>
+
+                            <DropdownMenuItem 
+                              onClick={() => handleOpenAiModal(lead)} 
+                              className="gap-2.5 cursor-pointer py-2 text-xs font-medium"
+                            >
+                              <Sparkles size={14} className="text-primary" />
+                              <span>AI Next Action</span>
                             </DropdownMenuItem>
                             
                             <DropdownMenuItem 
@@ -1360,7 +1494,8 @@ export default function EALeads() {
           </DialogHeader>
           
           {selectedLead && (
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+            <>
+              <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
               <TabsList className="grid w-full grid-cols-3 bg-muted/50 border border-border/60 mb-4 p-1 rounded-xl">
                 <TabsTrigger value="details">Details</TabsTrigger>
                 <TabsTrigger value="messages" className="flex items-center gap-1.5">
@@ -1849,6 +1984,7 @@ export default function EALeads() {
                 </div>
               </TabsContent>
             </Tabs>
+            </>
           )}
 
           <DialogFooter className="mt-4 border-t border-border/30 pt-3">
@@ -2744,6 +2880,98 @@ export default function EALeads() {
               )}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dedicated AI Next Action Dialog */}
+      <Dialog open={aiModalOpen} onOpenChange={setAiModalOpen}>
+        <DialogContent className="sm:max-w-[700px] bg-card border-border text-foreground p-0 overflow-hidden shadow-2xl">
+          <DialogHeader className="px-6 pt-5 pb-4 border-b border-border/60 bg-muted/20">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-2.5">
+                <span className="w-8 h-8 rounded-xl bg-primary/15 border border-primary/25 flex items-center justify-center shrink-0 shadow-xs">
+                  <Sparkles size={16} className="text-primary animate-pulse" />
+                </span>
+                <div>
+                  <DialogTitle className="text-base font-bold text-foreground flex items-center gap-2">
+                    AI Next Action
+                    {aiModalLead && (
+                      <span className="text-xs font-normal text-muted-foreground">
+                        — {aiModalLead.name}
+                      </span>
+                    )}
+                  </DialogTitle>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Claude AI next step recommendations, priority routing, and quick conversion
+                  </p>
+                </div>
+              </div>
+              {aiModalLead && (
+                <div className="shrink-0 flex items-center gap-2">
+                  {renderLeadScoreBadge(aiModalLead, false)}
+                </div>
+              )}
+            </div>
+            <DialogDescription className="sr-only">
+              AI Next Action recommendations and automated workflow suggestions for this lead.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="p-6">
+            {aiModalLead && (
+              <>
+                {aiModalLead.aiNextAction?.action && aiModalLead.aiNextAction.status !== 'dismissed' ? (
+                  <AiNextActionCard
+                    leadId={aiModalLead._id}
+                    leadType="ea_lead"
+                    aiScore={aiModalLead.aiScore}
+                    aiNextAction={aiModalLead.aiNextAction}
+                    defaultCollapsed={false}
+                    onUpdate={(updated) => {
+                      setAiModalLead(prev => (prev && prev._id === updated._id ? { ...prev, ...updated } : prev));
+                      setLeads(prev => prev.map(l => l._id === updated._id ? { ...l, ...updated } : l));
+                      setSelectedLead(prev => (prev && prev._id === updated._id ? { ...prev, ...updated } : prev));
+                    }}
+                  />
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-border/80 bg-muted/20 p-8 text-center space-y-4">
+                    <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center mx-auto text-primary shadow-xs">
+                      <Sparkles size={24} className="animate-pulse" />
+                    </div>
+                    <div className="space-y-1.5 max-w-md mx-auto">
+                      <h3 className="font-semibold text-foreground text-sm">
+                        {aiModalLead.aiNextAction?.status === 'dismissed'
+                          ? "Previous Suggestion Dismissed"
+                          : "No Active Next Action Suggestion"}
+                      </h3>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        Let Claude evaluate this lead's communication, scoring, and submission history to recommend the optimal next step, urgency, and automated follow-up.
+                      </p>
+                    </div>
+                    <div className="pt-2">
+                      <Button
+                        onClick={() => handleGenerateAiNextAction(aiModalLead._id)}
+                        disabled={generatingAiAction}
+                        className="gap-2 px-5 font-semibold text-xs shadow-sm shadow-primary/20"
+                      >
+                        {generatingAiAction ? (
+                          <>
+                            <Loader2 size={14} className="animate-spin" />
+                            Analyzing with Claude AI...
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles size={14} />
+                            Generate AI Next Action
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
     </AppLayout>

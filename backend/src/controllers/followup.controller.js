@@ -6,6 +6,8 @@ import Contact from '../models/contact.model.js';
 import Note from '../models/note.model.js';
 import Candidate from '../models/candidate.model.js';
 import User from '../models/user.model.js';
+import { triggerNextActionEvaluation } from '../services/ai/nextAction.service.js';
+import { recalculateAndSaveLeadScore } from '../utils/leadScoring.utils.js';
 import { google } from 'googleapis';
 
 const oAuth2Client = new google.auth.OAuth2(
@@ -318,6 +320,23 @@ export const completeFollowup = async (req, res, next) => {
         if (lead) {
             lead.last_contacted = new Date();
             await lead.save();
+
+            // Trigger AI Next Action Suggestion
+            triggerNextActionEvaluation({
+                leadId: lead._id,
+                leadType: 'lead',
+                activityType: fu.type === 'Meeting' ? 'meeting' : 'note',
+                activityData: {
+                    _id: fu._id,
+                    summary: `Completed ${fu.type}: "${fu.title || fu.notes || 'Activity'}"`,
+                    content: fu.notes
+                },
+                userId: req.user?.id,
+                io: req.app?.get('io')
+            });
+
+            // Recalculate lead activity score
+            recalculateAndSaveLeadScore(lead._id, req.app?.get('io'));
         }
 
         res.json({ success: true });
@@ -414,6 +433,21 @@ export const getGroupedFollowups = async (req, res, next) => {
                     preserveNullAndEmptyArrays: true
                 }
             },
+            // Join EA lead info
+            {
+                $lookup: {
+                    from: 'ealeads',
+                    localField: 'ea_lead_id',
+                    foreignField: '_id',
+                    as: 'ea_lead'
+                }
+            },
+            {
+                $unwind: {
+                    path: '$ea_lead',
+                    preserveNullAndEmptyArrays: true
+                }
+            },
             // Optional sales_rep filter
             ...(req.currentUserRole === 'sales_rep' && dbUser ? [
                 {
@@ -421,6 +455,8 @@ export const getGroupedFollowups = async (req, res, next) => {
                         $or: [
                             // 1. Lead is assigned to the sales rep
                             { 'lead.assigned_to': dbUser._id },
+                            // 1b. EA Lead is assigned to the sales rep
+                            { 'ea_lead.assigned_to': dbUser._id },
                             // 2. Follow-up is explicitly assigned to them
                             { assigned_user: { $in: [dbUser.username, dbUser.email, dbUser.name, dbUser._id.toString()] } },
                             // 3. Follow-up was created by them and has no specific assignment (or "self")
@@ -457,12 +493,13 @@ export const getGroupedFollowups = async (req, res, next) => {
             // Determine the bucket using date_time
             {
                 $addFields: {
-                    lead_name: { $ifNull: ['$lead.name', '$candidate.name'] },
-                    lead_id_val: '$lead._id',
+                    lead_name: { $ifNull: ['$lead.name', { $ifNull: ['$ea_lead.name', '$candidate.name'] }] },
+                    lead_id_val: { $ifNull: ['$lead._id', '$ea_lead._id'] },
                     candidate_id_val: '$candidate._id',
-                    telephone: { $ifNull: ['$lead.telephone', '$candidate.phone'] },
-                    campaign_name: { $ifNull: ['$campaign.name', 'HC Candidates'] },
-                    campaign_id_val: { $ifNull: ['$campaign._id', 'candidate'] },
+                    ea_lead_id_val: '$ea_lead._id',
+                    telephone: { $ifNull: ['$lead.telephone', { $ifNull: ['$ea_lead.phone', '$candidate.phone'] }] },
+                    campaign_name: { $ifNull: ['$campaign.name', { $cond: [{ $ifNull: ['$ea_lead._id', false] }, 'EA Leads', 'HC Candidates'] }] },
+                    campaign_id_val: { $ifNull: ['$campaign._id', { $cond: [{ $ifNull: ['$ea_lead._id', false] }, 'ea_lead', 'candidate'] }] },
                     bucket: {
                         $switch: {
                             branches: [
