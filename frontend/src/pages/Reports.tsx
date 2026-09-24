@@ -63,8 +63,8 @@ export default function Reports() {
     // Map query param to one of the 3 primary toggles
     const getInitialTab = (): TabType => {
         if (rawTab === "view" || rawTab === "feed") return "view";
-        if (rawTab === "performance" || rawTab === "analytics") return "performance";
-        return "submit";
+        if (rawTab === "submit") return "submit";
+        return "performance";
     };
 
     const [activeTab, setActiveTab] = useState<TabType>(getInitialTab());
@@ -127,10 +127,10 @@ export default function Reports() {
     };
 
     useEffect(() => {
-        if (activeTab === "performance" && isAuthorizedForAnalytics && !overview) {
+        if (activeTab === "performance" && !overview) {
             loadAnalyticsData();
         }
-    }, [activeTab, isAuthorizedForAnalytics]);
+    }, [activeTab, overview]);
 
     const handleExport = (type: string) => {
         if (!isAuthorizedForAnalytics) {
@@ -166,13 +166,13 @@ export default function Reports() {
                         </div>
                         <div>
                             <h1 className="text-xl font-extrabold tracking-tight dark:text-foreground">Reports & Performance</h1>
-                            <p className="text-xs text-muted-foreground">Submit activity reports, review Claude AI coaching, and analyze CRM performance.</p>
+                            <p className="text-xs text-muted-foreground">Comprehensive CRM performance overview, campaign metrics, and data exports.</p>
                         </div>
                     </div>
 
-                    {/* Right: 3 Primary Toggle Pills */}
+                    {/* Right: Primary Toggle Pills (Temporarily commented out: Submit Report and View Reports toggles pending client request) */}
+                    {/*
                     <div className="flex items-center bg-accent/40 border p-1 rounded-xl shrink-0">
-                        {/* Toggle 1: Submit Report */}
                         <button
                             type="button"
                             onClick={() => handleTabChange("submit")}
@@ -186,7 +186,6 @@ export default function Reports() {
                             Submit Report
                         </button>
 
-                        {/* Toggle 2: View Reports */}
                         <button
                             type="button"
                             onClick={() => handleTabChange("view")}
@@ -200,7 +199,6 @@ export default function Reports() {
                             View Reports
                         </button>
 
-                        {/* Toggle 3: Reports & Performance */}
                         {isAuthorizedForAnalytics && (
                             <button
                                 type="button"
@@ -216,17 +214,17 @@ export default function Reports() {
                             </button>
                         )}
                     </div>
+                    */}
                 </div>
 
                 {/* ─────────────────────────────────────────────────────────────
-                    TOGGLE 1: SUBMIT REPORT
+                    TOGGLE 1: SUBMIT REPORT (Temporarily commented out)
                 ────────────────────────────────────────────────────────────── */}
+                {/*
                 {activeTab === "submit" && (
                     <div className="space-y-4 flex-1 flex flex-col min-h-0 animate-in fade-in-50 duration-200">
-                        {/* Report Submission Box */}
                         <ReportSubmissionCard onReportSubmitted={handleReportSubmitted} />
 
-                        {/* Instant Claude Feedback Banner upon submission */}
                         {latestSubmittedReport && (
                             <div className="space-y-2 animate-in slide-in-from-top-3 duration-400">
                                 <div className="flex items-center justify-between px-1">
@@ -259,10 +257,12 @@ export default function Reports() {
                         )}
                     </div>
                 )}
+                */}
 
                 {/* ─────────────────────────────────────────────────────────────
-                    TOGGLE 2: VIEW REPORTS (STREAMLINED FEED, NO DUPLICATE HEADERS)
+                    TOGGLE 2: VIEW REPORTS (Temporarily commented out)
                 ────────────────────────────────────────────────────────────── */}
+                {/*
                 {activeTab === "view" && (
                     <div className="flex-1 flex flex-col min-h-0 animate-in fade-in-50 duration-200">
                         <ReportsFeed
@@ -272,48 +272,51 @@ export default function Reports() {
                         />
                     </div>
                 )}
+                */}
 
                 {/* ─────────────────────────────────────────────────────────────
                     TOGGLE 3: REPORTS & PERFORMANCE (CRM ANALYTICS)
                 ────────────────────────────────────────────────────────────── */}
-                {activeTab === "performance" && isAuthorizedForAnalytics && (
+                {activeTab === "performance" && (
                     <div className="space-y-4 flex-1 flex flex-col min-h-0 animate-in fade-in-50 duration-200">
                         {/* Export Action Bar */}
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 px-4 rounded-xl bg-card border shadow-2xs shrink-0">
-                            <div>
-                                <h3 className="font-bold text-xs">CRM Data Exports</h3>
-                                <p className="text-[11px] text-muted-foreground">Download live CSV database snapshots.</p>
+                        {isAuthorizedForAnalytics && (
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 px-4 rounded-xl bg-card border shadow-2xs shrink-0">
+                                <div>
+                                    <h3 className="font-bold text-xs">CRM Data Exports</h3>
+                                    <p className="text-[11px] text-muted-foreground">Download live CSV database snapshots.</p>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="gap-1.5 text-xs h-8"
+                                        onClick={() => handleExport("leads")}
+                                    >
+                                        <FileSpreadsheet size={13} />
+                                        Export Leads
+                                    </Button>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="gap-1.5 text-xs h-8"
+                                        onClick={() => handleExport("followups")}
+                                    >
+                                        <FileSpreadsheet size={13} />
+                                        Export Tasks
+                                    </Button>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="gap-1.5 text-xs h-8"
+                                        onClick={() => handleExport("campaigns")}
+                                    >
+                                        <FileSpreadsheet size={13} />
+                                        Export Campaigns
+                                    </Button>
+                                </div>
                             </div>
-                            <div className="flex flex-wrap gap-2">
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="gap-1.5 text-xs h-8"
-                                    onClick={() => handleExport("leads")}
-                                >
-                                    <FileSpreadsheet size={13} />
-                                    Export Leads
-                                </Button>
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="gap-1.5 text-xs h-8"
-                                    onClick={() => handleExport("followups")}
-                                >
-                                    <FileSpreadsheet size={13} />
-                                    Export Tasks
-                                </Button>
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="gap-1.5 text-xs h-8"
-                                    onClick={() => handleExport("campaigns")}
-                                >
-                                    <FileSpreadsheet size={13} />
-                                    Export Campaigns
-                                </Button>
-                            </div>
-                        </div>
+                        )}
 
                         {loadingAnalytics ? (
                             <div className="text-center py-12 text-muted-foreground text-xs">Loading analytics...</div>
