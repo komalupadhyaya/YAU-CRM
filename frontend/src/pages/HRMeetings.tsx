@@ -11,6 +11,7 @@ import {
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "../context/AuthContext";
+import { useDashboard } from "../context/DashboardContext";
 import { can } from "../utils/permissions";
 import { getESTDateParts, formatDateToESTString, toESTDateTimeString, format24hTimeTo12h, toESTDate } from "../utils/timezoneHelper";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -2267,6 +2268,7 @@ export default function HRMeetings() {
     const [searchQuery, setSearchQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState<string>('all');
     const { currentUser } = useAuth();
+    const { refreshDashboard } = useDashboard();
     const permissions = can(currentUser?.role);
 
     const loadAll = useCallback(async () => {
@@ -2296,11 +2298,13 @@ export default function HRMeetings() {
         } else {
             setMeetings(prev => [meeting, ...prev]);
         }
+        refreshDashboard(true).catch(() => {});
     };
 
     const handleMeetingUpdated = (updatedMeeting: Meeting) => {
         setMeetings(prev => prev.map(m => m._id === updatedMeeting._id ? updatedMeeting : m));
         setDetailMeeting(updatedMeeting);
+        refreshDashboard(true).catch(() => {});
     };
 
     const handleDelete = async (id: string) => {
@@ -2308,6 +2312,7 @@ export default function HRMeetings() {
             await api.delete(`/meetings/${id}`);
             setMeetings(prev => prev.filter(m => m._id !== id));
             setDeletingId(null);
+            refreshDashboard(true).catch(() => {});
             toast.success('Meeting deleted');
         } catch {
             toast.error('Failed to delete meeting');

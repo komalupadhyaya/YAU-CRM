@@ -52,6 +52,14 @@ export interface Lead {
     aiScoreOverride?: boolean;
     aiScoreUpdatedAt?: string;
     aiNextAction?: AiNextAction | null;
+    isStalled?: boolean;
+    stalledAt?: string | null;
+    daysInactive?: number;
+    stalledReason?: string | null;
+    stalledReengagementDraft?: {
+        text?: string;
+        suggestedAt?: string;
+    };
     last_contacted: string | null;
     createdAt: string;
     updatedAt: string;

@@ -11,6 +11,7 @@ import Task from '../models/tasks.model.js';
 import User from '../models/user.model.js';
 import { triggerNextActionEvaluation } from '../services/ai/nextAction.service.js';
 import { recalculateAndSaveLeadScore } from '../utils/leadScoring.utils.js';
+import { clearStalledStatus } from '../services/ai/stalledLeads.service.js';
 
 /**
  * Propagates lead assignment to pending follow-ups, tasks, and scheduled meetings.
@@ -521,6 +522,9 @@ export const updateLeadStatus = async (req, res, next) => {
 
         // Trigger Activity-based lead score recalculation (if not locked by user)
         await recalculateAndSaveLeadScore(lead._id, req.app?.get('io'));
+
+        // Auto-clear stalled status on activity
+        clearStalledStatus(lead._id, 'lead', req.app?.get('io'));
 
         const contacts = await Contact.find({ lead_id: lead._id }).sort({ is_primary: -1, createdAt: 1 }).lean();
         const updatedLead = await Lead.findById(lead._id);

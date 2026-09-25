@@ -5,6 +5,7 @@ import Note from '../models/note.model.js';
 import Contact from '../models/contact.model.js';
 import RetellKnowledgeBase from '../models/retellKnowledgeBase.model.js';
 import aiService from '../services/ai/ai.service.js';
+import { clearStalledStatus } from '../services/ai/stalledLeads.service.js';
 
 export const sendSms = async (req, res, next) => {
     try {
@@ -106,6 +107,9 @@ export const sendSms = async (req, res, next) => {
         if (!lead.smsHistory) lead.smsHistory = [];
         lead.smsHistory.push(newMsgEntry);
         await lead.save();
+
+        // Auto-clear stalled status on activity
+        clearStalledStatus(lead._id, 'lead', req.app?.get('io'));
 
         // Emit Socket.IO event
         const io = req.app.get('io');
@@ -623,6 +627,10 @@ export const sendChatSms = async (req, res) => {
         if (!lead.smsHistory) lead.smsHistory = [];
         lead.smsHistory.push(newMsgEntry);
         await lead.save();
+
+        // Auto-clear stalled status on activity
+        const resolvedType = leadType || (lead.phone ? 'ea_lead' : 'lead');
+        clearStalledStatus(lead._id, resolvedType === 'ea_lead' ? 'ea_lead' : 'lead', req.app?.get('io'));
 
         const io = req.app.get('io');
         if (io) {

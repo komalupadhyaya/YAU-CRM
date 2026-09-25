@@ -4,6 +4,7 @@ import { useLeadStore, Lead, Contact } from "../store/schoolStore";
 import { useSocket } from "../context/SocketContext";
 import { AiNextActionCard } from "../components/leads/AiNextActionCard";
 import { LeadScoreBadge } from "../components/leads/LeadScoreBadge";
+import StalledLeadBadge from "../components/leads/StalledLeadBadge";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "../api/api";
 import AppLayout from "../layout/AppLayout";
@@ -1002,7 +1003,12 @@ export default function LeadDetail() {
         to: cleanTo,
         message: smsData.message
       });
-      toast.success("SMS sent successfully");
+      if (lead?.isStalled) {
+        setLead(prev => prev ? { ...prev, isStalled: false, daysInactive: 0, stalledReason: null } : null);
+        toast.success("Re-engagement SMS sent & stalled status cleared!");
+      } else {
+        toast.success("SMS sent successfully");
+      }
       setIsSmsModalOpen(false);
       setSmsData({ message: "" });
       setShowSmsAiPanel(false);
@@ -1095,14 +1101,23 @@ export default function LeadDetail() {
                   {isEditing ? "Edit Lead" : lead.name}
                 </h1>
                 {!isEditing && (
-                  <LeadScoreBadge
-                    score={lead.aiScore}
-                    reason={lead.aiScoreReason}
-                    isOverridden={lead.aiScoreOverride}
-                    interactive={!isReadOnly}
-                    size="md"
-                    onScoreChange={(newScore) => handleUpdateLeadScore(lead._id, newScore)}
-                  />
+                  <>
+                    <LeadScoreBadge
+                      score={lead.aiScore}
+                      reason={lead.aiScoreReason}
+                      isOverridden={lead.aiScoreOverride}
+                      interactive={!isReadOnly}
+                      size="md"
+                      onScoreChange={(newScore) => handleUpdateLeadScore(lead._id, newScore)}
+                    />
+                    <StalledLeadBadge
+                      isStalled={lead.isStalled}
+                      daysInactive={lead.daysInactive}
+                      score={lead.aiScore || undefined}
+                      size="md"
+                      stalledReason={lead.stalledReason || undefined}
+                    />
+                  </>
                 )}
               </div>
               <div className="flex gap-2">
@@ -1167,9 +1182,17 @@ export default function LeadDetail() {
               </button>
               <button 
                 disabled={isReadOnly} 
-                onClick={() => { setSelectedContactForSms(primaryContact); setIsSmsModalOpen(true); }}
-                className="btn-secondary flex items-center justify-center gap-2 py-2 px-4 text-xs font-bold uppercase tracking-wider"
+                onClick={() => { 
+                  setSelectedContactForSms(primaryContact); 
+                  setSmsData({ message: lead?.isStalled ? (lead?.stalledReengagementDraft?.text || "") : "" });
+                  setIsSmsModalOpen(true); 
+                }}
+                className="relative btn-secondary flex items-center justify-center gap-2 py-2 px-4 text-xs font-bold uppercase tracking-wider"
+                title={lead?.isStalled ? `Stalled (${lead?.daysInactive}d inactive) — draft available` : "Send SMS"}
               >
+                {lead?.isStalled && (
+                  <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-purple-500 rounded-full animate-pulse shadow-xs" />
+                )}
                 <MessageSquare size={14} /> Send SMS
               </button>
               <button 
@@ -1494,12 +1517,21 @@ export default function LeadDetail() {
                     ))}
                   </select>
                 ) : (
-                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${lead.status === 'Signed' || lead.status === 'Active' ? 'bg-green-500/10 text-green-500 border-green-500/20' :
-                    lead.status === 'Meeting Scheduled' ? 'bg-blue-500/10 text-blue-500 border-blue-500/20' :
-                      'bg-yellow-500/10 text-yellow-500 border-yellow-500/20'
-                    }`}>
-                    {lead.status}
-                  </span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${lead.status === 'Signed' || lead.status === 'Active' ? 'bg-green-500/10 text-green-500 border-green-500/20' :
+                      lead.status === 'Meeting Scheduled' ? 'bg-blue-500/10 text-blue-500 border-blue-500/20' :
+                        'bg-yellow-500/10 text-yellow-500 border-yellow-500/20'
+                      }`}>
+                      {lead.status}
+                    </span>
+                    <StalledLeadBadge
+                      isStalled={lead.isStalled}
+                      daysInactive={lead.daysInactive}
+                      score={lead.aiScore || undefined}
+                      size="sm"
+                      stalledReason={lead.stalledReason || undefined}
+                    />
+                  </div>
                 )}
               </div>
 
@@ -2924,6 +2956,7 @@ export default function LeadDetail() {
         onOpenChange={(open) => {
           setIsSmsModalOpen(open);
           if (!open) {
+            setSmsData({ message: "" });
             setSmsErrors({});
             setShowSmsAiPanel(false);
             setSmsAiPrompt("");
@@ -2941,7 +2974,9 @@ export default function LeadDetail() {
             }
           }}
         >
-          <DialogHeader className="p-6 pb-2 border-b flex-shrink-0"><DialogTitle className="dark:text-foreground">Send SMS</DialogTitle></DialogHeader>
+          <DialogHeader className="p-6 pb-2 border-b flex-shrink-0">
+            <DialogTitle className="dark:text-foreground">Send SMS</DialogTitle>
+          </DialogHeader>
           <div className="flex-1 overflow-y-auto p-6 py-4 custom-scrollbar min-h-0">
             <div className="grid gap-4">
               <div className="grid gap-1">

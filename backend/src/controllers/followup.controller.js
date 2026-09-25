@@ -8,6 +8,7 @@ import Candidate from '../models/candidate.model.js';
 import User from '../models/user.model.js';
 import { triggerNextActionEvaluation } from '../services/ai/nextAction.service.js';
 import { recalculateAndSaveLeadScore } from '../utils/leadScoring.utils.js';
+import { clearStalledStatus } from '../services/ai/stalledLeads.service.js';
 import { google } from 'googleapis';
 
 const oAuth2Client = new google.auth.OAuth2(
@@ -171,6 +172,8 @@ export const createFollowup = async (req, res, next) => {
                 }
             }
 
+            clearStalledStatus(req.params.schoolId, 'lead', req.app?.get('io'));
+
             return res.json(task);
         }
 
@@ -291,6 +294,8 @@ export const createFollowup = async (req, res, next) => {
         }
 
 
+        clearStalledStatus(req.params.schoolId, 'lead', req.app?.get('io'));
+
         res.json(fu);
     } catch (err) {
         next(err);
@@ -337,6 +342,9 @@ export const completeFollowup = async (req, res, next) => {
 
             // Recalculate lead activity score
             recalculateAndSaveLeadScore(lead._id, req.app?.get('io'));
+
+            // Auto-clear stalled status on activity
+            clearStalledStatus(lead._id, 'lead', req.app?.get('io'));
         }
 
         res.json({ success: true });

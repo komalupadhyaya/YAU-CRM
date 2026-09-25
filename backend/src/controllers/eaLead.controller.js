@@ -10,6 +10,7 @@ import aiService from '../services/ai/ai.service.js';
 import { getCCAccessToken } from '../utils/constantContact.js';
 import { sendEAWelcomeEmail } from '../services/email/mailer.js';
 import { triggerNextActionEvaluation } from '../services/ai/nextAction.service.js';
+import { clearStalledStatus } from '../services/ai/stalledLeads.service.js';
 
 const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 
@@ -597,6 +598,9 @@ export const sendSingleSMS = async (req, res) => {
                 twilioSid: twilioMsg.sid
             });
             await lead.save();
+
+            // Auto-clear stalled status on activity
+            clearStalledStatus(lead._id, 'ea_lead', req.app?.get('io'));
 
             // Trigger AI Next Action Suggestion
             triggerNextActionEvaluation({

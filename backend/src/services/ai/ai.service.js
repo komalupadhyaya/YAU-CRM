@@ -1250,6 +1250,66 @@ async function generateNextActionSuggestion({ leadName, leadType, score, status,
     };
 }
 
+/**
+ * Generate a personalized re-engagement SMS draft for a stalled lead using Claude.
+ */
+async function generateStalledReengagementDraft({ leadName, leadType = 'ea_lead', score = 'Warm', daysInactive = 3, location = '', sport = '', recentMessages = [] }) {
+    const firstName = (leadName || 'Parent').trim().split(/\s+/)[0];
+
+    const systemPrompt = `You are a high-performing communications assistant for YAU Sports (Youth Athlete University).
+YAU provides community youth athletics clinics, after-school sports enrichment, and skill development for grades K-8 ($50/month for all 4 sports: basketball, soccer, flag football, and cheer; no cuts, no tryouts).
+
+TASK:
+Write a personalized, concise, friendly re-engagement SMS to a lead that has had no activity for ${daysInactive} days.
+Lead Score: ${score} (Hot = 3 days stalled, Warm = 5 days stalled, Cold = 7 days stalled).
+
+RULES (Strictly follow):
+1. Keep it under 160 characters whenever possible (max 200 characters).
+2. Greet the recipient by their first name (${firstName}).
+3. Reference their interest in youth sports or YAU warmly and naturally without sounding pushy or accusing them of missing messages.
+4. Ask a low-friction question or offer helpful information (e.g. asking which sport they want to focus on, or sharing upcoming clinic schedules).
+5. Output ONLY the raw SMS text. No quotes, no markdown, no placeholders, no explanations.`;
+
+    const userContent = `Lead: ${leadName || 'Parent'}
+First Name: ${firstName}
+Lead Type: ${leadType === 'ea_lead' ? 'Evening Activity Lead' : 'School CRM Lead'}
+Lead Score: ${score}
+Days Inactive: ${daysInactive}
+Sport Interest / Program: ${sport || 'Youth Sports Programs'}
+Location / City: ${location || 'Local area'}
+${recentMessages && recentMessages.length > 0 ? `Recent SMS:\n${recentMessages.slice(-3).map(m => `  ${m.direction === 'inbound' ? '[Client]' : '[Rep]'}: ${m.message}`).join('\n')}` : ''}
+
+Draft the re-engagement SMS:`;
+
+    try {
+        let raw = '';
+        if (PROVIDER === 'claude' || PROVIDER === 'anthropic') {
+            raw = await callClaude(systemPrompt, userContent, 200);
+        } else if (PROVIDER === 'groq') {
+            raw = await callGroq(systemPrompt, userContent, false);
+        } else {
+            raw = await callClaude(systemPrompt, userContent, 200);
+        }
+
+        let cleanDraft = (raw || '').trim();
+        if ((cleanDraft.startsWith('"') && cleanDraft.endsWith('"')) || (cleanDraft.startsWith('\'') && cleanDraft.endsWith('\''))) {
+            cleanDraft = cleanDraft.slice(1, -1).trim();
+        }
+        if (cleanDraft) return cleanDraft;
+    } catch (err) {
+        console.warn(`[Stalled Lead AI] Claude generation fallback:`, err.message);
+    }
+
+    // High-quality fallback if AI API is temporarily unavailable
+    if (score === 'Hot') {
+        return `Hi ${firstName}! Following up from YAU Sports — we have a few spots remaining and wanted to make sure you got all details for your child. Any questions I can help with today?`;
+    } else if (score === 'Warm') {
+        return `Hi ${firstName}, checking back in from YAU Sports! Are you still looking into athletic programs for your child this season? Happy to share schedule details!`;
+    } else {
+        return `Hi ${firstName}! Quick check-in from YAU Sports. We'd love to welcome your athlete to our upcoming clinics. Would you like our latest program schedule?`;
+    }
+}
+
 export {
     generateSmsMessage,
     generateBulkSmsMessage,
@@ -1261,7 +1321,8 @@ export {
     evaluateEALeadScore,
     generateWeeklyExecutiveSummary,
     generateActivityReportFeedback,
-    generateNextActionSuggestion
+    generateNextActionSuggestion,
+    generateStalledReengagementDraft
 };
 
 export default {
@@ -1275,7 +1336,8 @@ export default {
     evaluateEALeadScore,
     generateWeeklyExecutiveSummary,
     generateActivityReportFeedback,
-    generateNextActionSuggestion
+    generateNextActionSuggestion,
+    generateStalledReengagementDraft
 };
 
 

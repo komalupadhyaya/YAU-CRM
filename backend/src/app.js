@@ -31,6 +31,7 @@ import retellRoutes from './routes/retell.routes.js';
 import marketingRoutes from './routes/marketing.routes.js';
 import activityReportRoutes from './routes/activityReport.routes.js';
 import nextActionRoutes from './routes/nextAction.routes.js';
+import stalledLeadsRoutes from './routes/stalledLeads.routes.js';
 import { startCronJobs } from './utils/cron.utils.js';
 
 const app = express();
@@ -276,6 +277,7 @@ app.use('/api', templateRoutes);
 app.use('/api/marketing-contacts', marketingRoutes);
 app.use('/api/activity-reports', activityReportRoutes);
 app.use('/api/next-action', nextActionRoutes);
+app.use('/api/stalled-leads', stalledLeadsRoutes);
 
 
 // Error Handling Middleware

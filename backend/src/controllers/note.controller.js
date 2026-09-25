@@ -2,6 +2,7 @@ import Note from '../models/note.model.js';
 import Lead from '../models/lead.model.js';
 import { triggerNextActionEvaluation } from '../services/ai/nextAction.service.js';
 import { recalculateAndSaveLeadScore } from '../utils/leadScoring.utils.js';
+import { clearStalledStatus } from '../services/ai/stalledLeads.service.js';
 
 export const getNotesByLead = async (req, res, next) => {
     try {
@@ -53,6 +54,9 @@ export const createNote = async (req, res, next) => {
 
         // Recalculate activity score (if not manually locked by rep)
         recalculateAndSaveLeadScore(lead._id, req.app?.get('io'));
+
+        // Auto-clear stalled status on activity
+        clearStalledStatus(lead._id, 'lead', req.app?.get('io'));
 
         // Trigger AI Next Action Suggestion in background
         triggerNextActionEvaluation({

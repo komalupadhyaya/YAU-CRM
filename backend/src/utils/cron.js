@@ -10,6 +10,7 @@ import EmailCampaign from '../models/emailCampaign.model.js';
 import { resolveSegmentRecipients } from '../controllers/segments.controller.js';
 import { dispatchCampaignInBackground } from '../controllers/campaigns.controller.js';
 import { generateAndSendWeeklyPerformanceReport } from '../controllers/reports.controller.js';
+import { scanForStalledLeads } from '../services/ai/stalledLeads.service.js';
 
 export const initCronJobs = () => {
 
@@ -225,5 +226,19 @@ export const initCronJobs = () => {
         timezone: 'America/New_York'
     });
 
-    console.log('✅ Cron jobs initialized: Daily summary (8AM EST) + 30-min reminders (every minute) + campaign sender (every minute) + weekly AI performance report (Monday 8AM EST).');
+    // ── 5. Nightly Stalled Lead Detection — Every night at 2:00 AM EST ───────
+    cron.schedule('0 2 * * *', async () => {
+        console.log('[CRON] 🌙 Running Nightly Stalled Lead Detection (2:00 AM EST)...');
+        try {
+            const result = await scanForStalledLeads({ sendEmails: true });
+            console.log(`[CRON] Stalled Lead Detection finished: Scanned=${result.totalScanned}, Stalled=${result.currentlyStalledCount}, NewlyFlagged=${result.newlyStalledCount}`);
+        } catch (err) {
+            console.error('[CRON] Stalled Lead Detection error:', err.message);
+        }
+    }, {
+        scheduled: true,
+        timezone: 'America/New_York'
+    });
+
+    console.log('✅ Cron jobs initialized: Daily summary (8AM EST) + 30-min reminders (every minute) + campaign sender (every minute) + weekly AI report (Mon 8AM EST) + stalled lead scan (2AM EST).');
 };

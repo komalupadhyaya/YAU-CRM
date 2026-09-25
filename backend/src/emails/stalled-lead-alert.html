@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>⚠️ Stalled Lead Alert: {{LEAD_NAME}}</title>
+</head>
+<body style="margin:0;padding:0;background:#09090b;font-family:'Segoe UI',Arial,sans-serif;color:#fafafa;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#09090b;min-height:100vh;">
+  <tr>
+    <td align="center" style="padding:40px 16px;">
+      <table width="100%" style="max-width:580px;" cellpadding="0" cellspacing="0">
+
+        <!-- Header -->
+        <tr>
+          <td style="text-align:center;padding-bottom:28px;">
+            <div style="display:inline-flex;align-items:center;gap:8px;">
+              <span style="font-size:22px;font-weight:800;color:#fafafa;letter-spacing:-0.5px;">YAU<span style="color:#f59e0b;">CRM</span></span>
+            </div>
+          </td>
+        </tr>
+
+        <!-- Card -->
+        <tr>
+          <td style="background:#18181b;border:1px solid #27272a;border-radius:20px;overflow:hidden;">
+
+            <!-- Gradient Warning Bar -->
+            <div style="height:4px;background:linear-gradient(90deg,#ef4444,#f59e0b,#3b82f6);"></div>
+
+            <!-- Body -->
+            <div style="padding:36px 32px;">
+
+              <!-- Icon + heading -->
+              <div style="text-align:center;margin-bottom:28px;">
+                <div style="width:56px;height:56px;border-radius:16px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.25);display:inline-flex;align-items:center;justify-content:center;margin-bottom:16px;">
+                  <span style="font-size:26px;line-height:1;">⚠️</span>
+                </div>
+                <h1 style="margin:0 0 6px;font-size:21px;font-weight:800;color:#fafafa;letter-spacing:-0.3px;">
+                  Stalled Lead Alert
+                </h1>
+                <p style="margin:0;font-size:14px;color:#a1a1aa;">
+                  Hi {{REP_NAME}}, <strong>{{LEAD_NAME}}</strong> has had no activity for <span style="color:#f59e0b;font-weight:700;">{{DAYS_INACTIVE}} days</span>.
+                </p>
+              </div>
+
+              <!-- Info card -->
+              <div style="background:#09090b;border:1px solid #27272a;border-radius:14px;padding:20px 24px;margin-bottom:20px;">
+                <table width="100%" cellpadding="0" cellspacing="0">
+                  <tr>
+                    <td style="padding-bottom:12px;border-bottom:1px solid #27272a;">
+                      <div style="font-size:11px;font-weight:700;color:#71717a;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:4px;">Lead Information</div>
+                      <div style="font-size:16px;font-weight:700;color:#fafafa;">{{LEAD_NAME}} <span style="font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.3);margin-left:6px;">{{LEAD_SCORE}}</span></div>
+                      <div style="font-size:12px;color:#a1a1aa;margin-top:2px;">{{LEAD_TYPE}}</div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding:12px 0;border-bottom:1px solid #27272a;">
+                      <table width="100%" cellpadding="0" cellspacing="0">
+                        <tr>
+                          <td width="50%">
+                            <div style="font-size:11px;font-weight:700;color:#71717a;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:4px;">Inactivity</div>
+                            <div style="font-size:14px;font-weight:700;color:#ef4444;">{{DAYS_INACTIVE}} Days Inactive</div>
+                          </td>
+                          <td width="50%">
+                            <div style="font-size:11px;font-weight:700;color:#71717a;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:4px;">Last Activity Date</div>
+                            <div style="font-size:13px;font-weight:600;color:#fafafa;">{{LAST_ACTIVITY}}</div>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding-top:14px;">
+                      <div style="font-size:11px;font-weight:700;color:#38bdf8;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px;">Claude AI Drafted Re-engagement SMS</div>
+                      <div style="background:#18181b;border:1px solid #3f3f46;border-radius:10px;padding:14px;font-size:13px;color:#f4f4f5;line-height:1.5;font-style:italic;">
+                        "{{DRAFT_MESSAGE}}"
+                      </div>
+                    </td>
+                  </tr>
+                </table>
+              </div>
+
+              <!-- CTA Button -->
+              <div style="text-align:center;margin-bottom:24px;">
+                <a href="{{LEAD_URL}}" style="display:inline-block;background:linear-gradient(135deg,#f59e0b,#d97706);color:#09090b;font-size:14px;font-weight:700;padding:12px 28px;border-radius:10px;text-decoration:none;box-shadow:0 4px 12px rgba(245,158,11,0.25);">
+                  Open Lead &amp; Send 1-Click Re-engagement &rarr;
+                </a>
+              </div>
+
+              <p style="margin:0;font-size:12px;color:#71717a;text-align:center;line-height:1.5;">
+                This notification was automatically sent to the assigned sales representative.<br />
+                Logging any activity (Call, SMS, Note, Status change) clears this stalled alert.
+              </p>
+
+            </div>
+
+          </td>
+        </tr>
+
+        <!-- Footer -->
+        <tr>
+          <td style="text-align:center;padding-top:24px;font-size:11px;color:#52525b;">
+            YAU CRM &copy; {{YEAR}} Youth Athlete University. All rights reserved.
+          </td>
+        </tr>
+
+      </table>
+    </td>
+  </tr>
+</table>
+</body>
+</html>

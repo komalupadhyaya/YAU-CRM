@@ -11,6 +11,7 @@ import User from '../models/user.model.js';
 import Call from '../models/call.model.js';
 import { triggerNextActionEvaluation } from '../services/ai/nextAction.service.js';
 import { recalculateAndSaveLeadScore } from '../utils/leadScoring.utils.js';
+import { clearStalledStatus } from '../services/ai/stalledLeads.service.js';
 
 const { AccessToken } = twilio.jwt;
 const { VoiceGrant } = AccessToken;
@@ -1128,6 +1129,9 @@ export const handleCallStatus = async (req, res, next) => {
                         console.log(`✅ Call log Note created for lead ${lead._id} (recording URL will arrive later)`);
                     }
 
+                    // Auto-clear stalled status on activity
+                    clearStalledStatus(lead._id, 'lead');
+
                     // Trigger AI Next Action Suggestion
                     triggerNextActionEvaluation({
                         leadId: lead._id,
@@ -1347,6 +1351,9 @@ export const logCallOutcome = async (req, res, next) => {
         });
 
         console.log(`✅ logCallOutcome note created: ${note._id}, callSid: ${callSid}, recording: ${recordingUrl ? 'YES' : 'NO (will arrive later)'}`);
+
+        // Auto-clear stalled status on activity
+        clearStalledStatus(lead._id, 'lead');
 
         // Trigger AI Next Action Suggestion
         triggerNextActionEvaluation({

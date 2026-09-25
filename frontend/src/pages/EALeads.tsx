@@ -16,6 +16,7 @@ import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/comp
 import { countryCodes } from "../utils/countryCodes";
 import { AiNextAction } from "../store/schoolStore";
 import { AiNextActionCard } from "../components/leads/AiNextActionCard";
+import StalledLeadBadge from "../components/leads/StalledLeadBadge";
 import {
   Table,
   TableBody,
@@ -94,6 +95,14 @@ interface EALead {
   aiScoreOverride?: boolean;
   aiScoreUpdatedAt?: string;
   aiNextAction?: AiNextAction | null;
+  isStalled?: boolean;
+  stalledAt?: string;
+  daysInactive?: number;
+  stalledReason?: string;
+  stalledReengagementDraft?: {
+    text?: string;
+    suggestedAt?: string;
+  };
   createdAt: string;
   updatedAt: string;
   smsHistory?: Array<{
@@ -752,11 +761,19 @@ export default function EALeads() {
   // Open View Dialog
   const handleOpenView = async (lead: EALead) => {
     setSelectedLead(lead);
+    setSingleSmsMessage(
+      lead.isStalled && lead.stalledReengagementDraft?.text
+        ? lead.stalledReengagementDraft.text
+        : ""
+    );
     setViewDialogOpen(true);
     setActiveTab("details");
     try {
       const res = await api.get(`/ea-leads/${lead._id}`);
       setSelectedLead(res.data);
+      if (!res.data?.isStalled) {
+        setSingleSmsMessage("");
+      }
       setLeads(prev => prev.map(l => l._id === lead._id ? res.data : l));
     } catch (err) {
       console.error("Failed to fetch fresh lead details:", err);
@@ -795,11 +812,21 @@ export default function EALeads() {
   // Open Messages Dialog directly
   const handleOpenMessages = async (lead: EALead) => {
     setSelectedLead(lead);
+    setSingleSmsMessage(
+      lead.isStalled && lead.stalledReengagementDraft?.text
+        ? lead.stalledReengagementDraft.text
+        : ""
+    );
     setViewDialogOpen(true);
     setActiveTab("messages");
     try {
       const res = await api.get(`/ea-leads/${lead._id}`);
       setSelectedLead(res.data);
+      if (res.data?.isStalled && res.data?.stalledReengagementDraft?.text) {
+        setSingleSmsMessage(res.data.stalledReengagementDraft.text);
+      } else if (!res.data?.isStalled) {
+        setSingleSmsMessage("");
+      }
       setLeads(prev => prev.map(l => l._id === lead._id ? res.data : l));
     } catch (err) {
       console.error("Failed to fetch fresh lead details:", err);
@@ -1147,15 +1174,26 @@ export default function EALeads() {
     e.preventDefault();
     if (!selectedLead || !singleSmsMessage.trim()) return;
 
+    const wasStalled = selectedLead.isStalled;
     setSendingSingleSms(true);
     try {
       const res = await api.post(`/ea-leads/${selectedLead._id}/send-sms`, {
         message: singleSmsMessage
       });
-      setSelectedLead(res.data);
-      setLeads(prev => prev.map(l => l._id === selectedLead._id ? res.data : l));
+      const updatedLead = {
+        ...res.data,
+        isStalled: false,
+        daysInactive: 0,
+        stalledReason: null
+      };
+      setSelectedLead(updatedLead);
+      setLeads(prev => prev.map(l => l._id === selectedLead._id ? updatedLead : l));
       setSingleSmsMessage("");
-      toast.success("SMS sent successfully.");
+      if (wasStalled) {
+        toast.success("Re-engagement SMS sent & stalled status cleared!");
+      } else {
+        toast.success("SMS sent successfully.");
+      }
     } catch {
       toast.error("Failed to send SMS.");
     } finally {
@@ -1311,12 +1349,21 @@ export default function EALeads() {
                         />
                       </TableCell>
                       <TableCell className="font-semibold text-foreground truncate max-w-[200px]">
-                        {lead.name}
-                        {lead.submissionCount > 1 && (
-                          <span className="ml-2 inline-flex items-center gap-0.5 rounded bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold text-primary border border-primary/20" title={`Submitted ${lead.submissionCount} times`}>
-                            x{lead.submissionCount}
-                          </span>
-                        )}
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span>{lead.name}</span>
+                          {lead.submissionCount > 1 && (
+                            <span className="inline-flex items-center gap-0.5 rounded bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold text-primary border border-primary/20" title={`Submitted ${lead.submissionCount} times`}>
+                              x{lead.submissionCount}
+                            </span>
+                          )}
+                          <StalledLeadBadge
+                            isStalled={lead.isStalled}
+                            daysInactive={lead.daysInactive}
+                            score={lead.aiScore}
+                            size="sm"
+                            stalledReason={lead.stalledReason}
+                          />
+                        </div>
                       </TableCell>
                       <TableCell className="text-muted-foreground font-medium">{lead.email}</TableCell>
                       <TableCell className="text-muted-foreground font-medium">{lead.phone}</TableCell>
@@ -1385,7 +1432,7 @@ export default function EALeads() {
                               title="Actions"
                             >
                               <MoreVertical size={15} />
-                              {lead.callHistory && lead.callHistory.length > 0 && (
+                              {(lead.isStalled || (lead.callHistory && lead.callHistory.length > 0)) && (
                                 <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-purple-500 rounded-full" />
                               )}
                             </Button>
@@ -1411,10 +1458,15 @@ export default function EALeads() {
                             
                             <DropdownMenuItem 
                               onClick={() => handleOpenMessages(lead)} 
-                              className="gap-2.5 cursor-pointer py-2 text-xs font-medium"
+                              className="gap-2.5 cursor-pointer py-2 text-xs font-medium justify-between"
                             >
-                              <MessageSquare size={14} className="text-primary" />
-                              <span>Send / View SMS</span>
+                              <div className="flex items-center gap-2.5">
+                                <MessageSquare size={14} className="text-primary" />
+                                <span>Send / View SMS</span>
+                              </div>
+                              {lead.isStalled && (
+                                <span className="w-2 h-2 rounded-full bg-purple-500 animate-pulse" title="Stalled re-engagement draft available" />
+                              )}
                             </DropdownMenuItem>
 
                             <DropdownMenuItem 
@@ -1479,7 +1531,15 @@ export default function EALeads() {
           )}
         </div>
       </div>      {/* View Lead Dialog */}
-      <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
+      <Dialog 
+        open={viewDialogOpen} 
+        onOpenChange={(open) => {
+          setViewDialogOpen(open);
+          if (!open) {
+            setSingleSmsMessage("");
+          }
+        }}
+      >
         <DialogContent className="sm:max-w-[650px] bg-card border-border text-foreground">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-xl font-bold">
@@ -1628,9 +1688,9 @@ export default function EALeads() {
 
               <TabsContent value="messages">
                 <TooltipProvider>
-                  <div className="flex flex-col h-[400px] border rounded-xl overflow-hidden bg-background">
+                  <div className="flex flex-col h-[470px] border rounded-xl overflow-hidden bg-background">
                     {/* Chat message area */}
-                    <div className="flex-1 overflow-y-auto p-4 space-y-3 max-h-[330px]">
+                    <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0 custom-scrollbar">
                       {!selectedLead.smsHistory || selectedLead.smsHistory.length === 0 ? (
                         <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-1.5 py-12">
                           <MessageSquare className="opacity-40" size={24} />
@@ -1740,26 +1800,46 @@ export default function EALeads() {
                         )}
                       </div>
                     ) : (
-                      <form onSubmit={handleSendSingleSMS} className="p-2 border-t flex gap-1.5 bg-card shrink-0">
-                        <Input
-                          placeholder={selectedLead.isConsent ? "Type SMS message..." : "Lead has not given SMS consent"}
+                      <form onSubmit={handleSendSingleSMS} className="p-3 border-t bg-card/60 flex flex-col gap-2 shrink-0">
+                        <textarea
+                          placeholder={selectedLead.isConsent ? "Type SMS message... (Ctrl+Enter to send)" : "Lead has not given SMS consent"}
                           value={singleSmsMessage}
                           onChange={(e) => setSingleSmsMessage(e.target.value)}
+                          onKeyDown={(e) => {
+                            if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                              e.preventDefault();
+                              if (!sendingSingleSms && singleSmsMessage.trim() && selectedLead.isConsent) {
+                                handleSendSingleSMS(e);
+                              }
+                            }
+                          }}
                           disabled={sendingSingleSms || !selectedLead.isConsent}
-                          className="flex-1 bg-background text-xs h-8 border-border"
+                          rows={3}
+                          className="w-full bg-background text-xs sm:text-sm p-2.5 rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 resize-y min-h-[70px] max-h-[140px] leading-relaxed transition-all placeholder:text-muted-foreground/60 custom-scrollbar"
                         />
-                        <Button
-                          type="submit"
-                          size="sm"
-                          className="h-8 w-8 p-0 shrink-0"
-                          disabled={sendingSingleSms || !singleSmsMessage.trim() || !selectedLead.isConsent}
-                        >
-                          {sendingSingleSms ? (
-                            <Loader2 size={12} className="animate-spin" />
-                          ) : (
-                            <Send size={12} />
-                          )}
-                        </Button>
+                        <div className="flex items-center justify-between gap-2 pt-0.5">
+                          <span className="text-[11px] text-muted-foreground">
+                            {singleSmsMessage.length} characters (approx {Math.ceil((singleSmsMessage.length || 1) / 160)} SMS)
+                          </span>
+                          <Button
+                            type="submit"
+                            size="sm"
+                            className="h-8 px-3 text-xs font-semibold shrink-0 flex items-center gap-1.5"
+                            disabled={sendingSingleSms || !singleSmsMessage.trim() || !selectedLead.isConsent}
+                          >
+                            {sendingSingleSms ? (
+                              <>
+                                <Loader2 size={12} className="animate-spin" />
+                                <span>Sending...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Send size={12} />
+                                <span>Send SMS</span>
+                              </>
+                            )}
+                          </Button>
+                        </div>
                       </form>
                     )}
                   </div>
@@ -1986,12 +2066,6 @@ export default function EALeads() {
             </Tabs>
             </>
           )}
-
-          <DialogFooter className="mt-4 border-t border-border/30 pt-3">
-            <Button variant="outline" className="border-border text-foreground" onClick={() => setViewDialogOpen(false)}>
-              Close
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
 

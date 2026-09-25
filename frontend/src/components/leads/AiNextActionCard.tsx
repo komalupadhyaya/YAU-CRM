@@ -246,19 +246,19 @@ export const AiNextActionCard: React.FC<AiNextActionCardProps> = ({
   return (
     <>
       <div
-        className={`relative border rounded-xl shadow-sm transition-all animate-in fade-in duration-300 ${isCollapsed ? 'p-2.5 sm:py-2 sm:px-3' : 'p-3.5'} ${themeStyles.border} ${themeStyles.bg} ${className}`}
+        className={`relative border rounded-xl shadow-sm shrink-0 transition-all animate-in fade-in duration-300 ${isCollapsed ? 'p-2.5 sm:py-2.5 sm:px-3.5' : 'p-3.5 sm:p-4'} ${themeStyles.border} ${themeStyles.bg} ${className}`}
       >
-        {/* Top Header Row */}
-        <div className={`flex items-center justify-between gap-3 ${isCollapsed ? 'mb-0' : 'mb-2.5'}`}>
+        {/* Top Header Row (Click to toggle compress / extract) */}
+        <div className={`flex items-center justify-between gap-2.5 min-h-[30px] ${isCollapsed ? 'mb-0' : 'mb-3'}`}>
           <div 
             onClick={() => setIsCollapsed(!isCollapsed)}
-            className="flex items-center gap-2 min-w-0 cursor-pointer select-none group"
-            title={isCollapsed ? "Click to expand AI Next Action" : "Click to compress AI Next Action"}
+            className="flex items-center gap-2 min-w-0 flex-1 cursor-pointer select-none group"
+            title={isCollapsed ? "Click to extract / expand AI Next Action" : "Click to compress / collapse AI Next Action"}
           >
             <span className="flex items-center justify-center w-6 h-6 rounded-lg bg-primary/10 text-primary shrink-0 group-hover:scale-105 transition-transform">
-              <Sparkles size={13} className="animate-pulse" />
+              <Sparkles size={13} className="animate-pulse shrink-0" />
             </span>
-            <span className="text-xs font-bold tracking-tight text-foreground whitespace-nowrap">
+            <span className="text-xs font-bold tracking-tight text-foreground shrink-0">
               AI Next Action
             </span>
 
@@ -271,24 +271,17 @@ export const AiNextActionCard: React.FC<AiNextActionCardProps> = ({
               {isCold && <Snowflake size={11} className={themeStyles.iconColor} />}
               {themeStyles.label}
             </span>
-
-            {/* Collapsed Preview Snippet */}
-            {isCollapsed && (
-              <span className="text-xs text-foreground/85 font-medium truncate max-w-[170px] sm:max-w-[260px] xl:max-w-[340px] pl-2 border-l border-border/40 ml-1">
-                {aiNextAction.action}
-              </span>
-            )}
           </div>
 
-          {/* Action Controls: Compress/Expand Toggle + Distinct Dismiss Button */}
-          <div className="flex items-center gap-1 shrink-0">
+          {/* Action Controls: Compress/Expand Toggle + Dismiss Button */}
+          <div className="flex items-center gap-1.5 shrink-0">
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); setIsCollapsed(!isCollapsed); }}
-              title={isCollapsed ? "Expand AI Next Action" : "Compress AI Next Action"}
-              className="w-6 h-6 rounded-full flex items-center justify-center text-muted-foreground/70 hover:text-foreground hover:bg-muted/80 transition-all cursor-pointer"
+              title={isCollapsed ? "Extract / Expand AI Next Action" : "Compress / Collapse AI Next Action"}
+              className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/80 border border-border/50 transition-all cursor-pointer select-none"
             >
-              {isCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+              {isCollapsed ? <ChevronDown size={14} className="shrink-0" /> : <ChevronUp size={14} className="shrink-0" />}
             </button>
 
             <button
@@ -296,12 +289,28 @@ export const AiNextActionCard: React.FC<AiNextActionCardProps> = ({
               onClick={(e) => { e.stopPropagation(); handleDismiss(); }}
               disabled={loadingDismiss}
               title="Dismiss suggestion from lead card"
-              className="w-6 h-6 rounded-full flex items-center justify-center text-muted-foreground/70 hover:text-destructive hover:bg-destructive/10 border border-transparent hover:border-destructive/20 transition-all shrink-0 cursor-pointer disabled:opacity-50"
+              className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground/70 hover:text-destructive hover:bg-destructive/10 border border-transparent hover:border-destructive/20 transition-all shrink-0 cursor-pointer disabled:opacity-50"
             >
-              {loadingDismiss ? <Loader2 size={13} className="animate-spin text-destructive" /> : <X size={13} />}
+              {loadingDismiss ? <Loader2 size={13} className="animate-spin text-destructive shrink-0" /> : <X size={13} />}
             </button>
           </div>
         </div>
+
+        {/* Collapsed Preview Row: Clean second line showing action and quick expand link */}
+        {isCollapsed && (
+          <div 
+            onClick={() => setIsCollapsed(false)}
+            className="mt-2 pt-2 border-t border-border/30 flex items-center justify-between gap-2 cursor-pointer group"
+            title="Click to extract / expand full action details"
+          >
+            <p className="text-xs text-foreground/85 font-medium truncate flex-1 leading-tight">
+              {aiNextAction.action}
+            </p>
+            <span className="text-[10px] text-primary font-semibold group-hover:underline shrink-0 whitespace-nowrap">
+              View details →
+            </span>
+          </div>
+        )}
 
         {/* Expanded View Details */}
         {!isCollapsed && (
@@ -371,65 +380,68 @@ export const AiNextActionCard: React.FC<AiNextActionCardProps> = ({
             )}
 
             {/* Action Controls Row */}
-            <div className="mt-3.5 pt-2.5 border-t border-border/30 flex items-center gap-2">
+            <div className="mt-3.5 pt-2.5 border-t border-border/30 flex flex-wrap items-center justify-between gap-2">
               {/* Primary CTA: Convert to Follow-Up */}
               {!isFollowupConverted ? (
                 <button
                   type="button"
                   onClick={openConvertModal}
                   disabled={loadingFollowup}
-                  className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-all cursor-pointer disabled:opacity-50"
+                  className="flex-1 min-w-[150px] inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap"
                   title="Review and convert this AI action into a scheduled CRM Follow-up or Task"
                 >
-                  <CalendarPlus size={13} />
+                  <CalendarPlus size={13} className="shrink-0" />
                   <span>Convert to Follow-Up</span>
                 </button>
               ) : (
-                <span className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                  <Check size={13} /> Follow-Up Created
+                <span className="flex-1 min-w-[150px] inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 whitespace-nowrap">
+                  <Check size={13} className="shrink-0" /> Follow-Up Created
                 </span>
               )}
 
-              {/* If Cold lead without task and not converted, show Accept button to auto-create task */}
-              {isCold && !aiNextAction.taskId && !isFollowupConverted && (
+              {/* Secondary Actions Group (Accept, Edit, Dismiss) */}
+              <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+                {/* If Cold lead without task and not converted, show Accept button to auto-create task */}
+                {isCold && !aiNextAction.taskId && !isFollowupConverted && (
+                  <button
+                    type="button"
+                    onClick={handleAccept}
+                    disabled={loadingAccept}
+                    className="inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-primary text-primary-foreground hover:bg-primary/90 shadow-xs transition-all shrink-0 cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                    title="Accept and create task"
+                  >
+                    {loadingAccept ? (
+                      <Loader2 size={12} className="animate-spin shrink-0" />
+                    ) : (
+                      <Check size={12} className="shrink-0" />
+                    )}
+                    <span>Accept</span>
+                  </button>
+                )}
+
+                {/* Edit Button */}
                 <button
                   type="button"
-                  onClick={handleAccept}
-                  disabled={loadingAccept}
-                  className="inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-primary text-primary-foreground hover:bg-primary/90 shadow-xs transition-all shrink-0 cursor-pointer disabled:opacity-50"
-                  title="Accept and create task"
+                  onClick={openEditModal}
+                  className="inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80 border border-border/60 transition-all shrink-0 cursor-pointer whitespace-nowrap"
+                  title="Edit suggested action, priority, or notes"
                 >
-                  {loadingAccept ? (
-                    <Loader2 size={12} className="animate-spin" />
-                  ) : (
-                    <Check size={12} />
-                  )}
-                  <span>Accept</span>
+                  <Edit3 size={12} className="shrink-0" />
+                  <span>Edit</span>
                 </button>
-              )}
 
-              {/* Edit Button */}
-              <button
-                type="button"
-                onClick={openEditModal}
-                className="inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80 border border-border/60 transition-all shrink-0 cursor-pointer"
-                title="Edit suggested action, priority, or notes"
-              >
-                <Edit3 size={12} />
-                <span>Edit</span>
-              </button>
-
-              {/* Dismiss Button */}
-              <button
-                type="button"
-                onClick={handleDismiss}
-                disabled={loadingDismiss}
-                title="Dismiss suggestion from lead card"
-                className="inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-muted-foreground hover:text-destructive hover:bg-destructive/10 border border-transparent hover:border-destructive/20 transition-all shrink-0 cursor-pointer disabled:opacity-50"
-              >
-                {loadingDismiss ? <Loader2 size={12} className="animate-spin text-destructive" /> : <X size={12} />}
-                <span>Dismiss</span>
-              </button>
+                {/* Dismiss Button */}
+                <button
+                  type="button"
+                  onClick={handleDismiss}
+                  disabled={loadingDismiss}
+                  title="Dismiss suggestion from lead card"
+                  className="inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-muted-foreground hover:text-destructive hover:bg-destructive/10 border border-transparent hover:border-destructive/20 transition-all shrink-0 cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                >
+                  {loadingDismiss ? <Loader2 size={12} className="animate-spin text-destructive shrink-0" /> : <X size={12} className="shrink-0" />}
+                  <span>Dismiss</span>
+                </button>
+              </div>
             </div>
           </>
         )}

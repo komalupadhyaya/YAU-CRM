@@ -162,6 +162,7 @@ import { useDialerStore } from "../store/dialerStore";
 import { useSocket } from "../context/SocketContext";
 import { AiNextActionCard } from "../components/leads/AiNextActionCard";
 import { LeadScoreBadge } from "../components/leads/LeadScoreBadge";
+import StalledLeadBadge from "../components/leads/StalledLeadBadge";
 import { toast } from "sonner";
 import { countryCodes } from "../utils/countryCodes";
 import {
@@ -1230,11 +1231,30 @@ const Campaigns = () => {
   const sendQuickSms = async () => {
     if (!smsMessage.trim()) { toast.error("Please enter a message"); return; }
     setIsSubmitting(true);
+    const wasStalled = !!selectedLead?.isStalled;
     try {
       const phone = (selectedLead as Lead)?.contacts?.[0]?.direct_phone || selectedLead?.telephone;
       if (!phone) { toast.error("No phone number found"); return; }
       await api.post("/sms/send-sms", { lead_id: selectedLead?._id, to: phone, message: smsMessage });
-      toast.success("SMS sent!");
+      
+      if (wasStalled) {
+        toast.success("Re-engagement SMS sent & stalled status cleared!");
+        setSelectedLead(prev => prev ? {
+          ...prev,
+          isStalled: false,
+          daysInactive: 0,
+          stalledReason: null
+        } : null);
+        setLeads(prev => prev.map(l => l._id === selectedLead?._id ? {
+          ...l,
+          isStalled: false,
+          daysInactive: 0,
+          stalledReason: null
+        } : l));
+      } else {
+        toast.success("SMS sent!");
+      }
+
       setIsSmsModalOpen(false);
       setSmsMessage("");
       setShowSmsAiPanel(false);
@@ -1662,6 +1682,13 @@ const Campaigns = () => {
                       size="sm"
                       onScoreChange={(newScore) => handleUpdateLeadScore(selectedLead._id, newScore)}
                     />
+                    <StalledLeadBadge
+                      isStalled={selectedLead.isStalled}
+                      daysInactive={selectedLead.daysInactive}
+                      score={selectedLead.aiScore || undefined}
+                      size="sm"
+                      stalledReason={selectedLead.stalledReason || undefined}
+                    />
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-muted/50 text-muted-foreground border border-border/40">
                       <Info size={11} /> {selectedLead.type || "Lead"}
                     </span>
@@ -1734,10 +1761,19 @@ const Campaigns = () => {
                       <span className="text-[9px] font-bold uppercase tracking-wider text-white">MAKE CALL</span>
                     </button>
                     <button 
-                      onClick={() => { if (!permissions.isReadOnly) { setSmsMessage(""); setIsSmsModalOpen(true); } }} 
+                      onClick={() => { 
+                        if (!permissions.isReadOnly) { 
+                          setSmsMessage(selectedLead.isStalled ? (selectedLead.stalledReengagementDraft?.text || "") : ""); 
+                          setIsSmsModalOpen(true); 
+                        } 
+                      }} 
                       disabled={permissions.isReadOnly}
-                      className={`flex flex-col items-center gap-1.5 p-2.5 rounded-lg bg-accent/50 hover:bg-blue-500/10 border border-transparent hover:border-blue-500/20 transition-all group ${permissions.isReadOnly ? 'opacity-40 blur-[0.5px] pointer-events-none cursor-not-allowed' : ''}`}
+                      className={`relative flex flex-col items-center gap-1.5 p-2.5 rounded-lg bg-accent/50 hover:bg-blue-500/10 border border-transparent hover:border-blue-500/20 transition-all group ${permissions.isReadOnly ? 'opacity-40 blur-[0.5px] pointer-events-none cursor-not-allowed' : ''}`}
+                      title={selectedLead.isStalled ? `Stalled (${selectedLead.daysInactive}d inactive) — draft available` : "Send SMS"}
                     >
+                      {selectedLead.isStalled && (
+                        <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-purple-500 rounded-full animate-pulse shadow-xs" />
+                      )}
                       <MessageSquare size={15} className="text-muted-foreground group-hover:text-blue-500" />
                       <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground group-hover:text-blue-500">Send SMS</span>
                     </button>
@@ -3537,6 +3573,7 @@ const Campaigns = () => {
       <Dialog open={isSmsModalOpen} onOpenChange={(open) => {
         setIsSmsModalOpen(open);
         if (!open) {
+          setSmsMessage("");
           setShowSmsAiPanel(false);
           setSmsAiPrompt("");
         }
@@ -3552,7 +3589,9 @@ const Campaigns = () => {
             }
           }}
         >
-          <DialogHeader className="p-6 pb-2 border-b flex-shrink-0"><DialogTitle className="dark:text-foreground">Send SMS</DialogTitle></DialogHeader>
+          <DialogHeader className="p-6 pb-2 border-b flex-shrink-0">
+            <DialogTitle className="dark:text-foreground">Send SMS</DialogTitle>
+          </DialogHeader>
           <div className="flex-1 overflow-y-auto p-6 py-4 custom-scrollbar min-h-0">
             <div className="grid gap-4">
               <div className="grid gap-1">

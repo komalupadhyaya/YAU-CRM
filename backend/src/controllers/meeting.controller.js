@@ -843,6 +843,11 @@ export const createMeeting = async (req, res, next) => {
             .populate('cc_attendees', 'name email')
             .populate('created_by', 'name email');
 
+        const io = req.app?.get('io');
+        if (io) {
+            io.emit('meeting:created', finalPopulated);
+        }
+
         res.status(201).json(finalPopulated);
     } catch (err) {
         next(err);
@@ -1119,6 +1124,11 @@ export const updateMeeting = async (req, res, next) => {
             .populate('created_by', 'name email')
             .populate('change_log.by', 'name email');
 
+        const io = req.app?.get('io');
+        if (io) {
+            io.emit('meeting:updated', finalPopulated);
+        }
+
         res.json(finalPopulated);
     } catch (err) {
         next(err);
@@ -1167,6 +1177,12 @@ export const deleteMeeting = async (req, res, next) => {
 
         await syncMeetingToGoogleCalendar(meeting._id, 'delete');
         await Meeting.findByIdAndDelete(req.params.id);
+
+        const io = req.app?.get('io');
+        if (io) {
+            io.emit('meeting:deleted', { id: req.params.id });
+        }
+
         res.json({ success: true, message: 'Meeting deleted successfully.' });
     } catch (err) {
         next(err);

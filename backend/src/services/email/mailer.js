@@ -510,6 +510,50 @@ export async function sendReminderEmail({ to, userName, title, type, dueAt }) {
     }
 }
 
+/**
+ * Send an email alert to the assigned team member when a lead becomes stalled.
+ * NEVER sent to the lead — strictly sent to the assigned sales representative.
+ *
+ * @param {{ to: string, repName: string, leadName: string, leadScore: string, daysInactive: number, lastActivityDate: Date, leadUrl: string, leadType: string, draftMessage: string }} details
+ */
+export async function sendStalledLeadEmail({ to, repName, leadName, leadScore, daysInactive, lastActivityDate, leadUrl, leadType, draftMessage }) {
+    if (!to) {
+        console.warn(`[Stalled Lead Mailer] No recipient email provided for lead "${leadName}" — skipping.`);
+        return;
+    }
+
+    const year = new Date().getFullYear().toString();
+    const formattedLastActivity = lastActivityDate ? new Date(lastActivityDate).toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric'
+    }) : 'No activity recorded';
+
+    try {
+        const html = renderTemplate('stalled-lead-alert.html', {
+            REP_NAME: repName || 'Team Member',
+            LEAD_NAME: leadName || 'Lead',
+            LEAD_SCORE: leadScore || 'Warm',
+            LEAD_TYPE: leadType === 'ea_lead' ? 'Evening Activity Lead' : 'School CRM Lead',
+            DAYS_INACTIVE: String(daysInactive || 0),
+            LAST_ACTIVITY: formattedLastActivity,
+            DRAFT_MESSAGE: draftMessage || 'Hi there! Just checking in to see if you had any questions about our sports programs for your child.',
+            LEAD_URL: leadUrl || process.env.FRONTEND_URL || 'http://localhost:8080',
+            YEAR: year
+        });
+
+        await sendMail({
+            to,
+            subject: `⚠️ Stalled Lead Alert: ${leadName} (${leadScore} — ${daysInactive} days inactive)`,
+            html
+        });
+
+        console.log(`✅ Stalled lead email notification sent strictly to assigned rep ${to} for lead "${leadName}"`);
+    } catch (err) {
+        console.error(`❌ Failed to send stalled lead email to ${to}:`, err.message);
+    }
+}
+
 function formatICSDate(date) {
     const d = new Date(date);
     return d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';

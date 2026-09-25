@@ -75,6 +75,17 @@ const EALeadSchema = new mongoose.Schema({
             activityId: { type: mongoose.Schema.Types.ObjectId, default: null },
             summary: { type: String, default: null }
         }
+    },
+    // ── Stalled Lead Detection (Section 2) ───────────────────────────
+    isStalled: { type: Boolean, default: false, index: true },
+    stalledAt: { type: Date, default: null },
+    daysInactive: { type: Number, default: 0 },
+    lastActivityAt: { type: Date, default: Date.now },
+    stalledReason: { type: String, default: null },
+    stalledEmailSentAt: { type: Date, default: null },
+    stalledReengagementDraft: {
+        text: { type: String, default: null },
+        suggestedAt: { type: Date, default: null }
     }
 }, { timestamps: true });
 
