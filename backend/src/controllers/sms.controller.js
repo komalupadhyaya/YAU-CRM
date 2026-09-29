@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import twilio from 'twilio';
 import Lead from '../models/lead.model.js';
 import EALead from '../models/eaLead.model.js';
@@ -369,23 +370,53 @@ export const getAvailableLeads = async (req, res) => {
  */
 export const getUnreadCount = async (req, res) => {
     try {
-        const [eaUnread, mainUnread] = await Promise.all([
-            EALead.aggregate([{ $group: { _id: null, total: { $sum: '$unreadCount' } } }]),
-            Lead.aggregate([{ $group: { _id: null, total: { $sum: '$unreadCount' } } }])
-        ]);
+        const userId = req.user?.id || req.user?._id;
+        const userRole = req.currentUserRole || req.user?.role;
+        const isRep = userRole === 'sales_rep';
+        const repObjectId = userId ? new mongoose.Types.ObjectId(userId) : null;
+        const repFilter = repObjectId ? { assigned_to: { $in: [repObjectId, String(userId)] } } : { assigned_to: userId };
+
+        // 1. Unread aggregations:
+        // Sales Reps: 0 EA Leads, only assigned Main CRM Leads
+        // Admins & Managers: all EA Leads and all CRM Leads
+        const eaUnreadPromise = isRep
+            ? Promise.resolve([{ _id: null, total: 0 }])
+            : EALead.aggregate([{ $group: { _id: null, total: { $sum: '$unreadCount' } } }]);
+
+        const mainUnreadPromise = isRep
+            ? Lead.aggregate([
+                { $match: { assigned_to: repObjectId } },
+                { $group: { _id: null, total: { $sum: '$unreadCount' } } }
+              ])
+            : Lead.aggregate([{ $group: { _id: null, total: { $sum: '$unreadCount' } } }]);
+
+        const [eaUnread, mainUnread] = await Promise.all([eaUnreadPromise, mainUnreadPromise]);
 
         const totalUnreadCount = (eaUnread[0]?.total || 0) + (mainUnread[0]?.total || 0);
 
-        // 1. Fetch leads with unreadCount > 0
+        // 2. Fetch leads with unreadCount > 0
         const [eaUnreadLeads, mainUnreadLeads] = await Promise.all([
-            EALead.find({ unreadCount: { $gt: 0 } }).select('name phone smsHistory unreadCount aiScore updatedAt'),
-            Lead.find({ unreadCount: { $gt: 0 } }).select('name telephone smsHistory unreadCount updatedAt')
+            isRep ? Promise.resolve([]) : EALead.find({ unreadCount: { $gt: 0 } }).select('name phone smsHistory unreadCount aiScore assigned_to updatedAt').populate('assigned_to', 'name email'),
+            Lead.find({
+                ...(isRep ? repFilter : {}),
+                unreadCount: { $gt: 0 }
+            })
+            .select('name telephone smsHistory unreadCount assigned_to updatedAt')
+            .populate('assigned_to', 'name email')
         ]);
 
-        // 2. Fetch EA Leads with active SMS history (Hot, Warm, Cold)
-        const eaSmsLeads = await EALead.find({
-            'smsHistory.0': { $exists: true }
-        }).select('name phone smsHistory unreadCount aiScore updatedAt');
+        // 3. Fetch EA and Main CRM Leads with active SMS history (Hot, Warm, Cold)
+        const [eaSmsLeads, mainSmsLeads] = await Promise.all([
+            isRep ? Promise.resolve([]) : EALead.find({
+                'smsHistory.0': { $exists: true }
+            }).select('name phone smsHistory unreadCount aiScore assigned_to updatedAt').populate('assigned_to', 'name email'),
+            Lead.find({
+                ...(isRep ? repFilter : {}),
+                'smsHistory.0': { $exists: true }
+            })
+            .select('name telephone smsHistory unreadCount aiScore assigned_to updatedAt')
+            .populate('assigned_to', 'name email')
+        ]);
 
         const unreadMessages = [];
 
@@ -406,7 +437,9 @@ export const getUnreadCount = async (req, res) => {
                     message: m.message,
                     direction: m.direction,
                     timestamp: m.timestamp,
-                    unreadCount: l.unreadCount || 1
+                    unreadCount: l.unreadCount || 1,
+                    assignedTo: l.assigned_to?.name || null,
+                    assignedToId: l.assigned_to?._id?.toString() || l.assigned_to?.toString() || null
                 });
             });
         });
@@ -423,16 +456,19 @@ export const getUnreadCount = async (req, res) => {
                     leadType: 'main_lead',
                     senderName: l.name,
                     phone: l.telephone,
+                    aiScore: l.aiScore || 'Warm',
                     categoryTag: 'CRM Lead',
                     message: m.message,
                     direction: m.direction,
                     timestamp: m.timestamp,
-                    unreadCount: l.unreadCount || 1
+                    unreadCount: l.unreadCount || 1,
+                    assignedTo: l.assigned_to?.name || null,
+                    assignedToId: l.assigned_to?._id?.toString() || l.assigned_to?.toString() || null
                 });
             });
         });
 
-        // Map EA Leads to active SMS conversation snippets, prioritized by Hot -> Warm -> Cold
+        // Map EA & Main Leads to active SMS conversation snippets, prioritized by Hot -> Warm -> Cold
         const hotWarmMessages = [];
         eaSmsLeads.forEach(l => {
             const history = l.smsHistory || [];
@@ -452,7 +488,33 @@ export const getUnreadCount = async (req, res) => {
                 message: latestMsg.message,
                 direction: latestMsg.direction,
                 timestamp: latestMsg.timestamp,
-                unreadCount: l.unreadCount || 0
+                unreadCount: l.unreadCount || 0,
+                assignedTo: l.assigned_to?.name || null,
+                assignedToId: l.assigned_to?._id?.toString() || l.assigned_to?.toString() || null
+            });
+        });
+
+        mainSmsLeads.forEach(l => {
+            const history = l.smsHistory || [];
+            if (history.length === 0) return;
+
+            // Prioritize latest inbound reply, or latest overall message
+            const latestInbound = [...history].reverse().find(m => m.direction === 'inbound');
+            const latestMsg = latestInbound || history[history.length - 1];
+
+            hotWarmMessages.push({
+                leadId: l._id,
+                leadType: 'main_lead',
+                senderName: l.name,
+                phone: l.telephone,
+                aiScore: l.aiScore || 'Warm',
+                categoryTag: 'CRM Lead',
+                message: latestMsg.message,
+                direction: latestMsg.direction,
+                timestamp: latestMsg.timestamp,
+                unreadCount: l.unreadCount || 0,
+                assignedTo: l.assigned_to?.name || null,
+                assignedToId: l.assigned_to?._id?.toString() || l.assigned_to?.toString() || null
             });
         });
 
@@ -524,10 +586,23 @@ export const markAsRead = async (req, res) => {
         targetLead.unreadCount = 0;
         await targetLead.save();
 
-        const [eaUnread, mainUnread] = await Promise.all([
-            EALead.aggregate([{ $group: { _id: null, total: { $sum: '$unreadCount' } } }]),
-            Lead.aggregate([{ $group: { _id: null, total: { $sum: '$unreadCount' } } }])
-        ]);
+        const userId = req.user?.id || req.user?._id;
+        const userRole = req.currentUserRole || req.user?.role;
+        const isRep = userRole === 'sales_rep';
+        const repObjectId = userId ? new mongoose.Types.ObjectId(userId) : null;
+
+        const eaUnreadPromise = isRep
+            ? Promise.resolve([{ _id: null, total: 0 }])
+            : EALead.aggregate([{ $group: { _id: null, total: { $sum: '$unreadCount' } } }]);
+
+        const mainUnreadPromise = isRep
+            ? Lead.aggregate([
+                { $match: { assigned_to: repObjectId } },
+                { $group: { _id: null, total: { $sum: '$unreadCount' } } }
+              ])
+            : Lead.aggregate([{ $group: { _id: null, total: { $sum: '$unreadCount' } } }]);
+
+        const [eaUnread, mainUnread] = await Promise.all([eaUnreadPromise, mainUnreadPromise]);
 
         const totalUnreadCount = (eaUnread[0]?.total || 0) + (mainUnread[0]?.total || 0);
 

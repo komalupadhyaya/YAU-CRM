@@ -397,6 +397,7 @@ export default function CallHistoryPage() {
                     <th className="py-2.5 px-3 w-[140px]">Phone Number</th>
                     <th className="py-2.5 px-3">Associated Lead</th>
                     <th className="py-2.5 px-3 w-[120px] text-center">Status</th>
+                    <th className="py-2.5 px-3 w-[110px] text-center">Caller Emotion</th>
                     <th className="py-2.5 px-3 w-[80px] text-center">Duration</th>
                     <th className="py-2.5 px-4 w-[160px]">Date & Time</th>
                     <th className="py-2.5 px-4 w-[110px] text-center">Audio</th>
@@ -407,7 +408,7 @@ export default function CallHistoryPage() {
                 <tbody className="text-xs divide-y divide-border/20">
                   {loading ? (
                     <tr>
-                      <td colSpan={9} className="text-center py-16 text-muted-foreground">
+                      <td colSpan={10} className="text-center py-16 text-muted-foreground">
                         <div className="flex flex-col items-center gap-2">
                           <Loader2 size={24} className="animate-spin text-primary" />
                           <p className="text-xs font-medium">Loading call records...</p>
@@ -416,7 +417,7 @@ export default function CallHistoryPage() {
                     </tr>
                   ) : calls.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="text-center py-16 text-muted-foreground">
+                      <td colSpan={10} className="text-center py-16 text-muted-foreground">
                         <p className="text-xs font-medium">No call logs found.</p>
                         <p className="text-[10px] text-muted-foreground/60 mt-0.5">
                           {search ? "Try adjusting your search criteria." : "Call logs will appear here automatically."}
@@ -487,6 +488,26 @@ export default function CallHistoryPage() {
                             <span className="inline-flex items-center px-1.5 py-0.5 rounded font-bold text-[9px] bg-red-500/10 text-red-500 border border-red-500/20">
                               Not Answered / Declined
                             </span>
+                          )}
+                        </td>
+
+                        {/* Caller Emotion */}
+                        <td className="py-2 px-3 whitespace-nowrap text-center">
+                          {call.callerSentiment ? (
+                            <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border shadow-2xs ${
+                              call.callerSentiment.toLowerCase().includes('pos')
+                                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/25'
+                                : call.callerSentiment.toLowerCase().includes('neg')
+                                ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/25'
+                                : 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/25'
+                            }`}>
+                              <span className="text-[11px]">
+                                {call.callerSentiment.toLowerCase().includes('pos') ? '😊' : call.callerSentiment.toLowerCase().includes('neg') ? '😟' : '😐'}
+                              </span>
+                              {call.callerSentiment}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground/30 text-xs font-mono">-</span>
                           )}
                         </td>
 

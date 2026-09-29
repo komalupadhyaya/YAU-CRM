@@ -127,6 +127,11 @@ export const SMSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       timestamp: string;
       totalUnreadCount: number;
     }) => {
+      // Ignore EA leads completely for sales reps
+      if (currentUser?.role === 'sales_rep' && (data.leadType === 'ea_lead' || (data as any).leadType === 'ea')) {
+        return;
+      }
+
       console.log('📩 Real-time SMS received on shared socket:', data);
       setUnreadSMSCount(data.totalUnreadCount);
       sessionStorage.setItem('unreadSMSCount', String(data.totalUnreadCount));

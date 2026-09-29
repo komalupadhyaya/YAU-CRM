@@ -80,6 +80,7 @@ export default function Dashboard() {
   const { currentUser } = useAuth();
   const permissions = can(currentUser?.role);
   const isReadOnly = permissions.isReadOnly;
+  const isSalesRep = currentUser?.role === "sales_rep";
   const isSalesrepOrReadOnly = currentUser?.role === "sales_rep" || currentUser?.role === "view_only";
   const isAdminOrManager = currentUser?.role === "admin" || currentUser?.role === "manager";
   const isAdmin = currentUser?.role === "admin";
@@ -115,9 +116,16 @@ export default function Dashboard() {
   // Live SMS Action Panel State
   const { unreadSmsData: contextUnreadSmsData, refreshUnreadCount } = useSMS();
   const [loadingUnreadSms, setLoadingUnreadSms] = useState(false);
-  const [activeSmsTab, setActiveSmsTab] = useState<"hot_warm" | "all">("hot_warm");
+  const [activeSmsTab, setActiveSmsTab] = useState<"all" | "ea_lead" | "main_lead" | "hot_warm">("all");
   const [smsPage, setSmsPage] = useState(0);
   const SMS_PER_PAGE = 4;
+
+  // Auto-switch away from EA leads tab if user is a sales rep
+  useEffect(() => {
+    if (isSalesRep && activeSmsTab === "ea_lead") {
+      setActiveSmsTab("all");
+    }
+  }, [isSalesRep, activeSmsTab]);
 
   // Stalled Leads Action Panel State
   const [stalledPage, setStalledPage] = useState(0);
@@ -712,13 +720,45 @@ export default function Dashboard() {
   const coldPercentage = scoreBreakdown.coldPct ?? (totalTempLeads > 0 ? Math.max(0, 100 - hotPercentage - warmPercentage) : 0);
 
   // Live SMS list
-  const unreadSmsData = contextUnreadSmsData || { totalUnreadCount: 0, hotWarmCount: 0, hotWarmMessages: [], unreadMessages: [], recentMessages: [] };
-  const allEaMessages = (widgets.unreadSms?.messages && widgets.unreadSms.messages.length > 0)
-    ? widgets.unreadSms.messages
-    : (unreadSmsData.recentMessages || []).filter((m: any) => m.leadType === "ea" || m.leadType === "ea_lead");
+  const currentUserId = currentUser?._id || currentUser?.id;
+  const currentUserName = currentUser?.name?.trim().toLowerCase();
 
-  const hotWarmSmsList = allEaMessages.filter((m: any) => m.aiScore === "Hot" || m.aiScore === "Warm");
-  const displayedSmsList = activeSmsTab === "hot_warm" ? (hotWarmSmsList.length > 0 ? hotWarmSmsList : allEaMessages) : allEaMessages;
+  const unreadSmsData = contextUnreadSmsData || { totalUnreadCount: 0, hotWarmCount: 0, hotWarmMessages: [], unreadMessages: [], recentMessages: [] };
+  const rawSmsMessages = (widgets.unreadSms?.messages && widgets.unreadSms.messages.length > 0)
+    ? widgets.unreadSms.messages
+    : (unreadSmsData.recentMessages || []);
+
+  const allSmsMessages = useMemo(() => {
+    if (isSalesRep) {
+      return rawSmsMessages.filter((m: any) => {
+        // 1. Exclude all EA leads for sales reps
+        if (m.leadType === "ea" || m.leadType === "ea_lead") return false;
+
+        // 2. Only allow main leads assigned to this specific sales rep
+        if (m.assignedToId && currentUserId) {
+          return String(m.assignedToId) === String(currentUserId);
+        }
+        if (m.assignedTo && currentUserName) {
+          return m.assignedTo.trim().toLowerCase() === currentUserName;
+        }
+        // If unassigned or assigned to someone else, reject
+        return false;
+      });
+    }
+    return rawSmsMessages;
+  }, [rawSmsMessages, isSalesRep, currentUserId, currentUserName]);
+
+  const eaSmsList = isSalesRep ? [] : allSmsMessages.filter((m: any) => m.leadType === "ea" || m.leadType === "ea_lead");
+  const mainSmsList = allSmsMessages.filter((m: any) => m.leadType === "lead" || m.leadType === "main_lead");
+  const hotWarmSmsList = allSmsMessages.filter((m: any) => m.aiScore === "Hot" || m.aiScore === "Warm");
+
+  const displayedSmsList = (activeSmsTab === "ea_lead" && !isSalesRep)
+    ? eaSmsList
+    : activeSmsTab === "main_lead"
+      ? mainSmsList
+      : activeSmsTab === "hot_warm"
+        ? hotWarmSmsList
+        : allSmsMessages;
   const totalSmsPages = Math.ceil(displayedSmsList.length / SMS_PER_PAGE) || 1;
   const paginatedSmsList = displayedSmsList.slice(smsPage * SMS_PER_PAGE, (smsPage + 1) * SMS_PER_PAGE);
 
@@ -1659,7 +1699,9 @@ export default function Dashboard() {
                   </div>
                   <div>
                     <h2 className="text-xs font-bold uppercase tracking-wider text-foreground">Live SMS Action Panel</h2>
-                    <p className="text-[10px] text-muted-foreground">EA leads live engagement</p>
+                    <p className="text-[10px] text-muted-foreground">
+                      {isSalesRep ? "Assigned CRM leads live engagement" : "EA & CRM leads live engagement"}
+                    </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -1703,38 +1745,70 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {/* Sub-Tabs: Hot & Warm vs All EA Leads */}
-              <div className="flex border-b text-xs font-semibold bg-accent/10">
+              {/* Filter Tabs: All, EA Leads (Hidden for Sales Reps), Main Leads, Hot & Warm */}
+              <div className="flex border-b text-xs font-semibold bg-accent/10 overflow-x-auto no-scrollbar">
+                <button
+                  onClick={() => {
+                    setActiveSmsTab("all");
+                    setSmsPage(0);
+                  }}
+                  className={`flex-1 min-w-[70px] py-2.5 px-2 flex items-center justify-center gap-1 border-b-2 transition-all text-center ${activeSmsTab === "all"
+                      ? "border-primary text-primary bg-background/50 font-bold"
+                      : "border-transparent text-muted-foreground hover:text-foreground"
+                    }`}
+                >
+                  <MessageSquare size={13} />
+                  <span>All</span>
+                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-primary/10 text-primary font-bold ml-0.5">
+                    {allSmsMessages.length}
+                  </span>
+                </button>
+                {!isSalesRep && (
+                  <button
+                    onClick={() => {
+                      setActiveSmsTab("ea_lead");
+                      setSmsPage(0);
+                    }}
+                    className={`flex-1 min-w-[85px] py-2.5 px-2 flex items-center justify-center gap-1 border-b-2 transition-all text-center ${activeSmsTab === "ea_lead"
+                        ? "border-teal-500 text-teal-600 dark:text-teal-400 bg-background/50 font-bold"
+                        : "border-transparent text-muted-foreground hover:text-foreground"
+                      }`}
+                  >
+                    <span>EA Leads</span>
+                    <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-teal-500/10 text-teal-600 dark:text-teal-400 font-bold ml-0.5">
+                      {eaSmsList.length}
+                    </span>
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    setActiveSmsTab("main_lead");
+                    setSmsPage(0);
+                  }}
+                  className={`flex-1 min-w-[90px] py-2.5 px-2 flex items-center justify-center gap-1 border-b-2 transition-all text-center ${activeSmsTab === "main_lead"
+                      ? "border-indigo-500 text-indigo-600 dark:text-indigo-400 bg-background/50 font-bold"
+                      : "border-transparent text-muted-foreground hover:text-foreground"
+                    }`}
+                >
+                  <span>Main Leads</span>
+                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 font-bold ml-0.5">
+                    {mainSmsList.length}
+                  </span>
+                </button>
                 <button
                   onClick={() => {
                     setActiveSmsTab("hot_warm");
                     setSmsPage(0);
                   }}
-                  className={`flex-1 py-2.5 px-3 flex items-center justify-center gap-1.5 border-b-2 transition-all ${activeSmsTab === "hot_warm"
+                  className={`flex-1 min-w-[90px] py-2.5 px-2 flex items-center justify-center gap-1 border-b-2 transition-all text-center ${activeSmsTab === "hot_warm"
                       ? "border-rose-500 text-rose-600 dark:text-rose-400 bg-background/50 font-bold"
                       : "border-transparent text-muted-foreground hover:text-foreground"
                     }`}
                 >
                   <Flame size={13} className="text-rose-500" />
                   <span>Hot & Warm</span>
-                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-rose-500/10 text-rose-600 font-bold ml-1">
+                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-rose-500/10 text-rose-600 font-bold ml-0.5">
                     {hotWarmSmsList.length}
-                  </span>
-                </button>
-                <button
-                  onClick={() => {
-                    setActiveSmsTab("all");
-                    setSmsPage(0);
-                  }}
-                  className={`flex-1 py-2.5 px-3 flex items-center justify-center gap-1.5 border-b-2 transition-all ${activeSmsTab === "all"
-                      ? "border-primary text-primary bg-background/50 font-bold"
-                      : "border-transparent text-muted-foreground hover:text-foreground"
-                    }`}
-                >
-                  <MessageSquare size={13} />
-                  <span>All EA Leads</span>
-                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-primary/10 text-primary font-bold ml-1">
-                    {allEaMessages.length}
                   </span>
                 </button>
               </div>
@@ -1757,6 +1831,15 @@ export default function Dashboard() {
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-bold text-foreground truncate">{msg.senderName}</span>
+                            {!isSalesRep && (
+                              <span className={`text-[9px] px-1.5 py-0.2 rounded font-bold uppercase tracking-wider ${
+                                msg.leadType === "ea" || msg.leadType === "ea_lead"
+                                  ? "bg-teal-500/10 text-teal-600 border border-teal-500/20"
+                                  : "bg-indigo-500/10 text-indigo-600 border border-indigo-500/20"
+                              }`}>
+                                {msg.leadType === "ea" || msg.leadType === "ea_lead" ? "EA" : "Main"}
+                              </span>
+                            )}
                             {(msg.unreadCount ?? 0) > 0 && (
                               <span className="w-2 h-2 rounded-full bg-primary animate-pulse" title="Unread replies" />
                             )}
@@ -1778,18 +1861,11 @@ export default function Dashboard() {
                             </span>
                           )}
                           <button
-                            onClick={() =>
-                              handleOpenSmsModal({
-                                leadId: msg.leadId,
-                                name: msg.senderName,
-                                phone: msg.phone,
-                                leadType: msg.leadType || "ea_lead"
-                              })
-                            }
-                            className="bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold px-3 py-1.5 rounded-xl flex items-center gap-1 shadow-sm shadow-primary/20 transition-all active:scale-95"
-                            title="Reply to SMS"
+                            onClick={() => navigate(`/sms?leadId=${msg.leadId}`)}
+                            className="bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold px-3 py-1.5 rounded-xl flex items-center gap-1.5 shadow-sm shadow-primary/20 transition-all active:scale-95"
+                            title="See SMS conversation"
                           >
-                            <Send size={11} /> Reply
+                            <Eye size={12} /> See
                           </button>
                         </div>
                       </div>
@@ -1804,10 +1880,12 @@ export default function Dashboard() {
                       {activeSmsTab === "hot_warm" ? <Flame size={20} /> : <CheckCircle2 size={20} />}
                     </div>
                     <p className="text-xs font-bold text-foreground">
-                      {activeSmsTab === "hot_warm" ? "No Hot or Warm EA Leads" : "No EA Leads"}
+                      {isSalesRep ? "No SMS Activity for Your Leads" : "No SMS Activity"}
                     </p>
                     <p className="text-[11px] text-muted-foreground mt-0.5">
-                      {activeSmsTab === "hot_warm" ? "Hot and Warm EA leads will appear here." : "No EA leads found with recent SMS activity."}
+                      {isSalesRep
+                        ? "New incoming or outgoing SMS for your assigned CRM leads will appear here."
+                        : "Inbound SMS replies and recent engagements will appear here."}
                     </p>
                   </div>
                 )}

@@ -34,7 +34,8 @@ import {
     Link2,
     Zap,
     Database,
-    PhoneOutgoing
+    PhoneOutgoing,
+    Heart
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -42,6 +43,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -275,6 +277,62 @@ const TIMEZONE_OPTIONS = [
         desc: "Standard US Pacific business schedule."
     }
 ];
+
+export interface EmotionOption {
+    id: 'auto' | 'sympathetic' | 'happy' | 'calm' | 'surprised' | 'sad' | 'angry' | 'fearful';
+    label: string;
+    icon: string;
+    desc: string;
+}
+
+export interface VoiceCapabilities {
+    supported: boolean;
+    provider: string;
+    emotions: EmotionOption[];
+}
+
+export function getVoiceCapabilities(voiceId: string): VoiceCapabilities {
+    const id = (voiceId || '').toLowerCase();
+    if (id.startsWith('retell-') || id.startsWith('minimax-')) {
+        return {
+            supported: true,
+            provider: 'Platform (MiniMax)',
+            emotions: [
+                { id: 'auto', label: 'Auto', icon: '✨', desc: 'Retell automatically applies appropriate emotional expression & delivery naturally' },
+                { id: 'sympathetic', label: 'Sympathetic', icon: '💖', desc: 'Empathetic, caring & reassuring parent support' },
+                { id: 'happy', label: 'Happy', icon: '🔥', desc: 'Upbeat, energetic & enthusiastic tone' },
+                { id: 'calm', label: 'Calm', icon: '🕊️', desc: 'Poised, professional & gentle guidance' },
+                { id: 'surprised', label: 'Surprised', icon: '✨', desc: 'Animated & lively conversational inflection' }
+            ]
+        };
+    }
+    if (id.startsWith('cartesia-')) {
+        return {
+            supported: true,
+            provider: 'Cartesia',
+            emotions: [
+                { id: 'auto', label: 'Auto', icon: '✨', desc: 'Retell automatically applies appropriate emotional expression & delivery naturally' },
+                { id: 'sympathetic', label: 'Sympathetic', icon: '💖', desc: 'Empathetic, caring & reassuring parent support' },
+                { id: 'happy', label: 'Happy', icon: '🔥', desc: 'Upbeat, energetic & enthusiastic tone' },
+                { id: 'calm', label: 'Calm', icon: '🕊️', desc: 'Poised, professional & gentle guidance' }
+            ]
+        };
+    }
+    if (id.startsWith('11labs-')) {
+        return {
+            supported: true,
+            provider: 'ElevenLabs',
+            emotions: [
+                { id: 'auto', label: 'Auto', icon: '✨', desc: 'Retell Auto Emotion Tags naturally modulate ElevenLabs speech delivery' }
+            ]
+        };
+    }
+    return {
+        supported: false,
+        provider: 'Custom / Unsupported',
+        emotions: []
+    };
+}
 
 export default function RetellVoiceAgent() {
     const isDevelopment = import.meta.env.VITE_APP_ENV === 'development' || (import.meta.env.DEV && import.meta.env.VITE_APP_ENV !== 'production');
@@ -910,16 +968,37 @@ export default function RetellVoiceAgent() {
                                     <div className="flex items-center justify-between mb-1">
                                         <Label className="text-xs font-semibold">Agent Persona Name</Label>
                                         <Badge variant="outline" className="text-[10px] gap-1 py-0 h-5 text-indigo-600 dark:text-indigo-400 bg-indigo-500/10 border-indigo-500/20">
-                                            <Lock className="w-2.5 h-2.5" /> Auto-Synced with Voice
+                                            <Sparkles className="w-2.5 h-2.5" /> Active Persona
                                         </Badge>
                                     </div>
                                     <Input
-                                        value={kb.agentName || "Lily"}
-                                        disabled
-                                        className="bg-muted/50 cursor-not-allowed font-medium text-foreground/90"
+                                        value={kb.agentName || ""}
+                                        onChange={e => {
+                                            const newName = e.target.value;
+                                            const oldName = kb.agentName || "Lily";
+                                            let newWelcome = kb.welcomeMessage || "";
+                                            if (oldName && newWelcome.includes(oldName)) {
+                                                newWelcome = newWelcome.replaceAll(oldName, newName);
+                                            } else if (newWelcome.includes("Cimo")) {
+                                                newWelcome = newWelcome.replaceAll("Cimo", newName);
+                                            }
+                                            let newOpening = kb.inboundOpeningScript || "";
+                                            if (oldName && newOpening.includes(oldName)) {
+                                                newOpening = newOpening.replaceAll(oldName, newName);
+                                            } else if (newOpening.includes("Cimo")) {
+                                                newOpening = newOpening.replaceAll("Cimo", newName);
+                                            }
+                                            setKb({ 
+                                                ...kb, 
+                                                agentName: newName,
+                                                welcomeMessage: newWelcome,
+                                                inboundOpeningScript: newOpening
+                                            });
+                                        }}
+                                        className="font-medium text-foreground"
                                         placeholder="e.g. Lily"
                                     />
-                                    <p className="text-[11px] text-muted-foreground mt-1">Persona name is automatically tied to your selected AI Voice Model below.</p>
+                                    <p className="text-[11px] text-muted-foreground mt-1">Name used by the AI when introducing herself to parents and athletes.</p>
                                 </div>
                                 <div>
                                     <div className="flex items-center justify-between mb-1">
@@ -960,6 +1039,162 @@ export default function RetellVoiceAgent() {
                             </div>
                         </CardContent>
                     </Card>
+
+                    {/* Expressive Voice Section */}
+                    {(() => {
+                        const selectedVoiceId = kb?.voiceId || "11labs-Lily";
+                        const capabilities = getVoiceCapabilities(selectedVoiceId);
+                        const isExpressiveEnabled = Boolean(kb?.voiceSettings?.expressiveModeEnabled ?? kb?.enableExpressiveMode ?? false);
+                        const currentEmotion = kb?.voiceSettings?.emotionMode || (kb?.voiceEmotion as any) || "auto";
+
+                        return (
+                            <Card className="border-pink-500/20 bg-gradient-to-br from-card via-pink-500/[0.02] to-card">
+                                <CardHeader>
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                        <div>
+                                            <CardTitle className="text-lg flex items-center gap-2">
+                                                <Heart className="w-5 h-5 text-pink-500" /> Expressive Voice
+                                            </CardTitle>
+                                            <CardDescription>
+                                                Configure Retell AI's native expressive delivery and dynamic emotion controls.
+                                            </CardDescription>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <Badge variant="outline" className={`text-xs px-2.5 py-1 flex items-center gap-1.5 ${
+                                                isExpressiveEnabled && capabilities.supported
+                                                    ? "bg-pink-500/10 text-pink-600 dark:text-pink-400 border-pink-500/30 font-semibold"
+                                                    : "bg-muted text-muted-foreground"
+                                            }`}>
+                                                <Sparkles className="w-3.5 h-3.5 text-pink-500" />
+                                                {isExpressiveEnabled && capabilities.supported ? "Expressive Mode ON" : "Expressive Mode OFF"}
+                                            </Badge>
+                                        </div>
+                                    </div>
+                                </CardHeader>
+                                <CardContent className="space-y-5">
+                                    {/* Expressive Mode Toggle */}
+                                    <div className="flex items-center justify-between p-3.5 rounded-xl border border-pink-500/20 bg-pink-500/5">
+                                        <div className="space-y-0.5 max-w-[80%]">
+                                            <div className="flex items-center gap-2">
+                                                <Label htmlFor="expressive-mode-toggle" className="text-sm font-semibold flex items-center gap-2">
+                                                    <Sparkles className="w-4 h-4 text-pink-500" /> Expressive Mode
+                                                </Label>
+                                                <Badge variant="outline" className={`text-[10px] px-1.5 py-0 font-bold ${
+                                                    isExpressiveEnabled && capabilities.supported 
+                                                        ? "text-pink-600 border-pink-500/40 bg-pink-500/10" 
+                                                        : "text-muted-foreground border-border"
+                                                }`}>
+                                                    {isExpressiveEnabled && capabilities.supported ? "ON" : "OFF"}
+                                                </Badge>
+                                            </div>
+                                            <p className="text-xs text-muted-foreground">
+                                                Allow Retell AI to automatically apply appropriate emotional expression and delivery during conversations.
+                                            </p>
+                                        </div>
+                                        <Switch
+                                            id="expressive-mode-toggle"
+                                            disabled={!capabilities.supported}
+                                            checked={isExpressiveEnabled && capabilities.supported}
+                                            onCheckedChange={checked => {
+                                                if (!kb) return;
+                                                const updatedVoiceSettings = {
+                                                    expressiveModeEnabled: checked,
+                                                    emotionMode: kb.voiceSettings?.emotionMode || (kb.voiceEmotion as any) || "auto"
+                                                };
+                                                setKb({
+                                                    ...kb,
+                                                    voiceSettings: updatedVoiceSettings,
+                                                    enableExpressiveMode: checked
+                                                });
+                                            }}
+                                        />
+                                    </div>
+
+                                    {/* Voice Compatibility Notice if Unsupported */}
+                                    {!capabilities.supported && (
+                                        <div className="p-3 rounded-xl border border-amber-500/30 bg-amber-500/10 flex items-center gap-2.5 text-xs text-amber-700 dark:text-amber-300">
+                                            <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
+                                            <span>Expressive Mode could not be enabled because the selected Retell voice (<strong>{selectedVoiceId}</strong>) does not support this feature.</span>
+                                        </div>
+                                    )}
+
+                                    {/* Emotion Mode Selection */}
+                                    {capabilities.supported && isExpressiveEnabled && (
+                                        <div className="space-y-2.5 pt-1 animate-in fade-in-50 duration-200">
+                                            <div className="flex items-center justify-between">
+                                                <Label className="text-xs font-semibold">Emotion Mode</Label>
+                                                <span className="text-[11px] text-muted-foreground">
+                                                    Provider: <strong>{capabilities.provider}</strong>
+                                                </span>
+                                            </div>
+
+                                            <div className={`grid gap-2.5 ${capabilities.emotions.length > 2 ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3' : 'grid-cols-1'}`}>
+                                                {capabilities.emotions.map(opt => {
+                                                    const isSelected = currentEmotion === opt.id || (!currentEmotion && opt.id === 'auto');
+                                                    return (
+                                                        <button
+                                                            key={opt.id}
+                                                            type="button"
+                                                            onClick={() => {
+                                                                if (!kb) return;
+                                                                const updatedVoiceSettings = {
+                                                                    expressiveModeEnabled: true,
+                                                                    emotionMode: opt.id
+                                                                };
+                                                                setKb({
+                                                                    ...kb,
+                                                                    voiceSettings: updatedVoiceSettings,
+                                                                    voiceEmotion: opt.id as any
+                                                                });
+                                                            }}
+                                                            className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                                                                isSelected
+                                                                    ? 'border-pink-500 bg-pink-500/10 shadow-xs ring-1 ring-pink-500/30'
+                                                                    : 'border-border/70 bg-card hover:bg-muted/40'
+                                                            }`}
+                                                        >
+                                                            <div className="flex items-center justify-between mb-1">
+                                                                <span className="text-base">{opt.icon}</span>
+                                                                {isSelected && (
+                                                                    <Badge className="text-[9px] h-4 px-1.5 bg-pink-500 text-white hover:bg-pink-600">Active</Badge>
+                                                                )}
+                                                            </div>
+                                                            <div className="font-bold text-xs text-foreground">{opt.label}</div>
+                                                            <div className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2">{opt.desc}</div>
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Speech Dynamics (Speed & Responsiveness) */}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+                                        <div className="flex items-center justify-between p-3 rounded-xl border border-border/70 bg-muted/20">
+                                            <div className="space-y-0.5">
+                                                <Label className="text-xs font-semibold">Dynamic Voice Speed</Label>
+                                                <p className="text-[11px] text-muted-foreground">Adjusts speaking speed to match the caller's pace</p>
+                                            </div>
+                                            <Switch
+                                                checked={kb?.enableDynamicVoiceSpeed !== false}
+                                                onCheckedChange={checked => setKb(kb ? { ...kb, enableDynamicVoiceSpeed: checked } : null)}
+                                            />
+                                        </div>
+                                        <div className="flex items-center justify-between p-3 rounded-xl border border-border/70 bg-muted/20">
+                                            <div className="space-y-0.5">
+                                                <Label className="text-xs font-semibold">Dynamic Responsiveness</Label>
+                                                <p className="text-[11px] text-muted-foreground">Shortens response delay when the caller is quick or urgent</p>
+                                            </div>
+                                            <Switch
+                                                checked={kb?.enableDynamicResponsiveness !== false}
+                                                onCheckedChange={checked => setKb(kb ? { ...kb, enableDynamicResponsiveness: checked } : null)}
+                                            />
+                                        </div>
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        );
+                    })()}
 
                     {/* AI Voice Model Selection Card */}
                     <Card>
@@ -1071,10 +1306,44 @@ export default function RetellVoiceAgent() {
                                             onClick={() => {
                                                 const cleanName = voice.name.replace(/\s*\([^)]*\)/g, '').trim();
                                                 if (kb) {
+                                                    const oldName = kb.agentName || "Lily";
+                                                    let newWelcome = kb.welcomeMessage || `Thank you for calling Youth Athlete University! This is ${cleanName} — how can I help you and your athlete today?`;
+                                                    if (oldName && newWelcome.includes(oldName)) {
+                                                        newWelcome = newWelcome.replaceAll(oldName, cleanName);
+                                                    } else if (newWelcome.includes("Cimo")) {
+                                                        newWelcome = newWelcome.replaceAll("Cimo", cleanName);
+                                                    } else if (newWelcome.includes("[Name]")) {
+                                                        newWelcome = newWelcome.replaceAll("[Name]", cleanName);
+                                                    }
+
+                                                    let newOpening = kb.inboundOpeningScript || `Thank you for calling Youth Athlete University! This is ${cleanName} — how can I help you and your athlete today?`;
+                                                    if (oldName && newOpening.includes(oldName)) {
+                                                        newOpening = newOpening.replaceAll(oldName, cleanName);
+                                                    } else if (newOpening.includes("Cimo")) {
+                                                        newOpening = newOpening.replaceAll("Cimo", cleanName);
+                                                    } else if (newOpening.includes("[Name]")) {
+                                                        newOpening = newOpening.replaceAll("[Name]", cleanName);
+                                                    }
+
+                                                    const newCaps = getVoiceCapabilities(voice.id);
+                                                    let newEmotion = kb.voiceSettings?.emotionMode || (kb.voiceEmotion as any) || "auto";
+                                                    if (!newCaps.emotions.some(e => e.id === newEmotion)) {
+                                                        newEmotion = "auto";
+                                                    }
+                                                    const isExpEnabled = newCaps.supported ? Boolean(kb.voiceSettings?.expressiveModeEnabled ?? kb.enableExpressiveMode ?? false) : false;
+
                                                     setKb({ 
                                                         ...kb, 
                                                         voiceId: voice.id,
-                                                        agentName: cleanName 
+                                                        agentName: cleanName,
+                                                        welcomeMessage: newWelcome,
+                                                        inboundOpeningScript: newOpening,
+                                                        voiceSettings: {
+                                                            expressiveModeEnabled: isExpEnabled,
+                                                            emotionMode: newEmotion
+                                                        },
+                                                        enableExpressiveMode: isExpEnabled,
+                                                        voiceEmotion: newEmotion as any
                                                     });
                                                 }
                                             }}
@@ -3506,7 +3775,7 @@ You are a warm, enthusiastic, and knowledgeable team member representing Youth A
   3. **IN ALL YOUR TEXT AND SPEECH OUTPUTS**: Always write our name cleanly as **"Youth Athlete University"** or **"Y, A, U"**. Speak with crisp, confident customer-service articulation without trailing sighs, whispering, or drawn-out sounds.
 ${personalityTraitsStr}
 
-## 2. CONVERSATIONAL TONE RULES
+## 2. CONVERSATIONAL BEHAVIOR & CALL POLICIES (MANDATORY)
 ${toneRulesStr}
 - **SILENT TRANSFER RULE (STRICT)**: When transferring a caller, NEVER announce, read out, or recite phone number digits. Simply say the warm transfer script and execute the transfer tool directly in the background.
 - **GOLDEN RULE**: ${kb.goldenRule || 'Every caller is a potential family for life.'}

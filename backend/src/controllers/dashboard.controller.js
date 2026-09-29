@@ -333,9 +333,10 @@ export const getCampaignCounts = async (req, res, next) => {
 // ─────────────────────────────────────────────────────────────────────────────
 export const getCommandCenterDashboard = async (req, res, next) => {
     try {
-        const isRep = req.currentUserRole === 'sales_rep';
-        const isAdmin = req.currentUserRole === 'admin';
-        const repId = req.user.id;
+        const userRole = req.currentUserRole || req.user?.role;
+        const isRep = userRole === 'sales_rep';
+        const isAdmin = userRole === 'admin';
+        const repId = req.user?.id || req.user?._id;
         const now = new Date();
         const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
@@ -349,8 +350,9 @@ export const getCommandCenterDashboard = async (req, res, next) => {
         const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() + diffToMonday);
         const endOfWeek = new Date(startOfWeek.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-        const repFilter = isRep ? { assigned_to: new mongoose.Types.ObjectId(repId) } : {};
-        const repFilterObj = isRep ? { assigned_to: repId } : {};
+        const repObjectId = repId ? new mongoose.Types.ObjectId(repId) : null;
+        const repFilter = (isRep && repObjectId) ? { assigned_to: { $in: [repObjectId, String(repId)] } } : {};
+        const repFilterObj = repFilter;
 
         // Role-based scoping for meetings:
         // Sales Reps: only meetings where they are internal attendee, CC attendee, creator, or assigned lead.
@@ -444,16 +446,33 @@ export const getCommandCenterDashboard = async (req, res, next) => {
                 ]).catch(() => [])
             ]),
 
-            // ── Widget 3: Unread SMS Replies (sliced history) ──
+            // ── Widget 3: Unread SMS Replies / Recent SMS Activity ──
+            // Sales Reps: zero EA Leads, only assigned Main CRM Leads
+            // Admins & Managers: all EA Leads and all CRM Leads
             Promise.all([
-                EALead.find({ unreadCount: { $gt: 0 }, ...repFilterObj }, { smsHistory: { $slice: -3 } })
+                isRep ? Promise.resolve([]) : EALead.find({
+                    $or: [
+                        { unreadCount: { $gt: 0 } },
+                        { 'smsHistory.0': { $exists: true } }
+                    ]
+                }, { smsHistory: { $slice: -5 } })
                     .select('name phone smsHistory unreadCount aiScore updatedAt assigned_to')
                     .populate('assigned_to', 'name email')
+                    .sort({ updatedAt: -1 })
+                    .limit(30)
                     .lean()
                     .catch(() => []),
-                Lead.find({ unreadCount: { $gt: 0 }, ...repFilterObj }, { smsHistory: { $slice: -3 } })
+                Lead.find({
+                    ...(isRep ? repFilter : {}),
+                    $or: [
+                        { unreadCount: { $gt: 0 } },
+                        { 'smsHistory.0': { $exists: true } }
+                    ]
+                }, { smsHistory: { $slice: -5 } })
                     .select('name telephone smsHistory unreadCount aiScore updatedAt assigned_to')
                     .populate('assigned_to', 'name email')
+                    .sort({ updatedAt: -1 })
+                    .limit(30)
                     .lean()
                     .catch(() => [])
             ]),
@@ -806,7 +825,8 @@ export const getCommandCenterDashboard = async (req, res, next) => {
             let unreadItems = history.filter(m => m.direction === 'inbound' && !m.isRead);
             if (unreadItems.length === 0 && history.length > 0) {
                 const latestInbound = [...history].reverse().find(m => m.direction === 'inbound');
-                if (latestInbound) unreadItems = [latestInbound];
+                const latest = latestInbound || history[history.length - 1];
+                if (latest) unreadItems = [latest];
             }
             unreadItems.forEach(m => {
                 unreadSmsList.push({
@@ -817,8 +837,9 @@ export const getCommandCenterDashboard = async (req, res, next) => {
                     aiScore: l.aiScore || 'Hot',
                     message: m.message,
                     timestamp: m.timestamp,
-                    unreadCount: l.unreadCount || 1,
-                    assignedTo: l.assigned_to?.name
+                    unreadCount: l.unreadCount || 0,
+                    assignedTo: l.assigned_to?.name || null,
+                    assignedToId: l.assigned_to?._id?.toString() || l.assigned_to?.toString() || null
                 });
             });
         });
@@ -829,7 +850,8 @@ export const getCommandCenterDashboard = async (req, res, next) => {
             let unreadItems = history.filter(m => m.direction === 'inbound' && !m.isRead);
             if (unreadItems.length === 0 && history.length > 0) {
                 const latestInbound = [...history].reverse().find(m => m.direction === 'inbound');
-                if (latestInbound) unreadItems = [latestInbound];
+                const latest = latestInbound || history[history.length - 1];
+                if (latest) unreadItems = [latest];
             }
             unreadItems.forEach(m => {
                 unreadSmsList.push({
@@ -840,8 +862,9 @@ export const getCommandCenterDashboard = async (req, res, next) => {
                     aiScore: l.aiScore || 'Warm',
                     message: m.message,
                     timestamp: m.timestamp,
-                    unreadCount: l.unreadCount || 1,
-                    assignedTo: l.assigned_to?.name
+                    unreadCount: l.unreadCount || 0,
+                    assignedTo: l.assigned_to?.name || null,
+                    assignedToId: l.assigned_to?._id?.toString() || l.assigned_to?.toString() || null
                 });
             });
         });

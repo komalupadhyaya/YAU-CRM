@@ -847,6 +847,7 @@ export default function EALeads() {
     }
   };
 
+
   // Poll for messages or calls when view dialog is open and active tab is "messages" or "calls"
   useEffect(() => {
     if (!viewDialogOpen || !selectedLead || (activeTab !== "messages" && activeTab !== "calls")) return;

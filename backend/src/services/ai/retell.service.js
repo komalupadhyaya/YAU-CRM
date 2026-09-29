@@ -9,14 +9,65 @@ export function getSanitizedToolName(deptName, index = 0) {
     return clean ? `transfer_to_${clean}` : `transfer_to_dept_${index}`;
 }
 
+export function getVoiceExpressiveCapabilities(voiceId = '') {
+    const id = (voiceId || '').toLowerCase();
+    if (id.startsWith('retell-') || id.startsWith('minimax-')) {
+        return {
+            supported: true,
+            provider: 'Platform',
+            emotions: ['auto', 'sympathetic', 'happy', 'calm', 'surprised', 'sad', 'angry', 'fearful']
+        };
+    }
+    if (id.startsWith('cartesia-')) {
+        return {
+            supported: true,
+            provider: 'Cartesia',
+            emotions: ['auto', 'sympathetic', 'happy', 'calm']
+        };
+    }
+    if (id.startsWith('11labs-')) {
+        return {
+            supported: true,
+            provider: 'ElevenLabs',
+            emotions: ['auto']
+        };
+    }
+    return {
+        supported: false,
+        provider: 'Custom',
+        emotions: []
+    };
+}
+
+export function getValidRetellEmotion(emotion) {
+    const valid = ['calm', 'sympathetic', 'happy', 'sad', 'angry', 'fearful', 'surprised'];
+    const map = {
+        auto: null,
+        empathetic: 'sympathetic',
+        enthusiastic: 'happy',
+        friendly: 'happy',
+        calm: 'calm',
+        happy: 'happy',
+        sympathetic: 'sympathetic',
+        sad: 'sad',
+        angry: 'angry',
+        fearful: 'fearful',
+        surprised: 'surprised'
+    };
+    const target = map[(emotion || '').toLowerCase()] ?? (emotion || '').toLowerCase();
+    return valid.includes(target) ? target : null;
+}
+
 /**
  * Builds the complete Markdown Universal Prompt from the database Knowledge Base model.
+ * Strict: NO emotion instructions injected into prompt. Native Retell Expressive Mode controls speech delivery.
  *
  * @param {Object} kb - RetellKnowledgeBase document
  * @returns {string} - Full Markdown prompt
  */
 export function buildPromptFromKnowledgeBase(kb) {
     const safeKb = kb || {};
+    const agentDisplayName = safeKb.agentName || 'Lily';
     const personalityTraitsStr = (safeKb.personalityTraits || [])
         .map(t => `- **${t}**`)
         .join('\n');
@@ -105,7 +156,7 @@ The live current date and time right now is: **{{current_time_${activeTz}}}** ($
 Always evaluate this live timestamp to determine whether the call is taking place during standard business hours or after-hours.
 
 ## 1. IDENTITY, ROLE & MANDATORY PRONUNCIATION (CRITICAL)
-You are a warm, enthusiastic, and knowledgeable team member representing Youth Athlete University (spoken as **"Youth Athlete University"** or **"Y, A, U"**). You speak directly with parents and families over the phone.
+Your name is **${agentDisplayName}**. You are a warm, enthusiastic, and knowledgeable team member representing Youth Athlete University (spoken as **"Youth Athlete University"** or **"Y, A, U"**). You speak directly with parents and families over the phone. Always identify yourself as **${agentDisplayName}** whenever stating your name.
 
 - **STRICT PRONUNCIATION & ENUNCIATION RULES (MANDATORY)**:
   1. **NEVER PRONOUNCE "YAU" AS A SINGLE BLENDED WORD** like "Yao", "Yowl", or "Yaw". It is strictly an acronym for Youth Athlete University.
@@ -113,9 +164,8 @@ You are a warm, enthusiastic, and knowledgeable team member representing Youth A
   3. **IN ALL YOUR TEXT AND SPEECH OUTPUTS**: Always write our name cleanly as **"Youth Athlete University"** or **"Y, A, U"**. Speak with crisp, confident customer-service articulation without trailing sighs, whispering, or drawn-out sounds.
 ${personalityTraitsStr}
 
-## 2. CONVERSATIONAL TONE RULES & SILENT TRANSFERS
-${toneRulesStr}
-- **SILENT TRANSFER RULE (STRICT)**: When transferring a caller, NEVER announce, read out, or recite phone number digits (e.g. do not say "I am transferring you to 1-800..." or "Calling 202-..."). Simply say the warm transfer script and execute the transfer tool directly in the background.
+## 2. CONVERSATIONAL BEHAVIOR & CALL POLICIES (MANDATORY)
+${toneRulesStr ? `${toneRulesStr}\n` : ''}- **SILENT TRANSFER RULE (STRICT)**: When transferring a caller, NEVER announce, read out, or recite phone number digits (e.g. do not say "I am transferring you to 1-800..." or "Calling 202-..."). Simply say the warm transfer script and execute the transfer tool directly in the background.
 - **GOLDEN RULE**: ${kb.goldenRule || 'Every caller is a potential family for life.'}
 
 ---
@@ -198,7 +248,7 @@ ${pricingStr}
 ---
 
 ## 9. CALL FLOW SCRIPTS & CONVERSATION GUIDANCE
-- **Opening**: *"${kb.inboundOpeningScript || 'Thank you for calling Youth Athlete University! This is Cimo — how can I help you and your athlete today?'}"*
+- **Opening**: *"${(kb.inboundOpeningScript || '').replace(/\bCimo\b/g, agentDisplayName).replace(/\[Name\]/g, agentDisplayName) || `Thank you for calling Youth Athlete University! This is ${agentDisplayName} — how can I help you and your athlete today?`}"*
 - **Hesitant / Exploring**: *"${kb.hesitantCallerScript || 'No worries at all, take your time! I am happy to walk you through everything.'}"*
 - **Positive Close**: *"${kb.positiveCloseScript || 'It was so wonderful speaking with you! We can not wait to welcome your athlete into the Youth Athlete University family.'}"*
 - **Think About It Close**: *"${kb.thinkAboutItCloseScript || 'Take all the time you need! I can send our complete info packet to your email.'}"*
@@ -325,7 +375,14 @@ export async function syncKnowledgeBaseToRetell(kbParam) {
     }
 
     const compiledPrompt = buildPromptFromKnowledgeBase(kb);
-    const welcomeMsg = kb.welcomeMessage || 'Thank you for calling Youth Athlete University! This is Cimo — how can I help you and your athlete today?';
+    const activeAgentName = kb.agentName || 'Lily';
+    let welcomeMsg = kb.welcomeMessage || `Thank you for calling Youth Athlete University! This is ${activeAgentName} — how can I help you and your athlete today?`;
+    if (welcomeMsg.includes('Cimo')) {
+        welcomeMsg = welcomeMsg.replace(/\bCimo\b/g, activeAgentName);
+    }
+    if (welcomeMsg.includes('[Name]')) {
+        welcomeMsg = welcomeMsg.replace(/\[Name\]/g, activeAgentName);
+    }
     const transferNumber = kb.humanTransferPhone || '+12027013900';
     const fallbackHoldMusic = kb.humanTransferHoldMusic || 'relaxing_sound';
 
@@ -472,9 +529,13 @@ export async function syncKnowledgeBaseToRetell(kbParam) {
         }
     }
 
-    // 3. Update Retell Agent (Agent Name, Voice ID, Speech Tuning & Pronunciation Dictionary)
+    // 3. Update Retell Agent (Agent Name, Voice ID, Speech Tuning & Native Expressive Mode)
     try {
         const selectedVoiceId = kb.voiceId || '11labs-Lily';
+        const expressiveModeEnabled = kb.voiceSettings?.expressiveModeEnabled ?? kb.enableExpressiveMode ?? false;
+        const emotionMode = kb.voiceSettings?.emotionMode ?? kb.voiceEmotion ?? 'auto';
+        const capabilities = getVoiceExpressiveCapabilities(selectedVoiceId);
+
         const agentUpdatePayload = {
             agent_name: kb.agentName ? `YAU Support Agent (${kb.agentName})` : 'YAU Support Agent',
             voice_id: selectedVoiceId,
@@ -485,6 +546,8 @@ export async function syncKnowledgeBaseToRetell(kbParam) {
             enable_backchannel: true,
             backchannel_frequency: 0.8,
             backchannel_words: ['yeah', 'uh-huh', 'got it', 'okay', 'sure'],
+            enable_dynamic_voice_speed: kb.enableDynamicVoiceSpeed !== false,
+            enable_dynamic_responsiveness: kb.enableDynamicResponsiveness !== false,
             voicemail_message: kb.enableVoicemailDetection !== false 
                 ? (kb.outboundVoicemailMessage || 'Hi, this is Youth Athlete University following up regarding your youth sports inquiry. We would love to connect with you and answer any questions for your athlete. Please give us a call back at 1-888-687-9139 or visit us online at yausports.com. Have a wonderful day!') 
                 : '',
@@ -518,6 +581,23 @@ export async function syncKnowledgeBaseToRetell(kbParam) {
             ]
         };
 
+        // Native Retell AI Expressive Mode & Emotion Configuration
+        if (expressiveModeEnabled) {
+            if (!capabilities.supported) {
+                throw new Error(`Expressive Mode could not be enabled because the selected Retell voice (${selectedVoiceId}) does not support this feature.`);
+            }
+            agentUpdatePayload.enable_expressive_mode = true;
+            agentUpdatePayload.expressive_emotion_tags = [
+                'empathetic', 'excited', 'happy', 'curious', 'surprised', 'sigh', 'clear throat', 'pause'
+            ];
+            const validEmotion = getValidRetellEmotion(emotionMode);
+            if (validEmotion && capabilities.emotions.includes(validEmotion)) {
+                agentUpdatePayload.voice_emotion = validEmotion;
+            }
+        } else {
+            agentUpdatePayload.enable_expressive_mode = false;
+        }
+
         // Resolve active Webhook URL based on environment setting
         let resolvedWebhookUrl = 'https://api.yauapp.com/api/retell/webhook';
         if (process.env.NODE_ENV === 'production' || kb.webhookEnvironment === 'production') {
@@ -532,7 +612,8 @@ export async function syncKnowledgeBaseToRetell(kbParam) {
             agentUpdatePayload.webhook_url = resolvedWebhookUrl.trim();
         }
 
-        console.log(`[Retell Service] Updating Agent settings: Voice ID=${selectedVoiceId}, Webhook=${agentUpdatePayload.webhook_url || 'Default'}`);
+        console.log(`[Retell Service] Updating Agent settings: Voice ID=${selectedVoiceId}, Expressive=${agentUpdatePayload.enable_expressive_mode}, Emotion=${agentUpdatePayload.voice_emotion || 'Auto'}`);
+        
         const agentRes = await axios.patch(
             `${RETELL_API_BASE}/update-agent/${agentId}`,
             agentUpdatePayload,
@@ -546,10 +627,11 @@ export async function syncKnowledgeBaseToRetell(kbParam) {
 
         responseData.agent = agentRes?.data;
     } catch (agentErr) {
-        if (!syncError) {
-            syncError = agentErr.response?.data?.message || agentErr.message;
-        }
+        const errorMsg = agentErr.response?.data?.message || agentErr.response?.data?.error_message || agentErr.message;
         console.error('[Retell Service] Agent Update error:', agentErr.response?.data || agentErr.message);
+        if (!syncError) {
+            syncError = errorMsg;
+        }
     }
 
     // 4. Publish Agent Version so live phone calls use the latest prompt and tools

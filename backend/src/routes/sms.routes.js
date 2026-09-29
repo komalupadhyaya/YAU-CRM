@@ -13,8 +13,10 @@ router.get('/available-leads', auth, requireRole('admin', 'manager'), smsControl
 router.get('/consented-leads', auth, requireRole('admin', 'manager'), smsController.getConsentedLeads);
 router.post('/bulk-sms', auth, requireRole('admin', 'manager'), smsController.sendBulkSMS);
 router.post('/consent/:leadId', auth, requireRole('admin', 'manager'), smsController.updateConsent);
-router.get('/unread-count', auth, smsController.getUnreadCount);
-router.post('/mark-read/:leadId', auth, smsController.markAsRead);
+const allRoles = ['admin', 'manager', 'sales_rep', 'view_only'];
+
+router.get('/unread-count', auth, requireRole(...allRoles), smsController.getUnreadCount);
+router.post('/mark-read/:leadId', auth, requireRole(...allowedRoles), smsController.markAsRead);
 router.post('/send-chat-sms', auth, requireRole(...allowedRoles), smsController.sendChatSms);
 router.post('/ai-generate-sms', auth, requireRole(...allowedRoles), smsController.generateSmsMessage);
 

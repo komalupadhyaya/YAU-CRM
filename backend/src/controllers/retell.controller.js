@@ -16,6 +16,9 @@ import {
     getSanitizedToolName
 } from '../services/ai/retell.service.js';
 
+// Bounded set to prevent duplicate or looping background fallbacks for the same call
+const handledFallbackCalls = new Set();
+
 /**
  * Helper to build format-tolerant regex matching 10 digits
  */
@@ -482,27 +485,49 @@ async function processRetellCallData(callData, payload) {
         console.error('⚠️ [Retell Voicemail] Error handling voicemail pipeline:', vmErr.message);
     }
 
-    // 6. Background Direct API Fallback: If aiSummary is missing after call_ended, fetch via REST API
-    if (!aiSummary && (callData.end_timestamp || payload?.event === 'call_ended')) {
-        setTimeout(async () => {
-            try {
-                console.log(`⏳ [Retell Background Fallback] Checking call ${callId} for late-arriving AI summary...`);
-                const latestCallData = await getRetellCallDetails(callId);
-                if (latestCallData) {
-                    const fallbackSummary = 
-                        latestCallData.call_analysis?.call_summary ||
-                        latestCallData.summary ||
-                        latestCallData.call_analysis?.custom_analysis_data?.call_summary;
-                    
-                    if (fallbackSummary) {
-                        console.log(`🎯 [Retell Background Fallback] Successfully fetched AI summary for call ${callId}`);
-                        await processRetellCallData(latestCallData, { event: 'call_analyzed' });
+    // 6. Background Direct API Fallback: If aiSummary or callerSentiment is missing after call_ended, fetch via REST API
+    if (
+        !payload?.isFallback &&
+        payload?.event === 'call_ended' &&
+        (!aiSummary || !callerSentiment) &&
+        !handledFallbackCalls.has(callId)
+    ) {
+        handledFallbackCalls.add(callId);
+        // Bounded FIFO eviction to avoid memory growth beyond 2000 recent calls
+        if (handledFallbackCalls.size > 2000) {
+            const oldestCallId = handledFallbackCalls.values().next().value;
+            handledFallbackCalls.delete(oldestCallId);
+        }
+
+        const scheduleFallbackCheck = (delayMs, isRetry = false) => {
+            setTimeout(async () => {
+                try {
+                    console.log(`⏳ [Retell Background Fallback] Checking call ${callId} for late-arriving AI analysis (attempt ${isRetry ? 2 : 1})...`);
+                    const latestCallData = await getRetellCallDetails(callId);
+                    if (latestCallData) {
+                        const fallbackSummary = 
+                            latestCallData.call_analysis?.call_summary ||
+                            latestCallData.summary ||
+                            latestCallData.call_analysis?.custom_analysis_data?.call_summary;
+                        const fallbackSentiment = 
+                            latestCallData.call_analysis?.user_sentiment ||
+                            latestCallData.sentiment;
+                        
+                        if (fallbackSummary || fallbackSentiment) {
+                            console.log(`🎯 [Retell Background Fallback] Successfully fetched AI analysis for call ${callId} (Sentiment: ${fallbackSentiment || 'N/A'})`);
+                            await processRetellCallData(latestCallData, { event: 'call_analyzed', isFallback: true });
+                        } else if (!isRetry) {
+                            scheduleFallbackCheck(8000, true);
+                        } else {
+                            console.log(`ℹ️ [Retell Background Fallback] Call ${callId} completed 2 fallback checks without late analysis. Cleanly finished.`);
+                        }
                     }
+                } catch (fbErr) {
+                    console.warn(`[Retell Background Fallback] Error checking call ${callId}:`, fbErr.message);
                 }
-            } catch (fbErr) {
-                console.warn(`[Retell Background Fallback] Error checking call ${callId}:`, fbErr.message);
-            }
-        }, 6000);
+            }, delayMs);
+        };
+        scheduleFallbackCheck(5000);
     }
 
     return { callRecord, targetMainLeads, targetEALeads };
@@ -589,6 +614,8 @@ export async function updateKnowledgeBase(req, res, next) {
         // Allowed update keys
         const updateFields = [
             'agentName', 'phoneNumber', 'voiceId', 'welcomeMessage',
+            'voiceSettings', 'enableExpressiveMode', 'voiceEmotion', 'expressiveEmotionTags',
+            'enableDynamicVoiceSpeed', 'enableDynamicResponsiveness',
             'enableVoicemailDetection', 'outboundVoicemailMessage', 'voicemailDetectionTimeoutMs',
             'webhookEnvironment', 'customWebhookUrl', 'webhookUrl', 'timezone',
             'businessHours', 'afterHoursScript', 'takeMessageScript',
@@ -610,6 +637,38 @@ export async function updateKnowledgeBase(req, res, next) {
                 kb[field] = req.body[field];
             }
         });
+
+        // Synchronize structured voiceSettings with top-level flags
+        if (req.body.voiceSettings) {
+            kb.voiceSettings = {
+                expressiveModeEnabled: Boolean(req.body.voiceSettings.expressiveModeEnabled),
+                emotionMode: req.body.voiceSettings.emotionMode || 'auto'
+            };
+            kb.enableExpressiveMode = kb.voiceSettings.expressiveModeEnabled;
+            kb.voiceEmotion = kb.voiceSettings.emotionMode;
+        } else if (req.body.enableExpressiveMode !== undefined || req.body.voiceEmotion !== undefined) {
+            if (!kb.voiceSettings) {
+                kb.voiceSettings = {
+                    expressiveModeEnabled: false,
+                    emotionMode: 'auto'
+                };
+            }
+            if (req.body.enableExpressiveMode !== undefined) {
+                kb.voiceSettings.expressiveModeEnabled = Boolean(req.body.enableExpressiveMode);
+            }
+            if (req.body.voiceEmotion !== undefined) {
+                kb.voiceSettings.emotionMode = req.body.voiceEmotion;
+            }
+        }
+
+        // Ensure active agent name replaces any stale Cimo/[Name]
+        const activeName = kb.agentName || 'Lily';
+        if (kb.welcomeMessage && kb.welcomeMessage.includes('Cimo')) {
+            kb.welcomeMessage = kb.welcomeMessage.replace(/\bCimo\b/g, activeName);
+        }
+        if (kb.inboundOpeningScript && (kb.inboundOpeningScript.includes('Cimo') || kb.inboundOpeningScript.includes('[Name]'))) {
+            kb.inboundOpeningScript = kb.inboundOpeningScript.replace(/\bCimo\b/g, activeName).replace(/\[Name\]/g, activeName);
+        }
 
         await kb.save();
         const compiledPrompt = buildPromptFromKnowledgeBase(kb);

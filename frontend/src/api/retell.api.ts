@@ -48,10 +48,21 @@ export interface BusinessHoursConfig {
     sun: string;
 }
 
+export interface VoiceSettingsConfig {
+    expressiveModeEnabled: boolean;
+    emotionMode: 'auto' | 'sympathetic' | 'happy' | 'calm' | 'sad' | 'angry' | 'fearful' | 'surprised';
+}
+
 export interface RetellKnowledgeBaseData {
     agentName: string;
     phoneNumber: string;
     voiceId?: string;
+    voiceSettings?: VoiceSettingsConfig;
+    enableExpressiveMode?: boolean;
+    voiceEmotion?: 'auto' | 'sympathetic' | 'happy' | 'calm' | 'sad' | 'angry' | 'fearful' | 'surprised';
+    expressiveEmotionTags?: string[];
+    enableDynamicVoiceSpeed?: boolean;
+    enableDynamicResponsiveness?: boolean;
     enableVoicemailDetection?: boolean;
     outboundVoicemailMessage?: string;
     voicemailDetectionTimeoutMs?: number;

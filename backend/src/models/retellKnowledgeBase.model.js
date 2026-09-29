@@ -1,15 +1,35 @@
 import mongoose from 'mongoose';
 
 const RetellKnowledgeBaseSchema = new mongoose.Schema({
-    agentName: { type: String, default: 'Cimo' },
+    agentName: { type: String, default: 'Lily' },
     phoneNumber: { type: String, default: '+18886879139' },
     welcomeMessage: { 
         type: String, 
-        default: 'Thank you for calling Youth Athlete University! This is Cimo — how can I help you and your athlete today?' 
+        default: 'Thank you for calling Youth Athlete University! This is Lily — how can I help you and your athlete today?' 
     },
     
     // Voice & Speech Settings
     voiceId: { type: String, default: '11labs-Lily' },
+    voiceSettings: {
+        expressiveModeEnabled: { type: Boolean, default: false },
+        emotionMode: { 
+            type: String, 
+            enum: ['auto', 'sympathetic', 'happy', 'calm', 'sad', 'angry', 'fearful', 'surprised'], 
+            default: 'auto' 
+        }
+    },
+    enableExpressiveMode: { type: Boolean, default: false },
+    voiceEmotion: { 
+        type: String, 
+        enum: ['auto', 'calm', 'sympathetic', 'happy', 'sad', 'angry', 'fearful', 'surprised'], 
+        default: 'auto' 
+    },
+    expressiveEmotionTags: { 
+        type: [String], 
+        default: ['empathetic', 'excited', 'happy', 'curious', 'surprised', 'sigh', 'clear throat', 'pause'] 
+    },
+    enableDynamicVoiceSpeed: { type: Boolean, default: true },
+    enableDynamicResponsiveness: { type: Boolean, default: true },
 
     // Outbound Answering Machine Detection (AMD) & Voicemail Drop
     enableVoicemailDetection: { type: Boolean, default: true },
@@ -329,6 +349,47 @@ RetellKnowledgeBaseSchema.statics.getOrCreateDefault = async function() {
                 }
             ]
         });
+    } else {
+        // Sanitize legacy Cimo references and ensure emotion fields exist
+        let modified = false;
+        const targetName = doc.agentName || 'Lily';
+
+        if (doc.welcomeMessage && doc.welcomeMessage.includes('Cimo')) {
+            doc.welcomeMessage = doc.welcomeMessage.replace(/\bCimo\b/g, targetName);
+            modified = true;
+        }
+
+        if (doc.inboundOpeningScript && (doc.inboundOpeningScript.includes('Cimo') || doc.inboundOpeningScript.includes('[Name]'))) {
+            doc.inboundOpeningScript = doc.inboundOpeningScript.replace(/\bCimo\b/g, targetName).replace(/\[Name\]/g, targetName);
+            modified = true;
+        }
+
+        if (!doc.voiceSettings) {
+            doc.voiceSettings = {
+                expressiveModeEnabled: false,
+                emotionMode: 'auto'
+            };
+            modified = true;
+        }
+
+        if (doc.enableExpressiveMode === undefined) {
+            doc.enableExpressiveMode = false;
+            modified = true;
+        }
+
+        if (!doc.voiceEmotion) {
+            doc.voiceEmotion = 'auto';
+            modified = true;
+        }
+
+        if (!doc.expressiveEmotionTags || doc.expressiveEmotionTags.length === 0) {
+            doc.expressiveEmotionTags = ['empathetic', 'excited', 'happy', 'curious', 'surprised', 'sigh', 'clear throat', 'pause'];
+            modified = true;
+        }
+
+        if (modified) {
+            await doc.save();
+        }
     }
     return doc;
 };

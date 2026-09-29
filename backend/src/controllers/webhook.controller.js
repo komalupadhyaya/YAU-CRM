@@ -435,6 +435,11 @@ export const handleTwilioReply = async (req, res) => {
             for (const eaLead of matchingEALeads) {
                 const assignedUserId = eaLead.assigned_to?._id || eaLead.assigned_to;
                 if (assignedUserId) {
+                    // Do not emit EA lead events to sales reps
+                    const assignedUser = await User.findById(assignedUserId).select('role').lean();
+                    if (assignedUser && assignedUser.role === 'sales_rep') {
+                        continue;
+                    }
                     const repRule = getRepRule(eaLead.assigned_to);
                     if (!repRule || repRule.inAppEnabled !== false) {
                         emitToUser(assignedUserId, {
@@ -449,8 +454,10 @@ export const handleTwilioReply = async (req, res) => {
                         });
                     }
                 } else {
-                    const activeUsers = await User.find({ isActive: true }).select('_id');
+                    // Unassigned EA lead: emit only to active non-sales reps (admins / managers)
+                    const activeUsers = await User.find({ isActive: true }).select('_id role');
                     for (const u of activeUsers) {
+                        if (u.role === 'sales_rep') continue;
                         const repRule = getRepRule(u);
                         if (!repRule || repRule.inAppEnabled !== false) {
                             emitToUser(u._id, {
@@ -485,8 +492,10 @@ export const handleTwilioReply = async (req, res) => {
                         });
                     }
                 } else {
-                    const activeUsers = await User.find({ isActive: true }).select('_id');
+                    // Unassigned CRM lead: sales reps only see assigned leads, so emit only to admin/manager
+                    const activeUsers = await User.find({ isActive: true }).select('_id role');
                     for (const u of activeUsers) {
+                        if (u.role === 'sales_rep') continue;
                         const repRule = getRepRule(u);
                         if (!repRule || repRule.inAppEnabled !== false) {
                             emitToUser(u._id, {
