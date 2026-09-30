@@ -447,17 +447,48 @@ export default function Dashboard() {
 
   // Stalled Leads Scan & Re-engage
   const handleTriggerStalledScan = async () => {
+    if (isScanningStalled) return;
     setIsScanningStalled(true);
+
+    const startTime = Date.now();
+    const abortController = new AbortController();
+    const timeoutId = setTimeout(() => abortController.abort(), 3500);
+
+    // Safety hard-stop timer guaranteeing rotation stops regardless of promise state
+    const safetyTimer = setTimeout(() => {
+      setIsScanningStalled(false);
+    }, 4000);
+
     try {
-      const res = await api.post("/stalled-leads/scan");
-      if (res.data?.success) {
-        toast.success(`Scan complete: ${res.data.currentlyStalledCount} stalled leads found.`);
-        await refreshDashboard(true);
+      // 1. Concurrently trigger scan and refresh dashboard command center data
+      const scanPromise = api.post("/stalled-leads/scan", {}, { signal: abortController.signal })
+        .catch(() => null);
+
+      const refreshPromise = refreshDashboard(true);
+
+      const [res] = await Promise.all([scanPromise, refreshPromise]);
+
+      if (res?.data?.currentlyStalledCount !== undefined) {
+        toast.success(
+          res.data.currentlyStalledCount > 0
+            ? `Scan complete: ${res.data.currentlyStalledCount} stalled lead(s) found.`
+            : "Stalled leads refreshed: No stalled leads found."
+        );
+      } else {
+        toast.success("Stalled leads refreshed");
       }
     } catch (err: any) {
-      toast.error(err.response?.data?.error || "Failed to scan stalled leads.");
+      toast.error(err.response?.data?.error || "Failed to refresh stalled leads.");
     } finally {
-      setIsScanningStalled(false);
+      clearTimeout(timeoutId);
+      clearTimeout(safetyTimer);
+
+      // Smooth minimum spin duration of 700ms for visual polish
+      const elapsed = Date.now() - startTime;
+      const remainingDelay = Math.max(0, 700 - elapsed);
+      setTimeout(() => {
+        setIsScanningStalled(false);
+      }, remainingDelay);
     }
   };
 
@@ -720,7 +751,7 @@ export default function Dashboard() {
   const coldPercentage = scoreBreakdown.coldPct ?? (totalTempLeads > 0 ? Math.max(0, 100 - hotPercentage - warmPercentage) : 0);
 
   // Live SMS list
-  const currentUserId = currentUser?._id || currentUser?.id;
+  const currentUserId = currentUser?._id || (currentUser as any)?.id;
   const currentUserName = currentUser?.name?.trim().toLowerCase();
 
   const unreadSmsData = contextUnreadSmsData || { totalUnreadCount: 0, hotWarmCount: 0, hotWarmMessages: [], unreadMessages: [], recentMessages: [] };
@@ -729,23 +760,49 @@ export default function Dashboard() {
     : (unreadSmsData.recentMessages || []);
 
   const allSmsMessages = useMemo(() => {
-    if (isSalesRep) {
-      return rawSmsMessages.filter((m: any) => {
-        // 1. Exclude all EA leads for sales reps
-        if (m.leadType === "ea" || m.leadType === "ea_lead") return false;
+    // 1. Filter raw messages based on sales rep role
+    const filtered = isSalesRep
+      ? rawSmsMessages.filter((m: any) => {
+          // Exclude all EA leads for sales reps
+          if (m.leadType === "ea" || m.leadType === "ea_lead") return false;
 
-        // 2. Only allow main leads assigned to this specific sales rep
-        if (m.assignedToId && currentUserId) {
-          return String(m.assignedToId) === String(currentUserId);
+          // Only allow main leads assigned to this specific sales rep
+          if (m.assignedToId && currentUserId) {
+            return String(m.assignedToId) === String(currentUserId);
+          }
+          if (m.assignedTo && currentUserName) {
+            return m.assignedTo.trim().toLowerCase() === currentUserName;
+          }
+          return false;
+        })
+      : rawSmsMessages;
+
+    // 2. Client-side deduplication by leadId (keeps latest interaction and preserves highest unreadCount)
+    const leadMap = new Map<string, any>();
+    filtered.forEach((m: any) => {
+      const key = String(m.leadId || m.phone || Math.random());
+      const existing = leadMap.get(key);
+      if (!existing) {
+        leadMap.set(key, { ...m });
+      } else {
+        const existingTime = new Date(existing.timestamp || 0).getTime();
+        const currentTime = new Date(m.timestamp || 0).getTime();
+        const maxUnread = Math.max(existing.unreadCount || 0, m.unreadCount || 0);
+
+        if (currentTime > existingTime) {
+          leadMap.set(key, {
+            ...m,
+            unreadCount: maxUnread
+          });
+        } else {
+          existing.unreadCount = maxUnread;
         }
-        if (m.assignedTo && currentUserName) {
-          return m.assignedTo.trim().toLowerCase() === currentUserName;
-        }
-        // If unassigned or assigned to someone else, reject
-        return false;
-      });
-    }
-    return rawSmsMessages;
+      }
+    });
+
+    const deduplicated = Array.from(leadMap.values());
+    deduplicated.sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime());
+    return deduplicated;
   }, [rawSmsMessages, isSalesRep, currentUserId, currentUserName]);
 
   const eaSmsList = isSalesRep ? [] : allSmsMessages.filter((m: any) => m.leadType === "ea" || m.leadType === "ea_lead");
@@ -761,6 +818,13 @@ export default function Dashboard() {
         : allSmsMessages;
   const totalSmsPages = Math.ceil(displayedSmsList.length / SMS_PER_PAGE) || 1;
   const paginatedSmsList = displayedSmsList.slice(smsPage * SMS_PER_PAGE, (smsPage + 1) * SMS_PER_PAGE);
+
+  // Safe clamping for Live SMS pagination
+  useEffect(() => {
+    if (smsPage >= totalSmsPages) {
+      setSmsPage(0);
+    }
+  }, [totalSmsPages, smsPage]);
 
   // Stalled leads list
   const rawStalledList: any[] = widgets.stalledLeads?.leads || [];
@@ -1219,150 +1283,7 @@ export default function Dashboard() {
               <StatCard title="Upcoming" count={dashboardMetrics?.followups?.upcoming || 0} icon={Calendar} color="text-primary/70" />
             </div>
 
-            {/* 3. Strategic Pipeline */}
-            <div className="page-card dark:bg-card">
-              <h2 className="text-lg font-bold text-foreground mb-6">Strategic Pipeline</h2>
-              {selectedCampaign === "all" ? (
-                <div className="p-8 text-center border-2 border-dashed rounded-2xl">
-                  <p className="text-sm text-muted-foreground">Select a campaign to view the strategic pipeline visualization.</p>
-                </div>
-              ) : (
-                <div className="space-y-6">
-                  {(dashboardMetrics?.pipeline?.statusBreakdown || []).map((s: any) => {
-                    const count = s.count || 0;
-                    const total = dashboardMetrics?.leads?.total || 1;
-                    const percentage = Math.round((count / total) * 100);
-                    const getColor = (label: string) => {
-                      const l = label.toLowerCase();
-                      if (l.includes("not contacted")) return "bg-muted-foreground/20";
-                      if (l.includes("attempted")) return "bg-orange-400";
-                      if (l.includes("voicemail")) return "bg-orange-500";
-                      if (l.includes("office") || l.includes("staff") || l.includes("spoke")) return "bg-blue-400";
-                      if (l.includes("meeting")) return "bg-emerald-500";
-                      if (l.includes("proposal") || l.includes("info sent")) return "bg-indigo-500";
-                      if (l.includes("signed") || l.includes("active")) return "bg-primary";
-                      if (l.includes("not interested") || l.includes("lost")) return "bg-destructive/40";
-                      return "bg-primary/40";
-                    };
-                    return (
-                      <div key={s.status} className="group">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                            <div className={`w-2 h-2 rounded-full ${getColor(s.status)}`} />
-                            {s.status}
-                          </span>
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-bold">{count}</span>
-                            <span className="text-[10px] text-muted-foreground">({percentage}%)</span>
-                          </div>
-                        </div>
-                        <div className="h-2 w-full bg-accent dark:bg-accent/20 rounded-full overflow-hidden">
-                          <div className={`h-full ${getColor(s.status)} transition-all duration-1000`} style={{ width: `${percentage}%` }} />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* 4. Weekly AI Executive Briefing Snapshot (Admin & Manager) */}
-            {isAdminOrManager && (
-              <div className="bg-gradient-to-br from-card via-card to-primary/5 border border-primary/20 rounded-2xl p-6 shadow-sm relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-3xl -z-10 pointer-events-none" />
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-border/50">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shadow-inner">
-                      <Sparkles size={20} className="animate-pulse" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h2 className="text-base font-bold text-foreground">Weekly AI Executive Briefing</h2>
-                        <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
-                          Claude AI
-                        </span>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {weeklyReport ? (
-                          <>
-                            Week of {new Date(weeklyReport.weekStartDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })} – {new Date(weeklyReport.weekEndDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} • Sent to {weeklyReport.recipient || "play@yausports.com"}
-                          </>
-                        ) : (
-                          "Automated weekly intelligence summary generated every Monday at 8:00 AM EST"
-                        )}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 self-start sm:self-auto">
-                    {weeklyReport && (
-                      <button
-                        onClick={() => setIsWeeklyReportModalOpen(true)}
-                        className="btn-secondary text-xs h-9 px-3.5 font-semibold flex items-center gap-1.5 hover:border-primary/40"
-                      >
-                        <FileText size={14} /> View Full Report
-                      </button>
-                    )}
-                    {!isSalesrepOrReadOnly && (
-                      <button
-                        onClick={handleGenerateWeeklyReport}
-                        disabled={isGeneratingWeeklyReport}
-                        className="bg-primary hover:bg-primary/90 text-primary-foreground text-xs h-9 px-3.5 rounded-xl font-bold flex items-center gap-1.5 transition-all active:scale-95 shadow-md shadow-primary/20 disabled:opacity-50"
-                        title="Regenerate latest report"
-                      >
-                        <RefreshCw size={13} className={isGeneratingWeeklyReport ? "animate-spin" : ""} />
-                        {isGeneratingWeeklyReport ? "Analyzing..." : "Regenerate"}
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {loadingWeeklyReport ? (
-                  <div className="py-8 text-center text-sm text-muted-foreground animate-pulse flex items-center justify-center gap-2">
-                    <Sparkles size={16} className="text-primary animate-spin" /> Loading executive briefing...
-                  </div>
-                ) : weeklyReport ? (
-                  <div className="pt-4 space-y-4">
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                      <div className="bg-background/60 dark:bg-background/40 border rounded-xl p-3">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">New Leads (7d)</span>
-                        <p className="text-xl font-extrabold text-foreground mt-0.5">{reportNewLeads7d}</p>
-                      </div>
-                      <div className="bg-background/60 dark:bg-background/40 border rounded-xl p-3">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Total In Pipeline</span>
-                        <p className="text-xl font-extrabold text-primary mt-0.5">{reportTotalLeads}</p>
-                      </div>
-                      <div className="bg-background/60 dark:bg-background/40 border rounded-xl p-3">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Follow-Ups Done</span>
-                        <p className="text-xl font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5">{reportFollowupsDone}</p>
-                      </div>
-                      <div className="bg-background/60 dark:bg-background/40 border rounded-xl p-3">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Hot / Warm EA</span>
-                        <p className="text-xl font-extrabold text-amber-500 mt-0.5">{reportHotWarmTotal}</p>
-                      </div>
-                    </div>
-
-                    <div className="bg-background/40 border rounded-xl p-4 text-xs text-muted-foreground leading-relaxed">
-                      <div className="line-clamp-3">{weeklyNarrativePreview}</div>
-                      <button
-                        onClick={() => setIsWeeklyReportModalOpen(true)}
-                        className="text-primary font-bold hover:underline mt-2 inline-flex items-center gap-1"
-                      >
-                        Read full executive synthesis & action items <ArrowRight size={12} />
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="py-6 text-center">
-                    <p className="text-xs text-muted-foreground">
-                      No weekly executive briefing has been generated yet. It runs automatically every Monday or on demand.
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* 5. Priority 9: Meetings Scheduled */}
+            {/* 2. Meetings Scheduled */}
             <div className="page-card dark:bg-card">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-2 border-b">
                 <div className="flex items-center gap-2">
@@ -1503,7 +1424,7 @@ export default function Dashboard() {
               )}
             </div>
 
-            {/* 6. Priority 10: Email Campaign Activity (Admin only) */}
+            {/* 3. Email Campaign Activity (Admin only) */}
             {isAdmin && emailCampaignsList.length > 0 && (
               <div className="page-card dark:bg-card">
                 <div className="flex items-center justify-between mb-4 pb-2 border-b">
@@ -1616,7 +1537,7 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* 7. Priority 8: Retell AI Call Summary (Admin only) */}
+            {/* 4. Retell AI Telephony Summary (Admin only) */}
             {isAdmin && widgets.retellCallSummary && (() => {
               const summaryData = widgets.retellCallSummary[telephonyTimeframe] || widgets.retellCallSummary;
               return (
@@ -1685,12 +1606,242 @@ export default function Dashboard() {
               );
             })()}
 
+            {/* 5. Weekly AI Executive Briefing Snapshot (Admin & Manager) */}
+            {isAdminOrManager && (
+              <div className="bg-gradient-to-br from-card via-card to-primary/5 border border-primary/20 rounded-2xl p-6 shadow-sm relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-3xl -z-10 pointer-events-none" />
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-border/50">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shadow-inner">
+                      <Sparkles size={20} className="animate-pulse" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-base font-bold text-foreground">Weekly AI Executive Briefing</h2>
+                        <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                          Claude AI
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {weeklyReport ? (
+                          <>
+                            Week of {new Date(weeklyReport.weekStartDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })} – {new Date(weeklyReport.weekEndDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} • Sent to {weeklyReport.recipient || "play@yausports.com"}
+                          </>
+                        ) : (
+                          "Automated weekly intelligence summary generated every Monday at 8:00 AM EST"
+                        )}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 self-start sm:self-auto">
+                    {weeklyReport && (
+                      <button
+                        onClick={() => setIsWeeklyReportModalOpen(true)}
+                        className="btn-secondary text-xs h-9 px-3.5 font-semibold flex items-center gap-1.5 hover:border-primary/40"
+                      >
+                        <FileText size={14} /> View Full Report
+                      </button>
+                    )}
+                    {!isSalesrepOrReadOnly && (
+                      <button
+                        onClick={handleGenerateWeeklyReport}
+                        disabled={isGeneratingWeeklyReport}
+                        className="bg-primary hover:bg-primary/90 text-primary-foreground text-xs h-9 px-3.5 rounded-xl font-bold flex items-center gap-1.5 transition-all active:scale-95 shadow-md shadow-primary/20 disabled:opacity-50"
+                        title="Regenerate latest report"
+                      >
+                        <RefreshCw size={13} className={isGeneratingWeeklyReport ? "animate-spin" : ""} />
+                        {isGeneratingWeeklyReport ? "Analyzing..." : "Regenerate"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {loadingWeeklyReport ? (
+                  <div className="py-8 text-center text-sm text-muted-foreground animate-pulse flex items-center justify-center gap-2">
+                    <Sparkles size={16} className="text-primary animate-spin" /> Loading executive briefing...
+                  </div>
+                ) : weeklyReport ? (
+                  <div className="pt-4 space-y-4">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div className="bg-background/60 dark:bg-background/40 border rounded-xl p-3">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">New Leads (7d)</span>
+                        <p className="text-xl font-extrabold text-foreground mt-0.5">{reportNewLeads7d}</p>
+                      </div>
+                      <div className="bg-background/60 dark:bg-background/40 border rounded-xl p-3">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Total In Pipeline</span>
+                        <p className="text-xl font-extrabold text-primary mt-0.5">{reportTotalLeads}</p>
+                      </div>
+                      <div className="bg-background/60 dark:bg-background/40 border rounded-xl p-3">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Follow-Ups Done</span>
+                        <p className="text-xl font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5">{reportFollowupsDone}</p>
+                      </div>
+                      <div className="bg-background/60 dark:bg-background/40 border rounded-xl p-3">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Hot / Warm EA</span>
+                        <p className="text-xl font-extrabold text-amber-500 mt-0.5">{reportHotWarmTotal}</p>
+                      </div>
+                    </div>
+
+                    <div className="bg-background/40 border rounded-xl p-4 text-xs text-muted-foreground leading-relaxed">
+                      <div className="line-clamp-3">{weeklyNarrativePreview}</div>
+                      <button
+                        onClick={() => setIsWeeklyReportModalOpen(true)}
+                        className="text-primary font-bold hover:underline mt-2 inline-flex items-center gap-1"
+                      >
+                        Read full executive synthesis & action items <ArrowRight size={12} />
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="py-6 text-center">
+                    <p className="text-xs text-muted-foreground">
+                      No weekly executive briefing has been generated yet. It runs automatically every Monday or on demand.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 6. Strategic Pipeline */}
+            <div className="page-card dark:bg-card">
+              <h2 className="text-lg font-bold text-foreground mb-6">Strategic Pipeline</h2>
+              {selectedCampaign === "all" ? (
+                <div className="p-8 text-center border-2 border-dashed rounded-2xl">
+                  <p className="text-sm text-muted-foreground">Select a campaign to view the strategic pipeline visualization.</p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {(dashboardMetrics?.pipeline?.statusBreakdown || []).map((s: any) => {
+                    const count = s.count || 0;
+                    const total = dashboardMetrics?.leads?.total || 1;
+                    const percentage = Math.round((count / total) * 100);
+                    const getColor = (label: string) => {
+                      const l = label.toLowerCase();
+                      if (l.includes("not contacted")) return "bg-muted-foreground/20";
+                      if (l.includes("attempted")) return "bg-orange-400";
+                      if (l.includes("voicemail")) return "bg-orange-500";
+                      if (l.includes("office") || l.includes("staff") || l.includes("spoke")) return "bg-blue-400";
+                      if (l.includes("meeting")) return "bg-emerald-500";
+                      if (l.includes("proposal") || l.includes("info sent")) return "bg-indigo-500";
+                      if (l.includes("signed") || l.includes("active")) return "bg-primary";
+                      if (l.includes("not interested") || l.includes("lost")) return "bg-destructive/40";
+                      return "bg-primary/40";
+                    };
+                    return (
+                      <div key={s.status} className="group">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                            <div className={`w-2 h-2 rounded-full ${getColor(s.status)}`} />
+                            {s.status}
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold">{count}</span>
+                            <span className="text-[10px] text-muted-foreground">({percentage}%)</span>
+                          </div>
+                        </div>
+                        <div className="h-2 w-full bg-accent dark:bg-accent/20 rounded-full overflow-hidden">
+                          <div className={`h-full ${getColor(s.status)} transition-all duration-1000`} style={{ width: `${percentage}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
           </div>
 
           {/* ── RIGHT OPERATIONAL COLUMN (~35% width — LIVE SMS ACTION PANELS) ─ */}
           <div className="w-full lg:w-[35%] space-y-6">
 
-            {/* PANEL 1: LIVE SMS ACTION PANEL (PRIORITY 3) */}
+            {/* PANEL 1: TASKS & FOLLOW-UPS (PRIORITY 1) */}
+            <div className="page-card dark:bg-card p-0 overflow-hidden">
+              <div className="p-4 border-b">
+                <h2 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Tasks & Follow-Ups</h2>
+              </div>
+              <div className="flex border-b">
+                {[
+                  { id: "overdue", label: "Overdue" },
+                  { id: "due", label: "Today" },
+                  { id: "upcoming", label: "Upcoming" }
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTaskTab(tab.id as any)}
+                    className={`flex-1 py-3 text-[10px] font-bold uppercase tracking-tighter transition-all border-b-2 ${activeTaskTab === tab.id
+                        ? "border-primary text-primary"
+                        : "border-transparent text-muted-foreground"
+                      }`}
+                  >
+                    {tab.label} ({filteredData?.[tab.id as keyof typeof filteredData]?.length || 0})
+                  </button>
+                ))}
+              </div>
+              <div className="max-h-[360px] overflow-y-auto p-2 space-y-2">
+                {(filteredData?.[activeTaskTab] || []).map((f) => {
+                  const statusStyles =
+                    {
+                      overdue: "border-l-destructive bg-destructive/5",
+                      due: "border-l-warning bg-warning/5",
+                      upcoming: "border-l-success bg-success/5"
+                    }[activeTaskTab] || "border-l-border bg-accent/5";
+
+                  return (
+                    <div
+                      key={f._id}
+                      title={`${f.lead_name} - ${f.type}${f.title ? ` (${f.title})` : ""}: ${f.notes || "No notes"}`}
+                      className={`border rounded-xl p-3 group flex items-start justify-between border-l-4 transition-all hover:shadow-sm ${statusStyles}`}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-bold truncate">{f.lead_name}</p>
+                        {f.title && <p className="text-[10px] font-semibold text-foreground truncate mt-0.5">{f.title}</p>}
+                        <p className="text-[10px] text-muted-foreground truncate mt-0.5">{f.notes}</p>
+                        <p className="text-[9px] font-medium opacity-70 mt-1">{toESTDate(f.date_time).toLocaleString()}</p>
+                      </div>
+                      {!isReadOnly && (
+                        <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={() => markDone(f._id)}
+                            className="p-1 hover:bg-success/15 text-muted-foreground hover:text-success rounded transition-colors"
+                            title="Mark done"
+                          >
+                            <CheckCircle size={14} />
+                          </button>
+                          {f.telephone && (
+                            <button
+                              onClick={() => {
+                                const cleanPhone = f.telephone!.startsWith("+") ? f.telephone! : `+1${f.telephone!.replace(/\D/g, "")}`;
+                                openDialer(cleanPhone, f.lead_id_val, f.lead_name, true);
+                              }}
+                              className="p-1 hover:bg-emerald-100 text-muted-foreground hover:text-emerald-600 rounded transition-colors"
+                              title="Call contact"
+                            >
+                              <Phone size={14} />
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleOpenEditFollowUpModal(f)}
+                            className="p-1 hover:bg-primary/15 text-muted-foreground hover:text-primary rounded transition-colors"
+                            title="Edit follow-up"
+                          >
+                            <Edit size={14} />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteFollowUp(f._id)}
+                            className="p-1 hover:bg-destructive/15 text-muted-foreground hover:text-destructive rounded transition-colors"
+                            title="Delete follow-up"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* PANEL 2: LIVE SMS ACTION PANEL (PRIORITY 2) */}
             <div className="page-card dark:bg-card p-0 overflow-hidden border border-primary/20 shadow-sm">
               <div className="p-4 border-b flex items-center justify-between bg-gradient-to-r from-card to-primary/5">
                 <div className="flex items-center gap-2.5">
@@ -1820,7 +1971,7 @@ export default function Dashboard() {
                     const isWarm = msg.aiScore === "Warm";
                     return (
                       <div
-                        key={msg.leadId || idx}
+                        key={`${msg.leadId || 'lead'}-${msg.timestamp || ''}-${idx}`}
                         className={`p-3 rounded-xl border bg-accent/10 hover:bg-accent/20 transition-all border-l-4 flex items-center justify-between gap-3 group ${isHot
                             ? "border-l-rose-500 bg-rose-500/5"
                             : isWarm
@@ -1892,7 +2043,7 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* PANEL 2: STALLED LEADS ACTION PANEL (PRIORITY 2) */}
+            {/* PANEL 3: STALLED LEADS ACTION PANEL (PRIORITY 3) */}
             <div className="page-card dark:bg-card p-0 overflow-hidden border border-amber-500/20 shadow-sm">
               <div className="p-4 border-b flex items-center justify-between bg-gradient-to-r from-card to-amber-500/5">
                 <div className="flex items-center gap-2.5">
@@ -1936,7 +2087,7 @@ export default function Dashboard() {
                     onClick={handleTriggerStalledScan}
                     disabled={isScanningStalled}
                     className="p-1.5 hover:bg-accent rounded-lg text-muted-foreground hover:text-amber-600 transition-all active:scale-90"
-                    title="Scan for stalled leads"
+                    title="Refresh stalled leads"
                   >
                     <RefreshCw size={13} className={isScanningStalled ? "animate-spin text-amber-600" : ""} />
                   </button>
@@ -2035,94 +2186,7 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* PANEL 3: TASKS & FOLLOW-UPS (PRIORITY 4 — EXACT ORIGINAL DESIGN) */}
-            <div className="page-card dark:bg-card p-0 overflow-hidden">
-              <div className="p-4 border-b">
-                <h2 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Tasks & Follow-Ups</h2>
-              </div>
-              <div className="flex border-b">
-                {[
-                  { id: "overdue", label: "Overdue" },
-                  { id: "due", label: "Today" },
-                  { id: "upcoming", label: "Upcoming" }
-                ].map((tab) => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTaskTab(tab.id as any)}
-                    className={`flex-1 py-3 text-[10px] font-bold uppercase tracking-tighter transition-all border-b-2 ${activeTaskTab === tab.id
-                        ? "border-primary text-primary"
-                        : "border-transparent text-muted-foreground"
-                      }`}
-                  >
-                    {tab.label} ({filteredData?.[tab.id as keyof typeof filteredData]?.length || 0})
-                  </button>
-                ))}
-              </div>
-              <div className="max-h-[360px] overflow-y-auto p-2 space-y-2">
-                {(filteredData?.[activeTaskTab] || []).map((f) => {
-                  const statusStyles =
-                    {
-                      overdue: "border-l-destructive bg-destructive/5",
-                      due: "border-l-warning bg-warning/5",
-                      upcoming: "border-l-success bg-success/5"
-                    }[activeTaskTab] || "border-l-border bg-accent/5";
-
-                  return (
-                    <div
-                      key={f._id}
-                      title={`${f.lead_name} - ${f.type}${f.title ? ` (${f.title})` : ""}: ${f.notes || "No notes"}`}
-                      className={`border rounded-xl p-3 group flex items-start justify-between border-l-4 transition-all hover:shadow-sm ${statusStyles}`}
-                    >
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs font-bold truncate">{f.lead_name}</p>
-                        {f.title && <p className="text-[10px] font-semibold text-foreground truncate mt-0.5">{f.title}</p>}
-                        <p className="text-[10px] text-muted-foreground truncate mt-0.5">{f.notes}</p>
-                        <p className="text-[9px] font-medium opacity-70 mt-1">{toESTDate(f.date_time).toLocaleString()}</p>
-                      </div>
-                      {!isReadOnly && (
-                        <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button
-                            onClick={() => markDone(f._id)}
-                            className="p-1 hover:bg-success/15 text-muted-foreground hover:text-success rounded transition-colors"
-                            title="Mark done"
-                          >
-                            <CheckCircle size={14} />
-                          </button>
-                          {f.telephone && (
-                            <button
-                              onClick={() => {
-                                const cleanPhone = f.telephone!.startsWith("+") ? f.telephone! : `+1${f.telephone!.replace(/\D/g, "")}`;
-                                openDialer(cleanPhone, f.lead_id_val, f.lead_name, true);
-                              }}
-                              className="p-1 hover:bg-emerald-100 text-muted-foreground hover:text-emerald-600 rounded transition-colors"
-                              title="Call contact"
-                            >
-                              <Phone size={14} />
-                            </button>
-                          )}
-                          <button
-                            onClick={() => handleOpenEditFollowUpModal(f)}
-                            className="p-1 hover:bg-primary/15 text-muted-foreground hover:text-primary rounded transition-colors"
-                            title="Edit follow-up"
-                          >
-                            <Edit size={14} />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteFollowUp(f._id)}
-                            className="p-1 hover:bg-destructive/15 text-muted-foreground hover:text-destructive rounded transition-colors"
-                            title="Delete follow-up"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* PANEL 4: AI SUGGESTIONS PANEL (PRIORITY 5) */}
+            {/* PANEL 4: AI SUGGESTIONS PANEL (PRIORITY 4) */}
             <div className="page-card dark:bg-card p-0 overflow-hidden border border-purple-500/20 shadow-sm">
               <div className="p-4 border-b flex items-center justify-between bg-gradient-to-r from-card to-purple-500/5">
                 <div className="flex items-center gap-2.5">

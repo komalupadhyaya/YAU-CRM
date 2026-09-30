@@ -135,12 +135,15 @@ export const getStalledLeads = async (req, res, next) => {
 export const triggerScan = async (req, res, next) => {
     try {
         const io = req.app.get('io');
-        const result = await scanForStalledLeads({ io, sendEmails: true });
+        
+        // Run scan asynchronously in background without blocking HTTP response
+        scanForStalledLeads({ io, sendEmails: true }).catch(err => {
+            console.error('[Stalled Leads] Background scan error:', err);
+        });
 
         res.json({
             success: true,
-            message: 'Stalled leads scan completed successfully.',
-            ...result
+            message: 'Stalled leads scan initiated in background.'
         });
     } catch (err) {
         next(err);

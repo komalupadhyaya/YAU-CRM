@@ -28,7 +28,9 @@ import {
   Edit3,
   Phone,
   Shield,
-  Flame
+  Flame,
+  Globe,
+  GraduationCap
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -60,6 +62,10 @@ interface StatsData {
   total: number;
   deduplicated: number;
   bySource?: Record<string, number>;
+  mobile?: number;
+  web_portal?: number;
+  afterschool?: number;
+  manual?: number;
   school?: number;
   location?: number;
   free_app?: number;
@@ -77,8 +83,6 @@ export default function MarketingContacts() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [deduplicatedOnly, setDeduplicatedOnly] = useState(false);
   const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalCount, setTotalCount] = useState(0);
   const [limit, setLimit] = useState(25);
   const [sortBy, setSortBy] = useState("lastRegisteredAt");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
@@ -199,31 +203,22 @@ export default function MarketingContacts() {
     }
   };
 
-  // Fetch Contacts
+  // Fetch Contacts on initial mount or manual refresh / mutation
   const fetchContacts = useCallback(async (isSilent = false) => {
     if (!isSilent) setLoading(true);
     else setRefreshing(true);
 
     try {
+      // Fetch master marketing contacts list without channel filtering
       const params = new URLSearchParams({
-        page: String(page),
-        limit: String(limit),
-        search: searchQuery.trim(),
-        source: sourceFilter,
-        deduplicatedOnly: deduplicatedOnly ? "true" : "false",
-        sortBy,
-        sortOrder
+        page: "1",
+        limit: "100",
+        source: "all"
       });
-
-      if (statusFilter !== "all") {
-        params.append("status", statusFilter);
-      }
 
       const res = await api.get(`/marketing-contacts?${params.toString()}`);
       if (res.data?.success) {
         setContacts(res.data.contacts || []);
-        setTotalPages(res.data.pagination?.totalPages || 1);
-        setTotalCount(res.data.pagination?.total || 0);
         if (res.data.stats) {
           setStats(res.data.stats);
         }
@@ -235,11 +230,84 @@ export default function MarketingContacts() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [page, limit, searchQuery, sourceFilter, statusFilter, deduplicatedOnly, sortBy, sortOrder]);
+  }, []);
 
   useEffect(() => {
     fetchContacts();
   }, [fetchContacts]);
+
+  // Client-Side In-Memory Filtering (Zero network calls on filter/toggle)
+  const filteredContacts = useMemo(() => {
+    return contacts.filter(contact => {
+      // 1. Source filter
+      if (sourceFilter !== "all") {
+        const src = (contact.source || "").toLowerCase();
+        if (sourceFilter === "mobile") {
+          if (!src.includes("mobile")) return false;
+        } else if (sourceFilter === "web_portal" || sourceFilter === "portal") {
+          if (!src.includes("portal") && !src.includes("web")) return false;
+        } else if (sourceFilter === "afterschool") {
+          if (!src.includes("afterschool")) return false;
+        } else if (sourceFilter === "manual") {
+          if (!src.includes("manual")) return false;
+        } else {
+          if (!src.includes(sourceFilter.toLowerCase())) return false;
+        }
+      }
+
+      // 2. Status filter
+      if (statusFilter !== "all" && contact.status !== statusFilter) {
+        return false;
+      }
+
+      // 3. Deduplicated only filter
+      if (deduplicatedOnly && (contact.submissionCount || 1) <= 1) {
+        return false;
+      }
+
+      // 4. Search query
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim();
+        const matchName = contact.parentName?.toLowerCase().includes(q);
+        const matchEmail = contact.email?.toLowerCase().includes(q);
+        const matchPhone = contact.phone?.toLowerCase().includes(q);
+        const matchSource = contact.source?.toLowerCase().includes(q);
+        if (!matchName && !matchEmail && !matchPhone && !matchSource) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [contacts, sourceFilter, statusFilter, deduplicatedOnly, searchQuery]);
+
+  // Client-Side Sorting
+  const sortedContacts = useMemo(() => {
+    return [...filteredContacts].sort((a, b) => {
+      let valA: any = a[sortBy as keyof MarketingContact] ?? "";
+      let valB: any = b[sortBy as keyof MarketingContact] ?? "";
+
+      if (sortBy === "lastRegisteredAt" || sortBy === "createdAt") {
+        valA = new Date(valA).getTime() || 0;
+        valB = new Date(valB).getTime() || 0;
+      } else if (typeof valA === "string") {
+        valA = valA.toLowerCase();
+        valB = String(valB).toLowerCase();
+      }
+
+      if (valA < valB) return sortOrder === "asc" ? -1 : 1;
+      if (valA > valB) return sortOrder === "asc" ? 1 : -1;
+      return 0;
+    });
+  }, [filteredContacts, sortBy, sortOrder]);
+
+  // Client-Side Pagination & Counts
+  const totalCount = sortedContacts.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / limit));
+  const paginatedContacts = useMemo(() => {
+    const start = (page - 1) * limit;
+    return sortedContacts.slice(start, start + limit);
+  }, [sortedContacts, page, limit]);
 
   // Handle Manual Refresh with guaranteed smooth rotation animation
   const handleManualRefresh = async () => {
@@ -318,13 +386,14 @@ export default function MarketingContacts() {
 
   // Export CSV
   const handleExportCSV = () => {
-    if (contacts.length === 0) {
+    const exportData = filteredContacts.length > 0 ? filteredContacts : contacts;
+    if (exportData.length === 0) {
       toast.error("No contacts available to export");
       return;
     }
 
     const headers = ["Parent Name", "Email Address", "Phone Number", "Registration Source", "Submissions", "Last Registered"];
-    const rows = contacts.map(c => [
+    const rows = exportData.map(c => [
       c.parentName || "",
       c.email || "",
       c.phone || "",
@@ -346,23 +415,89 @@ export default function MarketingContacts() {
     toast.success("CSV export downloaded successfully!");
   };
 
-  const getSourceCount = (srcKey: string) => {
-    if (!stats.bySource) return 0;
-    if (stats.bySource[srcKey] !== undefined) return stats.bySource[srcKey];
+  const getSourceCount = useCallback((srcKey: string) => {
     let sum = 0;
     const lower = srcKey.toLowerCase();
-    Object.entries(stats.bySource).forEach(([k, count]) => {
-      if (k.toLowerCase().includes(lower)) {
-        sum += count;
+    contacts.forEach(c => {
+      const src = (c.source || "").toLowerCase();
+      if (lower === "web_portal" || lower === "portal") {
+        if (src.includes("portal") || src.includes("web")) {
+          sum += 1;
+        }
+      } else if (lower === "mobile") {
+        if (src.includes("mobile")) {
+          sum += 1;
+        }
+      } else if (lower === "afterschool") {
+        if (src.includes("afterschool")) {
+          sum += 1;
+        }
+      } else if (lower === "manual") {
+        if (src.includes("manual")) {
+          sum += 1;
+        }
+      } else if (src.includes(lower)) {
+        sum += 1;
       }
     });
+
+    if (sum === 0 && stats.bySource) {
+      if (stats.bySource[srcKey] !== undefined) return stats.bySource[srcKey];
+      Object.entries(stats.bySource).forEach(([k, count]) => {
+        const kLower = k.toLowerCase();
+        if (lower === "web_portal" || lower === "portal") {
+          if (kLower.includes("portal") || kLower.includes("web")) sum += count;
+        } else if (lower === "mobile" && kLower.includes("mobile")) {
+          sum += count;
+        } else if (lower === "afterschool" && kLower.includes("afterschool")) {
+          sum += count;
+        } else if (lower === "manual" && kLower.includes("manual")) {
+          sum += count;
+        } else if (kLower.includes(lower)) {
+          sum += count;
+        }
+      });
+    }
     return sum;
-  };
+  }, [contacts, stats]);
+
+  const deduplicatedCount = useMemo(() => {
+    const inMem = contacts.filter(c => (c.submissionCount || 1) > 1).length;
+    return inMem || stats.deduplicated || 0;
+  }, [contacts, stats]);
 
   const getSourceBadge = (source?: string) => {
     const src = (source || "App Registration").trim();
     const lower = src.toLowerCase();
 
+    if (lower.includes("mobile")) {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase border bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20">
+          <Smartphone size={11} /> {src}
+        </span>
+      );
+    }
+    if (lower.includes("portal") || lower.includes("web")) {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase border bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/20">
+          <Globe size={11} /> {src}
+        </span>
+      );
+    }
+    if (lower.includes("afterschool")) {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase border bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20">
+          <GraduationCap size={11} /> {src}
+        </span>
+      );
+    }
+    if (lower.includes("manual")) {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase border bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20">
+          <UserPlus size={11} /> {src}
+        </span>
+      );
+    }
     if (lower.includes("school")) {
       return (
         <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase border bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20">
@@ -374,13 +509,6 @@ export default function MarketingContacts() {
       return (
         <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase border bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20">
           <MapPin size={11} /> {src}
-        </span>
-      );
-    }
-    if (lower.includes("app")) {
-      return (
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase border bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20">
-          <Smartphone size={11} /> {src}
         </span>
       );
     }
@@ -405,7 +533,7 @@ export default function MarketingContacts() {
               <div className="flex items-center gap-2">
                 <h1 className="text-xl font-extrabold tracking-tight text-foreground">Marketing Contacts</h1>
                 <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-primary/10 text-primary border border-primary/20">
-                  {totalCount} Records
+                  {contacts.length || stats.total} Records
                 </span>
               </div>
               <p className="text-xs text-muted-foreground mt-0.5">
@@ -460,38 +588,47 @@ export default function MarketingContacts() {
         </div>
 
         {/* Tier 2: Metric KPI Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 shrink-0">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 shrink-0">
           <div className="p-3 bg-card border rounded-2xl shadow-2xs text-left space-y-1">
             <span className="text-[10px] uppercase font-bold text-muted-foreground flex items-center gap-1">
               <Users size={11} className="text-primary" /> Total Ingested
             </span>
-            <div className="text-xl font-black text-foreground">{stats.total}</div>
+            <div className="text-xl font-black text-foreground">{contacts.length || stats.total}</div>
           </div>
 
           <div className="p-3 bg-card border rounded-2xl shadow-2xs text-left space-y-1">
-            <span className="text-[10px] uppercase font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1">
-              <School size={11} /> School Signups
+            <span className="text-[10px] uppercase font-bold text-violet-600 dark:text-violet-400 flex items-center gap-1">
+              <Smartphone size={11} /> Mobile Signups
             </span>
-            <div className="text-xl font-black text-blue-600 dark:text-blue-400">
-              {getSourceCount("school") || stats.school || 0}
+            <div className="text-xl font-black text-violet-600 dark:text-violet-400">
+              {getSourceCount("mobile")}
             </div>
           </div>
 
           <div className="p-3 bg-card border rounded-2xl shadow-2xs text-left space-y-1">
-            <span className="text-[10px] uppercase font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-              <MapPin size={11} /> Location Signups
+            <span className="text-[10px] uppercase font-bold text-sky-600 dark:text-sky-400 flex items-center gap-1">
+              <Globe size={11} /> Web Portal Signups
             </span>
-            <div className="text-xl font-black text-emerald-600 dark:text-emerald-400">
-              {getSourceCount("location") || stats.location || 0}
+            <div className="text-xl font-black text-sky-600 dark:text-sky-400">
+              {getSourceCount("web_portal")}
             </div>
           </div>
 
           <div className="p-3 bg-card border rounded-2xl shadow-2xs text-left space-y-1">
             <span className="text-[10px] uppercase font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1">
-              <Smartphone size={11} /> Free App Members
+              <GraduationCap size={11} /> AfterSchool Signups
             </span>
             <div className="text-xl font-black text-amber-600 dark:text-amber-400">
-              {getSourceCount("app") || stats.free_app || 0}
+              {getSourceCount("afterschool")}
+            </div>
+          </div>
+
+          <div className="p-3 bg-card border rounded-2xl shadow-2xs text-left space-y-1">
+            <span className="text-[10px] uppercase font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+              <UserPlus size={11} /> Manual CRM
+            </span>
+            <div className="text-xl font-black text-emerald-600 dark:text-emerald-400">
+              {getSourceCount("manual")}
             </div>
           </div>
 
@@ -499,7 +636,7 @@ export default function MarketingContacts() {
             <span className="text-[10px] uppercase font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
               <CheckCircle size={11} /> Deduplicated (2x+)
             </span>
-            <div className="text-xl font-black text-emerald-600 dark:text-emerald-400">{stats.deduplicated}</div>
+            <div className="text-xl font-black text-emerald-600 dark:text-emerald-400">{deduplicatedCount}</div>
           </div>
         </div>
 
@@ -508,10 +645,11 @@ export default function MarketingContacts() {
           {/* Channel Filter Pills */}
           <div className="flex items-center bg-accent/40 border p-1 rounded-xl overflow-x-auto custom-scrollbar text-xs font-bold gap-1 shrink-0">
             {[
-              { id: "all", label: "All Contacts", count: stats.total },
-              { id: "school", label: "Schools", count: getSourceCount("school") || stats.school || 0 },
-              { id: "location", label: "Locations", count: getSourceCount("location") || stats.location || 0 },
-              { id: "app", label: "Free App", count: getSourceCount("app") || stats.free_app || 0 }
+              { id: "all", label: "All Contacts", count: contacts.length || stats.total },
+              { id: "mobile", label: "Mobile", count: getSourceCount("mobile") },
+              { id: "web_portal", label: "Web Portal", count: getSourceCount("web_portal") },
+              { id: "afterschool", label: "AfterSchool", count: getSourceCount("afterschool") },
+              { id: "manual", label: "Manual CRM Entry", count: getSourceCount("manual") }
             ].map(tab => (
               <button
                 key={tab.id}
@@ -609,7 +747,7 @@ export default function MarketingContacts() {
                       </div>
                     </td>
                   </tr>
-                ) : contacts.length === 0 ? (
+                ) : paginatedContacts.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="py-20 text-center text-muted-foreground">
                       <div className="flex flex-col items-center justify-center gap-2">
@@ -624,7 +762,7 @@ export default function MarketingContacts() {
                     </td>
                   </tr>
                 ) : (
-                  contacts.map(contact => {
+                  paginatedContacts.map(contact => {
                     const initials = contact.parentName
                       ? contact.parentName.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase()
                       : "MC";
@@ -1313,7 +1451,7 @@ export default function MarketingContacts() {
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. School, Location, App Registration"
+                  placeholder="e.g. Mobile, Web Portal, AfterSchool, Manual CRM Entry"
                   value={editForm.source}
                   onChange={e => setEditForm(prev => ({ ...prev, source: e.target.value }))}
                   className="h-9 input-field text-xs w-full rounded-xl dark:bg-card px-3"
