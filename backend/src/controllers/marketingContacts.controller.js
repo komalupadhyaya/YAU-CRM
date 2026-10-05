@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import MarketingContact from '../models/emailMarketingContact.model.js';
 import EALead from '../models/eaLead.model.js';
+import { routeRegistrationToSegment } from '../services/email/listRouting.service.js';
 
 /**
  * Get paginated, searchable, filterable marketing contacts
@@ -29,8 +30,22 @@ export const getMarketingContacts = async (req, res) => {
                 { parentName: searchRegex },
                 { email: searchRegex },
                 { phone: searchRegex },
-                { source: searchRegex }
+                { source: searchRegex },
+                { schoolName: searchRegex },
+                { locationName: searchRegex },
+                { sport: searchRegex },
+                { studentName: searchRegex }
             ];
+        }
+
+        // School filter
+        if (req.query.school && req.query.school !== 'all') {
+            query.schoolName = new RegExp(req.query.school.trim(), 'i');
+        }
+
+        // Location filter
+        if (req.query.location && req.query.location !== 'all') {
+            query.locationName = new RegExp(req.query.location.trim(), 'i');
         }
 
         // 2. Source filter (with backward compatibility for entryPoint)
@@ -237,6 +252,12 @@ export const createMarketingContact = async (req, res) => {
             email,
             phone = '',
             source = 'App Registration',
+            schoolName = '',
+            locationName = '',
+            sport = '',
+            gradeBand = '',
+            planType = '',
+            studentName = '',
             metadata = {}
         } = req.body;
 
@@ -260,6 +281,13 @@ export const createMarketingContact = async (req, res) => {
             existingContact.parentName = parentName.trim();
             if (phone) existingContact.phone = phone.trim();
             if (resolvedSource) existingContact.source = resolvedSource;
+            if (schoolName) existingContact.schoolName = schoolName.trim();
+            if (locationName) existingContact.locationName = locationName.trim();
+            if (sport) existingContact.sport = sport.trim();
+            if (gradeBand) existingContact.gradeBand = gradeBand.trim();
+            if (planType) existingContact.planType = planType.trim();
+            if (studentName) existingContact.studentName = studentName.trim();
+
             if (metadata && typeof metadata === 'object') {
                 existingContact.metadata = { ...existingContact.metadata, ...metadata };
             }
@@ -273,6 +301,12 @@ export const createMarketingContact = async (req, res) => {
                 email: cleanEmail,
                 phone: phone ? phone.trim() : '',
                 source: resolvedSource,
+                schoolName: schoolName ? schoolName.trim() : '',
+                locationName: locationName ? locationName.trim() : '',
+                sport: sport ? sport.trim() : '',
+                gradeBand: gradeBand ? gradeBand.trim() : '',
+                planType: planType ? planType.trim() : '',
+                studentName: studentName ? studentName.trim() : '',
                 metadata: metadata && typeof metadata === 'object' ? metadata : {},
                 submissionCount: 1,
                 lastRegisteredAt: new Date(),
@@ -281,12 +315,27 @@ export const createMarketingContact = async (req, res) => {
             });
         }
 
+        // Auto-route to dedicated list
+        const routingResult = await routeRegistrationToSegment({
+            parentName: contact.parentName,
+            email: contact.email,
+            phone: contact.phone,
+            source: contact.source,
+            entryPoint: req.body.entryPoint,
+            schoolName: contact.schoolName,
+            locationName: contact.locationName,
+            sport: contact.sport,
+            gradeBand: contact.gradeBand,
+            planType: contact.planType
+        });
+
         return res.status(isDuplicate ? 200 : 201).json({
             success: true,
             isDuplicate,
+            targetList: routingResult?.listName,
             message: isDuplicate
-                ? `Existing contact updated and registrations merged (${contact.submissionCount}x)!`
-                : `Marketing contact "${contact.parentName}" added successfully.`,
+                ? `Existing contact updated and routed into "${routingResult?.listName || 'List'}" (${contact.submissionCount}x)!`
+                : `Marketing contact "${contact.parentName}" added and sorted into "${routingResult?.listName || 'List'}".`,
             contact
         });
     } catch (error) {
@@ -307,6 +356,12 @@ export const updateMarketingContact = async (req, res) => {
             email,
             phone = '',
             source = 'App Registration',
+            schoolName,
+            locationName,
+            sport,
+            gradeBand,
+            planType,
+            studentName,
             status = 'active',
             metadata = {}
         } = req.body;
@@ -331,6 +386,13 @@ export const updateMarketingContact = async (req, res) => {
         contact.email = cleanEmail;
         contact.phone = phone ? phone.trim() : '';
         if (source) contact.source = source.trim();
+        if (schoolName !== undefined) contact.schoolName = schoolName.trim();
+        if (locationName !== undefined) contact.locationName = locationName.trim();
+        if (sport !== undefined) contact.sport = sport.trim();
+        if (gradeBand !== undefined) contact.gradeBand = gradeBand.trim();
+        if (planType !== undefined) contact.planType = planType.trim();
+        if (studentName !== undefined) contact.studentName = studentName.trim();
+
         if (['active', 'opted_out', 'bounced'].includes(status)) {
             contact.status = status;
             contact.isEmailConsent = (status === 'active');
@@ -341,7 +403,7 @@ export const updateMarketingContact = async (req, res) => {
 
         await contact.save();
 
-        // If email changed, update existing segment contacts with old email
+        // If email or details changed, update and re-route
         if (prevEmail !== cleanEmail) {
             const EmailSegment = mongoose.model('EmailSegment');
             await EmailSegment.updateMany(
@@ -349,6 +411,19 @@ export const updateMarketingContact = async (req, res) => {
                 { $set: { "contacts.$.email": cleanEmail, "contacts.$.name": contact.parentName } }
             );
         }
+
+        // Re-route to correct list
+        await routeRegistrationToSegment({
+            parentName: contact.parentName,
+            email: contact.email,
+            phone: contact.phone,
+            source: contact.source,
+            schoolName: contact.schoolName,
+            locationName: contact.locationName,
+            sport: contact.sport,
+            gradeBand: contact.gradeBand,
+            planType: contact.planType
+        });
 
         return res.json({
             success: true,

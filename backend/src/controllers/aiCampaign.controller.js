@@ -79,9 +79,9 @@ async function fetchRecipientContext(recipient) {
                 ...(recipient.leadId ? [{ leadId: recipient.leadId }] : [])
             ]
         })
-        .sort({ sentAt: -1, createdAt: -1 })
-        .limit(6)
-        .lean();
+            .sort({ sentAt: -1, createdAt: -1 })
+            .limit(6)
+            .lean();
 
         emailHistory = rawEmails.map(e => ({
             direction: e.direction || 'outbound',
@@ -157,7 +157,7 @@ export const generateAiCampaignPreview = async (req, res, next) => {
             const chunk = recipients.slice(i, i + BATCH_SIZE);
             const chunkResults = await Promise.all(chunk.map(async (recipient) => {
                 const context = await fetchRecipientContext(recipient);
-                
+
                 try {
                     // Exactly 1 AI call per recipient
                     const aiResult = await aiService.generatePersonalizedEmailMessage({
@@ -198,7 +198,7 @@ export const generateAiCampaignPreview = async (req, res, next) => {
                         contactTitle: context.profile.contactTitle,
                         email: recipient.email,
                         subject: resolvedTemplateSubject || `Youth Athletic Programs for ${context.profile.leadName || 'Your School'}`,
-                        body: resolvedTemplateHtml 
+                        body: resolvedTemplateHtml
                             ? resolvedTemplateHtml.replace(/\{\{\s*name\s*\}\}/gi, context.profile.contactName || recipient.name || 'there')
                             : `<p>Hi ${context.profile.contactName || 'there'},</p><p>We wanted to reach out from YAU Sports regarding our upcoming youth athletic programs and school clinics.</p><p>Best regards,<br/>The YAU Sports Team</p>`,
                         contextReasoning: 'Preserved template styling; applied contact profile fallback.',
@@ -289,7 +289,7 @@ async function generateAndEnqueueRemainingAiRecipients({ campaignId, segment, ex
                         name: context.profile.contactName || recipient.name,
                         email: recipient.email,
                         subject: resolvedTemplateSubject || `Youth Athletic Programs for ${context.profile.leadName || 'Your School'}`,
-                        body: resolvedTemplateHtml 
+                        body: resolvedTemplateHtml
                             ? resolvedTemplateHtml.replace(/\{\{\s*name\s*\}\}/gi, context.profile.contactName || recipient.name || 'there')
                             : `<p>Hi ${context.profile.contactName || 'there'},</p><p>We wanted to reach out regarding our upcoming athletic programs and clinics.</p><p>Best regards,<br/>YAU Sports</p>`,
                         contextReasoning: 'Preserved template styling; applied contact profile fallback.'
@@ -504,7 +504,7 @@ export const dispatchAiPersonalizedCampaign = async (req, res, next) => {
 
         return res.json({
             success: true,
-            message: isScheduled 
+            message: isScheduled
                 ? `AI Personalized Campaign scheduled for ${new Date(sendAt).toLocaleString()} (${drafts.length} personalized email${drafts.length === 1 ? '' : 's'})`
                 : `AI Campaign launched! ${drafts.length} reviewed email${drafts.length === 1 ? '' : 's'} enqueued; remaining recipients are being generated in the background.`,
             campaign

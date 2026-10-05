@@ -6,7 +6,7 @@ const EmailSegmentSchema = new mongoose.Schema({
     type: { type: String, enum: ['dynamic', 'static', 'campaign', 'csv', 'marketing'], required: true },
     category: {
         type: String,
-        enum: ['school', 'location', 'app_members', 'ea_leads', 'csv', 'custom', 'campaign', 'marketing'],
+        enum: ['school', 'location', 'app_members', 'ea_leads', 'manual', 'csv', 'custom', 'campaign', 'marketing'],
         default: 'custom'
     },
     externalId: { type: String, index: true },

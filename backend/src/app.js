@@ -265,6 +265,7 @@ app.use('/api/tasks', tasksRoutes);
 app.use('/api/contacts', contactRoutes);
 app.use('/api/emails', campaignsRoutes);
 app.use('/api/emails', segmentsRoutes);
+app.use('/api', segmentsRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/sms', smsRoutes);
 app.use('/api/notifications', notificationRoutes);

@@ -24,6 +24,39 @@ export const EmailMarketingContactSchema = new mongoose.Schema({
         trim: true,
         index: true
     },
+    schoolName: {
+        type: String,
+        trim: true,
+        default: '',
+        index: true
+    },
+    locationName: {
+        type: String,
+        trim: true,
+        default: '',
+        index: true
+    },
+    sport: {
+        type: String,
+        trim: true,
+        default: '',
+        index: true
+    },
+    gradeBand: {
+        type: String,
+        trim: true,
+        default: ''
+    },
+    planType: {
+        type: String,
+        trim: true,
+        default: ''
+    },
+    studentName: {
+        type: String,
+        trim: true,
+        default: ''
+    },
     metadata: {
         type: mongoose.Schema.Types.Mixed,
         default: {}
@@ -47,10 +80,6 @@ export const EmailMarketingContactSchema = new mongoose.Schema({
         index: true
     }
 }, { timestamps: true });
-
-// Indexes for fast lookup
-EmailMarketingContactSchema.index({ email: 1 });
-EmailMarketingContactSchema.index({ source: 1 });
 
 // Registered as EmailMarketingContact targeting 'email_marketing_contacts' collection
 export const EmailMarketingContact = mongoose.models.EmailMarketingContact || 

@@ -10,7 +10,8 @@ import {
   removeSegmentContact,
   previewCampaignRecipients,
   getAvailableContacts,
-  getMarketingContactsForSegment
+  getMarketingContactsForSegment,
+  backfillRegistrationListsHandler
 } from '../controllers/segments.controller.js';
 import auth from '../middleware/auth.middleware.js';
 import requireRole from '../middleware/role.middleware.js';
@@ -28,6 +29,7 @@ router.get('/segments/preview-campaign/:campaignId', auth, requireRole(...allowe
 
 // Segment mutations - Admin Only
 router.post('/segments', auth, requireRole(...allowedRoles), createSegment);
+router.post('/segments/backfill-lists', auth, requireRole(...allowedRoles), backfillRegistrationListsHandler);
 router.put('/segments/:id', auth, requireRole(...allowedRoles), updateSegment);
 router.delete('/segments/:id', auth, requireRole(...allowedRoles), deleteSegment);
 router.post('/segments/import', auth, requireRole(...allowedRoles), upload.single('file'), importSegmentCsv);

@@ -63,7 +63,11 @@ import {
   HelpCircle,
   Edit2,
   UserPlus,
-  ShieldCheck
+  Shield,
+  ShieldCheck,
+  Smartphone,
+  Globe,
+  GraduationCap
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -79,6 +83,66 @@ interface MarketingContactItem {
   locationName?: string;
   locationId?: string;
 }
+
+const matchMarketingChannel = (source: string | undefined, entryPoint: string | undefined, filterId: string) => {
+  if (!filterId || filterId === "all") return true;
+  const src = (source || entryPoint || "").toLowerCase().trim();
+  if (filterId === "mobile") {
+    return src.includes("mobile");
+  }
+  if (filterId === "web_portal" || filterId === "portal") {
+    return src.includes("portal") || src.includes("web");
+  }
+  if (filterId === "afterschool" || filterId === "school") {
+    return src.includes("afterschool") || src.includes("after school") || src.includes("school");
+  }
+  if (filterId === "manual") {
+    return src.includes("manual") || src.includes("crm");
+  }
+  return src.includes(filterId.toLowerCase());
+};
+
+const getMarketingChannelInfo = (source: string | undefined, entryPoint: string | undefined) => {
+  const src = (source || entryPoint || "").toLowerCase().trim();
+  if (src.includes("mobile")) {
+    return {
+      id: "mobile",
+      label: "Mobile",
+      badgeColor: "bg-violet-500/10 text-violet-600 dark:text-violet-400 border border-violet-500/20",
+      icon: "smartphone"
+    };
+  }
+  if (src.includes("portal") || src.includes("web")) {
+    return {
+      id: "web_portal",
+      label: "Web Portal",
+      badgeColor: "bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20",
+      icon: "globe"
+    };
+  }
+  if (src.includes("afterschool") || src.includes("after school") || src.includes("school")) {
+    return {
+      id: "afterschool",
+      label: "After School",
+      badgeColor: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20",
+      icon: "graduation-cap"
+    };
+  }
+  if (src.includes("manual") || src.includes("crm")) {
+    return {
+      id: "manual",
+      label: "Manual CRM",
+      badgeColor: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20",
+      icon: "user-plus"
+    };
+  }
+  return {
+    id: "other",
+    label: source || "Marketing",
+    badgeColor: "bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20",
+    icon: "sparkles"
+  };
+};
 import ReactQuill from "react-quill-new";
 import "react-quill-new/dist/quill.snow.css";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -92,7 +156,7 @@ interface Segment {
   name: string;
   description?: string;
   type: "dynamic" | "static" | "campaign" | "csv" | "marketing";
-  category?: "school" | "location" | "app_members" | "ea_leads" | "csv" | "custom" | "campaign" | "marketing";
+  category?: "school" | "location" | "app_members" | "ea_leads" | "manual" | "csv" | "custom" | "campaign" | "marketing";
   externalId?: string;
   isSystemList?: boolean;
   filters?: {
@@ -255,6 +319,7 @@ export default function EmailCenter() {
   // Webhook Integration Guide State
   const [isWebhookGuideOpen, setIsWebhookGuideOpen] = useState(false);
   const [copiedWebhookPayload, setCopiedWebhookPayload] = useState<string | null>(null);
+  const [webhookPayloadTab, setWebhookPayloadTab] = useState<"full" | "school" | "location" | "app" | "admin">("full");
 
   // Database Template & Groq AI States
   const [isAiTemplateModalOpen, setIsAiTemplateModalOpen] = useState(false);
@@ -532,23 +597,27 @@ export default function EmailCenter() {
     );
   }, [segmentForm.customContacts, customContactsSearch]);
 
+  const marketingChannelCounts = React.useMemo(() => {
+    return {
+      all: marketingListContacts.length,
+      mobile: marketingListContacts.filter(c => matchMarketingChannel(c.source, c.entryPoint, "mobile")).length,
+      web_portal: marketingListContacts.filter(c => matchMarketingChannel(c.source, c.entryPoint, "web_portal")).length,
+      afterschool: marketingListContacts.filter(c => matchMarketingChannel(c.source, c.entryPoint, "afterschool")).length,
+      manual: marketingListContacts.filter(c => matchMarketingChannel(c.source, c.entryPoint, "manual")).length,
+    };
+  }, [marketingListContacts]);
+
   const filteredMarketingContacts = React.useMemo(() => {
     let list = marketingListContacts;
     if (marketingChannelFilter && marketingChannelFilter !== "all") {
-      const filterLower = marketingChannelFilter.toLowerCase();
-      list = list.filter(c => {
-        const src = (c.source || c.entryPoint || "").toLowerCase();
-        if (filterLower === "school") return src.includes("school") || Boolean(c.schoolName);
-        if (filterLower === "location") return src.includes("location") || Boolean(c.locationName);
-        if (filterLower === "free_app" || filterLower === "app") return src.includes("app") || (!c.schoolName && !c.locationName);
-        return src.includes(filterLower);
-      });
+      list = list.filter(c => matchMarketingChannel(c.source, c.entryPoint, marketingChannelFilter));
     }
     if (marketingSearchQuery.trim()) {
       const q = marketingSearchQuery.toLowerCase().trim();
       list = list.filter(c =>
         (c.name && c.name.toLowerCase().includes(q)) ||
         (c.email && c.email.toLowerCase().includes(q)) ||
+        (c.source && c.source.toLowerCase().includes(q)) ||
         (c.schoolName && c.schoolName.toLowerCase().includes(q)) ||
         (c.locationName && c.locationName.toLowerCase().includes(q)) ||
         (c.phone && c.phone.toLowerCase().includes(q))
@@ -722,7 +791,7 @@ export default function EmailCenter() {
   const filteredSegments = React.useMemo(() => {
     let list = segments;
     if (segmentTypeFilter !== "all") {
-      if (["school", "location", "app_members", "ea_leads"].includes(segmentTypeFilter)) {
+      if (["school", "location", "app_members", "ea_leads", "manual"].includes(segmentTypeFilter)) {
         list = list.filter(s => s.category === segmentTypeFilter);
       } else {
         list = list.filter(s => s.type === segmentTypeFilter);
@@ -2165,8 +2234,8 @@ export default function EmailCenter() {
     // 1. Retained Existing contacts (when editing)
     const retainedExistingContacts = editingSegmentId
       ? existingSegmentContacts
-          .filter(c => existingSelectedEmails.includes(c.email))
-          .map(c => ({ name: c.name, email: c.email, status: c.status || "active" }))
+        .filter(c => existingSelectedEmails.includes(c.email))
+        .map(c => ({ name: c.name, email: c.email, status: c.status || "active" }))
       : [];
 
     // 2. Newly selected CSV contacts
@@ -2789,13 +2858,19 @@ export default function EmailCenter() {
         </span>
       );
     }
+    if (seg.category === "manual") {
+      return (
+        <span className="text-[9px] px-2.5 py-0.5 rounded-full font-extrabold uppercase border bg-teal-500/10 text-teal-600 dark:text-teal-400 border-teal-500/20">
+          ✍️ Manual Added Contacts
+        </span>
+      );
+    }
     return (
-      <span className={`text-[9px] px-2.5 py-0.5 rounded-full font-extrabold uppercase border ${
-        seg.type === "csv" ? "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20" :
-        seg.type === "campaign" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20" :
-        seg.type === "marketing" ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20" :
-        "bg-teal-500/10 text-teal-600 dark:text-teal-400 border-teal-500/20"
-      }`}>
+      <span className={`text-[9px] px-2.5 py-0.5 rounded-full font-extrabold uppercase border ${seg.type === "csv" ? "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20" :
+          seg.type === "campaign" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20" :
+            seg.type === "marketing" ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20" :
+              "bg-teal-500/10 text-teal-600 dark:text-teal-400 border-teal-500/20"
+        }`}>
         {seg.type === "csv" ? "CSV Import" : seg.type === "campaign" ? "Sales Campaign" : seg.type === "marketing" ? "Marketing List" : "Static List"}
       </span>
     );
@@ -2824,8 +2899,8 @@ export default function EmailCenter() {
                   key={tab}
                   onClick={() => setActiveTab(tab)}
                   className={`px-3.5 py-1.5 rounded-lg transition-all cursor-pointer ${activeTab === tab
-                      ? "bg-card text-foreground shadow-2xs font-extrabold"
-                      : "text-muted-foreground hover:text-foreground"
+                    ? "bg-card text-foreground shadow-2xs font-extrabold"
+                    : "text-muted-foreground hover:text-foreground"
                     }`}
                 >
                   {tab === "segments" ? "Lists & Segments" : tab === "campaigns" ? "Campaigns" : "Templates"}
@@ -2839,8 +2914,8 @@ export default function EmailCenter() {
             <button
               onClick={() => setWorkspace("campaigns")}
               className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${workspace === "campaigns"
-                  ? "bg-primary text-white shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
+                ? "bg-primary text-white shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
                 }`}
             >
               Marketing Workspace
@@ -2848,8 +2923,8 @@ export default function EmailCenter() {
             <button
               onClick={() => setWorkspace("inbox")}
               className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${workspace === "inbox"
-                  ? "bg-primary text-white shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
+                ? "bg-primary text-white shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
                 }`}
             >
               1-to-1 Inbox
@@ -2917,11 +2992,10 @@ export default function EmailCenter() {
                       <button
                         type="button"
                         onClick={() => setMarketingViewMode('grid')}
-                        className={`flex-1 h-full rounded-lg text-xs transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5 ${
-                          marketingViewMode === 'grid'
+                        className={`flex-1 h-full rounded-lg text-xs transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5 ${marketingViewMode === 'grid'
                             ? 'bg-card text-foreground shadow-sm border border-border/50 font-bold'
                             : 'text-muted-foreground hover:text-foreground hover:bg-card/40 font-medium'
-                        }`}
+                          }`}
                         title="Cards Grid View"
                       >
                         <LayoutGrid size={13} className={marketingViewMode === 'grid' ? 'text-primary' : 'text-muted-foreground'} />
@@ -2930,11 +3004,10 @@ export default function EmailCenter() {
                       <button
                         type="button"
                         onClick={() => setMarketingViewMode('table')}
-                        className={`flex-1 h-full rounded-lg text-xs transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5 ${
-                          marketingViewMode === 'table'
+                        className={`flex-1 h-full rounded-lg text-xs transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5 ${marketingViewMode === 'table'
                             ? 'bg-card text-foreground shadow-sm border border-border/50 font-bold'
                             : 'text-muted-foreground hover:text-foreground hover:bg-card/40 font-medium'
-                        }`}
+                          }`}
                         title="Full Data Table View"
                       >
                         <Table size={13} className={marketingViewMode === 'table' ? 'text-primary' : 'text-muted-foreground'} />
@@ -2995,6 +3068,7 @@ export default function EmailCenter() {
                       <option value="school">🏫 School Audiences</option>
                       <option value="location">📍 Location Audiences</option>
                       <option value="app_members">📱 Free App Members</option>
+                      <option value="manual">✍️ Manual Added Contacts</option>
                       <option value="ea_leads">⚡ EA Leads</option>
                       <option value="csv">CSV Import</option>
                       <option value="static">Manual / Static List</option>
@@ -3005,11 +3079,10 @@ export default function EmailCenter() {
                       <button
                         type="button"
                         onClick={() => setMarketingViewMode('grid')}
-                        className={`flex-1 h-full rounded-lg text-xs transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5 ${
-                          marketingViewMode === 'grid'
+                        className={`flex-1 h-full rounded-lg text-xs transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5 ${marketingViewMode === 'grid'
                             ? 'bg-card text-foreground shadow-sm border border-border/50 font-bold'
                             : 'text-muted-foreground hover:text-foreground hover:bg-card/40 font-medium'
-                        }`}
+                          }`}
                         title="Cards Grid View"
                       >
                         <LayoutGrid size={13} className={marketingViewMode === 'grid' ? 'text-primary' : 'text-muted-foreground'} />
@@ -3018,11 +3091,10 @@ export default function EmailCenter() {
                       <button
                         type="button"
                         onClick={() => setMarketingViewMode('table')}
-                        className={`flex-1 h-full rounded-lg text-xs transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5 ${
-                          marketingViewMode === 'table'
+                        className={`flex-1 h-full rounded-lg text-xs transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5 ${marketingViewMode === 'table'
                             ? 'bg-card text-foreground shadow-sm border border-border/50 font-bold'
                             : 'text-muted-foreground hover:text-foreground hover:bg-card/40 font-medium'
-                        }`}
+                          }`}
                         title="Full Data Table View"
                       >
                         <Table size={13} className={marketingViewMode === 'table' ? 'text-primary' : 'text-muted-foreground'} />
@@ -3076,11 +3148,10 @@ export default function EmailCenter() {
                       <button
                         type="button"
                         onClick={() => setMarketingViewMode('grid')}
-                        className={`flex-1 h-full rounded-lg text-xs transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5 ${
-                          marketingViewMode === 'grid'
+                        className={`flex-1 h-full rounded-lg text-xs transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5 ${marketingViewMode === 'grid'
                             ? 'bg-card text-foreground shadow-sm border border-border/50 font-bold'
                             : 'text-muted-foreground hover:text-foreground hover:bg-card/40 font-medium'
-                        }`}
+                          }`}
                         title="Cards Grid View"
                       >
                         <LayoutGrid size={13} className={marketingViewMode === 'grid' ? 'text-primary' : 'text-muted-foreground'} />
@@ -3089,11 +3160,10 @@ export default function EmailCenter() {
                       <button
                         type="button"
                         onClick={() => setMarketingViewMode('table')}
-                        className={`flex-1 h-full rounded-lg text-xs transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5 ${
-                          marketingViewMode === 'table'
+                        className={`flex-1 h-full rounded-lg text-xs transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5 ${marketingViewMode === 'table'
                             ? 'bg-card text-foreground shadow-sm border border-border/50 font-bold'
                             : 'text-muted-foreground hover:text-foreground hover:bg-card/40 font-medium'
-                        }`}
+                          }`}
                         title="Full Data Table View"
                       >
                         <Table size={13} className={marketingViewMode === 'table' ? 'text-primary' : 'text-muted-foreground'} />
@@ -3209,8 +3279,8 @@ export default function EmailCenter() {
                                   <td className="p-3.5 align-middle">
                                     <div className="flex flex-col gap-1 justify-center">
                                       <span className={`text-[9px] px-2.5 py-0.5 rounded-full font-extrabold uppercase border w-fit ${camp.status === "sent" ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20" :
-                                          camp.status === "scheduled" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20" :
-                                            "bg-zinc-500/10 text-zinc-600 dark:text-zinc-400 border-zinc-500/20"
+                                        camp.status === "scheduled" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20" :
+                                          "bg-zinc-500/10 text-zinc-600 dark:text-zinc-400 border-zinc-500/20"
                                         }`}>
                                         {camp.status}
                                       </span>
@@ -3287,8 +3357,8 @@ export default function EmailCenter() {
                               <div className="flex items-center justify-between gap-2">
                                 <div className="flex items-center gap-1.5">
                                   <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-extrabold uppercase border ${camp.status === "sent" ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20" :
-                                      camp.status === "scheduled" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20" :
-                                        "bg-zinc-500/10 text-zinc-600 dark:text-zinc-400 border-zinc-500/20"
+                                    camp.status === "scheduled" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20" :
+                                      "bg-zinc-500/10 text-zinc-600 dark:text-zinc-400 border-zinc-500/20"
                                     }`}>
                                     {camp.status}
                                   </span>
@@ -3808,8 +3878,8 @@ export default function EmailCenter() {
                       type="button"
                       onClick={() => setConversationsFilter(tab.id as any)}
                       className={`flex-1 py-1 rounded-lg text-[10px] font-bold border transition-colors cursor-pointer ${conversationsFilter === tab.id
-                          ? "bg-primary text-white border-primary shadow-2xs"
-                          : "bg-accent/15 hover:bg-accent/40 text-muted-foreground hover:text-foreground border-transparent"
+                        ? "bg-primary text-white border-primary shadow-2xs"
+                        : "bg-accent/15 hover:bg-accent/40 text-muted-foreground hover:text-foreground border-transparent"
                         }`}
                     >
                       {tab.label}
@@ -3842,8 +3912,8 @@ export default function EmailCenter() {
                         key={conv._id}
                         onClick={() => handleSelectConversation(conv)}
                         className={`flex items-start gap-3 p-3 rounded-xl cursor-pointer transition-all ${isSelected
-                            ? "bg-primary/10 border border-primary/20 text-foreground shadow-2xs"
-                            : "hover:bg-accent/30 text-muted-foreground hover:text-foreground"
+                          ? "bg-primary/10 border border-primary/20 text-foreground shadow-2xs"
+                          : "hover:bg-accent/30 text-muted-foreground hover:text-foreground"
                           }`}
                       >
                         <div className="h-9 w-9 rounded-full bg-primary/15 text-primary font-extrabold text-xs flex items-center justify-center shrink-0 border border-primary/20">
@@ -4346,11 +4416,10 @@ export default function EmailCenter() {
                           }
                           setCampaignEditorMode("preview");
                         }}
-                        className={`px-2.5 py-0.5 rounded-md font-bold transition-all cursor-pointer flex items-center gap-1 ${
-                          campaignEditorMode === "preview"
+                        className={`px-2.5 py-0.5 rounded-md font-bold transition-all cursor-pointer flex items-center gap-1 ${campaignEditorMode === "preview"
                             ? "bg-card text-foreground shadow-2xs"
                             : "text-muted-foreground hover:text-foreground"
-                        }`}
+                          }`}
                       >
                         <Eye size={12} className={campaignEditorMode === "preview" ? "text-primary" : "text-muted-foreground"} />
                         <span>Live Preview</span>
@@ -4368,11 +4437,10 @@ export default function EmailCenter() {
                             }
                           }, 0);
                         }}
-                        className={`px-2.5 py-0.5 rounded-md font-bold transition-all cursor-pointer flex items-center gap-1 ${
-                          campaignEditorMode === "editor"
+                        className={`px-2.5 py-0.5 rounded-md font-bold transition-all cursor-pointer flex items-center gap-1 ${campaignEditorMode === "editor"
                             ? "bg-card text-foreground shadow-2xs"
                             : "text-muted-foreground hover:text-foreground"
-                        }`}
+                          }`}
                       >
                         <PenLine size={12} className={campaignEditorMode === "editor" ? "text-primary" : "text-muted-foreground"} />
                         <span>Write Content</span>
@@ -4385,11 +4453,10 @@ export default function EmailCenter() {
                           }
                           setCampaignEditorMode("html");
                         }}
-                        className={`px-2.5 py-0.5 rounded-md font-bold transition-all cursor-pointer flex items-center gap-1 ${
-                          campaignEditorMode === "html"
+                        className={`px-2.5 py-0.5 rounded-md font-bold transition-all cursor-pointer flex items-center gap-1 ${campaignEditorMode === "html"
                             ? "bg-card text-foreground shadow-2xs"
                             : "text-muted-foreground hover:text-foreground"
-                        }`}
+                          }`}
                       >
                         <Code2 size={12} className={campaignEditorMode === "html" ? "text-primary" : "text-muted-foreground"} />
                         <span>HTML Code</span>
@@ -5061,9 +5128,9 @@ export default function EmailCenter() {
                           <HelpCircle size={14} className="stroke-[2.2]" />
                         </button>
                       </PopoverTrigger>
-                      <PopoverContent 
-                        className="w-[92vw] max-w-[430px] p-4 text-xs space-y-3 z-[100] shadow-2xl border-border bg-card/95 backdrop-blur-md rounded-xl" 
-                        side="bottom" 
+                      <PopoverContent
+                        className="w-[92vw] max-w-[430px] p-4 text-xs space-y-3 z-[100] shadow-2xl border-border bg-card/95 backdrop-blur-md rounded-xl"
+                        side="bottom"
                         align="start"
                       >
                         <div className="flex items-start gap-2.5 pb-2.5 border-b">
@@ -5150,9 +5217,8 @@ export default function EmailCenter() {
                     <button
                       type="button"
                       onClick={() => setSegmentTab("existing")}
-                      className={`flex-1 min-w-[120px] py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
-                        segmentTab === "existing" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
-                      }`}
+                      className={`flex-1 min-w-[120px] py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${segmentTab === "existing" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                        }`}
                     >
                       <Users size={13} />
                       <span>1. Current ({existingSelectedEmails.length}/{existingSegmentContacts.length})</span>
@@ -5163,9 +5229,8 @@ export default function EmailCenter() {
                         setSegmentTab("csv");
                         setSegmentForm(prev => ({ ...prev, type: "csv" }));
                       }}
-                      className={`flex-1 min-w-[100px] py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
-                        segmentTab === "csv" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
-                      }`}
+                      className={`flex-1 min-w-[100px] py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${segmentTab === "csv" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                        }`}
                     >
                       <Upload size={13} />
                       <span>2. CSV</span>
@@ -5176,9 +5241,8 @@ export default function EmailCenter() {
                         setSegmentTab("static");
                         setSegmentForm(prev => ({ ...prev, type: "static" }));
                       }}
-                      className={`flex-1 min-w-[100px] py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
-                        segmentTab === "static" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
-                      }`}
+                      className={`flex-1 min-w-[100px] py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${segmentTab === "static" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                        }`}
                     >
                       <UserCheck size={13} />
                       <span>3. CRM</span>
@@ -5189,9 +5253,8 @@ export default function EmailCenter() {
                         setSegmentTab("campaign");
                         setSegmentForm(prev => ({ ...prev, type: "campaign" }));
                       }}
-                      className={`flex-1 min-w-[100px] py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
-                        segmentTab === "campaign" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
-                      }`}
+                      className={`flex-1 min-w-[100px] py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${segmentTab === "campaign" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                        }`}
                     >
                       <Sparkles size={13} />
                       <span>4. Campaign</span>
@@ -5201,10 +5264,12 @@ export default function EmailCenter() {
                       onClick={() => {
                         setSegmentTab("marketing");
                         setSegmentForm(prev => ({ ...prev, type: "marketing" }));
+                        if (marketingListContacts.length === 0) {
+                          fetchMarketingListContacts();
+                        }
                       }}
-                      className={`flex-1 min-w-[110px] py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
-                        segmentTab === "marketing" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
-                      }`}
+                      className={`flex-1 min-w-[110px] py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${segmentTab === "marketing" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                        }`}
                     >
                       <ShieldCheck size={13} />
                       <span>5. Marketing List</span>
@@ -5218,9 +5283,8 @@ export default function EmailCenter() {
                         setSegmentTab("csv");
                         setSegmentForm(prev => ({ ...prev, type: "csv" }));
                       }}
-                      className={`flex-1 min-w-[90px] py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all ${
-                        segmentForm.type === "csv" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
-                      }`}
+                      className={`flex-1 min-w-[90px] py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all ${segmentForm.type === "csv" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                        }`}
                     >
                       Import CSV File
                     </button>
@@ -5230,9 +5294,8 @@ export default function EmailCenter() {
                         setSegmentTab("static");
                         setSegmentForm(prev => ({ ...prev, type: "static" }));
                       }}
-                      className={`flex-1 min-w-[90px] py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all ${
-                        segmentForm.type === "static" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
-                      }`}
+                      className={`flex-1 min-w-[90px] py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all ${segmentForm.type === "static" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                        }`}
                     >
                       Manual Contacts
                     </button>
@@ -5242,9 +5305,8 @@ export default function EmailCenter() {
                         setSegmentTab("campaign");
                         setSegmentForm(prev => ({ ...prev, type: "campaign" }));
                       }}
-                      className={`flex-1 min-w-[90px] py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all ${
-                        segmentForm.type === "campaign" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
-                      }`}
+                      className={`flex-1 min-w-[90px] py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all ${segmentForm.type === "campaign" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                        }`}
                     >
                       Sales Campaign
                     </button>
@@ -5253,10 +5315,12 @@ export default function EmailCenter() {
                       onClick={() => {
                         setSegmentTab("marketing");
                         setSegmentForm(prev => ({ ...prev, type: "marketing" }));
+                        if (marketingListContacts.length === 0) {
+                          fetchMarketingListContacts();
+                        }
                       }}
-                      className={`flex-1 min-w-[110px] py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
-                        segmentForm.type === "marketing" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
-                      }`}
+                      className={`flex-1 min-w-[110px] py-1.5 px-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${segmentForm.type === "marketing" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                        }`}
                     >
                       <ShieldCheck size={13} className="shrink-0" />
                       <span>Marketing List</span>
@@ -5399,9 +5463,8 @@ export default function EmailCenter() {
                         return (
                           <div
                             key={contact.email || idx}
-                            className={`flex items-center justify-between gap-2.5 p-2 rounded-lg border transition-colors ${
-                              isSelected ? "bg-card border-border/80 text-foreground" : "opacity-50 bg-muted/20 border-transparent text-muted-foreground"
-                            }`}
+                            className={`flex items-center justify-between gap-2.5 p-2 rounded-lg border transition-colors ${isSelected ? "bg-card border-border/80 text-foreground" : "opacity-50 bg-muted/20 border-transparent text-muted-foreground"
+                              }`}
                           >
                             <label className="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer">
                               <input
@@ -5460,7 +5523,7 @@ export default function EmailCenter() {
                       </p>
                     </div>
 
-                    <label 
+                    <label
                       htmlFor="inline-csv-file-input"
                       className="group relative block p-5 border-2 border-dashed border-primary/50 hover:border-primary rounded-2xl bg-accent/5 hover:bg-primary/5 text-center space-y-2.5 transition-all duration-200 cursor-pointer shadow-sm"
                       onDragOver={(e) => {
@@ -5586,8 +5649,8 @@ export default function EmailCenter() {
                                 );
                               }}
                               className={`flex items-start gap-2.5 p-2 rounded-lg cursor-pointer transition-colors border ${isSelected
-                                  ? "bg-violet-500/5 border-violet-500/20 text-foreground"
-                                  : "hover:bg-accent/30 border-transparent text-muted-foreground hover:text-foreground"
+                                ? "bg-violet-500/5 border-violet-500/20 text-foreground"
+                                : "hover:bg-accent/30 border-transparent text-muted-foreground hover:text-foreground"
                                 }`}
                             >
                               <input
@@ -5747,8 +5810,8 @@ export default function EmailCenter() {
                           type="button"
                           onClick={() => setContactCategoryFilter(cat.id as any)}
                           className={`flex-1 py-1 text-[10px] font-bold rounded-md transition-colors ${contactCategoryFilter === cat.id
-                              ? "bg-primary text-white shadow-xs"
-                              : "text-muted-foreground hover:text-foreground"
+                            ? "bg-primary text-white shadow-xs"
+                            : "text-muted-foreground hover:text-foreground"
                             }`}
                         >
                           {cat.label}
@@ -5817,8 +5880,8 @@ export default function EmailCenter() {
                               key={contact._id}
                               onClick={() => toggleContactSelection(contact._id, contact.leadType)}
                               className={`flex items-start gap-2.5 p-2 rounded-lg cursor-pointer transition-colors border ${isSelected
-                                  ? "bg-primary/5 border-primary/20 text-foreground"
-                                  : "hover:bg-accent/30 border-transparent text-muted-foreground hover:text-foreground"
+                                ? "bg-primary/5 border-primary/20 text-foreground"
+                                : "hover:bg-accent/30 border-transparent text-muted-foreground hover:text-foreground"
                                 }`}
                             >
                               <input
@@ -5834,14 +5897,13 @@ export default function EmailCenter() {
                                   <span className="font-bold text-xs truncate text-foreground leading-tight">
                                     {contact.name}
                                   </span>
-                                  <span className={`text-[8px] font-extrabold uppercase px-1.5 py-0.2 rounded ${
-                                    contact.leadType === "ea_lead" ? "bg-violet-500/10 text-violet-500" :
-                                    contact.leadType === "team_member" ? "bg-emerald-500/10 text-emerald-500" :
-                                    "bg-blue-500/10 text-blue-500"
-                                  }`}>
-                                    {contact.leadType === "ea_lead" ? "EA Lead" : 
-                                     contact.leadType === "team_member" ? "Team" : 
-                                     "CRM"}
+                                  <span className={`text-[8px] font-extrabold uppercase px-1.5 py-0.2 rounded ${contact.leadType === "ea_lead" ? "bg-violet-500/10 text-violet-500" :
+                                      contact.leadType === "team_member" ? "bg-emerald-500/10 text-emerald-500" :
+                                        "bg-blue-500/10 text-blue-500"
+                                    }`}>
+                                    {contact.leadType === "ea_lead" ? "EA Lead" :
+                                      contact.leadType === "team_member" ? "Team" :
+                                        "CRM"}
                                   </span>
                                 </div>
                                 <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground truncate mt-0.5">
@@ -5967,11 +6029,10 @@ export default function EmailCenter() {
                                   return (
                                     <label
                                       key={camp._id}
-                                      className={`flex items-center gap-2.5 p-2 rounded-lg border text-xs cursor-pointer transition-all ${
-                                        isChecked
+                                      className={`flex items-center gap-2.5 p-2 rounded-lg border text-xs cursor-pointer transition-all ${isChecked
                                           ? "bg-primary/10 border-primary/40 font-bold text-foreground shadow-2xs"
                                           : "border-transparent hover:bg-accent/40 text-muted-foreground hover:text-foreground"
-                                      }`}
+                                        }`}
                                     >
                                       <input
                                         id={`sales-campaign-check-${camp._id}`}
@@ -6116,8 +6177,8 @@ export default function EmailCenter() {
                                 );
                               }}
                               className={`flex items-start gap-2.5 p-2 rounded-lg cursor-pointer transition-colors border ${isSelected
-                                  ? "bg-amber-500/5 border-amber-500/20 text-foreground"
-                                  : "hover:bg-accent/30 border-transparent text-muted-foreground hover:text-foreground"
+                                ? "bg-amber-500/5 border-amber-500/20 text-foreground"
+                                : "hover:bg-accent/30 border-transparent text-muted-foreground hover:text-foreground"
                                 }`}
                             >
                               <input
@@ -6179,50 +6240,30 @@ export default function EmailCenter() {
                   {/* Channel Filter Badges */}
                   <div className="flex flex-wrap items-center gap-1.5 pt-1">
                     <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide mr-1">Filter Channel:</span>
-                    <button
-                      type="button"
-                      onClick={() => setMarketingChannelFilter("all")}
-                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
-                        marketingChannelFilter === "all" || !marketingChannelFilter
-                          ? "bg-primary text-white shadow-xs"
-                          : "bg-muted/40 text-muted-foreground hover:text-foreground hover:bg-muted/70"
-                      }`}
-                    >
-                      All Channels ({marketingListContacts.length})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setMarketingChannelFilter("school")}
-                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
-                        marketingChannelFilter === "school"
-                          ? "bg-blue-600 text-white shadow-xs"
-                          : "bg-muted/40 text-muted-foreground hover:text-foreground hover:bg-muted/70"
-                      }`}
-                    >
-                      Schools ({marketingListContacts.filter(c => (c.source || c.entryPoint || "").toLowerCase().includes("school") || Boolean(c.schoolName)).length})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setMarketingChannelFilter("location")}
-                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
-                        marketingChannelFilter === "location"
-                          ? "bg-emerald-600 text-white shadow-xs"
-                          : "bg-muted/40 text-muted-foreground hover:text-foreground hover:bg-muted/70"
-                      }`}
-                    >
-                      Locations ({marketingListContacts.filter(c => (c.source || c.entryPoint || "").toLowerCase().includes("location") || Boolean(c.locationName)).length})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setMarketingChannelFilter("free_app")}
-                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
-                        marketingChannelFilter === "free_app"
-                          ? "bg-amber-600 text-white shadow-xs"
-                          : "bg-muted/40 text-muted-foreground hover:text-foreground hover:bg-muted/70"
-                      }`}
-                    >
-                      Free App ({marketingListContacts.filter(c => (c.source || c.entryPoint || "").toLowerCase().includes("app") || (!c.schoolName && !c.locationName)).length})
-                    </button>
+                    {[
+                      { id: "all", label: "All Contacts", count: marketingChannelCounts.all, activeClass: "bg-primary text-white shadow-xs font-bold" },
+                      { id: "mobile", label: "Mobile", count: marketingChannelCounts.mobile, icon: Smartphone, activeClass: "bg-violet-600 text-white shadow-xs font-bold" },
+                      { id: "web_portal", label: "Web Portal", count: marketingChannelCounts.web_portal, icon: Globe, activeClass: "bg-sky-600 text-white shadow-xs font-bold" },
+                      { id: "afterschool", label: "After School", count: marketingChannelCounts.afterschool, icon: GraduationCap, activeClass: "bg-amber-600 text-white shadow-xs font-bold" },
+                      { id: "manual", label: "Manual", count: marketingChannelCounts.manual, icon: UserPlus, activeClass: "bg-emerald-600 text-white shadow-xs font-bold" }
+                    ].map(tab => {
+                      const Icon = tab.icon;
+                      const isActive = marketingChannelFilter === tab.id || (tab.id === "all" && !marketingChannelFilter);
+                      return (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          onClick={() => setMarketingChannelFilter(tab.id)}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${isActive
+                              ? tab.activeClass
+                              : "bg-muted/40 text-muted-foreground hover:text-foreground hover:bg-muted/70"
+                            }`}
+                        >
+                          {Icon && <Icon size={12} />}
+                          <span>{tab.label} ({tab.count})</span>
+                        </button>
+                      );
+                    })}
                   </div>
 
                   {/* Search and Bulk Selection Controls */}
@@ -6296,22 +6337,9 @@ export default function EmailCenter() {
                     ) : (
                       filteredMarketingContacts.map((contact, idx) => {
                         const isSelected = selectedMarketingIds.includes(contact._id);
-                        const isSchool = (contact.source || contact.entryPoint || "").toLowerCase().includes("school") || Boolean(contact.schoolName);
-                        const isLocation = (contact.source || contact.entryPoint || "").toLowerCase().includes("location") || Boolean(contact.locationName);
-                        const channelLabel = isSchool
-                          ? "School"
-                          : isLocation
-                          ? "Location"
-                          : (contact.source || "Free App");
-
-                        const channelColor = isSchool
-                          ? "bg-blue-500/10 text-blue-600 dark:text-blue-400"
-                          : isLocation
-                          ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                          : "bg-amber-500/10 text-amber-600 dark:text-amber-400";
-
+                        const channelInfo = getMarketingChannelInfo(contact.source, contact.entryPoint);
                         const contextDetail =
-                          contact.schoolName || contact.locationName || contact.source || "";
+                          contact.schoolName || contact.locationName || (contact.source && contact.source !== channelInfo.label ? contact.source : "");
 
                         return (
                           <div
@@ -6323,18 +6351,17 @@ export default function EmailCenter() {
                                   : [...prev, contact._id]
                               );
                             }}
-                            className={`flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-colors border ${
-                              isSelected
+                            className={`flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-colors border ${isSelected
                                 ? "bg-card border-border/80 shadow-2xs text-foreground"
                                 : "hover:bg-accent/30 border-transparent text-muted-foreground hover:text-foreground opacity-75"
-                            }`}
+                              }`}
                           >
                             <input
                               id={`marketing-contact-check-${idx}`}
                               name="marketing_contact_check"
                               type="checkbox"
                               checked={isSelected}
-                              onChange={() => {}}
+                              onChange={() => { }}
                               className="rounded border-input text-primary focus:ring-primary h-4 w-4 shrink-0 pointer-events-none cursor-pointer"
                             />
                             <div className="flex-1 min-w-0 text-left">
@@ -6342,8 +6369,13 @@ export default function EmailCenter() {
                                 <span className="font-bold text-xs truncate text-foreground">
                                   {contact.name || "Parent Contact"}
                                 </span>
-                                <span className={`text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-md shrink-0 ${channelColor}`}>
-                                  {channelLabel}
+                                <span className={`text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-md shrink-0 flex items-center gap-1 ${channelInfo.badgeColor}`}>
+                                  {channelInfo.icon === "smartphone" && <Smartphone size={10} />}
+                                  {channelInfo.icon === "globe" && <Globe size={10} />}
+                                  {channelInfo.icon === "graduation-cap" && <GraduationCap size={10} />}
+                                  {channelInfo.icon === "user-plus" && <UserPlus size={10} />}
+                                  {channelInfo.icon === "sparkles" && <Sparkles size={10} />}
+                                  {channelInfo.label}
                                 </span>
                               </div>
                               <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground mt-0.5">
@@ -6608,8 +6640,8 @@ export default function EmailCenter() {
                             );
                           }}
                           className={`flex items-start gap-2.5 p-2 rounded-lg cursor-pointer transition-colors border ${isSelected
-                              ? "bg-primary/5 border-primary/20 text-foreground"
-                              : "hover:bg-accent/30 border-transparent text-muted-foreground hover:text-foreground"
+                            ? "bg-primary/5 border-primary/20 text-foreground"
+                            : "hover:bg-accent/30 border-transparent text-muted-foreground hover:text-foreground"
                             }`}
                         >
                           <input
@@ -6677,8 +6709,8 @@ export default function EmailCenter() {
                 <BarChart3 className="text-primary h-5 w-5 shrink-0" />
                 <span>{selectedCampaign?.title || "Campaign Analytics"}</span>
                 <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-extrabold uppercase border shrink-0 ${selectedCampaign?.status === "sent" ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20" :
-                    selectedCampaign?.status === "scheduled" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20" :
-                      "bg-zinc-500/10 text-zinc-600 dark:text-zinc-400 border-zinc-500/20"
+                  selectedCampaign?.status === "scheduled" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20" :
+                    "bg-zinc-500/10 text-zinc-600 dark:text-zinc-400 border-zinc-500/20"
                   }`}>
                   {selectedCampaign?.status || "draft"}
                 </span>
@@ -6825,8 +6857,8 @@ export default function EmailCenter() {
                               type="button"
                               onClick={() => setCampaignRecipientFilter(tab.id as any)}
                               className={`px-2.5 py-1 rounded-lg font-bold border transition-colors ${campaignRecipientFilter === tab.id
-                                  ? "bg-primary text-white border-primary"
-                                  : "bg-accent/20 hover:bg-accent/40 text-muted-foreground border-border/60"
+                                ? "bg-primary text-white border-primary"
+                                : "bg-accent/20 hover:bg-accent/40 text-muted-foreground border-border/60"
                                 }`}
                             >
                               {tab.label}
@@ -7125,37 +7157,39 @@ export default function EmailCenter() {
 
       {/* --- DIALOG 6: UNIFIED MARKETING WEBHOOK INTEGRATION GUIDE --- */}
       <Dialog open={isWebhookGuideOpen} onOpenChange={setIsWebhookGuideOpen}>
-        <DialogContent className="w-[95vw] max-w-4xl max-h-[90vh] p-0 flex flex-col overflow-hidden dark:bg-card">
-          <DialogHeader className="p-5 pb-3 border-b shrink-0 bg-card">
-            <div className="flex items-center gap-2.5">
-              <div className="h-9 w-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-bold shrink-0">
-                <Code2 className="h-5 w-5" />
+        <DialogContent className="w-[95vw] max-w-4xl max-h-[85vh] p-0 flex flex-col overflow-hidden rounded-2xl border shadow-2xl dark:bg-card">
+          <DialogHeader className="p-4 sm:p-5 pb-3 border-b shrink-0 bg-card">
+            <div className="flex items-center gap-3 text-left">
+              <div className="h-10 w-10 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 font-bold flex items-center justify-center shrink-0 border border-purple-500/20 shadow-xs">
+                <Code2 size={20} />
               </div>
-              <div className="text-left">
-                <DialogTitle className="text-base font-extrabold tracking-tight text-foreground">
+              <div className="min-w-0 flex-1">
+                <DialogTitle className="text-base font-extrabold tracking-tight text-foreground truncate">
                   API Bridge: Unified Marketing Registration Webhook
                 </DialogTitle>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Single webhook endpoint for all platforms (Mobile App, Registration Portal, Evening Inquiries & Admin Panel).
-                </p>
+                <DialogDescription className="text-xs text-muted-foreground mt-0.5 line-clamp-1">
+                  Single webhook endpoint for all platforms (Mobile App, Registration Portal, Evening Inquiries &amp; Admin).
+                </DialogDescription>
               </div>
             </div>
           </DialogHeader>
 
-          <div className="p-5 space-y-4 flex-1 overflow-y-auto custom-scrollbar text-left text-xs">
-            {/* Endpoint URL Pill */}
-            <div className="p-3.5 bg-accent/20 border border-border/80 rounded-xl space-y-2">
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <span className="font-bold text-foreground uppercase tracking-wider text-[10px] flex items-center gap-1.5">
+          <div className="p-4 sm:p-5 space-y-4 flex-1 overflow-y-auto custom-scrollbar text-left text-xs">
+            {/* Endpoint Pill */}
+            <div className="p-3 bg-accent/20 border border-border/80 rounded-xl space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground flex items-center gap-1.5">
                   <span className="h-2 w-2 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
                   Single Ingestion Webhook URL
                 </span>
-                <span className="text-[10px] bg-primary/10 text-primary font-bold px-2 py-0.5 rounded-full">
-                  POST Method
+                <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-500/15 text-emerald-600 border border-emerald-500/20">
+                  POST
                 </span>
               </div>
-              <div className="flex items-center justify-between gap-2 bg-card border rounded-lg p-2 px-3 font-mono text-[11px] text-foreground">
-                <span className="truncate">https://api.yauapp.com/api/webhooks/marketing-registration</span>
+              <div className="flex items-center gap-2">
+                <code className="p-2 bg-background dark:bg-card border rounded-lg font-mono text-xs text-foreground flex-1 select-all break-all shadow-2xs">
+                  https://api.yauapp.com/api/webhooks/marketing-registration
+                </code>
                 <button
                   type="button"
                   onClick={() => {
@@ -7164,249 +7198,223 @@ export default function EmailCenter() {
                     toast.success("Webhook URL copied to clipboard!");
                     setTimeout(() => setCopiedWebhookPayload(null), 2000);
                   }}
-                  className="btn-secondary h-7 px-2.5 text-[10px] font-bold shrink-0 flex items-center gap-1 cursor-pointer"
+                  className="btn-secondary h-8 px-2.5 shrink-0 text-xs font-semibold flex items-center gap-1 cursor-pointer"
                 >
                   {copiedWebhookPayload === "url" ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
-                  <span>{copiedWebhookPayload === "url" ? "Copied" : "Copy URL"}</span>
+                  <span>{copiedWebhookPayload === "url" ? "Copied" : "Copy"}</span>
                 </button>
               </div>
             </div>
 
             {/* Architecture Highlights */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-left">
-              <div className="p-3 rounded-xl border bg-card space-y-1">
-                <span className="font-bold text-primary flex items-center gap-1">
-                  <CheckCircle size={13} /> Strict Deduplication
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              <div className="p-3 border rounded-xl bg-card space-y-1">
+                <span className="font-bold text-foreground flex items-center gap-1 text-[11px]">
+                  <CheckCircle size={12} className="text-emerald-500 shrink-0" /> Smart Deduplication
                 </span>
-                <p className="text-[11px] text-muted-foreground leading-relaxed">
-                  Parents registering multiple times with the same email update the existing contact, increment submission count, and never create duplicate records.
+                <p className="text-[10px] text-muted-foreground leading-relaxed">
+                  Same email automatically increments submission count without producing duplicates.
                 </p>
               </div>
-              <div className="p-3 rounded-xl border bg-card space-y-1">
-                <span className="font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                  <CheckCircle size={13} /> Auto List Sync
+              <div className="p-3 border rounded-xl bg-card space-y-1">
+                <span className="font-bold text-foreground flex items-center gap-1 text-[11px]">
+                  <Sparkles size={12} className="text-purple-500 shrink-0" /> Auto CRM List Sync
                 </span>
-                <p className="text-[11px] text-muted-foreground leading-relaxed">
-                  Automatically creates and maps matching School, Location, and Free App audiences in Email Center.
+                <p className="text-[10px] text-muted-foreground leading-relaxed">
+                  Automatically populates matching School, Location, and App segments in Email Center.
                 </p>
               </div>
-              <div className="p-3 rounded-xl border bg-card space-y-1">
-                <span className="font-bold text-purple-600 dark:text-purple-400 flex items-center gap-1">
-                  <CheckCircle size={13} /> Safe Deletion Policy
+              <div className="p-3 border rounded-xl bg-card space-y-1">
+                <span className="font-bold text-foreground flex items-center gap-1 text-[11px]">
+                  <Shield size={12} className="text-blue-500 shrink-0" /> Safe Deletion Policy
                 </span>
-                <p className="text-[11px] text-muted-foreground leading-relaxed">
-                  Any school or location deletions in the external admin panel leave the CRM list and its parent contacts 100% intact.
+                <p className="text-[10px] text-muted-foreground leading-relaxed">
+                  External admin deletions leave your CRM lists and parent contacts 100% intact.
                 </p>
               </div>
             </div>
 
-            {/* Sample Payloads Section */}
-            <div className="space-y-3 pt-2">
-              <h4 className="font-extrabold text-xs text-foreground uppercase tracking-wider">
-                Payload Examples for the 4 Entry Points
-              </h4>
-
-              {/* Entry Point 1: School */}
-              {/* Source 1: School */}
-              <div className="border rounded-xl p-3.5 bg-card space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-xs text-blue-600 dark:text-blue-400 flex items-center gap-1.5">
-                    🏫 1. School Registration (Afterschool Signups)
-                  </span>
+            {/* Sample Payload Schema with Tabs */}
+            <div className="border rounded-xl p-3 bg-card space-y-2.5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex items-center gap-1 bg-accent/40 p-0.5 rounded-lg border text-[11px] overflow-x-auto">
                   <button
                     type="button"
-                    onClick={() => {
-                      const payload = JSON.stringify({
+                    onClick={() => setWebhookPayloadTab("full")}
+                    className={`px-2 py-1 rounded-md font-bold transition-colors cursor-pointer shrink-0 ${
+                      webhookPayloadTab === "full" ? "bg-card text-foreground shadow-2xs" : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Full Schema
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setWebhookPayloadTab("school")}
+                    className={`px-2 py-1 rounded-md font-bold transition-colors cursor-pointer shrink-0 ${
+                      webhookPayloadTab === "school" ? "bg-card text-foreground shadow-2xs" : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    🏫 School
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setWebhookPayloadTab("location")}
+                    className={`px-2 py-1 rounded-md font-bold transition-colors cursor-pointer shrink-0 ${
+                      webhookPayloadTab === "location" ? "bg-card text-foreground shadow-2xs" : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    📍 Location
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setWebhookPayloadTab("app")}
+                    className={`px-2 py-1 rounded-md font-bold transition-colors cursor-pointer shrink-0 ${
+                      webhookPayloadTab === "app" ? "bg-card text-foreground shadow-2xs" : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    📱 Mobile App
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setWebhookPayloadTab("admin")}
+                    className={`px-2 py-1 rounded-md font-bold transition-colors cursor-pointer shrink-0 ${
+                      webhookPayloadTab === "admin" ? "bg-card text-foreground shadow-2xs" : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    🔄 Admin Sync
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const payloads: Record<string, any> = {
+                      full: {
+                        parentName: "Sarah Connor",
+                        email: "sarah.connor@example.com",
+                        phone: "555-123-4567",
+                        source: "After School Registration",
+                        schoolName: "Brandywine Elementary",
+                        locationName: "Brandywine Youth Pavilion",
+                        sport: "Track & Field",
+                        gradeBand: "4th – 5th Grade",
+                        planType: "Seasonal",
+                        studentName: "John Connor",
+                        status: "active",
+                        isEmailConsent: true,
+                        metadata: {
+                          smsConsent: true,
+                          shirtSize: "Youth Small",
+                          emergencyContact: "Uncle Bob (302-555-9988)"
+                        }
+                      },
+                      school: {
                         parentName: "Jane Doe",
                         email: "jane.doe@example.com",
                         phone: "555-123-4567",
                         source: "School",
                         schoolName: "Lincoln Elementary",
-                        schoolId: "sch_12345"
-                      }, null, 2);
-                      navigator.clipboard.writeText(payload);
-                      setCopiedWebhookPayload("school");
-                      toast.success("School payload copied!");
-                      setTimeout(() => setCopiedWebhookPayload(null), 2000);
-                    }}
-                    className="btn-secondary h-6.5 px-2 text-[10px] font-bold flex items-center gap-1"
-                  >
-                    {copiedWebhookPayload === "school" ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
-                    <span>{copiedWebhookPayload === "school" ? "Copied" : "Copy JSON"}</span>
-                  </button>
-                </div>
-                <pre className="p-2.5 bg-accent/20 rounded-lg text-[10px] font-mono overflow-x-auto text-foreground">
-{`{
+                        schoolId: "sch_12345",
+                        status: "active",
+                        isEmailConsent: true
+                      },
+                      location: {
+                        parentName: "John Smith",
+                        email: "john.smith@example.com",
+                        phone: "555-987-6543",
+                        source: "Location",
+                        locationName: "North Gym",
+                        locationId: "loc_67890",
+                        isEmailConsent: true
+                      },
+                      app: {
+                        parentName: "Sam Wilson",
+                        email: "sam.wilson@example.com",
+                        phone: "555-333-2222",
+                        source: "App Registration",
+                        isEmailConsent: true
+                      },
+                      admin: {
+                        action: "sync_list",
+                        entityType: "school",
+                        name: "Lincoln Elementary",
+                        id: "sch_12345"
+                      }
+                    };
+                    const payload = JSON.stringify(payloads[webhookPayloadTab] || payloads.full, null, 2);
+                    navigator.clipboard.writeText(payload);
+                    setCopiedWebhookPayload(webhookPayloadTab);
+                    toast.success("Payload copied to clipboard!");
+                    setTimeout(() => setCopiedWebhookPayload(null), 2000);
+                  }}
+                  className="btn-secondary h-6.5 px-2 text-[10px] font-bold flex items-center gap-1 cursor-pointer shrink-0 self-end sm:self-auto"
+                >
+                  {copiedWebhookPayload === webhookPayloadTab ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
+                  <span>{copiedWebhookPayload === webhookPayloadTab ? "Copied" : "Copy JSON"}</span>
+                </button>
+              </div>
+
+              <pre className="p-2.5 bg-accent/20 rounded-lg text-[10px] font-mono overflow-x-auto max-h-48 custom-scrollbar text-foreground leading-relaxed">
+{webhookPayloadTab === "full" ? `{
+  "parentName": "Sarah Connor",
+  "email": "sarah.connor@example.com",
+  "phone": "555-123-4567",
+  "source": "After School Registration",
+  "schoolName": "Brandywine Elementary",
+  "locationName": "Brandywine Youth Pavilion",
+  "sport": "Track & Field",
+  "gradeBand": "4th – 5th Grade",
+  "planType": "Seasonal",
+  "studentName": "John Connor",
+  "status": "active", // "active" | "opted_out"
+  "isEmailConsent": true,
+  "metadata": {
+    "smsConsent": true,
+    "shirtSize": "Youth Small",
+    "emergencyContact": "Uncle Bob (302-555-9988)"
+  }
+}` : webhookPayloadTab === "school" ? `{
   "parentName": "Jane Doe",
   "email": "jane.doe@example.com",
   "phone": "555-123-4567",
   "source": "School",
   "schoolName": "Lincoln Elementary",
   "schoolId": "sch_12345",
-  "metadata": {},
-  "status": "active" // "active" | "opted_out" (automatically set to "opted_out" when parent clicks Unsubscribe)
-}`}
-                </pre>
-              </div>
-
-              {/* Source 2: Location */}
-              <div className="border rounded-xl p-3.5 bg-card space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
-                    📍 2. Location Registration (Evening Activities Signup)
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const payload = JSON.stringify({
-                        parentName: "John Smith",
-                        email: "john.smith@example.com",
-                        phone: "555-987-6543",
-                        source: "Location",
-                        locationName: "North Gym",
-                        locationId: "loc_67890"
-                      }, null, 2);
-                      navigator.clipboard.writeText(payload);
-                      setCopiedWebhookPayload("location");
-                      toast.success("Location payload copied!");
-                      setTimeout(() => setCopiedWebhookPayload(null), 2000);
-                    }}
-                    className="btn-secondary h-6.5 px-2 text-[10px] font-bold flex items-center gap-1"
-                  >
-                    {copiedWebhookPayload === "location" ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
-                    <span>{copiedWebhookPayload === "location" ? "Copied" : "Copy JSON"}</span>
-                  </button>
-                </div>
-                <pre className="p-2.5 bg-accent/20 rounded-lg text-[10px] font-mono overflow-x-auto text-foreground">
-{`{
+  "status": "active",
+  "isEmailConsent": true
+}` : webhookPayloadTab === "location" ? `{
   "parentName": "John Smith",
   "email": "john.smith@example.com",
   "phone": "555-987-6543",
   "source": "Location",
   "locationName": "North Gym",
-  "locationId": "loc_67890"
-}`}
-                </pre>
-              </div>
-
-              {/* Source 3: Free App Members */}
-              <div className="border rounded-xl p-3.5 bg-card space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
-                    📱 3. "App Registration" (Mobile App Downloads)
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const payload = JSON.stringify({
-                        parentName: "Sam Wilson",
-                        email: "sam.wilson@example.com",
-                        phone: "555-333-2222",
-                        source: "App Registration"
-                      }, null, 2);
-                      navigator.clipboard.writeText(payload);
-                      setCopiedWebhookPayload("free_app");
-                      toast.success("App Registration payload copied!");
-                      setTimeout(() => setCopiedWebhookPayload(null), 2000);
-                    }}
-                    className="btn-secondary h-6.5 px-2 text-[10px] font-bold flex items-center gap-1"
-                  >
-                    {copiedWebhookPayload === "free_app" ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
-                    <span>{copiedWebhookPayload === "free_app" ? "Copied" : "Copy JSON"}</span>
-                  </button>
-                </div>
-                <pre className="p-2.5 bg-accent/20 rounded-lg text-[10px] font-mono overflow-x-auto text-foreground">
-{`{
+  "locationId": "loc_67890",
+  "isEmailConsent": true
+}` : webhookPayloadTab === "app" ? `{
   "parentName": "Sam Wilson",
   "email": "sam.wilson@example.com",
   "phone": "555-333-2222",
-  "source": "App Registration"
-}`}
-                </pre>
-              </div>
-
-              {/* Source 4: Dedicated EA Leads */}
-              <div className="border rounded-xl p-3.5 bg-card space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-xs text-purple-600 dark:text-purple-400 flex items-center gap-1.5">
-                    ⚡ 4. Dedicated EA Leads (Evening Inquiries & SMS Pipeline)
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const payload = JSON.stringify({
-                        parentName: "Diana Prince",
-                        email: "diana.prince@example.com",
-                        phone: "555-777-9999",
-                        source: "Evening Inquiries"
-                      }, null, 2);
-                      navigator.clipboard.writeText(payload);
-                      setCopiedWebhookPayload("ea_lead");
-                      toast.success("EA Leads payload copied!");
-                      setTimeout(() => setCopiedWebhookPayload(null), 2000);
-                    }}
-                    className="btn-secondary h-6.5 px-2 text-[10px] font-bold flex items-center gap-1"
-                  >
-                    {copiedWebhookPayload === "ea_lead" ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
-                    <span>{copiedWebhookPayload === "ea_lead" ? "Copied" : "Copy JSON"}</span>
-                  </button>
-                </div>
-                <pre className="p-2.5 bg-accent/20 rounded-lg text-[10px] font-mono overflow-x-auto text-foreground">
-{`{
-  "parentName": "Diana Prince",
-  "email": "diana.prince@example.com",
-  "phone": "555-777-9999",
-  "source": "Evening Inquiries"
-}`}
-                </pre>
-              </div>
-
-              {/* 5. Admin Panel List Sync & Retention Notification */}
-              <div className="border rounded-xl p-3.5 bg-card space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-xs text-indigo-600 dark:text-indigo-400 flex items-center gap-1.5">
-                    🔄 5. Admin Panel List Pre-Sync / Entity Creation Action
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const payload = JSON.stringify({
-                        action: "sync_list",
-                        entityType: "school",
-                        name: "Lincoln Elementary",
-                        id: "sch_12345"
-                      }, null, 2);
-                      navigator.clipboard.writeText(payload);
-                      setCopiedWebhookPayload("sync_list");
-                      toast.success("Admin sync payload copied!");
-                      setTimeout(() => setCopiedWebhookPayload(null), 2000);
-                    }}
-                    className="btn-secondary h-6.5 px-2 text-[10px] font-bold flex items-center gap-1"
-                  >
-                    {copiedWebhookPayload === "sync_list" ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
-                    <span>{copiedWebhookPayload === "sync_list" ? "Copied" : "Copy JSON"}</span>
-                  </button>
-                </div>
-                <pre className="p-2.5 bg-accent/20 rounded-lg text-[10px] font-mono overflow-x-auto text-foreground">
-{`{
+  "source": "App Registration",
+  "isEmailConsent": true
+}` : `{
   "action": "sync_list",
-  "entityType": "school", // or "location"
+  "entityType": "school", // "school" | "location"
   "name": "Lincoln Elementary",
   "id": "sch_12345"
 }`}
-                </pre>
-              </div>
+              </pre>
             </div>
           </div>
 
-          <DialogFooter className="p-4 border-t bg-card shrink-0 flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">
-              Endpoint Status: <strong className="text-emerald-600 dark:text-emerald-400">Live & Listening</strong>
+          <DialogFooter className="p-3.5 px-5 border-t bg-card shrink-0 flex items-center justify-between">
+            <span className="text-xs text-muted-foreground flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
+              Status: <strong className="text-emerald-600 dark:text-emerald-400">Live &amp; Listening</strong>
             </span>
             <button
               type="button"
               onClick={() => setIsWebhookGuideOpen(false)}
-              className="btn-primary text-xs h-9 px-4 font-bold cursor-pointer"
+              className="btn-primary text-xs h-8.5 px-4 font-bold cursor-pointer"
             >
               Close Documentation
             </button>
@@ -7686,11 +7694,10 @@ export default function EmailCenter() {
                       }
                       setPreviewTab("visual");
                     }}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
-                      previewTab === "visual"
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${previewTab === "visual"
                         ? "bg-card text-foreground shadow-xs border border-border/60 font-bold"
                         : "text-muted-foreground hover:text-foreground hover:bg-card/40"
-                    }`}
+                      }`}
                   >
                     <Eye size={12} className={previewTab === "visual" ? "text-primary" : "text-muted-foreground"} />
                     <span>Live Preview</span>
@@ -7709,11 +7716,10 @@ export default function EmailCenter() {
                         }
                       }, 0);
                     }}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
-                      previewTab === "editor"
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${previewTab === "editor"
                         ? "bg-card text-foreground shadow-xs border border-border/60 font-bold"
                         : "text-muted-foreground hover:text-foreground hover:bg-card/40"
-                    }`}
+                      }`}
                   >
                     <PenLine size={12} className={previewTab === "editor" ? "text-primary" : "text-muted-foreground"} />
                     <span>Write Content</span>
@@ -7727,11 +7733,10 @@ export default function EmailCenter() {
                       }
                       setPreviewTab("code");
                     }}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
-                      previewTab === "code"
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${previewTab === "code"
                         ? "bg-card text-foreground shadow-xs border border-border/60 font-bold"
                         : "text-muted-foreground hover:text-foreground hover:bg-card/40"
-                    }`}
+                      }`}
                   >
                     <Code2 size={12} className={previewTab === "code" ? "text-primary" : "text-muted-foreground"} />
                     <span>HTML Code</span>
@@ -8781,8 +8786,8 @@ export default function EmailCenter() {
                   {selectedTemplateForPreview?.name || "Template Preview"}
                 </DialogTitle>
                 <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold uppercase ${selectedTemplateForPreview?.isAiGenerated
-                    ? "bg-violet-500/10 text-violet-600 dark:text-violet-400 border border-violet-500/20"
-                    : "bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20"
+                  ? "bg-violet-500/10 text-violet-600 dark:text-violet-400 border border-violet-500/20"
+                  : "bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20"
                   }`}>
                   {selectedTemplateForPreview?.isAiGenerated ? "✨ Anthropic AI" : selectedTemplateForPreview?.category || "General"}
                 </span>

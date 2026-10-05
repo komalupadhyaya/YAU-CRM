@@ -8,8 +8,8 @@ export interface Segment {
   _id: string;
   name: string;
   description?: string;
-  type: "dynamic" | "static" | "campaign" | "csv";
-  category?: "school" | "location" | "app_members" | "ea_leads" | "csv" | "custom" | "campaign";
+  type: "dynamic" | "static" | "campaign" | "csv" | "marketing";
+  category?: "school" | "location" | "app_members" | "ea_leads" | "manual" | "csv" | "custom" | "campaign" | "marketing";
   externalId?: string;
   isSystemList?: boolean;
   filters?: {

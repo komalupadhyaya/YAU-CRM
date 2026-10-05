@@ -571,7 +571,7 @@ export const getMarketingContactsForSegment = async (req, res, next) => {
             status: 'active',
             isEmailConsent: { $ne: false }
         })
-        .select('_id parentName email phone source createdAt')
+        .select('_id parentName email phone source schoolName locationName sport gradeBand planType studentName createdAt')
         .sort({ createdAt: -1 })
         .lean();
 
@@ -583,8 +583,28 @@ export const getMarketingContactsForSegment = async (req, res, next) => {
                 email: c.email.toLowerCase().trim(),
                 phone: c.phone || '',
                 source: c.source || 'App Registration',
+                schoolName: c.schoolName || '',
+                locationName: c.locationName || '',
+                sport: c.sport || '',
+                gradeBand: c.gradeBand || '',
+                planType: c.planType || '',
+                studentName: c.studentName || '',
                 entryPoint: c.source || 'free_app' // backward compatibility fallback
             }))
+        });
+    } catch (err) {
+        next(err);
+    }
+};
+
+export const backfillRegistrationListsHandler = async (req, res, next) => {
+    try {
+        const { runBackfill } = await import('../scripts/backfillRegistrationLists.js');
+        const results = await runBackfill();
+        return res.json({
+            success: true,
+            message: 'Registration lists and contacts successfully backfilled.',
+            results
         });
     } catch (err) {
         next(err);

@@ -30,7 +30,7 @@ export const sendSendGridMail = async ({ to, subject, html, leadId, leadModel, c
     const cleanLeadId = (leadId && leadId !== 'null' && leadId !== 'undefined') ? leadId : 'direct';
     const cleanEmail = encodeURIComponent(to || '');
     const unsubscribeLink = `${backendUrl}/api/emails/unsubscribe/${cleanLeadId}?model=${leadModel || 'Lead'}&campaignId=${campaignId || ''}&email=${cleanEmail}`;
-    
+
     // Replace any placeholder unsubscribe links in custom or AI templates
     let processedHtml = (html || '')
         .replace(/\{\{\s*unsubscribe(?:_url)?\s*\}\}/gi, unsubscribeLink)
