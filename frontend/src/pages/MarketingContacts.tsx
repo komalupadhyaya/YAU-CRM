@@ -357,6 +357,7 @@ export default function MarketingContacts() {
   }, []);
 
   const handleRunBackfill = async () => {
+    if (backfillingLists) return;
     setBackfillingLists(true);
     try {
       let res;
@@ -366,9 +367,12 @@ export default function MarketingContacts() {
         res = await api.post("/segments/backfill-lists");
       }
       if (res?.data?.success) {
-        toast.success(res.data.message || "All registration lists synchronized successfully!");
-        fetchContacts();
-        fetchSegments();
+        const stats = res.data.results;
+        const countMsg = stats?.routedCount
+          ? ` (${stats.routedCount} contacts organized into ${Object.keys(stats.distribution || {}).length} lists)`
+          : "";
+        toast.success(`Registration lists synchronized successfully!${countMsg}`);
+        await Promise.all([fetchContacts(true), fetchSegments()]);
       }
     } catch (err: any) {
       toast.error(err.response?.data?.message || "Failed to backfill registration lists");
