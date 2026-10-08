@@ -68,7 +68,7 @@ export const getMarketingContacts = async (req, res) => {
         }
 
         const pageNum = Math.max(1, parseInt(page, 10) || 1);
-        const limitNum = Math.max(1, Math.min(100, parseInt(limit, 10) || 25));
+        const limitNum = Math.max(1, Math.min(5000, parseInt(limit, 10) || 25));
         const skip = (pageNum - 1) * limitNum;
 
         // Sorting

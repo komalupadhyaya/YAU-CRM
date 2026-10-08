@@ -374,7 +374,7 @@ export default function MarketingContacts() {
       // Fetch master marketing contacts list without channel filtering
       const params = new URLSearchParams({
         page: "1",
-        limit: "100",
+        limit: "1000",
         source: "all"
       });
 
@@ -983,7 +983,7 @@ export default function MarketingContacts() {
             <span className="text-[10px] uppercase font-bold text-muted-foreground flex items-center gap-1">
               <Users size={11} className="text-primary" /> Total Ingested
             </span>
-            <div className="text-xl font-black text-foreground">{contacts.length || stats.total}</div>
+            <div className="text-xl font-black text-foreground">{stats.total || contacts.length}</div>
           </div>
 
           <div className="p-3 bg-card border rounded-2xl shadow-2xs text-left space-y-1">
