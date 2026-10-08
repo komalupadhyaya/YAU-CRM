@@ -243,6 +243,63 @@ export default function MarketingContacts() {
     }
   };
 
+  // Helper: Resolve Dedicated List Name for each contact per client routing rules
+  const getAssignedListName = useCallback((contact: MarketingContact) => {
+    const src = (contact.source || "").toLowerCase();
+    const school = (contact.schoolName || contact.metadata?.schoolName || contact.metadata?.school || "").trim();
+    const location = (contact.locationName || contact.metadata?.locationName || contact.metadata?.location || "").trim();
+
+    if (src.includes("manual")) {
+      return "Manual CRM Entries";
+    }
+    if (src.includes("mobile") || src.includes("app")) {
+      if (school) return `${school} - Mobile App`;
+      if (location) return `${location} - Mobile App`;
+      return "Free App Members";
+    }
+    if (src.includes("portal") || src.includes("web") || src.includes("evening") || (location && !school)) {
+      return `${location || "General"} - Evening Activities`;
+    }
+    if (src.includes("afterschool") || src.includes("school") || (school && !location)) {
+      return `${school || "General"} - After School`;
+    }
+    if (school) return `${school} - After School`;
+    if (location) return `${location} - Evening Activities`;
+    return "Free App Members";
+  }, []);
+
+  // Helper: Identify if contact is associated with AfterSchool
+  const isAfterSchoolContact = useCallback((contact: MarketingContact | null | undefined): boolean => {
+    if (!contact) return false;
+    const src = (contact.source || "").toLowerCase();
+    const entryPoint = (contact.entryPoint || "").toLowerCase();
+    const assignedList = getAssignedListName(contact).toLowerCase();
+    const school = (contact.schoolName || contact.metadata?.schoolName || contact.metadata?.school || "").trim();
+    const location = (contact.locationName || contact.metadata?.locationName || contact.metadata?.location || "").trim();
+
+    return (
+      src.includes("afterschool") ||
+      src.includes("school") ||
+      entryPoint === "school" ||
+      entryPoint.includes("afterschool") ||
+      assignedList.includes("after school") ||
+      (Boolean(school) && !location)
+    );
+  }, [getAssignedListName]);
+
+  // Helper: Resolve Plan Type with default fallback to "Free Plan" for AfterSchool
+  const getContactPlan = useCallback((contact: MarketingContact | null | undefined): string => {
+    if (!contact) return "";
+    const meta = contact.metadata || {};
+    const explicitPlan = (contact.planType || meta.planType || meta.plan || "").trim();
+    if (explicitPlan) return explicitPlan;
+
+    if (isAfterSchoolContact(contact)) {
+      return "Free Plan";
+    }
+    return "";
+  }, [isAfterSchoolContact]);
+
   // Edit / Update Contact Form State
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [contactToEdit, setContactToEdit] = useState<MarketingContact | null>(null);
@@ -273,7 +330,7 @@ export default function MarketingContacts() {
       locationName: contact.locationName || meta.locationName || meta.location || "",
       sport: contact.sport || meta.sportsInterest || meta.sport || "",
       gradeBand: contact.gradeBand || meta.grade || meta.gradeBand || "",
-      planType: contact.planType || meta.planType || meta.plan || "",
+      planType: contact.planType || meta.planType || meta.plan || (isAfterSchoolContact(contact) ? "Free Plan" : ""),
       studentName: contact.studentName || meta.studentName || meta.childName || "",
       status: (contact.status === "opted_out" ? "opted_out" : "active")
     });
@@ -386,30 +443,7 @@ export default function MarketingContacts() {
     fetchSegments();
   }, [fetchContacts, fetchSegments]);
 
-  // Helper: Resolve Dedicated List Name for each contact per client routing rules
-  const getAssignedListName = useCallback((contact: MarketingContact) => {
-    const src = (contact.source || "").toLowerCase();
-    const school = (contact.schoolName || contact.metadata?.schoolName || contact.metadata?.school || "").trim();
-    const location = (contact.locationName || contact.metadata?.locationName || contact.metadata?.location || "").trim();
 
-    if (src.includes("manual")) {
-      return "Manual CRM Entries";
-    }
-    if (src.includes("mobile") || src.includes("app")) {
-      if (school) return `${school} - Mobile App`;
-      if (location) return `${location} - Mobile App`;
-      return "Free App Members";
-    }
-    if (src.includes("portal") || src.includes("web") || src.includes("evening") || (location && !school)) {
-      return `${location || "General"} - Evening Activities`;
-    }
-    if (src.includes("afterschool") || src.includes("school") || (school && !location)) {
-      return `${school || "General"} - After School`;
-    }
-    if (school) return `${school} - After School`;
-    if (location) return `${location} - Evening Activities`;
-    return "Free App Members";
-  }, []);
 
   // Compute Organized Lists & Categories for the Lists View (Strictly registration lists from emailmarketingcontacts)
   const organizedLists = useMemo(() => {
@@ -521,10 +555,10 @@ export default function MarketingContacts() {
       const matchSport = (c.sport || meta.sportsInterest || meta.sport || "").toLowerCase().includes(q);
       const matchStudent = (c.studentName || meta.studentName || meta.childName || "").toLowerCase().includes(q);
       const matchGrade = (c.gradeBand || meta.grade || meta.gradeBand || "").toLowerCase().includes(q);
-      const matchPlan = (c.planType || meta.planType || meta.plan || "").toLowerCase().includes(q);
+      const matchPlan = getContactPlan(c).toLowerCase().includes(q);
       return matchName || matchEmail || matchPhone || matchSport || matchStudent || matchGrade || matchPlan;
     });
-  }, [activeDrillDownList, drillDownSearch]);
+  }, [activeDrillDownList, drillDownSearch, getContactPlan]);
 
   // Client-Side In-Memory Filtering (Zero network calls on filter/toggle)
   const filteredContacts = useMemo(() => {
@@ -573,15 +607,16 @@ export default function MarketingContacts() {
         const matchLocation = (contact.locationName || contact.metadata?.locationName || "").toLowerCase().includes(q);
         const matchSport = (contact.sport || contact.metadata?.sportsInterest || "").toLowerCase().includes(q);
         const matchStudent = (contact.studentName || contact.metadata?.studentName || "").toLowerCase().includes(q);
+        const matchPlan = getContactPlan(contact).toLowerCase().includes(q);
 
-        if (!matchName && !matchEmail && !matchPhone && !matchSource && !matchSchool && !matchLocation && !matchSport && !matchStudent) {
+        if (!matchName && !matchEmail && !matchPhone && !matchSource && !matchSchool && !matchLocation && !matchSport && !matchStudent && !matchPlan) {
           return false;
         }
       }
 
       return true;
     });
-  }, [contacts, sourceFilter, statusFilter, deduplicatedOnly, searchQuery, selectedListFilter, getAssignedListName]);
+  }, [contacts, sourceFilter, statusFilter, deduplicatedOnly, searchQuery, selectedListFilter, getAssignedListName, getContactPlan]);
 
   // Client-Side Sorting
   const sortedContacts = useMemo(() => {
@@ -719,7 +754,7 @@ export default function MarketingContacts() {
         c.locationName || meta.locationName || meta.location || "",
         c.sport || meta.sportsInterest || meta.sport || "",
         c.gradeBand || meta.grade || meta.gradeBand || "",
-        c.planType || meta.planType || meta.plan || "",
+        getContactPlan(c),
         c.studentName || meta.studentName || meta.childName || "",
         c.submissionCount || 1,
         c.lastRegisteredAt ? new Date(c.lastRegisteredAt).toLocaleString() : ""
@@ -1085,7 +1120,7 @@ export default function MarketingContacts() {
                             const meta = contact.metadata || {};
                             const sport = contact.sport || meta.sportsInterest || meta.sport || "";
                             const grade = contact.gradeBand || meta.grade || meta.gradeBand || "";
-                            const plan = contact.planType || meta.planType || meta.plan || "";
+                            const plan = getContactPlan(contact);
                             const student = contact.studentName || meta.studentName || meta.childName || "";
 
                             return (
@@ -1787,7 +1822,7 @@ export default function MarketingContacts() {
                     const location = contact.locationName || meta.locationName || meta.location || "";
                     const sport = contact.sport || meta.sportsInterest || meta.sport || "";
                     const grade = contact.gradeBand || meta.grade || meta.gradeBand || "";
-                    const plan = contact.planType || meta.planType || meta.plan || "";
+                    const plan = getContactPlan(contact);
                     const student = contact.studentName || meta.studentName || meta.childName || "";
 
                     return (
@@ -2279,7 +2314,7 @@ export default function MarketingContacts() {
                 <div className="flex items-baseline gap-1.5 p-2 rounded-lg bg-accent/15 border">
                   <span className="font-bold text-muted-foreground shrink-0">Plan Type:</span>
                   <span className="font-bold text-foreground">
-                    {selectedContact?.planType || selectedContact?.metadata?.planType || selectedContact?.metadata?.plan || "Not specified"}
+                    {getContactPlan(selectedContact) || "Not specified"}
                   </span>
                 </div>
 
@@ -2429,7 +2464,7 @@ export default function MarketingContacts() {
                           locationName: selectedContact?.locationName || selectedContact?.metadata?.locationName || selectedContact?.metadata?.location || null,
                           sport: selectedContact?.sport || selectedContact?.metadata?.sportsInterest || selectedContact?.metadata?.sport || null,
                           gradeBand: selectedContact?.gradeBand || selectedContact?.metadata?.grade || selectedContact?.metadata?.gradeBand || null,
-                          planType: selectedContact?.planType || selectedContact?.metadata?.planType || selectedContact?.metadata?.plan || null,
+                          planType: getContactPlan(selectedContact) || null,
                           studentName: selectedContact?.studentName || selectedContact?.metadata?.studentName || selectedContact?.metadata?.childName || null
                         },
                         status: selectedContact?.status || "subscribed",
