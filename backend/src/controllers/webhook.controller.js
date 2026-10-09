@@ -8,6 +8,7 @@ import { Settings } from '../models/settings.model.js';
 import EALead from '../models/eaLead.model.js';
 import RetellKnowledgeBase from '../models/retellKnowledgeBase.model.js';
 import EmailHistory from '../models/emailHistory.model.js';
+import MarketingContact from '../models/emailMarketingContact.model.js';
 import smsForwarderService from '../services/sms/smsForwarder.service.js';
 import { sendSMSReplyEmailNotification } from '../services/email/mailer.js';
 import presenceService from '../services/realtime/presence.service.js';
@@ -796,6 +797,8 @@ export const handleSendGridWebhook = async (req, res) => {
                 if (leadId) {
                     if (leadModel === 'EALead') {
                         await EALead.findByIdAndUpdate(leadId, { isEmailConsent: false });
+                    } else if (leadModel === 'MarketingContact' || leadModel === 'EmailMarketingContact') {
+                        await MarketingContact.findByIdAndUpdate(leadId, { isEmailConsent: false, status: 'opted_out' });
                     } else {
                         await Lead.findByIdAndUpdate(leadId, { isEmailConsent: false });
                     }

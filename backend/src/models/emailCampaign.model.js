@@ -25,7 +25,7 @@ const EmailCampaignSchema = new mongoose.Schema({
     },
     recipientLogs: [{
         leadId: { type: mongoose.Schema.Types.ObjectId, default: null },
-        leadModel: { type: String, enum: ['Lead', 'EALead', 'ManualContact', 'Contact'], default: 'Lead' },
+        leadModel: { type: String, enum: ['Lead', 'EALead', 'ManualContact', 'Contact', 'MarketingContact', 'EmailMarketingContact'], default: 'Lead' },
         name: { type: String, default: '' },
         email: { type: String, required: true },
         personalizedSubject: { type: String, default: '' },

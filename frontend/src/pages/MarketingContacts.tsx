@@ -1690,9 +1690,9 @@ export default function MarketingContacts() {
             )}
 
             {/* Tier 3: Search, Channel Tabs & Filters */}
-            <div className="flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3 bg-card p-2.5 px-3.5 rounded-2xl border shadow-2xs shrink-0">
+            <div className="flex flex-col 2xl:flex-row items-stretch 2xl:items-center justify-between gap-3 bg-card p-2.5 px-3.5 rounded-2xl border shadow-2xs shrink-0 min-w-0">
           {/* Channel Filter Pills */}
-          <div className="flex items-center bg-accent/40 border p-1 rounded-xl overflow-x-auto custom-scrollbar text-xs font-bold gap-1 shrink-0">
+          <div className="flex items-center bg-accent/40 border p-1 rounded-xl overflow-x-auto custom-scrollbar text-xs font-bold gap-1 min-w-0 max-w-full">
             {[
               { id: "all", label: "All Contacts", count: contacts.length || stats.total },
               { id: "mobile", label: "Mobile", count: getSourceCount("mobile") },
@@ -1720,8 +1720,8 @@ export default function MarketingContacts() {
           </div>
 
           {/* Search bar & Controls */}
-          <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap shrink-0">
-            <div className="relative w-40 sm:w-52 lg:w-48 xl:w-56 shrink-0">
+          <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap min-w-0 justify-between sm:justify-end">
+            <div className="relative flex-1 sm:flex-initial sm:w-48 lg:w-48 xl:w-56 min-w-[130px]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
               <input
                 type="text"
@@ -1742,7 +1742,7 @@ export default function MarketingContacts() {
                 setStatusFilter(e.target.value);
                 setPage(1);
               }}
-              className="h-9 w-32 shrink-0 rounded-xl px-2.5 bg-background dark:bg-card border border-input text-xs font-semibold text-foreground cursor-pointer focus:outline-none focus:ring-2 focus:ring-ring/40 shadow-2xs"
+              className="h-9 w-28 sm:w-32 shrink-0 rounded-xl px-2.5 bg-background dark:bg-card border border-input text-xs font-semibold text-foreground cursor-pointer focus:outline-none focus:ring-2 focus:ring-ring/40 shadow-2xs"
             >
               <option value="all">All Statuses</option>
               <option value="active">🟢 Active</option>

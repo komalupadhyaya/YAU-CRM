@@ -470,8 +470,11 @@ export const dispatchCampaignInBackground = async (campaign, recipients) => {
         console.log(`[Campaign Queue] Successfully queued ${queueItems.length} emails for campaign "${campaign.title}".`);
     } catch (err) {
         console.error(`[Campaign Queue] Failed to queue campaign "${campaign.title}":`, err);
-        campaign.status = 'failed';
-        await campaign.save();
+        try {
+            await EmailCampaign.findByIdAndUpdate(campaign._id, { status: 'failed' });
+        } catch (updateErr) {
+            console.error(`[Campaign Queue] Failed to update campaign status to failed:`, updateErr);
+        }
     }
 };
 

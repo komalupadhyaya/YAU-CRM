@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import Lead from '../models/lead.model.js';
 import EALead from '../models/eaLead.model.js';
 import Contact from '../models/contact.model.js';
+import MarketingContact from '../models/emailMarketingContact.model.js';
 import Note from '../models/note.model.js';
 import EmailHistory from '../models/emailHistory.model.js';
 import EmailSegment from '../models/emailSegment.model.js';
@@ -69,6 +70,15 @@ async function fetchRecipientContext(recipient) {
                     message: s.message,
                     timestamp: s.timestamp
                 }));
+            }
+        } else if ((recipient.leadModel === 'MarketingContact' || recipient.leadModel === 'EmailMarketingContact') && recipient.leadId) {
+            const mc = await MarketingContact.findById(recipient.leadId).lean();
+            if (mc) {
+                leadName = mc.name || mc.organization || leadName;
+                contactName = mc.name || contactName;
+                contactTitle = mc.title || mc.role || '';
+                leadStatus = mc.status || leadStatus;
+                leadCategory = mc.source || mc.channel || leadCategory;
             }
         }
 

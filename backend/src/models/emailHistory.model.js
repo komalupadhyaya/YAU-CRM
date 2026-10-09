@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 
 const EmailHistorySchema = new mongoose.Schema({
     leadId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
-    leadModel: { type: String, enum: ['Lead', 'EALead', 'ManualContact', 'Contact'], default: 'Lead' },
+    leadModel: { type: String, enum: ['Lead', 'EALead', 'ManualContact', 'Contact', 'MarketingContact', 'EmailMarketingContact'], default: 'Lead' },
     campaignId: { type: mongoose.Schema.Types.ObjectId, ref: 'EmailCampaign', default: null, index: true },
     campaignTitle: { type: String, default: '' },
     type: { type: String, enum: ['direct', 'bulk'], required: true, index: true },
