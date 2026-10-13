@@ -156,7 +156,7 @@ interface Segment {
   name: string;
   description?: string;
   type: "dynamic" | "static" | "campaign" | "csv" | "marketing";
-  category?: "school" | "location" | "app_members" | "ea_leads" | "manual" | "csv" | "custom" | "campaign" | "marketing";
+  category?: "school" | "location" | "app_members" | "ea_leads" | "manual" | "csv" | "custom" | "campaign" | "marketing" | "legacy_cc";
   externalId?: string;
   isSystemList?: boolean;
   filters?: {
@@ -473,7 +473,7 @@ export default function EmailCenter() {
 
   const [campaignsSearchQuery, setCampaignsSearchQuery] = useState("");
   const [segmentsSearchQuery, setSegmentsSearchQuery] = useState("");
-  const [segmentTypeFilter, setSegmentTypeFilter] = useState<"all" | "csv" | "static" | "campaign">("all");
+  const [segmentTypeFilter, setSegmentTypeFilter] = useState<"all" | "csv" | "static" | "campaign" | "school" | "location" | "app_members" | "manual" | "ea_leads" | "legacy_cc">("all");
   const [templatesSearchQuery, setTemplatesSearchQuery] = useState("");
 
   // Delete Campaign Confirmation State
@@ -791,8 +791,8 @@ export default function EmailCenter() {
   const filteredSegments = React.useMemo(() => {
     let list = segments;
     if (segmentTypeFilter !== "all") {
-      if (["school", "location", "app_members", "ea_leads", "manual"].includes(segmentTypeFilter)) {
-        list = list.filter(s => s.category === segmentTypeFilter);
+      if (["school", "location", "app_members", "ea_leads", "manual", "legacy_cc"].includes(segmentTypeFilter)) {
+        list = list.filter(s => s.category === segmentTypeFilter || (segmentTypeFilter === "legacy_cc" && (s.name.includes("— Legacy CC") || s.name.includes("Legacy CC"))));
       } else {
         list = list.filter(s => s.type === segmentTypeFilter);
       }
@@ -2830,6 +2830,13 @@ export default function EmailCenter() {
   };
 
   const getSegmentBadge = (seg: Segment) => {
+    if (seg.category === "legacy_cc" || (seg.name && (seg.name.includes("— Legacy CC") || seg.name.includes("Legacy CC")))) {
+      return (
+        <span className="text-[9px] px-2.5 py-0.5 rounded-full font-extrabold uppercase border bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30">
+          📦 Legacy CC
+        </span>
+      );
+    }
     if (seg.category === "school") {
       return (
         <span className="text-[9px] px-2.5 py-0.5 rounded-full font-extrabold uppercase border bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20">
@@ -3065,6 +3072,7 @@ export default function EmailCenter() {
                       title="Filter lists and segments by Type"
                     >
                       <option value="all">All Types</option>
+                      <option value="legacy_cc">📦 Legacy CC Lists</option>
                       <option value="school">🏫 School Audiences</option>
                       <option value="location">📍 Location Audiences</option>
                       <option value="app_members">📱 Free App Members</option>
