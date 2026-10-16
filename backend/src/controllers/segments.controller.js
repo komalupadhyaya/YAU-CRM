@@ -470,6 +470,103 @@ export const removeSegmentContact = async (req, res, next) => {
     }
 };
 
+export const addContactsToSegment = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const segment = await EmailSegment.findById(id);
+        if (!segment) {
+            return res.status(404).json({ error: 'Segment not found' });
+        }
+
+        // Support either an array `contacts` or `newContacts`, or single `contact` / body
+        let rawContacts = req.body.contacts || req.body.newContacts || [];
+        if (!Array.isArray(rawContacts) && req.body.contact) {
+            rawContacts = [req.body.contact];
+        } else if (!Array.isArray(rawContacts) && req.body.email) {
+            rawContacts = [req.body];
+        }
+
+        if (!Array.isArray(rawContacts) || rawContacts.length === 0) {
+            return res.status(400).json({ error: 'No contacts provided to add' });
+        }
+
+        const existingEmails = new Set((segment.contacts || []).map(c => c.email.toLowerCase().trim()));
+        let candidates = [];
+        let alreadyPresentCount = 0;
+
+        for (const item of rawContacts) {
+            if (!item) continue;
+            const email = (typeof item === 'string' ? item : item.email || '').toLowerCase().trim();
+            if (!email || !email.includes('@')) continue;
+
+            if (existingEmails.has(email)) {
+                alreadyPresentCount++;
+                continue;
+            }
+
+            // avoid duplicates within incoming payload
+            if (candidates.some(c => c.email === email)) {
+                continue;
+            }
+
+            const name = typeof item === 'object' && item.name ? item.name.trim() : email.split('@')[0];
+            const phone = typeof item === 'object' && item.phone ? item.phone.trim() : '';
+            const school = typeof item === 'object' && item.school ? item.school.trim() : '';
+            const location = typeof item === 'object' && item.location ? item.location.trim() : '';
+            const source = typeof item === 'object' && item.source ? item.source.trim() : 'manual';
+
+            candidates.push({
+                name,
+                email,
+                phone,
+                school,
+                location,
+                source,
+                status: 'active'
+            });
+        }
+
+        // Opt-out check in MarketingContact
+        let skippedOptOutCount = 0;
+        if (candidates.length > 0) {
+            const candidateEmails = candidates.map(c => c.email);
+            const optedOut = await MarketingContact.find({
+                email: { $in: candidateEmails },
+                $or: [
+                    { status: 'opted_out' },
+                    { isEmailConsent: false }
+                ]
+            }).select('email').lean();
+
+            if (optedOut.length > 0) {
+                const optedOutSet = new Set(optedOut.map(o => o.email.toLowerCase().trim()));
+                const initialCount = candidates.length;
+                candidates = candidates.filter(c => !optedOutSet.has(c.email));
+                skippedOptOutCount = initialCount - candidates.length;
+            }
+        }
+
+        // Append valid new contacts
+        for (const validContact of candidates) {
+            segment.contacts.push(validContact);
+        }
+
+        await segment.save();
+
+        res.json({
+            success: true,
+            message: `Added ${candidates.length} contact(s) to "${segment.name}".`,
+            addedCount: candidates.length,
+            alreadyPresentCount,
+            skippedOptOutCount,
+            totalCount: segment.contacts.length,
+            segment
+        });
+    } catch (err) {
+        next(err);
+    }
+};
+
 export const getAvailableContacts = async (req, res, next) => {
     try {
         const [contacts, eaLeads, teamMembers, marketingContacts] = await Promise.all([

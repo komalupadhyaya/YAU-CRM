@@ -57,12 +57,15 @@ import {
   Tag,
   Highlighter,
   Palette,
+  Pipette,
   Type,
   Folder,
   X,
   HelpCircle,
   Edit2,
   UserPlus,
+  User,
+  Phone,
   Shield,
   ShieldCheck,
   Smartphone,
@@ -149,35 +152,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import AiPersonalizedCampaignModal from "../components/email/AiPersonalizedCampaignModal";
-import { useEmailCenter } from "../context/EmailCenterContext";
-
-interface Segment {
-  _id: string;
-  name: string;
-  description?: string;
-  type: "dynamic" | "static" | "campaign" | "csv" | "marketing";
-  category?: "school" | "location" | "app_members" | "ea_leads" | "manual" | "csv" | "custom" | "campaign" | "marketing" | "legacy_cc";
-  externalId?: string;
-  isSystemList?: boolean;
-  filters?: {
-    source?: string;
-    sport?: string;
-    location?: string;
-    status?: string;
-    campaignId?: string | { _id: string; name: string };
-  };
-  contacts?: {
-    name?: string;
-    email: string;
-    phone?: string;
-    school?: string;
-    location?: string;
-    source?: string;
-    registrationCount?: number;
-    lastRegisteredAt?: string;
-    status: "active" | "opted_out" | "bounced" | "failed";
-  }[];
-}
+import { useEmailCenter, Segment } from "../context/EmailCenterContext";
 
 interface Campaign {
   _id: string;
@@ -245,6 +220,715 @@ interface DbTemplate {
   aiPrompt?: string;
   createdAt?: string;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GOOGLE DOCS STYLE MULTI-LEVEL COLOR PALETTE & COMPONENT
+// ─────────────────────────────────────────────────────────────────────────────
+
+const GOOGLE_DOCS_PALETTE: { color: string; name: string }[][] = [
+  // Row 0: Grayscale (10 steps from black to pure white)
+  [
+    { color: '#000000', name: 'Black' },
+    { color: '#434343', name: 'Dark Charcoal' },
+    { color: '#666666', name: 'Dark Gray' },
+    { color: '#999999', name: 'Gray' },
+    { color: '#b7b7b7', name: 'Medium Light Gray' },
+    { color: '#cccccc', name: 'Light Gray' },
+    { color: '#d9d9d9', name: 'Silver' },
+    { color: '#efefef', name: 'Ghost White' },
+    { color: '#f3f3f3', name: 'Off White' },
+    { color: '#ffffff', name: 'Pure White' },
+  ],
+  // Row 1: Primary Hues
+  [
+    { color: '#980000', name: 'Berry Red' },
+    { color: '#ff0000', name: 'Red' },
+    { color: '#ff9900', name: 'Orange' },
+    { color: '#ffff00', name: 'Yellow' },
+    { color: '#00ff00', name: 'Green' },
+    { color: '#00ffff', name: 'Cyan' },
+    { color: '#4a86e8', name: 'Cornflower Blue' },
+    { color: '#0000ff', name: 'Blue' },
+    { color: '#9900ff', name: 'Purple' },
+    { color: '#ff00ff', name: 'Magenta' },
+  ],
+  // Row 2: Level 1 (Lightest pastels)
+  [
+    { color: '#e6b8af', name: 'Light Berry 3' },
+    { color: '#f4cccc', name: 'Light Red 3' },
+    { color: '#fce5cd', name: 'Light Orange 3' },
+    { color: '#fff2cc', name: 'Light Yellow 3' },
+    { color: '#d9ead3', name: 'Light Green 3' },
+    { color: '#d0e0e3', name: 'Light Cyan 3' },
+    { color: '#c9daf8', name: 'Light Cornflower 3' },
+    { color: '#cfe2f3', name: 'Light Blue 3' },
+    { color: '#d9d2e9', name: 'Light Purple 3' },
+    { color: '#ead1dc', name: 'Light Magenta 3' },
+  ],
+  // Row 3: Level 2 (Soft light tints)
+  [
+    { color: '#dd7e6b', name: 'Light Berry 2' },
+    { color: '#ea9999', name: 'Light Red 2' },
+    { color: '#f9cb9c', name: 'Light Orange 2' },
+    { color: '#ffe599', name: 'Light Yellow 2' },
+    { color: '#b6d7a8', name: 'Light Green 2' },
+    { color: '#a2c4c9', name: 'Light Cyan 2' },
+    { color: '#a4c2f4', name: 'Light Cornflower 2' },
+    { color: '#9fc5e8', name: 'Light Blue 2' },
+    { color: '#b4a7d6', name: 'Light Purple 2' },
+    { color: '#d5a6bd', name: 'Light Magenta 2' },
+  ],
+  // Row 4: Level 3 (Medium light)
+  [
+    { color: '#cc4125', name: 'Medium Berry 1' },
+    { color: '#e06666', name: 'Medium Red 1' },
+    { color: '#f6b26b', name: 'Medium Orange 1' },
+    { color: '#ffd966', name: 'Medium Yellow 1' },
+    { color: '#93c47d', name: 'Medium Green 1' },
+    { color: '#76a5af', name: 'Medium Cyan 1' },
+    { color: '#6d9eeb', name: 'Medium Cornflower 1' },
+    { color: '#6fa8dc', name: 'Medium Blue 1' },
+    { color: '#8e7cc3', name: 'Medium Purple 1' },
+    { color: '#c27ba0', name: 'Medium Magenta 1' },
+  ],
+  // Row 5: Level 4 (Vibrant / standard)
+  [
+    { color: '#a61c1c', name: 'Dark Berry 1' },
+    { color: '#cc0000', name: 'Dark Red 1' },
+    { color: '#e69138', name: 'Dark Orange 1' },
+    { color: '#f1c232', name: 'Dark Yellow 1' },
+    { color: '#6aa84f', name: 'Dark Green 1' },
+    { color: '#45818e', name: 'Dark Cyan 1' },
+    { color: '#3c78d8', name: 'Dark Cornflower 1' },
+    { color: '#3d85c6', name: 'Dark Blue 1' },
+    { color: '#674ea7', name: 'Dark Purple 1' },
+    { color: '#a64d79', name: 'Dark Magenta 1' },
+  ],
+  // Row 6: Level 5 (Deep shades)
+  [
+    { color: '#852020', name: 'Dark Berry 2' },
+    { color: '#990000', name: 'Dark Red 2' },
+    { color: '#b45f06', name: 'Dark Orange 2' },
+    { color: '#bf9000', name: 'Dark Yellow 2' },
+    { color: '#38761d', name: 'Dark Green 2' },
+    { color: '#134f5c', name: 'Dark Cyan 2' },
+    { color: '#1155cc', name: 'Dark Cornflower 2' },
+    { color: '#0b5394', name: 'Dark Blue 2' },
+    { color: '#351c75', name: 'Dark Purple 2' },
+    { color: '#741b47', name: 'Dark Magenta 2' },
+  ],
+  // Row 7: Level 6 (Deepest / Midnight / Navy shades)
+  [
+    { color: '#5b0f00', name: 'Dark Berry 3' },
+    { color: '#660000', name: 'Dark Red 3' },
+    { color: '#783f04', name: 'Dark Orange 3' },
+    { color: '#7f6000', name: 'Dark Yellow 3' },
+    { color: '#274e13', name: 'Dark Green 3' },
+    { color: '#0c343d', name: 'Dark Cyan 3' },
+    { color: '#1c4587', name: 'Dark Cornflower 3' },
+    { color: '#073763', name: 'Dark Blue 3' },
+    { color: '#20124d', name: 'Deep YAU Navy 3' },
+    { color: '#4c1130', name: 'Dark Magenta 3' },
+  ],
+];
+
+const normalizeHex = (colorStr?: string): string => {
+  if (!colorStr) return '';
+  const str = colorStr.trim().toLowerCase();
+  if (str === 'transparent' || str === 'none') return 'transparent';
+  if (str.startsWith('#')) {
+    if (str.length === 4) {
+      return `#${str[1]}${str[1]}${str[2]}${str[2]}${str[3]}${str[3]}`;
+    }
+    return str;
+  }
+  const rgbMatch = str.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+  if (rgbMatch) {
+    const r = parseInt(rgbMatch[1], 10).toString(16).padStart(2, '0');
+    const g = parseInt(rgbMatch[2], 10).toString(16).padStart(2, '0');
+    const b = parseInt(rgbMatch[3], 10).toString(16).padStart(2, '0');
+    return `#${r}${g}${b}`;
+  }
+  return str;
+};
+
+const isLightColor = (colorStr: string): boolean => {
+  const hex = normalizeHex(colorStr);
+  if (!hex || !hex.startsWith('#') || hex.length < 7) return true;
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+  return brightness > 155;
+};
+
+function hsvToHex(h: number, s: number, v: number): string {
+  s = Math.max(0, Math.min(100, s)) / 100;
+  v = Math.max(0, Math.min(100, v)) / 100;
+  const c = v * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = v - c;
+  let r = 0, g = 0, b = 0;
+  if (h >= 0 && h < 60) { r = c; g = x; b = 0; }
+  else if (h >= 60 && h < 120) { r = x; g = c; b = 0; }
+  else if (h >= 120 && h < 180) { r = 0; g = c; b = x; }
+  else if (h >= 180 && h < 240) { r = 0; g = x; b = c; }
+  else if (h >= 240 && h < 300) { r = x; g = 0; b = c; }
+  else { r = c; g = 0; b = x; }
+  const toHex = (n: number) => Math.round((n + m) * 255).toString(16).padStart(2, '0');
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase();
+}
+
+function hexToHsv(hex: string): { h: number; s: number; v: number } {
+  let clean = hex.replace('#', '').trim();
+  if (clean.length === 3) clean = clean.split('').map(c => c + c).join('');
+  if (clean.length !== 6) return { h: 210, s: 60, v: 80 };
+  const r = parseInt(clean.substring(0, 2), 16) / 255;
+  const g = parseInt(clean.substring(2, 4), 16) / 255;
+  const b = parseInt(clean.substring(4, 6), 16) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const d = max - min;
+  let h = 0;
+  const s = max === 0 ? 0 : d / max;
+  const v = max;
+  if (max !== min) {
+    switch (max) {
+      case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+      case g: h = (b - r) / d + 2; break;
+      case b: h = (r - g) / d + 4; break;
+    }
+    h = h * 60;
+  }
+  return { h: Math.round((h + 360) % 360), s: Math.round(s * 100), v: Math.round(v * 100) };
+}
+
+interface CustomColorModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  currentColor?: string;
+  onSelect: (hex: string) => void;
+  restoreSelection?: () => void;
+}
+
+const CustomColorModal: React.FC<CustomColorModalProps> = ({
+  isOpen,
+  onClose,
+  currentColor = '#2563EB',
+  onSelect,
+  restoreSelection,
+}) => {
+  const [h, setH] = useState(210);
+  const [s, setS] = useState(60);
+  const [v, setV] = useState(80);
+  const [hexInput, setHexInput] = useState('#2563EB');
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const isDraggingRef = useRef(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      const validHex = (currentColor && currentColor !== 'transparent' && currentColor.startsWith('#'))
+        ? currentColor
+        : '#2563EB';
+      const initialHsv = hexToHsv(validHex);
+      setH(initialHsv.h);
+      setS(initialHsv.s);
+      setV(initialHsv.v);
+      setHexInput(validHex.toUpperCase());
+    }
+  }, [isOpen, currentColor]);
+
+  if (!isOpen) return null;
+
+  const currentPickedHex = hsvToHex(h, s, v);
+
+  const updateFromPosition = (clientX: number, clientY: number) => {
+    if (!canvasRef.current) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const x = Math.max(0, Math.min(rect.width, clientX - rect.left));
+    const y = Math.max(0, Math.min(rect.height, clientY - rect.top));
+    const newS = Math.round((x / rect.width) * 100);
+    const newV = Math.round((1 - y / rect.height) * 100);
+    setS(newS);
+    setV(newV);
+    setHexInput(hsvToHex(h, newS, newV));
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    isDraggingRef.current = true;
+    updateFromPosition(e.clientX, e.clientY);
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      if (isDraggingRef.current) {
+        updateFromPosition(moveEvent.clientX, moveEvent.clientY);
+      }
+    };
+
+    const handleMouseUp = () => {
+      isDraggingRef.current = false;
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  };
+
+  const handleHexChange = (val: string) => {
+    setHexInput(val);
+    let clean = val.trim();
+    if (!clean.startsWith('#')) clean = `#${clean}`;
+    if (clean.length === 7 && /^#[0-9A-Fa-f]{6}$/.test(clean)) {
+      const parsed = hexToHsv(clean);
+      setH(parsed.h);
+      setS(parsed.s);
+      setV(parsed.v);
+    }
+  };
+
+  const handleSelect = () => {
+    if (restoreSelection) restoreSelection();
+    let finalColor = hexInput.trim();
+    if (!finalColor.startsWith('#')) finalColor = `#${finalColor}`;
+    if (!/^#[0-9A-Fa-f]{6}$/.test(finalColor)) {
+      finalColor = currentPickedHex;
+    }
+    onSelect(finalColor);
+    onClose();
+  };
+
+  const handleEyeDropper = async () => {
+    try {
+      if ('EyeDropper' in window) {
+        // @ts-expect-error EyeDropper is supported in Chromium
+        const eyeDropper = new window.EyeDropper();
+        const result = await eyeDropper.open();
+        if (result && result.sRGBHex) {
+          const hex = result.sRGBHex.toUpperCase();
+          setHexInput(hex);
+          const parsed = hexToHsv(hex);
+          setH(parsed.h);
+          setS(parsed.s);
+          setV(parsed.v);
+        }
+      }
+    } catch {
+      // User dismissed eyedropper
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in duration-100"
+      onMouseDown={e => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
+        className="bg-white rounded-xl shadow-2xl border border-slate-200 w-[290px] overflow-hidden flex flex-col animate-in zoom-in-95 duration-150"
+        onMouseDown={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-slate-100 bg-slate-50/70">
+          <div className="flex items-center gap-1.5 font-bold text-xs text-slate-800">
+            <Palette size={14} className="text-blue-600" />
+            <span>Custom Color</span>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+          >
+            <X size={14} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="p-3.5 flex flex-col gap-3">
+          {/* 2D Saturation / Value Gradient Canvas */}
+          <div
+            ref={canvasRef}
+            onMouseDown={handleMouseDown}
+            className="w-full h-[145px] rounded-lg relative cursor-crosshair overflow-hidden select-none border border-slate-200 shadow-inner"
+            style={{ backgroundColor: `hsl(${h}, 100%, 50%)` }}
+          >
+            <div
+              className="absolute inset-0"
+              style={{ background: 'linear-gradient(to right, #ffffff, transparent)' }}
+            />
+            <div
+              className="absolute inset-0"
+              style={{ background: 'linear-gradient(to top, #000000, transparent)' }}
+            />
+            {/* Color indicator ring */}
+            <div
+              className="w-4 h-4 rounded-full border-2 border-white shadow-md absolute pointer-events-none -translate-x-1/2 -translate-y-1/2 ring-1 ring-black/40"
+              style={{
+                left: `${s}%`,
+                top: `${100 - v}%`,
+                backgroundColor: currentPickedHex,
+              }}
+            />
+          </div>
+
+          {/* Rainbow Hue Slider */}
+          <div className="flex flex-col gap-1">
+            <input
+              type="range"
+              min="0"
+              max="360"
+              value={h}
+              onChange={e => {
+                const newH = Number(e.target.value);
+                setH(newH);
+                setHexInput(hsvToHex(newH, s, v));
+              }}
+              className="w-full h-3 rounded-full appearance-none cursor-pointer border border-slate-300"
+              style={{
+                background:
+                  'linear-gradient(to right, #ff0000 0%, #ffff00 17%, #00ff00 33%, #00ffff 50%, #0000ff 67%, #ff00ff 83%, #ff0000 100%)',
+              }}
+            />
+          </div>
+
+          {/* Color Preview & Hex Input Row */}
+          <div className="flex items-center gap-2 pt-1 border-t border-slate-100">
+            {/* Swatch Preview */}
+            <div
+              className="w-8 h-8 rounded-lg border border-slate-300 shrink-0 shadow-xs relative overflow-hidden"
+              style={{
+                backgroundColor: currentPickedHex,
+                boxShadow: currentPickedHex.toLowerCase() === '#ffffff' ? 'inset 0 0 0 1px rgba(0,0,0,0.15)' : undefined,
+              }}
+              title={`Preview: ${currentPickedHex}`}
+            />
+
+            {/* Hex Input */}
+            <div className="flex-1">
+              <input
+                type="text"
+                value={hexInput}
+                onChange={e => handleHexChange(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleSelect();
+                  }
+                }}
+                placeholder="#000000"
+                className="w-full h-8 px-2.5 font-mono text-xs uppercase font-bold rounded-lg border border-slate-200 bg-slate-50 text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+
+            {/* Eyedropper Button */}
+            {'EyeDropper' in window && (
+              <button
+                type="button"
+                onClick={handleEyeDropper}
+                title="Pick color from screen"
+                className="h-8 w-8 rounded-lg border border-slate-200 hover:bg-slate-100 flex items-center justify-center text-slate-600 transition-colors cursor-pointer shrink-0"
+              >
+                <Pipette size={14} />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Footer Actions */}
+        <div className="flex items-center justify-end gap-2 px-3.5 py-2.5 border-t border-slate-100 bg-slate-50">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleSelect}
+            className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors cursor-pointer shadow-xs flex items-center gap-1.5"
+          >
+            <Check size={13} className="stroke-[3]" />
+            <span>Select</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+interface GoogleDocsColorPickerPopoverProps {
+  title?: string;
+  isOpen: boolean;
+  onClose: () => void;
+  onSelectColor: (color: string) => void;
+  allowNone?: boolean;
+  align?: 'left' | 'right';
+  restoreSelection?: () => void;
+  currentColor?: string;
+}
+
+const GoogleDocsColorPickerPopover: React.FC<GoogleDocsColorPickerPopoverProps> = ({
+  title = 'Color',
+  isOpen,
+  onClose,
+  onSelectColor,
+  allowNone = false,
+  align = 'left',
+  restoreSelection,
+  currentColor,
+}) => {
+  const [customColors, setCustomColors] = useState<string[]>([
+    '#0a192f', '#1e3a8a', '#2563eb', '#059669', '#dc2626', '#ffffff'
+  ]);
+  const [activeColor, setActiveColor] = useState<string>(currentColor || '');
+  const [isCustomModalOpen, setIsCustomModalOpen] = useState(false);
+  const popoverRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (currentColor !== undefined) {
+      setActiveColor(currentColor);
+    }
+  }, [currentColor, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (isCustomModalOpen) return;
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+    const timer = setTimeout(() => {
+      document.addEventListener('mousedown', handleOutsideClick);
+    }, 20);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('mousedown', handleOutsideClick);
+    };
+  }, [isOpen, onClose, isCustomModalOpen]);
+
+  if (!isOpen) return null;
+
+  const applyColor = (color: string, shouldClose = false) => {
+    if (restoreSelection) restoreSelection();
+    setActiveColor(color);
+    onSelectColor(color);
+    if (shouldClose) {
+      onClose();
+    }
+  };
+
+  const addCustomColorAndApply = (color: string, shouldClose = false) => {
+    const formatted = color.toLowerCase().trim();
+    if (formatted && !customColors.includes(formatted)) {
+      setCustomColors(prev => [formatted, ...prev.slice(0, 9)]);
+    }
+    applyColor(color, shouldClose);
+  };
+
+  const handleEyeDropper = async () => {
+    try {
+      if ('EyeDropper' in window) {
+        // @ts-expect-error EyeDropper is supported in Chromium
+        const eyeDropper = new window.EyeDropper();
+        const result = await eyeDropper.open();
+        if (result && result.sRGBHex) {
+          addCustomColorAndApply(result.sRGBHex.toUpperCase(), false);
+        }
+      } else {
+        setIsCustomModalOpen(true);
+      }
+    } catch {
+      // User cancelled
+    }
+  };
+
+  return (
+    <>
+      <div
+        ref={popoverRef}
+        onMouseDown={e => {
+          e.preventDefault();
+        }}
+        className={`absolute top-full ${align === 'right' ? 'right-0' : 'left-0'} mt-1 p-2.5 bg-white text-slate-800 border border-slate-200 rounded-xl shadow-2xl z-50 w-[242px] flex flex-col gap-1.5 animate-in fade-in zoom-in-95 duration-100`}
+        style={{ backgroundColor: '#ffffff', opacity: 1 }}
+      >
+        <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 shrink-0">
+          <span className="text-[11px] font-bold text-slate-800 flex items-center gap-1">
+            {title.toLowerCase().includes('highlight') ? (
+              <Highlighter size={12} className="text-amber-500" />
+            ) : (
+              <Palette size={12} className="text-blue-500" />
+            )}
+            <span>{title}</span>
+          </span>
+          <div className="flex items-center gap-1.5">
+            {/* Compact Selected Color Preview Pill */}
+            <div
+              className="flex items-center gap-1 px-1.5 py-0.5 bg-slate-50 border border-slate-200 rounded-md"
+              title={`Selected: ${activeColor === 'transparent' ? 'None' : normalizeHex(activeColor).toUpperCase()}`}
+            >
+              <div
+                className="w-3.5 h-3.5 rounded-full border border-slate-300 shrink-0 relative overflow-hidden"
+                style={{
+                  backgroundColor: activeColor ? (activeColor === 'transparent' ? '#ffffff' : activeColor) : (allowNone ? '#ffffff' : '#000000'),
+                  boxShadow: (activeColor?.toLowerCase() === '#ffffff' || activeColor === 'transparent') ? 'inset 0 0 0 1px rgba(0,0,0,0.15)' : undefined
+                }}
+              >
+                {activeColor === 'transparent' && (
+                  <div className="w-full h-0.5 bg-red-500 rotate-45 transform" />
+                )}
+              </div>
+              <span className="text-[10px] font-mono font-bold text-slate-700">
+                {activeColor === 'transparent'
+                  ? 'None'
+                  : (normalizeHex(activeColor).toUpperCase() || (allowNone ? 'None' : '#000000'))
+                }
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="h-5 w-5 rounded-md hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
+            >
+              <X size={11} />
+            </button>
+          </div>
+        </div>
+
+        {/* Optional "None / Transparent" for Highlight Color */}
+        {allowNone && (
+          <div className="pb-1 border-b border-slate-100 flex items-center justify-between shrink-0">
+            <button
+              type="button"
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => applyColor('transparent', false)}
+              className={`px-2 py-0.5 text-[10px] font-bold rounded-md border flex items-center gap-1 transition-colors cursor-pointer w-full justify-between ${
+                activeColor === 'transparent'
+                  ? 'bg-red-50 border-red-300 text-red-700 ring-1 ring-red-400'
+                  : 'border-slate-200 hover:bg-slate-50 text-slate-600 hover:text-slate-900'
+              }`}
+              title="Remove background color"
+            >
+              <div className="flex items-center gap-1.5">
+                <div className="w-3 h-3 rounded-full border border-red-500 relative flex items-center justify-center overflow-hidden">
+                  <div className="w-full h-0.5 bg-red-500 rotate-45 transform" />
+                </div>
+                <span>None (Transparent)</span>
+              </div>
+              {activeColor === 'transparent' && <Check size={10} className="stroke-[3] text-red-600" />}
+            </button>
+          </div>
+        )}
+
+        {/* 10-Column Multi-Level Palette Grid */}
+        <div className="grid grid-cols-10 gap-1 p-0.5 shrink-0 justify-center">
+          {GOOGLE_DOCS_PALETTE.map((row, rIdx) =>
+            row.map((item, cIdx) => {
+              const isSelected = activeColor && normalizeHex(activeColor) === normalizeHex(item.color);
+              return (
+                <button
+                  key={`${rIdx}-${cIdx}`}
+                  type="button"
+                  onMouseDown={e => e.preventDefault()}
+                  onClick={() => applyColor(item.color, false)}
+                  title={item.name}
+                  className={`w-[18px] h-[18px] rounded-full transition-transform cursor-pointer shadow-2xs hover:scale-125 flex items-center justify-center relative ${
+                    isSelected
+                      ? 'ring-2 ring-blue-600 ring-offset-1 scale-110 z-10 border-transparent shadow-xs'
+                      : 'border border-slate-200 hover:z-20 hover:border-slate-800'
+                  }`}
+                  style={{
+                    backgroundColor: item.color,
+                    boxShadow: item.color.toLowerCase() === '#ffffff' ? 'inset 0 0 0 1px rgba(0,0,0,0.15)' : undefined,
+                  }}
+                >
+                  {isSelected && (
+                    <Check
+                      size={10}
+                      className={`stroke-[3.5] ${isLightColor(item.color) ? 'text-slate-900' : 'text-white'}`}
+                    />
+                  )}
+                </button>
+              );
+            })
+          )}
+        </div>
+
+        {/* CUSTOM Section */}
+        <div className="pt-1.5 border-t border-slate-100 shrink-0">
+          <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+            CUSTOM
+          </div>
+          <div className="flex items-center gap-1 flex-wrap">
+            {customColors.map((hex, idx) => {
+              const isSelected = activeColor && normalizeHex(activeColor) === normalizeHex(hex);
+              return (
+                <button
+                  key={idx}
+                  type="button"
+                  onMouseDown={e => e.preventDefault()}
+                  onClick={() => applyColor(hex, false)}
+                  title={hex}
+                  className={`w-[18px] h-[18px] rounded-full transition-transform cursor-pointer shadow-2xs hover:scale-125 flex items-center justify-center relative ${
+                    isSelected
+                      ? 'ring-2 ring-blue-600 ring-offset-1 scale-110 z-10 border-transparent shadow-xs'
+                      : 'border border-slate-200 hover:border-slate-800'
+                  }`}
+                  style={{
+                    backgroundColor: hex,
+                    boxShadow: hex.toLowerCase() === '#ffffff' ? 'inset 0 0 0 1px rgba(0,0,0,0.15)' : undefined,
+                  }}
+                >
+                  {isSelected && (
+                    <Check
+                      size={10}
+                      className={`stroke-[3.5] ${isLightColor(hex) ? 'text-slate-900' : 'text-white'}`}
+                    />
+                  )}
+                </button>
+              );
+            })}
+
+            {/* Plus (+) Add Custom Color Button -> Opens Dedicated Custom Color Modal with Select Button */}
+            <button
+              type="button"
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => setIsCustomModalOpen(true)}
+              title="Add custom color"
+              className="w-[18px] h-[18px] rounded-full border border-dashed border-slate-300 hover:border-primary flex items-center justify-center text-slate-400 hover:text-primary hover:scale-115 transition-all cursor-pointer"
+            >
+              <Plus size={10} />
+            </button>
+
+            {/* Pipette Eyedropper Button */}
+            <button
+              type="button"
+              onMouseDown={e => e.preventDefault()}
+              onClick={handleEyeDropper}
+              title="Pick color with eyedropper"
+              className="w-[18px] h-[18px] rounded-full border border-slate-200 hover:border-primary flex items-center justify-center text-slate-400 hover:text-primary hover:scale-115 transition-all cursor-pointer"
+            >
+              <Pipette size={10} />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Dedicated Custom Color Modal on '+' click */}
+      <CustomColorModal
+        isOpen={isCustomModalOpen}
+        onClose={() => setIsCustomModalOpen(false)}
+        currentColor={activeColor}
+        onSelect={color => {
+          addCustomColorAndApply(color, false);
+        }}
+        restoreSelection={restoreSelection}
+      />
+    </>
+  );
+};
 
 export default function EmailCenter() {
   const { currentUser } = useAuth();
@@ -382,6 +1066,8 @@ export default function EmailCenter() {
   const aiTemplateEditorRef = useRef<HTMLDivElement>(null);
   const [isAiHighlighterOpen, setIsAiHighlighterOpen] = useState(false);
   const [isAiColorPickerOpen, setIsAiColorPickerOpen] = useState(false);
+  const [aiTextColor, setAiTextColor] = useState('#000000');
+  const [aiHighlightColor, setAiHighlightColor] = useState('transparent');
   const [aiEditorActiveFormats, setAiEditorActiveFormats] = useState<{ [key: string]: any }>({
     bold: false,
     italic: false,
@@ -473,7 +1159,7 @@ export default function EmailCenter() {
 
   const [campaignsSearchQuery, setCampaignsSearchQuery] = useState("");
   const [segmentsSearchQuery, setSegmentsSearchQuery] = useState("");
-  const [segmentTypeFilter, setSegmentTypeFilter] = useState<"all" | "csv" | "static" | "campaign" | "school" | "location" | "app_members" | "manual" | "ea_leads" | "legacy_cc">("all");
+  const [segmentTypeFilter, setSegmentTypeFilter] = useState<"all" | "csv" | "static" | "campaign" | "afterschool" | "evening_activities" | "mobile_app" | "school" | "location" | "app_members" | "manual" | "ea_leads" | "legacy_cc">("all");
   const [templatesSearchQuery, setTemplatesSearchQuery] = useState("");
 
   // Delete Campaign Confirmation State
@@ -563,6 +1249,23 @@ export default function EmailCenter() {
   const [isQuickAdding, setIsQuickAdding] = useState(false);
   const [isAppendingCsv, setIsAppendingCsv] = useState(false);
   const appendCsvFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Add Contact to List Modal State
+  const [isAddContactModalOpen, setIsAddContactModalOpen] = useState(false);
+  const [addContactTargetSegmentIds, setAddContactTargetSegmentIds] = useState<string[]>([]);
+  const [isAddContactListDropdownOpen, setIsAddContactListDropdownOpen] = useState(false);
+  const [addContactListSearch, setAddContactListSearch] = useState("");
+  const addContactListDropdownRef = useRef<HTMLDivElement>(null);
+  const [addContactMode, setAddContactMode] = useState<"individual" | "crm" | "paste">("individual");
+  const [addContactSingleName, setAddContactSingleName] = useState("");
+  const [addContactSingleEmail, setAddContactSingleEmail] = useState("");
+  const [addContactSinglePhone, setAddContactSinglePhone] = useState("");
+  const [addContactSingleSource, setAddContactSingleSource] = useState("");
+  const [addContactCrmSelectedIds, setAddContactCrmSelectedIds] = useState<string[]>([]);
+  const [addContactCrmSearch, setAddContactCrmSearch] = useState("");
+  const [addContactCrmCategory, setAddContactCrmCategory] = useState<"all" | "main_lead" | "ea_lead" | "team_member">("all");
+  const [addContactPasteText, setAddContactPasteText] = useState("");
+  const [isSubmittingAddContact, setIsSubmittingAddContact] = useState(false);
 
   // State for Edit / Builder Segment Modal
   const [editingSegmentId, setEditingSegmentId] = useState<string | null>(null);
@@ -791,8 +1494,16 @@ export default function EmailCenter() {
   const filteredSegments = React.useMemo(() => {
     let list = segments;
     if (segmentTypeFilter !== "all") {
-      if (["school", "location", "app_members", "ea_leads", "manual", "legacy_cc"].includes(segmentTypeFilter)) {
-        list = list.filter(s => s.category === segmentTypeFilter || (segmentTypeFilter === "legacy_cc" && (s.name.includes("— Legacy CC") || s.name.includes("Legacy CC"))));
+      if (segmentTypeFilter === "afterschool" || segmentTypeFilter === "school") {
+        list = list.filter(s => s.category === "afterschool" || s.category === "school");
+      } else if (segmentTypeFilter === "evening_activities" || segmentTypeFilter === "location") {
+        list = list.filter(s => s.category === "evening_activities" || s.category === "location");
+      } else if (segmentTypeFilter === "mobile_app" || segmentTypeFilter === "app_members") {
+        list = list.filter(s => s.category === "mobile_app" || s.category === "app_members");
+      } else if (segmentTypeFilter === "legacy_cc") {
+        list = list.filter(s => s.category === "legacy_cc" || (s.name && (s.name.includes("— Legacy CC") || s.name.includes("Legacy CC"))));
+      } else if (["ea_leads", "manual"].includes(segmentTypeFilter)) {
+        list = list.filter(s => s.category === segmentTypeFilter);
       } else {
         list = list.filter(s => s.type === segmentTypeFilter);
       }
@@ -808,6 +1519,78 @@ export default function EmailCenter() {
     }
     return list;
   }, [segments, segmentsSearchQuery, segmentTypeFilter]);
+
+  // Alphabetized lists memo for Add Contact Dropdown and general list selection
+  const alphabetizedSegments = React.useMemo(() => {
+    return [...segments].sort((a, b) => (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base" }));
+  }, [segments]);
+
+  // Filtered alphabetized segments for Add Contact Dropdown search
+  const filteredAlphabetizedSegments = React.useMemo(() => {
+    let list = alphabetizedSegments;
+    if (addContactListSearch.trim()) {
+      const q = addContactListSearch.toLowerCase().trim();
+      list = list.filter(s =>
+        (s.name && s.name.toLowerCase().includes(q)) ||
+        (s.category && s.category.toLowerCase().includes(q)) ||
+        (s.type && s.type.toLowerCase().includes(q))
+      );
+    }
+    return list;
+  }, [alphabetizedSegments, addContactListSearch]);
+
+  const addContactTargetSegments = React.useMemo(() => {
+    return segments.filter(s => addContactTargetSegmentIds.includes(s._id));
+  }, [segments, addContactTargetSegmentIds]);
+
+  const addContactTargetEmailSet = React.useMemo(() => {
+    const set = new Set<string>();
+    addContactTargetSegments.forEach(seg => {
+      (seg.contacts || []).forEach(c => {
+        if (c.email) set.add(c.email.toLowerCase().trim());
+      });
+    });
+    return set;
+  }, [addContactTargetSegments]);
+
+  const filteredAddContactCrmContacts = React.useMemo(() => {
+    let list = availableContacts;
+    if (addContactCrmCategory !== "all") {
+      list = list.filter(c => c.leadType === addContactCrmCategory);
+    }
+    if (addContactCrmSearch.trim()) {
+      const q = addContactCrmSearch.toLowerCase().trim();
+      list = list.filter(c =>
+        (c.name && c.name.toLowerCase().includes(q)) ||
+        (c.email && c.email.toLowerCase().includes(q)) ||
+        (c.phone && c.phone.toLowerCase().includes(q)) ||
+        (c.leadName && c.leadName.toLowerCase().includes(q)) ||
+        (c.categoryTag && c.categoryTag.toLowerCase().includes(q))
+      );
+    }
+    return list;
+  }, [availableContacts, addContactCrmCategory, addContactCrmSearch]);
+
+  const parsedAddContactPastedContacts = React.useMemo(() => {
+    if (!addContactPasteText.trim()) return [];
+    const tokens = addContactPasteText.split(/[\r\n,;]+/).map(t => t.trim()).filter(Boolean);
+    const results: { name: string; email: string }[] = [];
+    const seen = new Set<string>();
+
+    for (const token of tokens) {
+      const match = token.match(/(?:([^<]+)<)?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})(?:>)?/);
+      if (match) {
+        const email = match[2].toLowerCase().trim();
+        const rawName = match[1] ? match[1].replace(/["']/g, '').trim() : '';
+        const name = rawName || email.split('@')[0];
+        if (!seen.has(email)) {
+          seen.add(email);
+          results.push({ name, email });
+        }
+      }
+    }
+    return results;
+  }, [addContactPasteText]);
 
   const filteredTemplates = React.useMemo(() => {
     if (!templatesSearchQuery.trim()) return templates;
@@ -979,6 +1762,22 @@ export default function EmailCenter() {
         !salesCampaignDropdownRef.current.contains(event.target as Node)
       ) {
         setIsSalesCampaignDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
+  // Click outside listener for Add Contact multi-select list dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        addContactListDropdownRef.current &&
+        !addContactListDropdownRef.current.contains(event.target as Node)
+      ) {
+        setIsAddContactListDropdownOpen(false);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -1438,6 +2237,36 @@ export default function EmailCenter() {
 
   const [isHighlighterOpen, setIsHighlighterOpen] = useState(false);
   const [isColorPickerOpen, setIsColorPickerOpen] = useState(false);
+  const [manualTextColor, setManualTextColor] = useState('#000000');
+  const [manualHighlightColor, setManualHighlightColor] = useState('transparent');
+
+  // Persistent selection range tracker across all contentEditable instances
+  const savedSelectionRangeRef = useRef<Range | null>(null);
+
+  const saveSelectionRange = useCallback(() => {
+    try {
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0) {
+        savedSelectionRangeRef.current = sel.getRangeAt(0).cloneRange();
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const restoreSelectionRange = useCallback(() => {
+    try {
+      if (savedSelectionRangeRef.current) {
+        const sel = window.getSelection();
+        if (sel) {
+          sel.removeAllRanges();
+          sel.addRange(savedSelectionRangeRef.current);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const getSelectedFontSize = (editorRef: React.RefObject<HTMLDivElement>): string => {
     try {
@@ -1455,6 +2284,19 @@ export default function EmailCenter() {
             return `${pxVal}px`;
           }
         }
+      }
+    } catch {
+      // ignore
+    }
+    return '';
+  };
+
+  const getSelectedColor = (command: 'foreColor' | 'hiliteColor'): string => {
+    try {
+      const val = document.queryCommandValue(command);
+      if (val) {
+        const norm = normalizeHex(val);
+        if (norm) return norm;
       }
     } catch {
       // ignore
@@ -1480,6 +2322,10 @@ export default function EmailCenter() {
         alignRight: document.queryCommandState('justifyRight'),
         fontSize: getSelectedFontSize(manualEditorRef),
       });
+      const fore = getSelectedColor('foreColor');
+      if (fore) setManualTextColor(fore);
+      const back = getSelectedColor('hiliteColor');
+      if (back) setManualHighlightColor(back);
     } catch {
       // ignore
     }
@@ -1580,6 +2426,8 @@ export default function EmailCenter() {
   });
   const [isCampaignHighlighterOpen, setIsCampaignHighlighterOpen] = useState(false);
   const [isCampaignColorPickerOpen, setIsCampaignColorPickerOpen] = useState(false);
+  const [campaignTextColor, setCampaignTextColor] = useState('#000000');
+  const [campaignHighlightColor, setCampaignHighlightColor] = useState('transparent');
 
   const updateCampaignActiveFormats = useCallback(() => {
     try {
@@ -1599,6 +2447,10 @@ export default function EmailCenter() {
         alignRight: document.queryCommandState('justifyRight'),
         fontSize: getSelectedFontSize(campaignWriterRef),
       });
+      const fore = getSelectedColor('foreColor');
+      if (fore) setCampaignTextColor(fore);
+      const back = getSelectedColor('hiliteColor');
+      if (back) setCampaignHighlightColor(back);
     } catch {
       // ignore
     }
@@ -1813,6 +2665,10 @@ export default function EmailCenter() {
         alignRight: document.queryCommandState('justifyRight'),
         fontSize: getSelectedFontSize(aiTemplateEditorRef),
       });
+      const fore = getSelectedColor('foreColor');
+      if (fore) setAiTextColor(fore);
+      const back = getSelectedColor('hiliteColor');
+      if (back) setAiHighlightColor(back);
     } catch {
       // ignore
     }
@@ -2561,6 +3417,128 @@ export default function EmailCenter() {
     }
   };
 
+  // Open "Add Contact to List" Modal
+  const handleOpenAddContactModal = (preselectedSegmentId?: string) => {
+    // If opened from a specific list card/row, pre-select it; otherwise default to NO list selected initially ([])
+    const defaultIds = preselectedSegmentId ? [preselectedSegmentId] : [];
+    setAddContactTargetSegmentIds(defaultIds);
+    setIsAddContactListDropdownOpen(false);
+    setAddContactListSearch("");
+    setAddContactMode("individual");
+    setAddContactSingleName("");
+    setAddContactSingleEmail("");
+    setAddContactSinglePhone("");
+    setAddContactSingleSource("");
+    setAddContactCrmSelectedIds([]);
+    setAddContactCrmSearch("");
+    setAddContactCrmCategory("all");
+    setAddContactPasteText("");
+    setIsAddContactModalOpen(true);
+    if (availableContacts.length === 0) {
+      fetchAvailableContacts();
+    }
+  };
+
+  // Submit "Add Contact(s) to List"
+  const handleSubmitAddContact = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (addContactTargetSegmentIds.length === 0) {
+      toast.error("Please select at least one target list from the dropdown");
+      return;
+    }
+
+    let contactsToSubmit: { name: string; email: string; phone?: string; source?: string }[] = [];
+
+    if (addContactMode === "individual") {
+      if (!addContactSingleEmail.trim() || !addContactSingleEmail.includes("@")) {
+        toast.error("Please enter a valid email address");
+        return;
+      }
+      const email = addContactSingleEmail.trim().toLowerCase();
+      const name = addContactSingleName.trim() || email.split("@")[0];
+      const phone = addContactSinglePhone.trim();
+      const source = addContactSingleSource.trim() || "manual";
+
+      contactsToSubmit = [{ name, email, phone, source }];
+    } else if (addContactMode === "crm") {
+      if (addContactCrmSelectedIds.length === 0) {
+        toast.error("Please select at least one contact from the directory");
+        return;
+      }
+
+      const selectedList = availableContacts.filter(c => addContactCrmSelectedIds.includes(c._id));
+      contactsToSubmit = selectedList.map(c => ({
+        name: c.name || c.email.split("@")[0],
+        email: c.email.toLowerCase().trim(),
+        phone: c.phone || "",
+        source: c.categoryTag || "CRM"
+      }));
+    } else if (addContactMode === "paste") {
+      if (parsedAddContactPastedContacts.length === 0) {
+        toast.error("No valid email addresses found in the pasted text");
+        return;
+      }
+      contactsToSubmit = parsedAddContactPastedContacts.map(c => ({
+        name: c.name,
+        email: c.email,
+        source: "bulk_paste"
+      }));
+    }
+
+    if (contactsToSubmit.length === 0) {
+      toast.error("No valid contacts to add");
+      return;
+    }
+
+    setIsSubmittingAddContact(true);
+    try {
+      // Dispatch additions across all selected lists in parallel
+      const results = await Promise.allSettled(
+        addContactTargetSegmentIds.map(segId =>
+          api.post(`/emails/segments/${segId}/contacts`, { contacts: contactsToSubmit })
+        )
+      );
+
+      let totalAdded = 0;
+      let totalSkipped = 0;
+      const updatedSegmentsMap = new Map<string, Segment>();
+
+      results.forEach((res, index) => {
+        const segId = addContactTargetSegmentIds[index];
+        if (res.status === "fulfilled" && res.value.data?.segment) {
+          const seg = res.value.data.segment;
+          updatedSegmentsMap.set(seg._id, seg);
+          totalAdded += res.value.data.addedCount || 0;
+          totalSkipped += (res.value.data.alreadyPresentCount || 0) + (res.value.data.skippedOptOutCount || 0);
+        } else if (res.status === "rejected") {
+          console.error(`Failed to add contacts to segment ${segId}:`, res.reason);
+        }
+      });
+
+      if (updatedSegmentsMap.size > 0) {
+        setSegments(prev => prev.map(s => updatedSegmentsMap.get(s._id) || s));
+        if (selectedSegmentForView && updatedSegmentsMap.has(selectedSegmentForView._id)) {
+          setSelectedSegmentForView(updatedSegmentsMap.get(selectedSegmentForView._id)!);
+        }
+      }
+
+      const listCount = updatedSegmentsMap.size;
+      let successMsg = `Successfully added contact${contactsToSubmit.length > 1 ? "s" : ""} to ${listCount} list${listCount !== 1 ? "s" : ""}!`;
+      if (totalSkipped > 0) {
+        successMsg += ` (${totalSkipped} existing/opted-out skipped)`;
+      }
+
+      toast.success(successMsg);
+      setIsAddContactModalOpen(false);
+      fetchSegments(true);
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.response?.data?.error || err.response?.data?.message || "Failed to add contacts to list(s)");
+    } finally {
+      setIsSubmittingAddContact(false);
+    }
+  };
+
   // AI draft composer trigger
   const handleAiDraftGenerate = async () => {
     if (!aiPrompt.trim()) {
@@ -2837,24 +3815,24 @@ export default function EmailCenter() {
         </span>
       );
     }
-    if (seg.category === "school") {
-      return (
-        <span className="text-[9px] px-2.5 py-0.5 rounded-full font-extrabold uppercase border bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20">
-          🏫 School List
-        </span>
-      );
-    }
-    if (seg.category === "location") {
-      return (
-        <span className="text-[9px] px-2.5 py-0.5 rounded-full font-extrabold uppercase border bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20">
-          📍 Location List
-        </span>
-      );
-    }
-    if (seg.category === "app_members") {
+    if (seg.category === "afterschool" || seg.category === "school") {
       return (
         <span className="text-[9px] px-2.5 py-0.5 rounded-full font-extrabold uppercase border bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20">
-          📱 Free App Members
+          🏫 After School
+        </span>
+      );
+    }
+    if (seg.category === "evening_activities" || seg.category === "location") {
+      return (
+        <span className="text-[9px] px-2.5 py-0.5 rounded-full font-extrabold uppercase border bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/20">
+          📍 Evening Activities
+        </span>
+      );
+    }
+    if (seg.category === "mobile_app" || seg.category === "app_members") {
+      return (
+        <span className="text-[9px] px-2.5 py-0.5 rounded-full font-extrabold uppercase border bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20">
+          📱 Mobile App
         </span>
       );
     }
@@ -2867,8 +3845,8 @@ export default function EmailCenter() {
     }
     if (seg.category === "manual") {
       return (
-        <span className="text-[9px] px-2.5 py-0.5 rounded-full font-extrabold uppercase border bg-teal-500/10 text-teal-600 dark:text-teal-400 border-teal-500/20">
-          ✍️ Manual Added Contacts
+        <span className="text-[9px] px-2.5 py-0.5 rounded-full font-extrabold uppercase border bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20">
+          ✍️ Manual CRM
         </span>
       );
     }
@@ -2942,46 +3920,142 @@ export default function EmailCenter() {
         {/* --- WORKSPACE A: CAMPAIGNS & MARKETING --- */}
         {workspace === "campaigns" && (
           <div className="space-y-4 flex-1 flex flex-col min-h-0">
-            {/* Tier 2: Dynamic Contextual Action Bar */}
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-card p-3 px-4 rounded-2xl border shadow-2xs shrink-0 relative">
-              {(() => {
-                const titleText = activeTab === "campaigns" ? "Email Marketing Campaigns" :
-                  activeTab === "segments" ? "Recipient Lists & Segments" :
-                    "Database Email Templates";
-                const subtitleText = activeTab === "campaigns" ? "Track email dispatches, open rates, click-throughs, and campaign performance." :
-                  activeTab === "segments" ? "Target leads with CSV imports, static contact lists, or sales funnels." :
-                    "Manage reusable HTML email layouts and generate new templates with Anthropic Claude.";
+            {/* Tier 2: Dynamic Contextual Action Bar (Two-Row Architecture: Row 1 = Title & CTAs, Row 2 = Search & Filters) */}
+            <div className="bg-card p-3.5 sm:p-4 rounded-2xl border shadow-2xs shrink-0 space-y-3">
+              {/* Row 1: Context Header & Primary Action Buttons */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                {(() => {
+                  const titleText = activeTab === "campaigns" ? "Email Marketing Campaigns" :
+                    activeTab === "segments" ? "Recipient Lists & Segments" :
+                      "Database Email Templates";
+                  const subtitleText = activeTab === "campaigns" ? "Track email dispatches, open rates, click-throughs, and campaign performance." :
+                    activeTab === "segments" ? "Target leads with CSV imports, static contact lists, or sales funnels." :
+                      "Manage reusable HTML email layouts and generate new templates with Anthropic Claude.";
 
-                return (
-                  <div className="min-w-0 pr-2 relative group cursor-default">
-                    <h3 className="text-sm font-black tracking-tight text-foreground truncate group-hover:text-primary transition-colors">
-                      {titleText}
-                    </h3>
-                    <p className="text-xs text-muted-foreground font-medium mt-0.5 truncate group-hover:text-foreground/90 transition-colors">
-                      {subtitleText}
-                    </p>
-
-                    {/* Floating Hover Tooltip: Structured with brand indicator & typography */}
-                    <div className="absolute top-full left-0 mt-2 z-50 px-4 py-3 bg-popover/95 text-popover-foreground rounded-2xl shadow-xl border border-border/80 whitespace-normal max-w-sm pointer-events-none opacity-0 group-hover:opacity-100 transition-all duration-200 scale-95 group-hover:scale-100 origin-top-left backdrop-blur-md">
-                      <div className="flex items-center gap-1.5 mb-1">
-                        <span className="h-1.5 w-1.5 rounded-full bg-primary inline-block shrink-0" />
-                        <h4 className="font-black text-xs tracking-tight text-foreground">
+                  return (
+                    <div className="min-w-0 pr-2">
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-black tracking-tight text-foreground truncate">
                           {titleText}
-                        </h4>
+                        </h3>
+                        {activeTab === "segments" && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 shrink-0">
+                            {segments.length} Lists
+                          </span>
+                        )}
+                        {activeTab === "campaigns" && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 shrink-0">
+                            {campaigns.length} Campaigns
+                          </span>
+                        )}
+                        {activeTab === "templates" && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 shrink-0">
+                            {templates.length} Templates
+                          </span>
+                        )}
                       </div>
-                      <p className="text-xs text-muted-foreground leading-relaxed font-normal">
+                      <p className="text-xs text-muted-foreground font-medium mt-0.5 truncate">
                         {subtitleText}
                       </p>
                     </div>
-                  </div>
-                );
-              })()}
+                  );
+                })()}
 
-              {/* Contextual Action Buttons */}
-              <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap shrink-0">
-                {activeTab === "campaigns" && (
-                  <>
-                    <div className="relative shrink-0 flex items-center">
+                {/* Primary Action Buttons */}
+                <div className="flex items-center gap-2 flex-wrap shrink-0">
+                  {activeTab === "campaigns" && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setIsAiPersonalizedModalOpen(true)}
+                        className="h-9 btn-primary !bg-gradient-to-r !from-purple-600 !via-indigo-600 !to-blue-600 hover:!from-purple-500 hover:!via-indigo-500 hover:!to-blue-500 !text-white flex items-center gap-2 shadow-md shadow-purple-500/25 shrink-0 cursor-pointer rounded-xl text-xs font-bold"
+                        title="AI Personalized Campaign"
+                      >
+                        <Sparkles size={14} className="text-amber-300 shrink-0" />
+                        <span>AI Personalized Campaign</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          resetCampaignModalState();
+                          setCampaignHistory([{ content: '', templateId: null }]);
+                          setCampaignHistoryIndex(0);
+                          setIsCampaignModalOpen(true);
+                        }}
+                        className="h-9 btn-primary flex items-center gap-1.5 shadow-md shrink-0 cursor-pointer rounded-xl text-xs font-bold"
+                      >
+                        <Plus size={14} /> New Campaign
+                      </button>
+                    </>
+                  )}
+
+                  {activeTab === "segments" && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setIsWebhookGuideOpen(true)}
+                        className="btn-secondary h-9 text-xs font-bold flex items-center gap-1.5 rounded-xl shrink-0"
+                        title="API Bridge Documentation: Single Webhook Endpoint & JSON Payload"
+                      >
+                        <Code2 size={14} className="text-primary" /> Webhook API Guide
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenAddContactModal()}
+                        className="h-9 px-3.5 bg-gradient-to-r from-emerald-600 via-emerald-600 to-teal-600 hover:from-emerald-500 hover:via-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm shadow-emerald-600/20 transition-all cursor-pointer shrink-0"
+                        title="Add individual or bulk contacts to any list"
+                      >
+                        <UserPlus size={14} className="shrink-0" />
+                        <span>Add Contact</span>
+                      </button>
+                      <button
+                        onClick={() => setIsImportModalOpen(true)}
+                        className="btn-secondary h-9 text-xs font-bold flex items-center gap-1.5 rounded-xl shrink-0"
+                      >
+                        <Upload size={14} /> Import List (CSV)
+                      </button>
+                      <button
+                        onClick={() => {
+                          fetchAvailableContacts();
+                          setIsSegmentModalOpen(true);
+                        }}
+                        className="btn-primary h-9 text-xs font-bold flex items-center gap-1.5 shadow-sm rounded-xl shrink-0"
+                      >
+                        <Plus size={14} /> Create List & Segment
+                      </button>
+                    </>
+                  )}
+
+                  {activeTab === "templates" && (
+                    <>
+                      <button
+                        onClick={() => {
+                          resetManualTemplateModalState();
+                          setManualTemplateHistory(['']);
+                          setManualTemplateHistoryIndex(0);
+                          setIsManualTemplateModalOpen(true);
+                        }}
+                        className="btn-primary h-9 text-xs font-bold flex items-center gap-1.5 shadow-sm rounded-xl shrink-0"
+                      >
+                        <Plus size={14} /> Create Template
+                      </button>
+                      <button
+                        onClick={() => setIsAiTemplateModalOpen(true)}
+                        className="btn-primary h-9 px-3.5 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer border-none shrink-0 rounded-xl"
+                        title="Generate Email Template with Anthropic Claude AI"
+                      >
+                        <Sparkles size={13} className="animate-pulse text-amber-300" /> Generate AI Template
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Row 2: Search Input, Type Filters & View Mode Controls */}
+              <div className="pt-2.5 border-t border-border/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                {/* Search & Type Filters */}
+                <div className="flex items-center gap-2.5 flex-wrap flex-1 min-w-0">
+                  {activeTab === "campaigns" && (
+                    <div className="relative flex-1 max-w-xs min-w-[200px]">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
                       <input
                         id="search-campaigns-input"
@@ -2991,154 +4065,52 @@ export default function EmailCenter() {
                         placeholder="Search campaigns..."
                         value={campaignsSearchQuery}
                         onChange={e => setCampaignsSearchQuery(e.target.value)}
-                        className="h-9 input-field text-xs !pl-9 pr-3 w-36 sm:w-44 lg:w-48 dark:bg-card rounded-xl"
+                        className="h-9 input-field text-xs !pl-9 pr-3 w-full dark:bg-card rounded-xl"
                       />
                     </div>
+                  )}
 
-                    <div className="flex items-center bg-accent/60 dark:bg-accent/20 border border-border/80 p-1 rounded-xl text-xs shrink-0 h-9 w-[150px] gap-1 shadow-2xs">
-                      <button
-                        type="button"
-                        onClick={() => setMarketingViewMode('grid')}
-                        className={`flex-1 h-full rounded-lg text-xs transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5 ${marketingViewMode === 'grid'
-                            ? 'bg-card text-foreground shadow-sm border border-border/50 font-bold'
-                            : 'text-muted-foreground hover:text-foreground hover:bg-card/40 font-medium'
-                          }`}
-                        title="Cards Grid View"
+                  {activeTab === "segments" && (
+                    <>
+                      <div className="relative flex-1 max-w-sm min-w-[220px]">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                        <input
+                          id="search-segments-input"
+                          name="search_segments"
+                          aria-label="Search lists and segments"
+                          type="text"
+                          placeholder="Search lists & segments..."
+                          value={segmentsSearchQuery}
+                          onChange={e => setSegmentsSearchQuery(e.target.value)}
+                          className="h-9 input-field text-xs !pl-9 pr-3 w-full dark:bg-card rounded-xl"
+                        />
+                      </div>
+
+                      <select
+                        id="segment-type-filter-select"
+                        name="segment_type_filter"
+                        aria-label="Filter lists and segments by Type"
+                        value={segmentTypeFilter}
+                        onChange={e => setSegmentTypeFilter(e.target.value as any)}
+                        className="h-9 px-3 text-xs rounded-xl border border-border/80 bg-background dark:bg-card text-foreground font-medium focus:outline-none focus:ring-1 focus:ring-primary shadow-2xs cursor-pointer shrink-0"
+                        title="Filter lists and segments by Type"
                       >
-                        <LayoutGrid size={13} className={marketingViewMode === 'grid' ? 'text-primary' : 'text-muted-foreground'} />
-                        <span>Grid</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setMarketingViewMode('table')}
-                        className={`flex-1 h-full rounded-lg text-xs transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5 ${marketingViewMode === 'table'
-                            ? 'bg-card text-foreground shadow-sm border border-border/50 font-bold'
-                            : 'text-muted-foreground hover:text-foreground hover:bg-card/40 font-medium'
-                          }`}
-                        title="Full Data Table View"
-                      >
-                        <Table size={13} className={marketingViewMode === 'table' ? 'text-primary' : 'text-muted-foreground'} />
-                        <span>Table</span>
-                      </button>
-                    </div>
+                        <option value="all">All Types</option>
+                        <option value="legacy_cc">📦 Legacy CC Lists</option>
+                        <option value="afterschool">🏫 After School</option>
+                        <option value="evening_activities">📍 Evening Activities</option>
+                        <option value="mobile_app">📱 Mobile App</option>
+                        <option value="manual">✍️ Manual CRM</option>
+                        <option value="ea_leads">⚡ EA Leads</option>
+                        <option value="csv">CSV Import</option>
+                        <option value="static">Manual / Static List</option>
+                        <option value="campaign">Sales Campaign</option>
+                      </select>
+                    </>
+                  )}
 
-                    <button
-                      type="button"
-                      onClick={() => setIsAiPersonalizedModalOpen(true)}
-                      className="h-9 btn-primary !bg-gradient-to-r !from-purple-600 !via-indigo-600 !to-blue-600 hover:!from-purple-500 hover:!via-indigo-500 hover:!to-blue-500 !text-white flex items-center gap-2 shadow-md shadow-purple-500/25 shrink-0 cursor-pointer rounded-xl"
-                      title="AI Personalized Campaign: Generates individual personalized email copy per lead based on their past SMS, emails, and notes"
-                    >
-                      <Sparkles size={15} className="text-amber-300 shrink-0" />
-                      <span>AI Personalized Campaign</span>
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        resetCampaignModalState();
-                        setCampaignHistory([{ content: '', templateId: null }]);
-                        setCampaignHistoryIndex(0);
-                        setIsCampaignModalOpen(true);
-                      }}
-                      className="h-9 btn-primary flex items-center gap-1.5 shadow-md shrink-0 cursor-pointer rounded-xl"
-                    >
-                      <Plus size={15} /> New Campaign
-                    </button>
-                  </>
-                )}
-
-                {activeTab === "segments" && (
-                  <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap shrink-0">
-                    <div className="relative shrink-0 flex items-center">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-                      <input
-                        id="search-segments-input"
-                        name="search_segments"
-                        aria-label="Search lists and segments"
-                        type="text"
-                        placeholder="Search lists & segments..."
-                        value={segmentsSearchQuery}
-                        onChange={e => setSegmentsSearchQuery(e.target.value)}
-                        className="h-9 input-field text-xs !pl-9 pr-3 w-36 sm:w-48 dark:bg-card rounded-xl"
-                      />
-                    </div>
-
-                    <select
-                      id="segment-type-filter-select"
-                      name="segment_type_filter"
-                      aria-label="Filter lists and segments by Type"
-                      value={segmentTypeFilter}
-                      onChange={e => setSegmentTypeFilter(e.target.value as any)}
-                      className="h-9 px-3 text-xs rounded-xl border border-border/80 bg-background dark:bg-card text-foreground font-medium focus:outline-none focus:ring-1 focus:ring-primary shadow-2xs cursor-pointer shrink-0"
-                      title="Filter lists and segments by Type"
-                    >
-                      <option value="all">All Types</option>
-                      <option value="legacy_cc">📦 Legacy CC Lists</option>
-                      <option value="school">🏫 School Audiences</option>
-                      <option value="location">📍 Location Audiences</option>
-                      <option value="app_members">📱 Free App Members</option>
-                      <option value="manual">✍️ Manual Added Contacts</option>
-                      <option value="ea_leads">⚡ EA Leads</option>
-                      <option value="csv">CSV Import</option>
-                      <option value="static">Manual / Static List</option>
-                      <option value="campaign">Sales Campaign</option>
-                    </select>
-
-                    <div className="flex items-center bg-accent/60 dark:bg-accent/20 border border-border/80 p-1 rounded-xl text-xs shrink-0 h-9 w-[150px] gap-1 shadow-2xs">
-                      <button
-                        type="button"
-                        onClick={() => setMarketingViewMode('grid')}
-                        className={`flex-1 h-full rounded-lg text-xs transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5 ${marketingViewMode === 'grid'
-                            ? 'bg-card text-foreground shadow-sm border border-border/50 font-bold'
-                            : 'text-muted-foreground hover:text-foreground hover:bg-card/40 font-medium'
-                          }`}
-                        title="Cards Grid View"
-                      >
-                        <LayoutGrid size={13} className={marketingViewMode === 'grid' ? 'text-primary' : 'text-muted-foreground'} />
-                        <span>Grid</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setMarketingViewMode('table')}
-                        className={`flex-1 h-full rounded-lg text-xs transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5 ${marketingViewMode === 'table'
-                            ? 'bg-card text-foreground shadow-sm border border-border/50 font-bold'
-                            : 'text-muted-foreground hover:text-foreground hover:bg-card/40 font-medium'
-                          }`}
-                        title="Full Data Table View"
-                      >
-                        <Table size={13} className={marketingViewMode === 'table' ? 'text-primary' : 'text-muted-foreground'} />
-                        <span>Table</span>
-                      </button>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => setIsWebhookGuideOpen(true)}
-                      className="btn-secondary h-9 text-xs font-bold flex items-center gap-1.5 rounded-xl shrink-0"
-                      title="API Bridge Documentation: Single Webhook Endpoint & JSON Payload"
-                    >
-                      <Code2 size={14} className="text-primary" /> Webhook API Guide
-                    </button>
-                    <button
-                      onClick={() => setIsImportModalOpen(true)}
-                      className="btn-secondary h-9 text-xs font-bold flex items-center gap-1.5 rounded-xl shrink-0"
-                    >
-                      <Upload size={14} /> Import List (CSV)
-                    </button>
-                    <button
-                      onClick={() => {
-                        fetchAvailableContacts();
-                        setIsSegmentModalOpen(true);
-                      }}
-                      className="btn-primary h-9 text-xs font-bold flex items-center gap-1.5 shadow-sm rounded-xl shrink-0"
-                    >
-                      <Plus size={14} /> Create List & Segment
-                    </button>
-                  </div>
-                )}
-
-                {activeTab === "templates" && (
-                  <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap shrink-0">
-                    <div className="relative shrink-0 flex items-center">
+                  {activeTab === "templates" && (
+                    <div className="relative flex-1 max-w-xs min-w-[200px]">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
                       <input
                         id="search-templates-input"
@@ -3148,57 +4120,52 @@ export default function EmailCenter() {
                         placeholder="Search templates..."
                         value={templatesSearchQuery}
                         onChange={e => setTemplatesSearchQuery(e.target.value)}
-                        className="h-9 input-field text-xs !pl-9 pr-3 w-36 sm:w-44 dark:bg-card rounded-xl"
+                        className="h-9 input-field text-xs !pl-9 pr-3 w-full dark:bg-card rounded-xl"
                       />
                     </div>
+                  )}
+                </div>
 
-                    <div className="flex items-center bg-accent/60 dark:bg-accent/20 border border-border/80 p-1 rounded-xl text-xs shrink-0 h-9 w-[150px] gap-1 shadow-2xs">
-                      <button
-                        type="button"
-                        onClick={() => setMarketingViewMode('grid')}
-                        className={`flex-1 h-full rounded-lg text-xs transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5 ${marketingViewMode === 'grid'
-                            ? 'bg-card text-foreground shadow-sm border border-border/50 font-bold'
-                            : 'text-muted-foreground hover:text-foreground hover:bg-card/40 font-medium'
-                          }`}
-                        title="Cards Grid View"
-                      >
-                        <LayoutGrid size={13} className={marketingViewMode === 'grid' ? 'text-primary' : 'text-muted-foreground'} />
-                        <span>Grid</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setMarketingViewMode('table')}
-                        className={`flex-1 h-full rounded-lg text-xs transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5 ${marketingViewMode === 'table'
-                            ? 'bg-card text-foreground shadow-sm border border-border/50 font-bold'
-                            : 'text-muted-foreground hover:text-foreground hover:bg-card/40 font-medium'
-                          }`}
-                        title="Full Data Table View"
-                      >
-                        <Table size={13} className={marketingViewMode === 'table' ? 'text-primary' : 'text-muted-foreground'} />
-                        <span>Table</span>
-                      </button>
-                    </div>
+                {/* Right: Count Summary & View Mode Switcher */}
+                <div className="flex items-center gap-3 shrink-0 self-end sm:self-auto">
+                  {activeTab === "segments" && (
+                    <span className="text-[11px] text-muted-foreground font-semibold hidden md:inline-block">
+                      Showing {filteredSegments.length} of {segments.length} Lists
+                    </span>
+                  )}
+                  {activeTab === "campaigns" && (
+                    <span className="text-[11px] text-muted-foreground font-semibold hidden md:inline-block">
+                      Showing {filteredCampaigns.length} Campaigns
+                    </span>
+                  )}
 
+                  <div className="flex items-center bg-accent/60 dark:bg-accent/20 border border-border/80 p-1 rounded-xl text-xs shrink-0 h-9 w-[150px] gap-1 shadow-2xs">
                     <button
-                      onClick={() => {
-                        resetManualTemplateModalState();
-                        setManualTemplateHistory(['']);
-                        setManualTemplateHistoryIndex(0);
-                        setIsManualTemplateModalOpen(true);
-                      }}
-                      className="btn-primary h-9 text-xs font-bold flex items-center gap-1.5 shadow-sm rounded-xl shrink-0"
+                      type="button"
+                      onClick={() => setMarketingViewMode('grid')}
+                      className={`flex-1 h-full rounded-lg text-xs transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5 ${marketingViewMode === 'grid'
+                          ? 'bg-card text-foreground shadow-sm border border-border/50 font-bold'
+                          : 'text-muted-foreground hover:text-foreground hover:bg-card/40 font-medium'
+                        }`}
+                      title="Cards Grid View"
                     >
-                      <Plus size={14} /> Create Template
+                      <LayoutGrid size={13} className={marketingViewMode === 'grid' ? 'text-primary' : 'text-muted-foreground'} />
+                      <span>Grid</span>
                     </button>
                     <button
-                      onClick={() => setIsAiTemplateModalOpen(true)}
-                      className="btn-primary h-9 px-3.5 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer border-none shrink-0 rounded-xl"
-                      title="Generate Email Template with Anthropic Claude AI"
+                      type="button"
+                      onClick={() => setMarketingViewMode('table')}
+                      className={`flex-1 h-full rounded-lg text-xs transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5 ${marketingViewMode === 'table'
+                          ? 'bg-card text-foreground shadow-sm border border-border/50 font-bold'
+                          : 'text-muted-foreground hover:text-foreground hover:bg-card/40 font-medium'
+                        }`}
+                      title="Full Data Table View"
                     >
-                      <Sparkles size={13} className="animate-pulse text-amber-300" /> Generate AI Template
+                      <Table size={13} className={marketingViewMode === 'table' ? 'text-primary' : 'text-muted-foreground'} />
+                      <span>Table</span>
                     </button>
                   </div>
-                )}
+                </div>
               </div>
             </div>
 
@@ -3262,7 +4229,10 @@ export default function EmailCenter() {
                                     <span className="text-[11px] text-muted-foreground block truncate mt-0.5">Subject: {camp.subject}</span>
                                   </td>
                                   <td className="p-3.5 align-middle">
-                                    <span className="font-semibold text-foreground bg-accent/40 px-2.5 py-1 rounded-lg text-[11px] inline-flex items-center truncate max-w-[130px]">
+                                    <span
+                                      className="font-semibold text-foreground bg-accent/40 px-2.5 py-1 rounded-lg text-[11px] inline-flex items-center truncate max-w-[160px]"
+                                      title={camp.segmentId?.name || "None"}
+                                    >
                                       {camp.segmentId?.name || "None"}
                                     </span>
                                   </td>
@@ -3274,8 +4244,8 @@ export default function EmailCenter() {
                                           e.stopPropagation();
                                           handleOpenTemplateDirectly(camp.templateId);
                                         }}
-                                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold bg-violet-500/10 hover:bg-violet-500/20 text-violet-700 dark:text-violet-300 border border-violet-500/20 transition-all cursor-pointer max-w-[140px] truncate shadow-2xs"
-                                        title="View template preview"
+                                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold bg-violet-500/10 hover:bg-violet-500/20 text-violet-700 dark:text-violet-300 border border-violet-500/20 transition-all cursor-pointer max-w-[160px] truncate shadow-2xs"
+                                        title={tplObj.name || "View template preview"}
                                       >
                                         <FileText size={11} className="shrink-0" />
                                         <span className="truncate">{tplObj.name}</span>
@@ -3558,6 +4528,14 @@ export default function EmailCenter() {
                                     </button>
                                     <button
                                       type="button"
+                                      onClick={() => handleOpenAddContactModal(seg._id)}
+                                      className="h-8 px-2.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
+                                      title="Add Contact(s) to this List"
+                                    >
+                                      <UserPlus size={12} /> Add Contact
+                                    </button>
+                                    <button
+                                      type="button"
                                       onClick={() => handleOpenEditSegment(seg)}
                                       className="h-8 px-2.5 bg-accent/60 hover:bg-accent text-foreground rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
                                       title="Edit List & Add Contacts"
@@ -3626,9 +4604,20 @@ export default function EmailCenter() {
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
+                                  handleOpenAddContactModal(seg._id);
+                                }}
+                                className="h-8 px-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 rounded-xl text-xs font-bold flex items-center gap-1 transition-all shadow-xs shrink-0 cursor-pointer"
+                                title="Add Contact(s) to this List"
+                              >
+                                <UserPlus size={12} /> Add
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   handleOpenEditSegment(seg);
                                 }}
-                                className="h-8 px-2.5 bg-accent/60 hover:bg-accent text-foreground rounded-xl text-xs font-bold flex items-center gap-1 transition-all shadow-xs shrink-0 cursor-pointer"
+                                className="h-8 px-2 bg-accent/60 hover:bg-accent text-foreground rounded-xl text-xs font-bold flex items-center gap-1 transition-all shadow-xs shrink-0 cursor-pointer"
                                 title="Edit List & Add Contacts"
                               >
                                 <Edit2 size={12} /> Edit
@@ -4634,84 +5623,82 @@ export default function EmailCenter() {
                         <div className="relative">
                           <button
                             type="button"
-                            onMouseDown={e => e.preventDefault()}
+                            onMouseDown={e => {
+                              e.preventDefault();
+                              saveSelectionRange();
+                            }}
                             onClick={() => {
+                              saveSelectionRange();
                               setIsCampaignHighlighterOpen(!isCampaignHighlighterOpen);
                               setIsCampaignColorPickerOpen(false);
                             }}
-                            title="Highlight Color"
-                            className="h-7 px-1.5 rounded-md hover:bg-background flex items-center gap-0.5 text-muted-foreground hover:text-foreground transition-colors cursor-pointer text-xs"
+                            title={`Highlight Color (${campaignHighlightColor === 'transparent' ? 'None' : campaignHighlightColor})`}
+                            className={`h-7 px-2 rounded-md hover:bg-background flex items-center justify-center gap-1.5 text-muted-foreground hover:text-foreground transition-all cursor-pointer text-xs ${isCampaignHighlighterOpen ? 'bg-background text-foreground shadow-2xs' : ''}`}
                           >
-                            <Highlighter size={12} className="text-amber-500" />
-                            <ChevronDown size={10} />
-                          </button>
-                          {isCampaignHighlighterOpen && (
-                            <div className="absolute top-full left-0 mt-1.5 p-2 bg-popover border rounded-xl shadow-lg z-50 flex items-center gap-1.5 backdrop-blur-md">
-                              {[
-                                { color: '#fef08a', name: 'Yellow' },
-                                { color: '#bbf7d0', name: 'Green' },
-                                { color: '#bfdbfe', name: 'Blue' },
-                                { color: '#fed7aa', name: 'Orange' },
-                                { color: '#fbcfe8', name: 'Pink' },
-                                { color: 'transparent', name: 'None' }
-                              ].map(c => (
-                                <button
-                                  key={c.color}
-                                  type="button"
-                                  onMouseDown={e => e.preventDefault()}
-                                  onClick={() => {
-                                    execCampaignFormat('hiliteColor', c.color);
-                                    setIsCampaignHighlighterOpen(false);
-                                  }}
-                                  title={c.name}
-                                  className="w-5 h-5 rounded-full border border-slate-300 hover:scale-110 transition-transform cursor-pointer shadow-2xs"
-                                  style={{ backgroundColor: c.color === 'transparent' ? '#ffffff' : c.color }}
-                                />
-                              ))}
+                            <div className="flex flex-col items-center justify-center h-full pt-0.5 pb-1">
+                              <Highlighter size={13} className="text-amber-500 shrink-0" />
+                              <span
+                                className="w-3.5 h-[2.5px] rounded-full shrink-0 mt-1 transition-all"
+                                style={{
+                                  backgroundColor: campaignHighlightColor === 'transparent' ? '#cbd5e1' : campaignHighlightColor,
+                                  border: campaignHighlightColor === 'transparent' ? '0.5px dashed #94a3b8' : undefined
+                                }}
+                              />
                             </div>
-                          )}
+                            <ChevronDown size={10} className="opacity-60 shrink-0" />
+                          </button>
+                          <GoogleDocsColorPickerPopover
+                            title="Highlight color"
+                            isOpen={isCampaignHighlighterOpen}
+                            onClose={() => setIsCampaignHighlighterOpen(false)}
+                            currentColor={campaignHighlightColor}
+                            onSelectColor={color => {
+                              setCampaignHighlightColor(color);
+                              restoreSelectionRange();
+                              execCampaignFormat('hiliteColor', color);
+                            }}
+                            allowNone={true}
+                            restoreSelection={restoreSelectionRange}
+                          />
                         </div>
 
-                        {/* Text Color Tool */}
+                        {/* Text Color Tool with Full Color Picker & Light Contrasts */}
                         <div className="relative">
                           <button
                             type="button"
-                            onMouseDown={e => e.preventDefault()}
+                            onMouseDown={e => {
+                              e.preventDefault();
+                              saveSelectionRange();
+                            }}
                             onClick={() => {
+                              saveSelectionRange();
                               setIsCampaignColorPickerOpen(!isCampaignColorPickerOpen);
                               setIsCampaignHighlighterOpen(false);
                             }}
-                            title="Text Color"
-                            className="h-7 px-1.5 rounded-md hover:bg-background flex items-center gap-0.5 text-muted-foreground hover:text-foreground transition-colors cursor-pointer text-xs"
+                            title={`Text Color (${campaignTextColor || '#000000'})`}
+                            className={`h-7 px-2 rounded-md hover:bg-background flex items-center justify-center gap-1.5 text-muted-foreground hover:text-foreground transition-all cursor-pointer text-xs ${isCampaignColorPickerOpen ? 'bg-background text-foreground shadow-2xs' : ''}`}
                           >
-                            <Palette size={12} className="text-blue-500" />
-                            <ChevronDown size={10} />
-                          </button>
-                          {isCampaignColorPickerOpen && (
-                            <div className="absolute top-full left-0 mt-1.5 p-2 bg-popover border rounded-xl shadow-lg z-50 flex items-center gap-1.5 backdrop-blur-md">
-                              {[
-                                { color: '#0f172a', name: 'Default Dark' },
-                                { color: '#2563eb', name: 'Blue' },
-                                { color: '#059669', name: 'Emerald' },
-                                { color: '#dc2626', name: 'Red' },
-                                { color: '#7c3aed', name: 'Purple' },
-                                { color: '#d97706', name: 'Amber' }
-                              ].map(c => (
-                                <button
-                                  key={c.color}
-                                  type="button"
-                                  onMouseDown={e => e.preventDefault()}
-                                  onClick={() => {
-                                    execCampaignFormat('foreColor', c.color);
-                                    setIsCampaignColorPickerOpen(false);
-                                  }}
-                                  title={c.name}
-                                  className="w-5 h-5 rounded-full border border-slate-300 hover:scale-110 transition-transform cursor-pointer shadow-2xs"
-                                  style={{ backgroundColor: c.color }}
-                                />
-                              ))}
+                            <div className="flex flex-col items-center justify-center h-full pt-0.5 pb-1">
+                              <Palette size={13} className="text-blue-500 shrink-0" />
+                              <span
+                                className="w-3.5 h-[2.5px] rounded-full shrink-0 mt-1 transition-all"
+                                style={{ backgroundColor: campaignTextColor || '#000000' }}
+                              />
                             </div>
-                          )}
+                            <ChevronDown size={10} className="opacity-60 shrink-0" />
+                          </button>
+                          <GoogleDocsColorPickerPopover
+                            title="Text color"
+                            isOpen={isCampaignColorPickerOpen}
+                            onClose={() => setIsCampaignColorPickerOpen(false)}
+                            currentColor={campaignTextColor}
+                            onSelectColor={color => {
+                              setCampaignTextColor(color);
+                              restoreSelectionRange();
+                              execCampaignFormat('foreColor', color);
+                            }}
+                            restoreSelection={restoreSelectionRange}
+                          />
                         </div>
                       </div>
 
@@ -7047,6 +8034,18 @@ export default function EmailCenter() {
                   type="button"
                   onClick={() => {
                     if (selectedSegmentForView) {
+                      handleOpenAddContactModal(selectedSegmentForView._id);
+                    }
+                  }}
+                  className="h-8.5 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
+                  title="Add individual or bulk contacts to this list"
+                >
+                  <UserPlus size={12} /> Add Contact
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedSegmentForView) {
                       handleOpenEditSegment(selectedSegmentForView);
                     }
                   }}
@@ -7159,6 +8158,569 @@ export default function EmailCenter() {
             >
               Close Inspector
             </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* --- DIALOG: ADD CONTACT(S) TO LIST (PROFESSIONAL TWO-PANEL WORKFLOW) --- */}
+      <Dialog open={isAddContactModalOpen} onOpenChange={setIsAddContactModalOpen}>
+        <DialogContent className="w-[96vw] max-w-5xl xl:max-w-6xl max-h-[90vh] p-0 flex flex-col overflow-hidden rounded-3xl border shadow-2xl bg-card">
+          {/* Top Modal Header */}
+          <DialogHeader className="p-5 sm:p-6 pb-4 border-b shrink-0 bg-card">
+            <div className="flex items-center gap-3 text-left">
+              <div className="h-11 w-11 rounded-2xl bg-gradient-to-br from-emerald-500/20 to-teal-500/20 text-emerald-600 dark:text-emerald-400 font-bold flex items-center justify-center shrink-0 border border-emerald-500/30 shadow-xs">
+                <UserPlus size={22} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <DialogTitle className="text-lg font-black tracking-tight text-foreground truncate">
+                  Add Contact(s) to List
+                </DialogTitle>
+                <DialogDescription className="text-xs text-muted-foreground mt-0.5">
+                  Step 1: Select target list(s) on the left &bull; Step 2: Choose contact addition method on the right.
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          {/* Modal Body: Integrated Two-Panel Layout */}
+          <div className="flex-1 flex flex-col lg:flex-row min-h-0 overflow-hidden text-left divide-y lg:divide-y-0 lg:divide-x divide-border/60">
+            {/* ================= LEFT PANEL: TARGET LISTS SIDEBAR (~32% WIDTH) ================= */}
+            <div className="w-full lg:w-[320px] xl:w-[360px] shrink-0 bg-muted/15 flex flex-col min-h-0 p-4 sm:p-5 space-y-3">
+              {/* Sidebar Header */}
+              <div className="flex items-center justify-between gap-2 pb-2 border-b border-border/60 shrink-0">
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-black text-xs uppercase tracking-wider border border-emerald-500/30 shrink-0">
+                    Step 1
+                  </span>
+                  <div>
+                    <h4 className="text-xs font-extrabold text-foreground flex items-center gap-1.5">
+                      <List size={14} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
+                      Target List(s) <span className="text-destructive">*</span>
+                    </h4>
+                  </div>
+                </div>
+                <span className={`text-[11px] px-2.5 py-0.5 rounded-lg font-extrabold border shrink-0 ${
+                  addContactTargetSegmentIds.length === 0
+                    ? "bg-destructive/10 text-destructive border-destructive/20"
+                    : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                }`}>
+                  {addContactTargetSegmentIds.length} Selected
+                </span>
+              </div>
+
+              {/* Direct Embedded Search & Bulk Action Buttons */}
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="relative flex-1">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                  <input
+                    type="text"
+                    placeholder="Search lists (A–Z)..."
+                    value={addContactListSearch}
+                    onChange={(e) => setAddContactListSearch(e.target.value)}
+                    className="!pl-8 pr-2 h-8.5 input-field text-xs w-full bg-background"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const allFilteredIds = filteredAlphabetizedSegments.map(s => s._id);
+                    setAddContactTargetSegmentIds(prev => Array.from(new Set([...prev, ...allFilteredIds])));
+                  }}
+                  className="text-[11px] text-primary hover:underline font-bold shrink-0 cursor-pointer px-1"
+                >
+                  All
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAddContactTargetSegmentIds([])}
+                  className="text-[11px] text-destructive hover:underline font-bold shrink-0 cursor-pointer px-1"
+                >
+                  Clear
+                </button>
+              </div>
+
+              {/* Scrollable List of Lists with Checkmarks */}
+              <div className="flex-1 min-h-[180px] overflow-y-auto space-y-1.5 custom-scrollbar pr-1">
+                {alphabetizedSegments.length === 0 ? (
+                  <p className="text-center py-6 text-xs text-muted-foreground">No lists available in system.</p>
+                ) : filteredAlphabetizedSegments.length === 0 ? (
+                  <p className="text-center py-6 text-xs text-muted-foreground">No lists match search filter.</p>
+                ) : (
+                  filteredAlphabetizedSegments.map((seg) => {
+                    const isChecked = addContactTargetSegmentIds.includes(seg._id);
+                    return (
+                      <label
+                        key={seg._id}
+                        className={`flex items-center justify-between gap-2.5 p-2.5 rounded-xl border text-xs cursor-pointer transition-all ${
+                          isChecked
+                            ? "bg-emerald-500/10 border-emerald-500/40 font-bold text-foreground shadow-2xs"
+                            : "border-border/60 bg-background/70 hover:bg-accent/40 text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => {
+                              setAddContactTargetSegmentIds(prev =>
+                                isChecked ? prev.filter(id => id !== seg._id) : [...prev, seg._id]
+                              );
+                            }}
+                            className="rounded border-input text-emerald-600 focus:ring-emerald-500 h-4 w-4 shrink-0 cursor-pointer"
+                          />
+                          <div className="min-w-0 flex-1 text-left">
+                            <span className="truncate block text-xs font-semibold">{seg.name}</span>
+                            {seg.category && (
+                              <span className="text-[10px] text-muted-foreground font-normal truncate block">
+                                {seg.category}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <span className={`text-[10px] px-2 py-0.5 rounded-md font-bold shrink-0 border ${
+                          isChecked
+                            ? "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-500/30"
+                            : "bg-accent/60 text-muted-foreground border-border/50"
+                        }`}>
+                          {seg.contacts?.length || 0}
+                        </span>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Sidebar Bottom Summary */}
+              <div className="pt-2 border-t border-border/60 shrink-0 space-y-2">
+                {addContactTargetSegments.length > 0 ? (
+                  <>
+                    <div className="flex items-center justify-between text-[11px] text-muted-foreground font-medium">
+                      <span>Target Lists: <strong className="text-emerald-600 dark:text-emerald-400">{addContactTargetSegments.length}</strong></span>
+                      <span>Contacts: <strong className="text-foreground">{addContactTargetEmailSet.size}</strong></span>
+                    </div>
+                    <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto custom-scrollbar p-0.5">
+                      {addContactTargetSegments.map((seg) => (
+                        <span
+                          key={seg._id}
+                          className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-background border border-emerald-500/30 text-foreground"
+                        >
+                          <span className="truncate max-w-[120px]">{seg.name}</span>
+                          <button
+                            type="button"
+                            onClick={() => setAddContactTargetSegmentIds(prev => prev.filter(id => id !== seg._id))}
+                            className="hover:text-destructive text-muted-foreground p-0.5 rounded-full transition-colors cursor-pointer"
+                            title="Remove list"
+                          >
+                            <X size={11} />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-300 text-xs flex items-center gap-2">
+                    <AlertTriangle size={14} className="shrink-0" />
+                    <span>Select at least one list above to proceed.</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* ================= RIGHT PANEL: CONTACT ADDITION WORKSPACE (~68% WIDTH) ================= */}
+            <div className="flex-1 min-w-0 bg-card flex flex-col min-h-0 p-5 sm:p-6 overflow-y-auto custom-scrollbar space-y-4">
+              {/* Context Header with Active Target Pills */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-border/60 shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <span className="px-3 py-1 rounded-full bg-blue-500/15 text-blue-600 dark:text-blue-400 font-black text-xs uppercase tracking-wider border border-blue-500/30 shrink-0">
+                    Step 2
+                  </span>
+                  <div>
+                    <h4 className="text-sm font-extrabold text-foreground flex items-center gap-1.5">
+                      <UserPlus size={15} className="text-blue-600 dark:text-blue-400" />
+                      Add Contact(s)
+                    </h4>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      Choose an addition method and enter details or pick contacts.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Live Target Context Badge */}
+                {addContactTargetSegments.length > 0 && (
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[11px] text-muted-foreground font-medium">Adding to:</span>
+                    <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25">
+                      {addContactTargetSegments.length === 1
+                        ? addContactTargetSegments[0].name
+                        : `${addContactTargetSegments[0].name} +${addContactTargetSegments.length - 1} more`}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Addition Method Switcher (Sleek Segmented Tabs) */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setAddContactMode("individual")}
+                  className={`p-2.5 rounded-xl border text-xs font-bold transition-all flex items-center gap-2.5 cursor-pointer text-left ${
+                    addContactMode === "individual"
+                      ? "bg-blue-500/10 border-blue-500/40 text-blue-700 dark:text-blue-300 shadow-2xs ring-1 ring-blue-500/20"
+                      : "bg-background border-border/80 text-muted-foreground hover:text-foreground hover:bg-accent/30"
+                  }`}
+                >
+                  <div className={`p-2 rounded-lg shrink-0 ${addContactMode === "individual" ? "bg-blue-500 text-white" : "bg-accent text-muted-foreground"}`}>
+                    <UserPlus size={15} />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="font-extrabold text-xs">1. Single Contact</div>
+                    <div className="text-[10px] font-normal opacity-80 mt-0.5 truncate">Manual entry form</div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAddContactMode("crm");
+                    if (availableContacts.length === 0) fetchAvailableContacts();
+                  }}
+                  className={`p-2.5 rounded-xl border text-xs font-bold transition-all flex items-center gap-2.5 cursor-pointer text-left ${
+                    addContactMode === "crm"
+                      ? "bg-blue-500/10 border-blue-500/40 text-blue-700 dark:text-blue-300 shadow-2xs ring-1 ring-blue-500/20"
+                      : "bg-background border-border/80 text-muted-foreground hover:text-foreground hover:bg-accent/30"
+                  }`}
+                >
+                  <div className={`p-2 rounded-lg shrink-0 ${addContactMode === "crm" ? "bg-blue-500 text-white" : "bg-accent text-muted-foreground"}`}>
+                    <Users size={15} />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="font-extrabold text-xs">2. CRM Database ({addContactCrmSelectedIds.length})</div>
+                    <div className="text-[10px] font-normal opacity-80 mt-0.5 truncate">Pick from leads & team</div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setAddContactMode("paste")}
+                  className={`p-2.5 rounded-xl border text-xs font-bold transition-all flex items-center gap-2.5 cursor-pointer text-left ${
+                    addContactMode === "paste"
+                      ? "bg-blue-500/10 border-blue-500/40 text-blue-700 dark:text-blue-300 shadow-2xs ring-1 ring-blue-500/20"
+                      : "bg-background border-border/80 text-muted-foreground hover:text-foreground hover:bg-accent/30"
+                  }`}
+                >
+                  <div className={`p-2 rounded-lg shrink-0 ${addContactMode === "paste" ? "bg-blue-500 text-white" : "bg-accent text-muted-foreground"}`}>
+                    <FileText size={15} />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="font-extrabold text-xs">3. Paste Emails ({parsedAddContactPastedContacts.length})</div>
+                    <div className="text-[10px] font-normal opacity-80 mt-0.5 truncate">Bulk comma/newlines</div>
+                  </div>
+                </button>
+              </div>
+
+              {/* Dynamic Content Workspace */}
+              <div className="flex-1 flex flex-col min-h-0 space-y-4">
+                {/* TAB 1: INDIVIDUAL CONTACT ENTRY */}
+                {addContactMode === "individual" && (
+                  <div className="space-y-4 pt-1">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label htmlFor="add-contact-name-input" className="text-xs font-bold text-muted-foreground uppercase flex items-center gap-1.5">
+                          <User size={13} /> Contact Full Name
+                        </label>
+                        <input
+                          id="add-contact-name-input"
+                          type="text"
+                          placeholder="e.g. Michael Jordan"
+                          value={addContactSingleName}
+                          onChange={(e) => setAddContactSingleName(e.target.value)}
+                          className="input-field text-xs h-10 w-full"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label htmlFor="add-contact-email-input" className="text-xs font-bold text-muted-foreground uppercase flex items-center gap-1.5">
+                          <Mail size={13} /> Email Address <span className="text-destructive">*</span>
+                        </label>
+                        <input
+                          id="add-contact-email-input"
+                          type="email"
+                          placeholder="e.g. michael@example.com"
+                          value={addContactSingleEmail}
+                          onChange={(e) => setAddContactSingleEmail(e.target.value)}
+                          required
+                          className="input-field text-xs h-10 w-full"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label htmlFor="add-contact-phone-input" className="text-xs font-bold text-muted-foreground uppercase flex items-center gap-1.5">
+                          <Phone size={13} /> Phone Number (Optional)
+                        </label>
+                        <input
+                          id="add-contact-phone-input"
+                          type="tel"
+                          placeholder="e.g. (555) 123-4567"
+                          value={addContactSinglePhone}
+                          onChange={(e) => setAddContactSinglePhone(e.target.value)}
+                          className="input-field text-xs h-10 w-full"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label htmlFor="add-contact-source-input" className="text-xs font-bold text-muted-foreground uppercase flex items-center gap-1.5">
+                          <Folder size={13} /> Source / School / Note
+                        </label>
+                        <input
+                          id="add-contact-source-input"
+                          type="text"
+                          placeholder="e.g. Manual Entry, Camp Registration"
+                          value={addContactSingleSource}
+                          onChange={(e) => setAddContactSingleSource(e.target.value)}
+                          className="input-field text-xs h-10 w-full"
+                        />
+                      </div>
+                    </div>
+
+                    {addContactSingleEmail.trim() && addContactTargetEmailSet.has(addContactSingleEmail.trim().toLowerCase()) && (
+                      <div className="flex items-center gap-2 p-3 rounded-xl bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20 text-xs">
+                        <AlertTriangle size={15} className="shrink-0" />
+                        <span>Notice: This email address is already present in one or more selected lists and duplicate entries will be skipped automatically.</span>
+                      </div>
+                    )}
+
+                    {/* Live Preview Card (Eliminates awkward empty space and clarifies flow) */}
+                    <div className="p-4 rounded-2xl bg-accent/20 border border-border/70 space-y-2 mt-2">
+                      <div className="flex items-center justify-between text-xs font-bold text-foreground">
+                        <span className="flex items-center gap-1.5">
+                          <CheckCircle size={14} className="text-emerald-500" />
+                          Ready for Insertion Summary
+                        </span>
+                        <span className="text-[11px] text-muted-foreground font-normal">
+                          {addContactTargetSegmentIds.length} Target List{addContactTargetSegmentIds.length !== 1 ? 's' : ''} Selected
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        {addContactSingleEmail.trim()
+                          ? `Contact "${addContactSingleName.trim() || addContactSingleEmail.trim()}" <${addContactSingleEmail.trim()}> will be added directly into ${addContactTargetSegmentIds.length} list(s).`
+                          : "Enter an email address above to view the contact insertion preview."}
+                      </p>
+                      <div className="text-[11px] text-muted-foreground/80 flex items-center gap-1 pt-1">
+                        <span>🛡️ Opt-out protection: Automatically checked against unsubscribe registry before sending future campaigns.</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* TAB 2: SELECT FROM CRM DIRECTORY */}
+                {addContactMode === "crm" && (
+                  <div className="space-y-3 pt-1 flex-1 flex flex-col min-h-0">
+                    <div className="flex flex-col sm:flex-row gap-2.5 justify-between sm:items-center">
+                      <div className="relative flex-1">
+                        <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                        <input
+                          type="text"
+                          placeholder="Search CRM contacts by name, email, or role..."
+                          value={addContactCrmSearch}
+                          onChange={(e) => setAddContactCrmSearch(e.target.value)}
+                          className="!pl-9 h-9 input-field text-xs w-full"
+                        />
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+                        {(["all", "main_lead", "ea_lead", "team_member"] as const).map((cat) => (
+                          <button
+                            key={cat}
+                            type="button"
+                            onClick={() => setAddContactCrmCategory(cat)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
+                              addContactCrmCategory === cat
+                                ? "bg-primary text-white border-primary"
+                                : "bg-accent/40 text-muted-foreground hover:text-foreground border-border/60"
+                            }`}
+                          >
+                            {cat === "all" ? "All" : cat === "main_lead" ? "CRM Leads" : cat === "ea_lead" ? "EA Leads" : "Team Members"}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between text-xs py-1.5 border-b border-border/60">
+                      <div className="flex items-center gap-2.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const selectable = filteredAddContactCrmContacts
+                              .filter(c => !addContactTargetEmailSet.has(c.email.toLowerCase()))
+                              .map(c => c._id);
+                            setAddContactCrmSelectedIds(selectable);
+                          }}
+                          className="text-xs font-bold text-primary hover:underline cursor-pointer"
+                        >
+                          Select All Filtered
+                        </button>
+                        <span className="text-muted-foreground">&bull;</span>
+                        <button
+                          type="button"
+                          onClick={() => setAddContactCrmSelectedIds([])}
+                          className="text-xs font-bold text-muted-foreground hover:text-foreground cursor-pointer"
+                        >
+                          Deselect All
+                        </button>
+                      </div>
+                      <span className="text-xs font-bold text-muted-foreground">
+                        Selected: <strong className="text-primary font-black">{addContactCrmSelectedIds.length}</strong> Contacts
+                      </span>
+                    </div>
+
+                    <div className="h-64 sm:h-72 overflow-y-auto custom-scrollbar border rounded-xl divide-y divide-border/60 bg-accent/5">
+                      {loadingContacts ? (
+                        <div className="flex items-center justify-center h-full py-12">
+                          <Loader2 className="animate-spin text-primary h-7 w-7" />
+                        </div>
+                      ) : filteredAddContactCrmContacts.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center h-full py-12 text-center text-muted-foreground">
+                          <UserX size={36} className="opacity-40 mb-2" />
+                          <p className="text-xs font-semibold">No contacts match search filter</p>
+                        </div>
+                      ) : (
+                        filteredAddContactCrmContacts.map((contact) => {
+                          const isAlreadyInList = addContactTargetEmailSet.has(contact.email.toLowerCase());
+                          const isSelected = addContactCrmSelectedIds.includes(contact._id);
+
+                          return (
+                            <div
+                              key={contact._id}
+                              onClick={() => {
+                                if (isAlreadyInList) return;
+                                if (isSelected) {
+                                  setAddContactCrmSelectedIds(prev => prev.filter(id => id !== contact._id));
+                                } else {
+                                  setAddContactCrmSelectedIds(prev => [...prev, contact._id]);
+                                }
+                              }}
+                              className={`flex items-center justify-between p-3 text-xs transition-colors cursor-pointer ${
+                                isAlreadyInList ? "opacity-50 bg-muted/20 cursor-not-allowed" : isSelected ? "bg-primary/5 hover:bg-primary/10" : "hover:bg-accent/30"
+                              }`}
+                            >
+                              <div className="flex items-center gap-3 min-w-0 flex-1">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  disabled={isAlreadyInList}
+                                  onChange={() => {}}
+                                  className="rounded border-border text-primary focus:ring-primary/40 h-4 w-4 cursor-pointer"
+                                />
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-bold text-foreground truncate">{contact.name}</span>
+                                    <span className="text-[10px] px-2 py-0.5 rounded-md bg-accent/60 text-muted-foreground font-semibold border border-border/60 shrink-0">
+                                      {contact.categoryTag || "Contact"}
+                                    </span>
+                                  </div>
+                                  <span className="text-[11px] text-muted-foreground truncate block mt-0.5">{contact.email}</span>
+                                </div>
+                              </div>
+
+                              {isAlreadyInList ? (
+                                <span className="text-[10px] font-bold text-muted-foreground bg-accent/50 px-2.5 py-0.5 rounded-full shrink-0 border">
+                                  Already in Selected List
+                                </span>
+                              ) : contact.phone ? (
+                                <span className="text-[11px] text-muted-foreground shrink-0">{contact.phone}</span>
+                              ) : null}
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* TAB 3: BULK TEXT PASTE */}
+                {addContactMode === "paste" && (
+                  <div className="space-y-3 pt-1">
+                    <div className="space-y-1.5">
+                      <label htmlFor="add-contact-paste-textarea" className="text-xs font-bold text-muted-foreground uppercase flex items-center justify-between">
+                        <span>Paste Emails (Comma or Newline Separated)</span>
+                        <span className="text-xs text-primary font-bold">
+                          Parsed: {parsedAddContactPastedContacts.length} Contacts
+                        </span>
+                      </label>
+                      <textarea
+                        id="add-contact-paste-textarea"
+                        rows={7}
+                        placeholder={"john@example.com, sarah@example.com\n\"David Smith\" <david@example.com>\nemma.watson@gmail.com"}
+                        value={addContactPasteText}
+                        onChange={(e) => setAddContactPasteText(e.target.value)}
+                        className="w-full input-field text-xs p-3.5 font-mono leading-relaxed"
+                      />
+                    </div>
+
+                    {parsedAddContactPastedContacts.length > 0 && (
+                      <div className="space-y-2 pt-2 border-t border-border/60">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-bold text-foreground">Detected Contacts Preview:</span>
+                          <span className="text-muted-foreground text-[11px]">
+                            {parsedAddContactPastedContacts.filter(c => addContactTargetEmailSet.has(c.email)).length} already in target list(s)
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap gap-2 max-h-28 overflow-y-auto custom-scrollbar p-1">
+                          {parsedAddContactPastedContacts.map((c, i) => {
+                            const inList = addContactTargetEmailSet.has(c.email);
+                            return (
+                              <span
+                                key={i}
+                                className={`text-[11px] px-2.5 py-1 rounded-lg font-semibold border flex items-center gap-1.5 ${
+                                  inList ? "bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/20" : "bg-primary/10 text-primary border-primary/20"
+                                }`}
+                              >
+                                <span>{c.email}</span>
+                                {inList && <span className="text-[10px] opacity-75 font-normal">(in list)</span>}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Unified Modal Footer */}
+          <DialogFooter className="p-4 sm:p-5 border-t bg-card shrink-0 flex items-center justify-between">
+            <span className="text-xs text-muted-foreground truncate max-w-[360px]">
+              {addContactTargetSegmentIds.length === 0 ? (
+                <span className="text-destructive font-bold flex items-center gap-1.5">
+                  <AlertTriangle size={14} /> Please select at least one list in Step 1 (left panel)
+                </span>
+              ) : (
+                <>Ready to dispatch to <strong className="text-foreground font-black">{addContactTargetSegmentIds.length}</strong> list{addContactTargetSegmentIds.length !== 1 ? "s" : ""}</>
+              )}
+            </span>
+            <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={() => setIsAddContactModalOpen(false)}
+                className="btn-secondary text-xs h-9 px-4 font-bold"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isSubmittingAddContact || addContactTargetSegmentIds.length === 0}
+                onClick={() => handleSubmitAddContact()}
+                className="h-9 px-5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-md shadow-emerald-600/25 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSubmittingAddContact ? (
+                  <><Loader2 size={15} className="animate-spin" /> Adding Contacts...</>
+                ) : (
+                  <><UserPlus size={15} /> Add to {addContactTargetSegmentIds.length > 1 ? `${addContactTargetSegmentIds.length} Lists` : "List"}</>
+                )}
+              </button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -7950,84 +9512,82 @@ export default function EmailCenter() {
                             <div className="relative">
                               <button
                                 type="button"
-                                onMouseDown={e => e.preventDefault()}
+                                onMouseDown={e => {
+                                  e.preventDefault();
+                                  saveSelectionRange();
+                                }}
                                 onClick={() => {
+                                  saveSelectionRange();
                                   setIsAiHighlighterOpen(!isAiHighlighterOpen);
                                   setIsAiColorPickerOpen(false);
                                 }}
-                                title="Highlight Color"
-                                className="h-7 px-1.5 rounded-md hover:bg-background flex items-center gap-0.5 text-muted-foreground hover:text-foreground transition-colors cursor-pointer text-xs"
+                                title={`Highlight Color (${aiHighlightColor === 'transparent' ? 'None' : aiHighlightColor})`}
+                                className={`h-7 px-2 rounded-md hover:bg-background flex items-center justify-center gap-1.5 text-muted-foreground hover:text-foreground transition-all cursor-pointer text-xs ${isAiHighlighterOpen ? 'bg-background text-foreground shadow-2xs' : ''}`}
                               >
-                                <Highlighter size={12} className="text-amber-500" />
-                                <ChevronDown size={10} />
-                              </button>
-                              {isAiHighlighterOpen && (
-                                <div className="absolute top-full left-0 mt-1.5 p-2 bg-popover border rounded-xl shadow-lg z-50 flex items-center gap-1.5 backdrop-blur-md">
-                                  {[
-                                    { color: '#fef08a', name: 'Yellow' },
-                                    { color: '#bbf7d0', name: 'Green' },
-                                    { color: '#bfdbfe', name: 'Blue' },
-                                    { color: '#fed7aa', name: 'Orange' },
-                                    { color: '#fbcfe8', name: 'Pink' },
-                                    { color: 'transparent', name: 'None' }
-                                  ].map(c => (
-                                    <button
-                                      key={c.color}
-                                      type="button"
-                                      onMouseDown={e => e.preventDefault()}
-                                      onClick={() => {
-                                        execAiEditorFormat('hiliteColor', c.color);
-                                        setIsAiHighlighterOpen(false);
-                                      }}
-                                      title={c.name}
-                                      className="w-5 h-5 rounded-full border border-slate-300 hover:scale-110 transition-transform cursor-pointer shadow-2xs"
-                                      style={{ backgroundColor: c.color === 'transparent' ? '#ffffff' : c.color }}
-                                    />
-                                  ))}
+                                <div className="flex flex-col items-center justify-center h-full pt-0.5 pb-1">
+                                  <Highlighter size={13} className="text-amber-500 shrink-0" />
+                                  <span
+                                    className="w-3.5 h-[2.5px] rounded-full shrink-0 mt-1 transition-all"
+                                    style={{
+                                      backgroundColor: aiHighlightColor === 'transparent' ? '#cbd5e1' : aiHighlightColor,
+                                      border: aiHighlightColor === 'transparent' ? '0.5px dashed #94a3b8' : undefined
+                                    }}
+                                  />
                                 </div>
-                              )}
+                                <ChevronDown size={10} className="opacity-60 shrink-0" />
+                              </button>
+                              <GoogleDocsColorPickerPopover
+                                title="Highlight color"
+                                isOpen={isAiHighlighterOpen}
+                                onClose={() => setIsAiHighlighterOpen(false)}
+                                currentColor={aiHighlightColor}
+                                onSelectColor={color => {
+                                  setAiHighlightColor(color);
+                                  restoreSelectionRange();
+                                  execAiEditorFormat('hiliteColor', color);
+                                }}
+                                allowNone={true}
+                                restoreSelection={restoreSelectionRange}
+                              />
                             </div>
 
-                            {/* Text Color Tool */}
+                            {/* Text Color Tool with Full Color Picker & Light Contrasts */}
                             <div className="relative">
                               <button
                                 type="button"
-                                onMouseDown={e => e.preventDefault()}
+                                onMouseDown={e => {
+                                  e.preventDefault();
+                                  saveSelectionRange();
+                                }}
                                 onClick={() => {
+                                  saveSelectionRange();
                                   setIsAiColorPickerOpen(!isAiColorPickerOpen);
                                   setIsAiHighlighterOpen(false);
                                 }}
-                                title="Text Color"
-                                className="h-7 px-1.5 rounded-md hover:bg-background flex items-center gap-0.5 text-muted-foreground hover:text-foreground transition-colors cursor-pointer text-xs"
+                                title={`Text Color (${aiTextColor || '#000000'})`}
+                                className={`h-7 px-2 rounded-md hover:bg-background flex items-center justify-center gap-1.5 text-muted-foreground hover:text-foreground transition-all cursor-pointer text-xs ${isAiColorPickerOpen ? 'bg-background text-foreground shadow-2xs' : ''}`}
                               >
-                                <Palette size={12} className="text-blue-500" />
-                                <ChevronDown size={10} />
-                              </button>
-                              {isAiColorPickerOpen && (
-                                <div className="absolute top-full left-0 mt-1.5 p-2 bg-popover border rounded-xl shadow-lg z-50 flex items-center gap-1.5 backdrop-blur-md">
-                                  {[
-                                    { color: '#0f172a', name: 'Default Dark' },
-                                    { color: '#2563eb', name: 'Blue' },
-                                    { color: '#059669', name: 'Emerald' },
-                                    { color: '#dc2626', name: 'Red' },
-                                    { color: '#7c3aed', name: 'Purple' },
-                                    { color: '#d97706', name: 'Amber' }
-                                  ].map(c => (
-                                    <button
-                                      key={c.color}
-                                      type="button"
-                                      onMouseDown={e => e.preventDefault()}
-                                      onClick={() => {
-                                        execAiEditorFormat('foreColor', c.color);
-                                        setIsAiColorPickerOpen(false);
-                                      }}
-                                      title={c.name}
-                                      className="w-5 h-5 rounded-full border border-slate-300 hover:scale-110 transition-transform cursor-pointer shadow-2xs"
-                                      style={{ backgroundColor: c.color }}
-                                    />
-                                  ))}
+                                <div className="flex flex-col items-center justify-center h-full pt-0.5 pb-1">
+                                  <Palette size={13} className="text-blue-500 shrink-0" />
+                                  <span
+                                    className="w-3.5 h-[2.5px] rounded-full shrink-0 mt-1 transition-all"
+                                    style={{ backgroundColor: aiTextColor || '#000000' }}
+                                  />
                                 </div>
-                              )}
+                                <ChevronDown size={10} className="opacity-60 shrink-0" />
+                              </button>
+                              <GoogleDocsColorPickerPopover
+                                title="Text color"
+                                isOpen={isAiColorPickerOpen}
+                                onClose={() => setIsAiColorPickerOpen(false)}
+                                currentColor={aiTextColor}
+                                onSelectColor={color => {
+                                  setAiTextColor(color);
+                                  restoreSelectionRange();
+                                  execAiEditorFormat('foreColor', color);
+                                }}
+                                restoreSelection={restoreSelectionRange}
+                              />
                             </div>
                           </div>
 
@@ -8452,84 +10012,82 @@ export default function EmailCenter() {
                     <div className="relative">
                       <button
                         type="button"
-                        onMouseDown={e => e.preventDefault()}
+                        onMouseDown={e => {
+                          e.preventDefault();
+                          saveSelectionRange();
+                        }}
                         onClick={() => {
+                          saveSelectionRange();
                           setIsHighlighterOpen(!isHighlighterOpen);
                           setIsColorPickerOpen(false);
                         }}
-                        title="Highlight Color"
-                        className="h-7 px-1.5 rounded-md hover:bg-background flex items-center gap-0.5 text-muted-foreground hover:text-foreground transition-colors cursor-pointer text-xs"
+                        title={`Highlight Color (${manualHighlightColor === 'transparent' ? 'None' : manualHighlightColor})`}
+                        className={`h-7 px-2 rounded-md hover:bg-background flex items-center justify-center gap-1.5 text-muted-foreground hover:text-foreground transition-all cursor-pointer text-xs ${isHighlighterOpen ? 'bg-background text-foreground shadow-2xs' : ''}`}
                       >
-                        <Highlighter size={12} className="text-amber-500" />
-                        <ChevronDown size={10} />
-                      </button>
-                      {isHighlighterOpen && (
-                        <div className="absolute top-full left-0 mt-1.5 p-2 bg-popover border rounded-xl shadow-lg z-50 flex items-center gap-1.5 backdrop-blur-md">
-                          {[
-                            { color: '#fef08a', name: 'Yellow' },
-                            { color: '#bbf7d0', name: 'Green' },
-                            { color: '#bfdbfe', name: 'Blue' },
-                            { color: '#fed7aa', name: 'Orange' },
-                            { color: '#fbcfe8', name: 'Pink' },
-                            { color: 'transparent', name: 'None' }
-                          ].map(color => (
-                            <button
-                              key={color.color}
-                              type="button"
-                              onMouseDown={e => e.preventDefault()}
-                              onClick={() => {
-                                execFormat('hiliteColor', color.color);
-                                setIsHighlighterOpen(false);
-                              }}
-                              title={color.name}
-                              className="w-5 h-5 rounded-full border border-slate-300 hover:scale-110 transition-transform cursor-pointer shadow-2xs"
-                              style={{ backgroundColor: color.color === 'transparent' ? '#ffffff' : color.color }}
-                            />
-                          ))}
+                        <div className="flex flex-col items-center justify-center h-full pt-0.5 pb-1">
+                          <Highlighter size={13} className="text-amber-500 shrink-0" />
+                          <span
+                            className="w-3.5 h-[2.5px] rounded-full shrink-0 mt-1 transition-all"
+                            style={{
+                              backgroundColor: manualHighlightColor === 'transparent' ? '#cbd5e1' : manualHighlightColor,
+                              border: manualHighlightColor === 'transparent' ? '0.5px dashed #94a3b8' : undefined
+                            }}
+                          />
                         </div>
-                      )}
+                        <ChevronDown size={10} className="opacity-60 shrink-0" />
+                      </button>
+                      <GoogleDocsColorPickerPopover
+                        title="Highlight color"
+                        isOpen={isHighlighterOpen}
+                        onClose={() => setIsHighlighterOpen(false)}
+                        currentColor={manualHighlightColor}
+                        onSelectColor={color => {
+                          setManualHighlightColor(color);
+                          restoreSelectionRange();
+                          execFormat('hiliteColor', color);
+                        }}
+                        allowNone={true}
+                        restoreSelection={restoreSelectionRange}
+                      />
                     </div>
 
-                    {/* Text Color dropdown */}
+                    {/* Text Color dropdown with Full Color Picker & Light Contrasts */}
                     <div className="relative">
                       <button
                         type="button"
-                        onMouseDown={e => e.preventDefault()}
+                        onMouseDown={e => {
+                          e.preventDefault();
+                          saveSelectionRange();
+                        }}
                         onClick={() => {
+                          saveSelectionRange();
                           setIsColorPickerOpen(!isColorPickerOpen);
                           setIsHighlighterOpen(false);
                         }}
-                        title="Text Color"
-                        className="h-7 px-1.5 rounded-md hover:bg-background flex items-center gap-0.5 text-muted-foreground hover:text-foreground transition-colors cursor-pointer text-xs"
+                        title={`Text Color (${manualTextColor || '#000000'})`}
+                        className={`h-7 px-2 rounded-md hover:bg-background flex items-center justify-center gap-1.5 text-muted-foreground hover:text-foreground transition-all cursor-pointer text-xs ${isColorPickerOpen ? 'bg-background text-foreground shadow-2xs' : ''}`}
                       >
-                        <Palette size={12} className="text-blue-500" />
-                        <ChevronDown size={10} />
-                      </button>
-                      {isColorPickerOpen && (
-                        <div className="absolute top-full left-0 mt-1.5 p-2 bg-popover border rounded-xl shadow-lg z-50 flex items-center gap-1.5 backdrop-blur-md">
-                          {[
-                            { color: '#0f172a', name: 'Default Dark' },
-                            { color: '#2563eb', name: 'Blue' },
-                            { color: '#059669', name: 'Emerald' },
-                            { color: '#dc2626', name: 'Red' },
-                            { color: '#7c3aed', name: 'Purple' },
-                            { color: '#d97706', name: 'Amber' }
-                          ].map(color => (
-                            <button
-                              key={color.color}
-                              type="button"
-                              onMouseDown={e => e.preventDefault()}
-                              onClick={() => {
-                                execFormat('foreColor', color.color);
-                                setIsColorPickerOpen(false);
-                              }}
-                              title={color.name}
-                              className="w-5 h-5 rounded-full border border-slate-300 hover:scale-110 transition-transform cursor-pointer shadow-2xs"
-                              style={{ backgroundColor: color.color }}
-                            />
-                          ))}
+                        <div className="flex flex-col items-center justify-center h-full pt-0.5 pb-1">
+                          <Palette size={13} className="text-blue-500 shrink-0" />
+                          <span
+                            className="w-3.5 h-[2.5px] rounded-full shrink-0 mt-1 transition-all"
+                            style={{ backgroundColor: manualTextColor || '#000000' }}
+                          />
                         </div>
-                      )}
+                        <ChevronDown size={10} className="opacity-60 shrink-0" />
+                      </button>
+                      <GoogleDocsColorPickerPopover
+                        title="Text color"
+                        isOpen={isColorPickerOpen}
+                        onClose={() => setIsColorPickerOpen(false)}
+                        currentColor={manualTextColor}
+                        onSelectColor={color => {
+                          setManualTextColor(color);
+                          restoreSelectionRange();
+                          execFormat('foreColor', color);
+                        }}
+                        restoreSelection={restoreSelectionRange}
+                      />
                     </div>
                   </div>
 

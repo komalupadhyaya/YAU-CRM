@@ -9,7 +9,7 @@ export interface Segment {
   name: string;
   description?: string;
   type: "dynamic" | "static" | "campaign" | "csv" | "marketing";
-  category?: "school" | "location" | "app_members" | "ea_leads" | "manual" | "csv" | "custom" | "campaign" | "marketing";
+  category?: "afterschool" | "evening_activities" | "mobile_app" | "school" | "location" | "app_members" | "ea_leads" | "manual" | "csv" | "custom" | "campaign" | "marketing" | "legacy_cc";
   externalId?: string;
   isSystemList?: boolean;
   filters?: {

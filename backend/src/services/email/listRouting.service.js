@@ -19,18 +19,18 @@ export function resolveTargetListName({ source, entryPoint, schoolName, location
         if (cleanSchool) {
             return {
                 listName: `${cleanSchool} - Mobile App`,
-                category: 'school'
+                category: 'mobile_app'
             };
         }
         if (cleanLocation) {
             return {
                 listName: `${cleanLocation} - Mobile App`,
-                category: 'location'
+                category: 'mobile_app'
             };
         }
         return {
             listName: 'Free App Members',
-            category: 'app_members'
+            category: 'mobile_app'
         };
     }
 
@@ -44,7 +44,7 @@ export function resolveTargetListName({ source, entryPoint, schoolName, location
         const loc = cleanLocation || 'General';
         return {
             listName: `${loc} - Evening Activities`,
-            category: 'location'
+            category: 'evening_activities'
         };
     }
 
@@ -53,7 +53,7 @@ export function resolveTargetListName({ source, entryPoint, schoolName, location
         const sch = cleanSchool || 'General';
         return {
             listName: `${sch} - After School`,
-            category: 'school'
+            category: 'afterschool'
         };
     }
 
@@ -67,15 +67,15 @@ export function resolveTargetListName({ source, entryPoint, schoolName, location
 
     // Default Fallback
     if (cleanSchool) {
-        return { listName: `${cleanSchool} - After School`, category: 'school' };
+        return { listName: `${cleanSchool} - After School`, category: 'afterschool' };
     }
     if (cleanLocation) {
-        return { listName: `${cleanLocation} - Evening Activities`, category: 'location' };
+        return { listName: `${cleanLocation} - Evening Activities`, category: 'evening_activities' };
     }
 
     return {
         listName: 'Free App Members',
-        category: 'app_members'
+        category: 'mobile_app'
     };
 }
 
