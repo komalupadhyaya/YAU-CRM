@@ -4,7 +4,8 @@ const EmailCampaignSchema = new mongoose.Schema({
     title: { type: String, required: true },
     subject: { type: String, required: true },
     content: { type: String, required: true }, // HTML rich body content
-    segmentId: { type: mongoose.Schema.Types.ObjectId, ref: 'EmailSegment', required: true },
+    segmentId: { type: mongoose.Schema.Types.ObjectId, ref: 'EmailSegment', required: false },
+    segmentIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'EmailSegment' }],
     templateId: { type: mongoose.Schema.Types.ObjectId, ref: 'EmailTemplate', default: null },
     isAiPersonalized: { type: Boolean, default: false },
     aiGoalPrompt: { type: String, default: '' },

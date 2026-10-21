@@ -10,7 +10,7 @@ import EmailCampaign from '../models/emailCampaign.model.js';
 import EmailQueue from '../models/emailQueue.model.js';
 import EmailTemplate from '../models/emailTemplate.model.js';
 import aiService from '../services/ai/ai.service.js';
-import { resolveSegmentRecipients } from './segments.controller.js';
+import { resolveSegmentRecipients, resolveMultipleSegmentsRecipients } from './segments.controller.js';
 
 /**
  * Helper to fetch complete cross-channel interaction context for a contact.
@@ -126,15 +126,14 @@ async function fetchRecipientContext(recipient) {
  */
 export const generateAiCampaignPreview = async (req, res, next) => {
     try {
-        const { segmentId, campaignGoal, tone, sampleLimit, templateId, baseTemplateHtml, templateSubject } = req.body;
+        const { segmentId, segmentIds, campaignGoal, tone, sampleLimit, templateId, baseTemplateHtml, templateSubject } = req.body;
 
-        if (!segmentId) {
-            return res.status(400).json({ success: false, message: 'segmentId is required.' });
-        }
+        const targetSegmentIds = Array.isArray(segmentIds) && segmentIds.length > 0
+            ? segmentIds
+            : (segmentId ? [segmentId] : []);
 
-        const segment = await EmailSegment.findById(segmentId);
-        if (!segment) {
-            return res.status(404).json({ success: false, message: 'Target segment not found.' });
+        if (targetSegmentIds.length === 0) {
+            return res.status(400).json({ success: false, message: 'Target list or segment is required.' });
         }
 
         let resolvedTemplateHtml = baseTemplateHtml || '';
@@ -148,16 +147,16 @@ export const generateAiCampaignPreview = async (req, res, next) => {
             }
         }
 
-        const allRecipients = await resolveSegmentRecipients(segment);
+        const allRecipients = await resolveMultipleSegmentsRecipients(targetSegmentIds);
         if (!allRecipients || allRecipients.length === 0) {
-            return res.status(400).json({ success: false, message: 'The selected segment contains no active recipients.' });
+            return res.status(400).json({ success: false, message: 'The selected segment(s) contain no active recipients.' });
         }
 
         // Default to fast 5-sample preview for instant review
         const PREVIEW_LIMIT = (sampleLimit && Number(sampleLimit) > 0) ? Number(sampleLimit) : 5;
         const recipients = allRecipients.slice(0, PREVIEW_LIMIT);
 
-        console.log(`[AI Campaign Preview] Fast preview generation for ${recipients.length} of ${allRecipients.length} recipients in "${segment.name}" (Template: ${templateId || (resolvedTemplateHtml ? 'Custom' : 'None')})...`);
+        console.log(`[AI Campaign Preview] Fast preview generation for ${recipients.length} of ${allRecipients.length} unique recipients across ${targetSegmentIds.length} list(s) (Template: ${templateId || (resolvedTemplateHtml ? 'Custom' : 'None')})...`);
 
         // Concurrent batch processing (batches of 5 for instant parallel generation)
         const BATCH_SIZE = 5;
@@ -243,9 +242,12 @@ export const generateAiCampaignPreview = async (req, res, next) => {
  * Background generator to process remaining recipients without blocking the UI.
  * Strict 1-to-1 call limit: exactly 1 call per remaining recipient, no infinite loops.
  */
-async function generateAndEnqueueRemainingAiRecipients({ campaignId, segment, existingDrafts, campaignGoal, tone, templateId, isScheduled }) {
+async function generateAndEnqueueRemainingAiRecipients({ campaignId, segment, segmentsOrIds, existingDrafts, campaignGoal, tone, templateId, isScheduled }) {
     try {
-        const allRecipients = await resolveSegmentRecipients(segment);
+        const targetList = (segmentsOrIds && segmentsOrIds.length > 0)
+            ? segmentsOrIds
+            : (segment ? [segment] : []);
+        const allRecipients = await resolveMultipleSegmentsRecipients(targetList);
         const existingEmailSet = new Set(existingDrafts.map(d => (d.email || '').toLowerCase().trim()));
         const remainingRecipients = allRecipients.filter(r => !existingEmailSet.has((r.email || '').toLowerCase().trim()));
 
@@ -418,20 +420,21 @@ export const regenerateSingleRecipientDraft = async (req, res, next) => {
  */
 export const dispatchAiPersonalizedCampaign = async (req, res, next) => {
     try {
-        const { title, segmentId, templateId, drafts, sendAt, campaignGoal, tone } = req.body;
+        const { title, segmentId, segmentIds, templateId, drafts, sendAt, campaignGoal, tone } = req.body;
 
         if (!title || !title.trim()) {
             return res.status(400).json({ success: false, message: 'Campaign title is required.' });
         }
 
-        if (!segmentId) {
-            return res.status(400).json({ success: false, message: 'Segment ID is required.' });
+        const targetSegmentIds = Array.isArray(segmentIds) && segmentIds.length > 0
+            ? segmentIds
+            : (segmentId ? [segmentId] : []);
+
+        if (targetSegmentIds.length === 0) {
+            return res.status(400).json({ success: false, message: 'Target list or segment is required.' });
         }
 
-        const segment = await EmailSegment.findById(segmentId);
-        if (!segment) {
-            return res.status(404).json({ success: false, message: 'Target segment not found.' });
-        }
+        const primarySegmentId = targetSegmentIds[0] || segmentId || null;
 
         if (!drafts || !Array.isArray(drafts) || drafts.length === 0) {
             return res.status(400).json({ success: false, message: 'At least one draft recipient is required.' });
@@ -443,7 +446,8 @@ export const dispatchAiPersonalizedCampaign = async (req, res, next) => {
             title: title.trim(),
             subject: `[AI Personalized] ${title.trim()}`,
             content: '<p>Personalized AI Campaign with individualized copy per recipient.</p>',
-            segmentId,
+            segmentId: primarySegmentId,
+            segmentIds: targetSegmentIds,
             templateId: templateId || null,
             isAiPersonalized: true,
             aiGoalPrompt: campaignGoal || '',
@@ -502,7 +506,7 @@ export const dispatchAiPersonalizedCampaign = async (req, res, next) => {
         // 2. Asynchronously process remaining recipients on the server in the background
         generateAndEnqueueRemainingAiRecipients({
             campaignId: campaign._id,
-            segment,
+            segmentsOrIds: targetSegmentIds,
             existingDrafts: drafts,
             campaignGoal,
             tone,

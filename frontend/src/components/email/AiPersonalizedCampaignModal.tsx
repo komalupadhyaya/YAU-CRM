@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import {
   Sparkles,
   X,
@@ -101,6 +101,10 @@ export default function AiPersonalizedCampaignModal({
   // Setup Form
   const [campaignTitle, setCampaignTitle] = useState("");
   const [selectedSegmentId, setSelectedSegmentId] = useState("");
+  const [selectedSegmentIds, setSelectedSegmentIds] = useState<string[]>([]);
+  const [segmentSearchQuery, setSegmentSearchQuery] = useState("");
+  const [isSegmentDropdownOpen, setIsSegmentDropdownOpen] = useState(false);
+  const segmentDropdownRef = useRef<HTMLDivElement>(null);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
   const [showTemplatePreview, setShowTemplatePreview] = useState(false);
   const [campaignGoal, setCampaignGoal] = useState("");
@@ -134,6 +138,9 @@ export default function AiPersonalizedCampaignModal({
     setStep(1);
     setCampaignTitle("");
     setSelectedSegmentId("");
+    setSelectedSegmentIds([]);
+    setSegmentSearchQuery("");
+    setIsSegmentDropdownOpen(false);
     setSelectedTemplateId("");
     setShowTemplatePreview(false);
     setCampaignGoal("");
@@ -153,14 +160,76 @@ export default function AiPersonalizedCampaignModal({
     onClose();
   };
 
+  // Click-outside listener for multi-segment dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        segmentDropdownRef.current &&
+        !segmentDropdownRef.current.contains(event.target as Node)
+      ) {
+        setIsSegmentDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
+  const alphabetizedSegments = useMemo(() => {
+    return [...segments].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+  }, [segments]);
+
+  const filteredSegments = useMemo(() => {
+    if (segmentSearchQuery.trim()) {
+      const q = segmentSearchQuery.toLowerCase().trim();
+      return alphabetizedSegments.filter(s =>
+        s.name.toLowerCase().includes(q) ||
+        (s.category && s.category.toLowerCase().includes(q)) ||
+        (s.type && s.type.toLowerCase().includes(q))
+      );
+    }
+    return alphabetizedSegments;
+  }, [alphabetizedSegments, segmentSearchQuery]);
+
+  const selectedRecipientsStats = useMemo(() => {
+    if (!selectedSegmentIds || selectedSegmentIds.length === 0) {
+      return { selectedListsCount: 0, totalRawCount: 0, uniqueRecipientsCount: 0, duplicatesEliminated: 0 };
+    }
+
+    const chosenSegments = segments.filter(s => selectedSegmentIds.includes(s._id));
+    let totalRawCount = 0;
+    const uniqueEmailSet = new Set<string>();
+
+    for (const seg of chosenSegments) {
+      const contacts = seg.contacts || [];
+      totalRawCount += contacts.length;
+      for (const c of contacts) {
+        if (c.email && c.email.includes('@')) {
+          uniqueEmailSet.add(c.email.toLowerCase().trim());
+        }
+      }
+    }
+
+    const uniqueRecipientsCount = uniqueEmailSet.size;
+    const duplicatesEliminated = Math.max(0, totalRawCount - uniqueRecipientsCount);
+
+    return {
+      selectedListsCount: chosenSegments.length,
+      totalRawCount,
+      uniqueRecipientsCount,
+      duplicatesEliminated
+    };
+  }, [segments, selectedSegmentIds]);
+
   // Step 1: Generate AI Personalized Drafts with Template Preservation (Fast 5-Contact Preview)
   const handleGeneratePreview = async () => {
     if (!campaignTitle.trim()) {
       toast.error("Please enter a campaign title.");
       return;
     }
-    if (!selectedSegmentId) {
-      toast.error("Please select a target audience list or segment.");
+    if (selectedSegmentIds.length === 0 && !selectedSegmentId) {
+      toast.error("Please select at least one target audience list or segment.");
       return;
     }
     if (!campaignGoal.trim()) {
@@ -173,7 +242,8 @@ export default function AiPersonalizedCampaignModal({
       setGenerationProgress("Reading template styling & analyzing past SMS, Email, and Notes history...");
 
       const res = await api.post("/emails/campaigns/ai-personalized/preview", {
-        segmentId: selectedSegmentId,
+        segmentIds: selectedSegmentIds.length > 0 ? selectedSegmentIds : [selectedSegmentId],
+        segmentId: selectedSegmentIds[0] || selectedSegmentId,
         templateId: selectedTemplateId || null,
         baseTemplateHtml: activeTemplate?.content || null,
         templateSubject: activeTemplate?.subject || null,
@@ -272,7 +342,8 @@ export default function AiPersonalizedCampaignModal({
       setIsDispatching(true);
       const res = await api.post("/emails/campaigns/ai-personalized/dispatch", {
         title: campaignTitle.trim(),
-        segmentId: selectedSegmentId,
+        segmentIds: selectedSegmentIds.length > 0 ? selectedSegmentIds : [selectedSegmentId],
+        segmentId: selectedSegmentIds[0] || selectedSegmentId,
         templateId: selectedTemplateId || null,
         campaignGoal,
         tone: selectedTone,
@@ -386,23 +457,186 @@ export default function AiPersonalizedCampaignModal({
                     </div>
 
                     <div>
-                      <label htmlFor="ai-campaign-segment-select" className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1.5 flex items-center gap-1 cursor-pointer">
-                        Target List / Segment <span className="text-destructive">*</span>
-                      </label>
-                      <select
-                        id="ai-campaign-segment-select"
-                        name="ai_campaign_segment_id"
-                        value={selectedSegmentId}
-                        onChange={e => setSelectedSegmentId(e.target.value)}
-                        className="input-field w-full h-10 text-xs font-medium bg-background cursor-pointer rounded-xl"
-                      >
-                        <option value="">-- Choose Target List / Segment --</option>
-                        {segments.map(seg => (
-                          <option key={seg._id} value={seg._id}>
-                            {seg.name} ({seg.type}) {seg.contacts ? `• ${seg.contacts.length} contacts` : ''}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1 cursor-pointer">
+                          <span>Target List(s) / Locations</span>
+                          <span className="text-destructive">*</span>
+                        </label>
+                        {selectedRecipientsStats.selectedListsCount > 0 && (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-primary/10 text-primary border border-primary/20">
+                            {selectedRecipientsStats.selectedListsCount} Selected
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Collapsible Dropdown Selector */}
+                      <div className="relative" ref={segmentDropdownRef}>
+                        <button
+                          type="button"
+                          onClick={() => setIsSegmentDropdownOpen(prev => !prev)}
+                          className={`w-full min-h-[40px] px-3 py-2 text-xs bg-background text-foreground border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/20 flex items-center justify-between shadow-2xs font-medium cursor-pointer transition-all ${
+                            isSegmentDropdownOpen ? "border-primary ring-2 ring-primary/15" : "border-input hover:border-border"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 truncate text-left min-w-0">
+                            <Layers size={14} className="text-primary shrink-0" />
+                            <span className={`truncate ${selectedSegmentIds.length === 0 ? "text-muted-foreground" : "text-foreground font-bold"}`}>
+                              {selectedSegmentIds.length === 0
+                                ? "Select Recipient Lists & Locations..."
+                                : selectedSegmentIds.length === 1
+                                  ? (segments.find(s => s._id === selectedSegmentIds[0])?.name || "1 List Selected")
+                                  : `${selectedSegmentIds.length} Lists Selected`}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                            {selectedSegmentIds.length > 0 && (
+                              <span className="px-1.5 py-0.2 rounded-md bg-primary/10 text-primary text-[10px] font-bold">
+                                {selectedSegmentIds.length}
+                              </span>
+                            )}
+                            <ChevronDown size={14} className={`text-muted-foreground transition-transform duration-200 ${isSegmentDropdownOpen ? "rotate-180" : ""}`} />
+                          </div>
+                        </button>
+
+                        {/* Dropdown Popover Menu */}
+                        {isSegmentDropdownOpen && (
+                          <div className="absolute z-50 left-0 right-0 mt-1.5 p-2 bg-card border border-border/80 rounded-2xl shadow-xl space-y-2 animate-in fade-in zoom-in-95 duration-150">
+                            {/* Search and Batch Controls */}
+                            <div className="space-y-1.5">
+                              <div className="relative">
+                                <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                                <input
+                                  type="text"
+                                  placeholder="Search locations or schools (A–Z)..."
+                                  value={segmentSearchQuery}
+                                  onChange={e => setSegmentSearchQuery(e.target.value)}
+                                  className="w-full pl-8 pr-7 py-1.5 bg-background border border-border/80 rounded-xl text-xs placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-primary shadow-2xs"
+                                  autoFocus
+                                />
+                                {segmentSearchQuery && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setSegmentSearchQuery("")}
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-xs cursor-pointer"
+                                    title="Clear search"
+                                  >
+                                    <X size={12} />
+                                  </button>
+                                )}
+                              </div>
+
+                              <div className="flex items-center justify-between text-[11px] px-1 text-muted-foreground">
+                                <span className="text-[10px] font-semibold">
+                                  Alphabetical (A–Z) &bull; {filteredSegments.length} list{filteredSegments.length !== 1 ? 's' : ''}
+                                </span>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const allFilteredIds = filteredSegments.map(s => s._id);
+                                      const merged = Array.from(new Set([...selectedSegmentIds, ...allFilteredIds]));
+                                      setSelectedSegmentIds(merged);
+                                      setSelectedSegmentId(merged[0] || "");
+                                    }}
+                                    className="font-bold text-primary hover:underline cursor-pointer"
+                                  >
+                                    Select All
+                                  </button>
+                                  <span>&bull;</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedSegmentIds([]);
+                                      setSelectedSegmentId("");
+                                    }}
+                                    className="font-semibold text-muted-foreground hover:text-foreground cursor-pointer"
+                                  >
+                                    Clear
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Alphabetical Checkbox Container */}
+                            <div className="max-h-52 overflow-y-auto custom-scrollbar border border-border/70 rounded-xl p-1 bg-background/50 divide-y divide-border/30 shadow-inner">
+                              {filteredSegments.length === 0 ? (
+                                <div className="py-6 px-3 text-center text-xs text-muted-foreground">
+                                  {segmentSearchQuery ? (
+                                    <span>No locations or lists match "{segmentSearchQuery}"</span>
+                                  ) : (
+                                    <span>No recipient lists available. Please create one in Lists &amp; Segments.</span>
+                                  )}
+                                </div>
+                              ) : (
+                                filteredSegments.map(seg => {
+                                  const isChecked = selectedSegmentIds.includes(seg._id);
+                                  const contactCount = seg.contacts?.length || 0;
+
+                                  return (
+                                    <label
+                                      key={seg._id}
+                                      className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg cursor-pointer transition-colors text-xs select-none ${
+                                        isChecked
+                                          ? "bg-primary/10 text-foreground font-semibold"
+                                          : "hover:bg-accent/40 text-muted-foreground hover:text-foreground"
+                                      }`}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={isChecked}
+                                        onChange={e => {
+                                          let next: string[];
+                                          if (e.target.checked) {
+                                            next = [...selectedSegmentIds, seg._id];
+                                          } else {
+                                            next = selectedSegmentIds.filter(id => id !== seg._id);
+                                          }
+                                          setSelectedSegmentIds(next);
+                                          setSelectedSegmentId(next[0] || "");
+                                        }}
+                                        className="rounded border-border text-primary focus:ring-primary h-3.5 w-3.5 shrink-0"
+                                      />
+                                      <div className="flex-1 min-w-0">
+                                        <div className="flex items-center justify-between gap-1">
+                                          <span className={`truncate ${isChecked ? "font-bold text-foreground" : "font-medium"}`}>
+                                            {seg.name}
+                                          </span>
+                                          <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-accent/60 text-muted-foreground shrink-0 font-medium">
+                                            {contactCount}
+                                          </span>
+                                        </div>
+                                        {seg.category && (
+                                          <span className="text-[10px] text-muted-foreground/80 block truncate capitalize">
+                                            {seg.category}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </label>
+                                  );
+                                })
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Live Recipient Count & Deduplication Status Card */}
+                      {selectedRecipientsStats.selectedListsCount > 0 && (
+                        <div className="mt-2.5 p-2.5 rounded-xl border border-primary/20 bg-primary/5 shadow-2xs space-y-1.5">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-semibold text-muted-foreground">Estimated Audience:</span>
+                            <span className="font-extrabold text-foreground">
+                              {selectedRecipientsStats.uniqueRecipientsCount} unique recipients ({selectedRecipientsStats.selectedListsCount} lists)
+                            </span>
+                          </div>
+                          {selectedRecipientsStats.duplicatesEliminated > 0 && (
+                            <div className="flex items-center gap-1.5 text-[11px] text-emerald-700 dark:text-emerald-300 font-medium">
+                              <CheckCircle2 size={12} className="text-emerald-600 shrink-0" />
+                              <span>{selectedRecipientsStats.duplicatesEliminated} duplicate contact{selectedRecipientsStats.duplicatesEliminated > 1 ? 's' : ''} eliminated across selected lists.</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>

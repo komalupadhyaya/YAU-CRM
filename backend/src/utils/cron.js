@@ -7,7 +7,7 @@ import Notification from '../models/notification.model.js';
 import { sendDailySummaryEmail, sendReminderEmail } from '../services/email/mailer.js';
 import { invalidatedUsers } from './sessionCache.js';
 import EmailCampaign from '../models/emailCampaign.model.js';
-import { resolveSegmentRecipients } from '../controllers/segments.controller.js';
+import { resolveSegmentRecipients, resolveMultipleSegmentsRecipients } from '../controllers/segments.controller.js';
 import { dispatchCampaignInBackground } from '../controllers/campaigns.controller.js';
 import { generateAndSendWeeklyPerformanceReport } from '../controllers/reports.controller.js';
 import { scanForStalledLeads } from '../services/ai/stalledLeads.service.js';
@@ -188,7 +188,7 @@ export const initCronJobs = () => {
             const pendingCampaigns = await EmailCampaign.find({
                 status: 'scheduled',
                 sendAt: { $lte: now }
-            }).populate('segmentId');
+            }).populate('segmentId').populate('segmentIds');
 
             if (pendingCampaigns.length > 0) {
                 console.log(`[Campaign Cron] Found ${pendingCampaigns.length} scheduled campaigns due for delivery.`);
@@ -199,10 +199,14 @@ export const initCronJobs = () => {
                 campaign.sentAt = new Date();
                 await campaign.save();
 
-                // For standard campaigns, resolve segment recipients; for AI campaigns, recipientLogs are used
+                // For standard campaigns, resolve multi-segment recipients with deduplication; for AI campaigns, recipientLogs are used
+                const targetSegments = (campaign.segmentIds && campaign.segmentIds.length > 0)
+                    ? campaign.segmentIds
+                    : (campaign.segmentId ? [campaign.segmentId] : []);
+
                 const recipients = campaign.isAiPersonalized 
                     ? [] 
-                    : await resolveSegmentRecipients(campaign.segmentId);
+                    : await resolveMultipleSegmentsRecipients(targetSegments);
                 
                 // Dispatch in background
                 dispatchCampaignInBackground(campaign, recipients);

@@ -38,6 +38,7 @@ export interface Campaign {
   subject: string;
   content: string;
   segmentId: Segment | null;
+  segmentIds?: Segment[];
   templateId?: {
     _id: string;
     name: string;

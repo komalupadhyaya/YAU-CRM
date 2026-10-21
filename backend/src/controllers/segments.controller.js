@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import EALead from '../models/eaLead.model.js';
 import Lead from '../models/lead.model.js';
 import Contact from '../models/contact.model.js';
@@ -8,11 +9,20 @@ import MarketingContact from '../models/emailMarketingContact.model.js';
 // ── SEGMENT HELPERS ─────────────────────────────────────────────────────────
 
 export const resolveSegmentRecipients = async (segment) => {
+    if (!segment) return [];
+
+    let targetSegment = segment;
+    if (typeof segment === 'string' || (segment && segment._bsontype === 'ObjectID') || (segment && !segment.type && !segment.contacts)) {
+        const segId = segment._id || segment;
+        targetSegment = await EmailSegment.findById(segId).lean();
+        if (!targetSegment) return [];
+    }
+
     let recipients = [];
     
-    if (segment.type === 'static' || (segment.contacts && segment.contacts.length > 0)) {
-        if (segment.contacts && segment.contacts.length > 0) {
-            for (const contact of segment.contacts) {
+    if (targetSegment.type === 'static' || (targetSegment.contacts && targetSegment.contacts.length > 0)) {
+        if (targetSegment.contacts && targetSegment.contacts.length > 0) {
+            for (const contact of targetSegment.contacts) {
                 if (contact.status === 'active') {
                     let leadId = null;
                     let leadModel = 'ManualContact';
@@ -51,14 +61,14 @@ export const resolveSegmentRecipients = async (segment) => {
                 }
             }
         }
-    } else if (segment.type === 'campaign' || segment.filters?.campaignId || (segment.filters?.campaignIds && segment.filters?.campaignIds.length > 0)) {
+    } else if (targetSegment.type === 'campaign' || targetSegment.filters?.campaignId || (targetSegment.filters?.campaignIds && targetSegment.filters?.campaignIds.length > 0)) {
         let rawIds = [];
-        if (Array.isArray(segment.filters?.campaignIds) && segment.filters.campaignIds.length > 0) {
-            rawIds = segment.filters.campaignIds;
-        } else if (segment.filters?.campaignId) {
-            rawIds = typeof segment.filters.campaignId === 'string'
-                ? segment.filters.campaignId.split(',').map(id => id.trim()).filter(Boolean)
-                : [segment.filters.campaignId];
+        if (Array.isArray(targetSegment.filters?.campaignIds) && targetSegment.filters.campaignIds.length > 0) {
+            rawIds = targetSegment.filters.campaignIds;
+        } else if (targetSegment.filters?.campaignId) {
+            rawIds = typeof targetSegment.filters.campaignId === 'string'
+                ? targetSegment.filters.campaignId.split(',').map(id => id.trim()).filter(Boolean)
+                : [targetSegment.filters.campaignId];
         }
 
         if (rawIds.length > 0) {
@@ -91,8 +101,8 @@ export const resolveSegmentRecipients = async (segment) => {
         const leadFilters = { isEmailConsent: { $ne: false } };
         const eaFilters = { isEmailConsent: { $ne: false } };
         
-        if (segment.filters) {
-            const { source, sport, location, status } = segment.filters;
+        if (targetSegment.filters) {
+            const { source, sport, location, status } = targetSegment.filters;
             
             if (source) {
                 eaFilters.source = { $regex: source, $options: 'i' };
@@ -147,6 +157,46 @@ export const resolveSegmentRecipients = async (segment) => {
             uniqueMap.set(r.email, r);
         }
     });
+    return Array.from(uniqueMap.values());
+};
+
+export const resolveMultipleSegmentsRecipients = async (segmentsOrIds) => {
+    if (!segmentsOrIds) return [];
+    const list = Array.isArray(segmentsOrIds) ? segmentsOrIds : [segmentsOrIds];
+    if (list.length === 0) return [];
+
+    const segmentsToResolve = [];
+    const idsToFetch = [];
+
+    for (const item of list) {
+        if (!item) continue;
+        if (typeof item === 'object' && item.type) {
+            segmentsToResolve.push(item);
+        } else {
+            const rawId = item._id || item;
+            if (rawId) idsToFetch.push(rawId);
+        }
+    }
+
+    if (idsToFetch.length > 0) {
+        const fetchedSegments = await EmailSegment.find({ _id: { $in: idsToFetch } }).lean();
+        segmentsToResolve.push(...fetchedSegments);
+    }
+
+    const uniqueMap = new Map();
+    for (const seg of segmentsToResolve) {
+        const segRecipients = await resolveSegmentRecipients(seg);
+        for (const r of segRecipients) {
+            if (r.email && r.email.includes('@')) {
+                const normEmail = r.email.toLowerCase().trim();
+                // Deduplicate across all selected lists: keep first encounter
+                if (!uniqueMap.has(normEmail)) {
+                    uniqueMap.set(normEmail, { ...r, email: normEmail });
+                }
+            }
+        }
+    }
+
     return Array.from(uniqueMap.values());
 };
 

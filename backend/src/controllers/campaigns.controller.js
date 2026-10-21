@@ -9,10 +9,9 @@ import EmailQueue from '../models/emailQueue.model.js';
 import { sendSendGridMail } from '../services/email/sendgrid.service.js';
 import aiService from '../services/ai/ai.service.js';
 import RetellKnowledgeBase from '../models/retellKnowledgeBase.model.js';
-import MarketingContact from '../models/emailMarketingContact.model.js';
 import dns from 'dns/promises';
 import mongoose from 'mongoose';
-import { resolveSegmentRecipients } from './segments.controller.js';
+import { resolveSegmentRecipients, resolveMultipleSegmentsRecipients } from './segments.controller.js';
 
 // --- Existing google verify domain ---
 export const verifyEmailDomain = async (req, res) => {
@@ -255,6 +254,7 @@ export const getCampaigns = async (req, res, next) => {
     try {
         const campaigns = await EmailCampaign.find()
             .populate('segmentId')
+            .populate('segmentIds')
             .populate('templateId', 'name category isAiGenerated subject')
             .sort({ createdAt: -1 });
         res.json(campaigns);
@@ -265,6 +265,7 @@ export const getCampaign = async (req, res, next) => {
     try {
         const campaign = await EmailCampaign.findById(req.params.id)
             .populate('segmentId')
+            .populate('segmentIds')
             .populate('templateId', 'name category isAiGenerated subject');
         if (!campaign) {
             return res.status(404).json({ error: 'Campaign not found' });
@@ -275,7 +276,7 @@ export const getCampaign = async (req, res, next) => {
 
 export const createCampaign = async (req, res, next) => {
     try {
-        const { title, subject, content, segmentId, sendAt, templateId } = req.body;
+        const { title, subject, content, segmentId, segmentIds, sendAt, templateId } = req.body;
 
         let parsedSendAt = null;
         if (sendAt) {
@@ -285,17 +286,24 @@ export const createCampaign = async (req, res, next) => {
             }
         }
 
+        const finalSegmentIds = Array.isArray(segmentIds) && segmentIds.length > 0
+            ? segmentIds
+            : (segmentId ? [segmentId] : []);
+        const primarySegmentId = finalSegmentIds[0] || segmentId || null;
+
         const campaign = await EmailCampaign.create({
             title,
             subject,
             content,
-            segmentId,
+            segmentId: primarySegmentId,
+            segmentIds: finalSegmentIds,
             templateId: (templateId && mongoose.Types.ObjectId.isValid(templateId)) ? templateId : null,
             sendAt: parsedSendAt,
             status: parsedSendAt ? 'scheduled' : 'draft'
         });
         const populated = await EmailCampaign.findById(campaign._id)
             .populate('segmentId')
+            .populate('segmentIds')
             .populate('templateId', 'name category isAiGenerated subject');
         res.status(201).json(populated || campaign);
     } catch (err) { next(err); }
@@ -303,7 +311,7 @@ export const createCampaign = async (req, res, next) => {
 
 export const updateCampaign = async (req, res, next) => {
     try {
-        const { title, subject, content, segmentId, sendAt, status, templateId } = req.body;
+        const { title, subject, content, segmentId, segmentIds, sendAt, status, templateId } = req.body;
 
         let parsedSendAt = null;
         if (sendAt) {
@@ -313,19 +321,28 @@ export const updateCampaign = async (req, res, next) => {
             }
         }
 
+        const updatePayload = { 
+            title, 
+            subject, 
+            content, 
+            templateId: (templateId && mongoose.Types.ObjectId.isValid(templateId)) ? templateId : null,
+            sendAt: parsedSendAt,
+            status: status || (parsedSendAt ? 'scheduled' : 'draft')
+        };
+
+        if (Array.isArray(segmentIds)) {
+            updatePayload.segmentIds = segmentIds;
+            updatePayload.segmentId = segmentIds[0] || segmentId || null;
+        } else if (segmentId) {
+            updatePayload.segmentId = segmentId;
+            updatePayload.segmentIds = [segmentId];
+        }
+
         const campaign = await EmailCampaign.findByIdAndUpdate(
             req.params.id,
-            { 
-                title, 
-                subject, 
-                content, 
-                segmentId, 
-                templateId: (templateId && mongoose.Types.ObjectId.isValid(templateId)) ? templateId : null,
-                sendAt: parsedSendAt,
-                status: status || (parsedSendAt ? 'scheduled' : 'draft')
-            },
+            updatePayload,
             { new: true }
-        ).populate('segmentId').populate('templateId', 'name category isAiGenerated subject');
+        ).populate('segmentId').populate('segmentIds').populate('templateId', 'name category isAiGenerated subject');
         res.json(campaign);
     } catch (err) { next(err); }
 };
@@ -344,7 +361,9 @@ export const deleteCampaign = async (req, res, next) => {
 // Immediately dispatch or queue/schedule a campaign
 export const sendCampaign = async (req, res, next) => {
     try {
-        const campaign = await EmailCampaign.findById(req.params.id).populate('segmentId');
+        const campaign = await EmailCampaign.findById(req.params.id)
+            .populate('segmentId')
+            .populate('segmentIds');
         if (!campaign) {
             return res.status(404).json({ error: 'Campaign not found' });
         }
@@ -359,8 +378,11 @@ export const sendCampaign = async (req, res, next) => {
         campaign.status = 'sending';
         await campaign.save();
 
-        // Resolve Segment
-        const recipients = await resolveSegmentRecipients(campaign.segmentId);
+        // Resolve Segment(s) with multi-list deduplication
+        const targetSegments = (campaign.segmentIds && campaign.segmentIds.length > 0)
+            ? campaign.segmentIds
+            : (campaign.segmentId ? [campaign.segmentId] : []);
+        const recipients = await resolveMultipleSegmentsRecipients(targetSegments);
         
         // Dispatch in background
         dispatchCampaignInBackground(campaign, recipients);
@@ -376,7 +398,9 @@ export const sendCampaign = async (req, res, next) => {
 // Re-run an existing campaign (re-dispatches to current segment contacts)
 export const rerunCampaign = async (req, res, next) => {
     try {
-        const campaign = await EmailCampaign.findById(req.params.id).populate('segmentId');
+        const campaign = await EmailCampaign.findById(req.params.id)
+            .populate('segmentId')
+            .populate('segmentIds');
         if (!campaign) {
             return res.status(404).json({ error: 'Campaign not found' });
         }
@@ -394,8 +418,11 @@ export const rerunCampaign = async (req, res, next) => {
         campaign.recipientLogs = [];
         await campaign.save();
 
-        // Resolve Segment Contacts
-        const recipients = await resolveSegmentRecipients(campaign.segmentId);
+        // Resolve Segment Contacts with multi-list deduplication
+        const targetSegments = (campaign.segmentIds && campaign.segmentIds.length > 0)
+            ? campaign.segmentIds
+            : (campaign.segmentId ? [campaign.segmentId] : []);
+        const recipients = await resolveMultipleSegmentsRecipients(targetSegments);
         
         // Dispatch in background
         dispatchCampaignInBackground(campaign, recipients);
