@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import api from "../api/api";
 import AppLayout from "../layout/AppLayout";
 import { useAuth } from "../context/AuthContext";
@@ -38,6 +39,8 @@ import {
   LayoutGrid,
   Table,
   Copy,
+  Scissors,
+  Shapes,
   Check,
   Maximize2,
   Minimize2,
@@ -71,7 +74,8 @@ import {
   Smartphone,
   Globe,
   GraduationCap,
-  Layers
+  Layers,
+  Image as ImageIcon
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -153,6 +157,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import AiPersonalizedCampaignModal from "../components/email/AiPersonalizedCampaignModal";
+import TemplateImageModal from "../components/email/TemplateImageModal";
+import GoogleDocsColorPickerPopover, { normalizeHex } from "../components/common/GoogleDocsColorPickerPopover";
 import { useEmailCenter, Segment } from "../context/EmailCenterContext";
 
 interface Campaign {
@@ -223,714 +229,6 @@ interface DbTemplate {
   createdAt?: string;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GOOGLE DOCS STYLE MULTI-LEVEL COLOR PALETTE & COMPONENT
-// ─────────────────────────────────────────────────────────────────────────────
-
-const GOOGLE_DOCS_PALETTE: { color: string; name: string }[][] = [
-  // Row 0: Grayscale (10 steps from black to pure white)
-  [
-    { color: '#000000', name: 'Black' },
-    { color: '#434343', name: 'Dark Charcoal' },
-    { color: '#666666', name: 'Dark Gray' },
-    { color: '#999999', name: 'Gray' },
-    { color: '#b7b7b7', name: 'Medium Light Gray' },
-    { color: '#cccccc', name: 'Light Gray' },
-    { color: '#d9d9d9', name: 'Silver' },
-    { color: '#efefef', name: 'Ghost White' },
-    { color: '#f3f3f3', name: 'Off White' },
-    { color: '#ffffff', name: 'Pure White' },
-  ],
-  // Row 1: Primary Hues
-  [
-    { color: '#980000', name: 'Berry Red' },
-    { color: '#ff0000', name: 'Red' },
-    { color: '#ff9900', name: 'Orange' },
-    { color: '#ffff00', name: 'Yellow' },
-    { color: '#00ff00', name: 'Green' },
-    { color: '#00ffff', name: 'Cyan' },
-    { color: '#4a86e8', name: 'Cornflower Blue' },
-    { color: '#0000ff', name: 'Blue' },
-    { color: '#9900ff', name: 'Purple' },
-    { color: '#ff00ff', name: 'Magenta' },
-  ],
-  // Row 2: Level 1 (Lightest pastels)
-  [
-    { color: '#e6b8af', name: 'Light Berry 3' },
-    { color: '#f4cccc', name: 'Light Red 3' },
-    { color: '#fce5cd', name: 'Light Orange 3' },
-    { color: '#fff2cc', name: 'Light Yellow 3' },
-    { color: '#d9ead3', name: 'Light Green 3' },
-    { color: '#d0e0e3', name: 'Light Cyan 3' },
-    { color: '#c9daf8', name: 'Light Cornflower 3' },
-    { color: '#cfe2f3', name: 'Light Blue 3' },
-    { color: '#d9d2e9', name: 'Light Purple 3' },
-    { color: '#ead1dc', name: 'Light Magenta 3' },
-  ],
-  // Row 3: Level 2 (Soft light tints)
-  [
-    { color: '#dd7e6b', name: 'Light Berry 2' },
-    { color: '#ea9999', name: 'Light Red 2' },
-    { color: '#f9cb9c', name: 'Light Orange 2' },
-    { color: '#ffe599', name: 'Light Yellow 2' },
-    { color: '#b6d7a8', name: 'Light Green 2' },
-    { color: '#a2c4c9', name: 'Light Cyan 2' },
-    { color: '#a4c2f4', name: 'Light Cornflower 2' },
-    { color: '#9fc5e8', name: 'Light Blue 2' },
-    { color: '#b4a7d6', name: 'Light Purple 2' },
-    { color: '#d5a6bd', name: 'Light Magenta 2' },
-  ],
-  // Row 4: Level 3 (Medium light)
-  [
-    { color: '#cc4125', name: 'Medium Berry 1' },
-    { color: '#e06666', name: 'Medium Red 1' },
-    { color: '#f6b26b', name: 'Medium Orange 1' },
-    { color: '#ffd966', name: 'Medium Yellow 1' },
-    { color: '#93c47d', name: 'Medium Green 1' },
-    { color: '#76a5af', name: 'Medium Cyan 1' },
-    { color: '#6d9eeb', name: 'Medium Cornflower 1' },
-    { color: '#6fa8dc', name: 'Medium Blue 1' },
-    { color: '#8e7cc3', name: 'Medium Purple 1' },
-    { color: '#c27ba0', name: 'Medium Magenta 1' },
-  ],
-  // Row 5: Level 4 (Vibrant / standard)
-  [
-    { color: '#a61c1c', name: 'Dark Berry 1' },
-    { color: '#cc0000', name: 'Dark Red 1' },
-    { color: '#e69138', name: 'Dark Orange 1' },
-    { color: '#f1c232', name: 'Dark Yellow 1' },
-    { color: '#6aa84f', name: 'Dark Green 1' },
-    { color: '#45818e', name: 'Dark Cyan 1' },
-    { color: '#3c78d8', name: 'Dark Cornflower 1' },
-    { color: '#3d85c6', name: 'Dark Blue 1' },
-    { color: '#674ea7', name: 'Dark Purple 1' },
-    { color: '#a64d79', name: 'Dark Magenta 1' },
-  ],
-  // Row 6: Level 5 (Deep shades)
-  [
-    { color: '#852020', name: 'Dark Berry 2' },
-    { color: '#990000', name: 'Dark Red 2' },
-    { color: '#b45f06', name: 'Dark Orange 2' },
-    { color: '#bf9000', name: 'Dark Yellow 2' },
-    { color: '#38761d', name: 'Dark Green 2' },
-    { color: '#134f5c', name: 'Dark Cyan 2' },
-    { color: '#1155cc', name: 'Dark Cornflower 2' },
-    { color: '#0b5394', name: 'Dark Blue 2' },
-    { color: '#351c75', name: 'Dark Purple 2' },
-    { color: '#741b47', name: 'Dark Magenta 2' },
-  ],
-  // Row 7: Level 6 (Deepest / Midnight / Navy shades)
-  [
-    { color: '#5b0f00', name: 'Dark Berry 3' },
-    { color: '#660000', name: 'Dark Red 3' },
-    { color: '#783f04', name: 'Dark Orange 3' },
-    { color: '#7f6000', name: 'Dark Yellow 3' },
-    { color: '#274e13', name: 'Dark Green 3' },
-    { color: '#0c343d', name: 'Dark Cyan 3' },
-    { color: '#1c4587', name: 'Dark Cornflower 3' },
-    { color: '#073763', name: 'Dark Blue 3' },
-    { color: '#20124d', name: 'Deep YAU Navy 3' },
-    { color: '#4c1130', name: 'Dark Magenta 3' },
-  ],
-];
-
-const normalizeHex = (colorStr?: string): string => {
-  if (!colorStr) return '';
-  const str = colorStr.trim().toLowerCase();
-  if (str === 'transparent' || str === 'none') return 'transparent';
-  if (str.startsWith('#')) {
-    if (str.length === 4) {
-      return `#${str[1]}${str[1]}${str[2]}${str[2]}${str[3]}${str[3]}`;
-    }
-    return str;
-  }
-  const rgbMatch = str.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
-  if (rgbMatch) {
-    const r = parseInt(rgbMatch[1], 10).toString(16).padStart(2, '0');
-    const g = parseInt(rgbMatch[2], 10).toString(16).padStart(2, '0');
-    const b = parseInt(rgbMatch[3], 10).toString(16).padStart(2, '0');
-    return `#${r}${g}${b}`;
-  }
-  return str;
-};
-
-const isLightColor = (colorStr: string): boolean => {
-  const hex = normalizeHex(colorStr);
-  if (!hex || !hex.startsWith('#') || hex.length < 7) return true;
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  const brightness = (r * 299 + g * 587 + b * 114) / 1000;
-  return brightness > 155;
-};
-
-function hsvToHex(h: number, s: number, v: number): string {
-  s = Math.max(0, Math.min(100, s)) / 100;
-  v = Math.max(0, Math.min(100, v)) / 100;
-  const c = v * s;
-  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
-  const m = v - c;
-  let r = 0, g = 0, b = 0;
-  if (h >= 0 && h < 60) { r = c; g = x; b = 0; }
-  else if (h >= 60 && h < 120) { r = x; g = c; b = 0; }
-  else if (h >= 120 && h < 180) { r = 0; g = c; b = x; }
-  else if (h >= 180 && h < 240) { r = 0; g = x; b = c; }
-  else if (h >= 240 && h < 300) { r = x; g = 0; b = c; }
-  else { r = c; g = 0; b = x; }
-  const toHex = (n: number) => Math.round((n + m) * 255).toString(16).padStart(2, '0');
-  return `#${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase();
-}
-
-function hexToHsv(hex: string): { h: number; s: number; v: number } {
-  let clean = hex.replace('#', '').trim();
-  if (clean.length === 3) clean = clean.split('').map(c => c + c).join('');
-  if (clean.length !== 6) return { h: 210, s: 60, v: 80 };
-  const r = parseInt(clean.substring(0, 2), 16) / 255;
-  const g = parseInt(clean.substring(2, 4), 16) / 255;
-  const b = parseInt(clean.substring(4, 6), 16) / 255;
-  const max = Math.max(r, g, b), min = Math.min(r, g, b);
-  const d = max - min;
-  let h = 0;
-  const s = max === 0 ? 0 : d / max;
-  const v = max;
-  if (max !== min) {
-    switch (max) {
-      case r: h = (g - b) / d + (g < b ? 6 : 0); break;
-      case g: h = (b - r) / d + 2; break;
-      case b: h = (r - g) / d + 4; break;
-    }
-    h = h * 60;
-  }
-  return { h: Math.round((h + 360) % 360), s: Math.round(s * 100), v: Math.round(v * 100) };
-}
-
-interface CustomColorModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  currentColor?: string;
-  onSelect: (hex: string) => void;
-  restoreSelection?: () => void;
-}
-
-const CustomColorModal: React.FC<CustomColorModalProps> = ({
-  isOpen,
-  onClose,
-  currentColor = '#2563EB',
-  onSelect,
-  restoreSelection,
-}) => {
-  const [h, setH] = useState(210);
-  const [s, setS] = useState(60);
-  const [v, setV] = useState(80);
-  const [hexInput, setHexInput] = useState('#2563EB');
-  const canvasRef = useRef<HTMLDivElement>(null);
-  const isDraggingRef = useRef(false);
-
-  useEffect(() => {
-    if (isOpen) {
-      const validHex = (currentColor && currentColor !== 'transparent' && currentColor.startsWith('#'))
-        ? currentColor
-        : '#2563EB';
-      const initialHsv = hexToHsv(validHex);
-      setH(initialHsv.h);
-      setS(initialHsv.s);
-      setV(initialHsv.v);
-      setHexInput(validHex.toUpperCase());
-    }
-  }, [isOpen, currentColor]);
-
-  if (!isOpen) return null;
-
-  const currentPickedHex = hsvToHex(h, s, v);
-
-  const updateFromPosition = (clientX: number, clientY: number) => {
-    if (!canvasRef.current) return;
-    const rect = canvasRef.current.getBoundingClientRect();
-    const x = Math.max(0, Math.min(rect.width, clientX - rect.left));
-    const y = Math.max(0, Math.min(rect.height, clientY - rect.top));
-    const newS = Math.round((x / rect.width) * 100);
-    const newV = Math.round((1 - y / rect.height) * 100);
-    setS(newS);
-    setV(newV);
-    setHexInput(hsvToHex(h, newS, newV));
-  };
-
-  const handleMouseDown = (e: React.MouseEvent) => {
-    e.preventDefault();
-    isDraggingRef.current = true;
-    updateFromPosition(e.clientX, e.clientY);
-
-    const handleMouseMove = (moveEvent: MouseEvent) => {
-      if (isDraggingRef.current) {
-        updateFromPosition(moveEvent.clientX, moveEvent.clientY);
-      }
-    };
-
-    const handleMouseUp = () => {
-      isDraggingRef.current = false;
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-  };
-
-  const handleHexChange = (val: string) => {
-    setHexInput(val);
-    let clean = val.trim();
-    if (!clean.startsWith('#')) clean = `#${clean}`;
-    if (clean.length === 7 && /^#[0-9A-Fa-f]{6}$/.test(clean)) {
-      const parsed = hexToHsv(clean);
-      setH(parsed.h);
-      setS(parsed.s);
-      setV(parsed.v);
-    }
-  };
-
-  const handleSelect = () => {
-    if (restoreSelection) restoreSelection();
-    let finalColor = hexInput.trim();
-    if (!finalColor.startsWith('#')) finalColor = `#${finalColor}`;
-    if (!/^#[0-9A-Fa-f]{6}$/.test(finalColor)) {
-      finalColor = currentPickedHex;
-    }
-    onSelect(finalColor);
-    onClose();
-  };
-
-  const handleEyeDropper = async () => {
-    try {
-      if ('EyeDropper' in window) {
-        // @ts-expect-error EyeDropper is supported in Chromium
-        const eyeDropper = new window.EyeDropper();
-        const result = await eyeDropper.open();
-        if (result && result.sRGBHex) {
-          const hex = result.sRGBHex.toUpperCase();
-          setHexInput(hex);
-          const parsed = hexToHsv(hex);
-          setH(parsed.h);
-          setS(parsed.s);
-          setV(parsed.v);
-        }
-      }
-    } catch {
-      // User dismissed eyedropper
-    }
-  };
-
-  return (
-    <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in duration-100"
-      onMouseDown={e => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div
-        className="bg-white rounded-xl shadow-2xl border border-slate-200 w-[290px] overflow-hidden flex flex-col animate-in zoom-in-95 duration-150"
-        onMouseDown={e => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-slate-100 bg-slate-50/70">
-          <div className="flex items-center gap-1.5 font-bold text-xs text-slate-800">
-            <Palette size={14} className="text-blue-600" />
-            <span>Custom Color</span>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
-          >
-            <X size={14} />
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="p-3.5 flex flex-col gap-3">
-          {/* 2D Saturation / Value Gradient Canvas */}
-          <div
-            ref={canvasRef}
-            onMouseDown={handleMouseDown}
-            className="w-full h-[145px] rounded-lg relative cursor-crosshair overflow-hidden select-none border border-slate-200 shadow-inner"
-            style={{ backgroundColor: `hsl(${h}, 100%, 50%)` }}
-          >
-            <div
-              className="absolute inset-0"
-              style={{ background: 'linear-gradient(to right, #ffffff, transparent)' }}
-            />
-            <div
-              className="absolute inset-0"
-              style={{ background: 'linear-gradient(to top, #000000, transparent)' }}
-            />
-            {/* Color indicator ring */}
-            <div
-              className="w-4 h-4 rounded-full border-2 border-white shadow-md absolute pointer-events-none -translate-x-1/2 -translate-y-1/2 ring-1 ring-black/40"
-              style={{
-                left: `${s}%`,
-                top: `${100 - v}%`,
-                backgroundColor: currentPickedHex,
-              }}
-            />
-          </div>
-
-          {/* Rainbow Hue Slider */}
-          <div className="flex flex-col gap-1">
-            <input
-              type="range"
-              min="0"
-              max="360"
-              value={h}
-              onChange={e => {
-                const newH = Number(e.target.value);
-                setH(newH);
-                setHexInput(hsvToHex(newH, s, v));
-              }}
-              className="w-full h-3 rounded-full appearance-none cursor-pointer border border-slate-300"
-              style={{
-                background:
-                  'linear-gradient(to right, #ff0000 0%, #ffff00 17%, #00ff00 33%, #00ffff 50%, #0000ff 67%, #ff00ff 83%, #ff0000 100%)',
-              }}
-            />
-          </div>
-
-          {/* Color Preview & Hex Input Row */}
-          <div className="flex items-center gap-2 pt-1 border-t border-slate-100">
-            {/* Swatch Preview */}
-            <div
-              className="w-8 h-8 rounded-lg border border-slate-300 shrink-0 shadow-xs relative overflow-hidden"
-              style={{
-                backgroundColor: currentPickedHex,
-                boxShadow: currentPickedHex.toLowerCase() === '#ffffff' ? 'inset 0 0 0 1px rgba(0,0,0,0.15)' : undefined,
-              }}
-              title={`Preview: ${currentPickedHex}`}
-            />
-
-            {/* Hex Input */}
-            <div className="flex-1">
-              <input
-                type="text"
-                value={hexInput}
-                onChange={e => handleHexChange(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    handleSelect();
-                  }
-                }}
-                placeholder="#000000"
-                className="w-full h-8 px-2.5 font-mono text-xs uppercase font-bold rounded-lg border border-slate-200 bg-slate-50 text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              />
-            </div>
-
-            {/* Eyedropper Button */}
-            {'EyeDropper' in window && (
-              <button
-                type="button"
-                onClick={handleEyeDropper}
-                title="Pick color from screen"
-                className="h-8 w-8 rounded-lg border border-slate-200 hover:bg-slate-100 flex items-center justify-center text-slate-600 transition-colors cursor-pointer shrink-0"
-              >
-                <Pipette size={14} />
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Footer Actions */}
-        <div className="flex items-center justify-end gap-2 px-3.5 py-2.5 border-t border-slate-100 bg-slate-50">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={handleSelect}
-            className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors cursor-pointer shadow-xs flex items-center gap-1.5"
-          >
-            <Check size={13} className="stroke-[3]" />
-            <span>Select</span>
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-interface GoogleDocsColorPickerPopoverProps {
-  title?: string;
-  isOpen: boolean;
-  onClose: () => void;
-  onSelectColor: (color: string) => void;
-  allowNone?: boolean;
-  align?: 'left' | 'right';
-  restoreSelection?: () => void;
-  currentColor?: string;
-}
-
-const GoogleDocsColorPickerPopover: React.FC<GoogleDocsColorPickerPopoverProps> = ({
-  title = 'Color',
-  isOpen,
-  onClose,
-  onSelectColor,
-  allowNone = false,
-  align = 'left',
-  restoreSelection,
-  currentColor,
-}) => {
-  const [customColors, setCustomColors] = useState<string[]>([
-    '#0a192f', '#1e3a8a', '#2563eb', '#059669', '#dc2626', '#ffffff'
-  ]);
-  const [activeColor, setActiveColor] = useState<string>(currentColor || '');
-  const [isCustomModalOpen, setIsCustomModalOpen] = useState(false);
-  const popoverRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (currentColor !== undefined) {
-      setActiveColor(currentColor);
-    }
-  }, [currentColor, isOpen]);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleOutsideClick = (e: MouseEvent) => {
-      if (isCustomModalOpen) return;
-      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-    const timer = setTimeout(() => {
-      document.addEventListener('mousedown', handleOutsideClick);
-    }, 20);
-    return () => {
-      clearTimeout(timer);
-      document.removeEventListener('mousedown', handleOutsideClick);
-    };
-  }, [isOpen, onClose, isCustomModalOpen]);
-
-  if (!isOpen) return null;
-
-  const applyColor = (color: string, shouldClose = false) => {
-    if (restoreSelection) restoreSelection();
-    setActiveColor(color);
-    onSelectColor(color);
-    if (shouldClose) {
-      onClose();
-    }
-  };
-
-  const addCustomColorAndApply = (color: string, shouldClose = false) => {
-    const formatted = color.toLowerCase().trim();
-    if (formatted && !customColors.includes(formatted)) {
-      setCustomColors(prev => [formatted, ...prev.slice(0, 9)]);
-    }
-    applyColor(color, shouldClose);
-  };
-
-  const handleEyeDropper = async () => {
-    try {
-      if ('EyeDropper' in window) {
-        // @ts-expect-error EyeDropper is supported in Chromium
-        const eyeDropper = new window.EyeDropper();
-        const result = await eyeDropper.open();
-        if (result && result.sRGBHex) {
-          addCustomColorAndApply(result.sRGBHex.toUpperCase(), false);
-        }
-      } else {
-        setIsCustomModalOpen(true);
-      }
-    } catch {
-      // User cancelled
-    }
-  };
-
-  return (
-    <>
-      <div
-        ref={popoverRef}
-        onMouseDown={e => {
-          e.preventDefault();
-        }}
-        className={`absolute top-full ${align === 'right' ? 'right-0' : 'left-0'} mt-1 p-2.5 bg-white text-slate-800 border border-slate-200 rounded-xl shadow-2xl z-50 w-[242px] flex flex-col gap-1.5 animate-in fade-in zoom-in-95 duration-100`}
-        style={{ backgroundColor: '#ffffff', opacity: 1 }}
-      >
-        <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 shrink-0">
-          <span className="text-[11px] font-bold text-slate-800 flex items-center gap-1">
-            {title.toLowerCase().includes('highlight') ? (
-              <Highlighter size={12} className="text-amber-500" />
-            ) : (
-              <Palette size={12} className="text-blue-500" />
-            )}
-            <span>{title}</span>
-          </span>
-          <div className="flex items-center gap-1.5">
-            {/* Compact Selected Color Preview Pill */}
-            <div
-              className="flex items-center gap-1 px-1.5 py-0.5 bg-slate-50 border border-slate-200 rounded-md"
-              title={`Selected: ${activeColor === 'transparent' ? 'None' : normalizeHex(activeColor).toUpperCase()}`}
-            >
-              <div
-                className="w-3.5 h-3.5 rounded-full border border-slate-300 shrink-0 relative overflow-hidden"
-                style={{
-                  backgroundColor: activeColor ? (activeColor === 'transparent' ? '#ffffff' : activeColor) : (allowNone ? '#ffffff' : '#000000'),
-                  boxShadow: (activeColor?.toLowerCase() === '#ffffff' || activeColor === 'transparent') ? 'inset 0 0 0 1px rgba(0,0,0,0.15)' : undefined
-                }}
-              >
-                {activeColor === 'transparent' && (
-                  <div className="w-full h-0.5 bg-red-500 rotate-45 transform" />
-                )}
-              </div>
-              <span className="text-[10px] font-mono font-bold text-slate-700">
-                {activeColor === 'transparent'
-                  ? 'None'
-                  : (normalizeHex(activeColor).toUpperCase() || (allowNone ? 'None' : '#000000'))
-                }
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="h-5 w-5 rounded-md hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
-            >
-              <X size={11} />
-            </button>
-          </div>
-        </div>
-
-        {/* Optional "None / Transparent" for Highlight Color */}
-        {allowNone && (
-          <div className="pb-1 border-b border-slate-100 flex items-center justify-between shrink-0">
-            <button
-              type="button"
-              onMouseDown={e => e.preventDefault()}
-              onClick={() => applyColor('transparent', false)}
-              className={`px-2 py-0.5 text-[10px] font-bold rounded-md border flex items-center gap-1 transition-colors cursor-pointer w-full justify-between ${
-                activeColor === 'transparent'
-                  ? 'bg-red-50 border-red-300 text-red-700 ring-1 ring-red-400'
-                  : 'border-slate-200 hover:bg-slate-50 text-slate-600 hover:text-slate-900'
-              }`}
-              title="Remove background color"
-            >
-              <div className="flex items-center gap-1.5">
-                <div className="w-3 h-3 rounded-full border border-red-500 relative flex items-center justify-center overflow-hidden">
-                  <div className="w-full h-0.5 bg-red-500 rotate-45 transform" />
-                </div>
-                <span>None (Transparent)</span>
-              </div>
-              {activeColor === 'transparent' && <Check size={10} className="stroke-[3] text-red-600" />}
-            </button>
-          </div>
-        )}
-
-        {/* 10-Column Multi-Level Palette Grid */}
-        <div className="grid grid-cols-10 gap-1 p-0.5 shrink-0 justify-center">
-          {GOOGLE_DOCS_PALETTE.map((row, rIdx) =>
-            row.map((item, cIdx) => {
-              const isSelected = activeColor && normalizeHex(activeColor) === normalizeHex(item.color);
-              return (
-                <button
-                  key={`${rIdx}-${cIdx}`}
-                  type="button"
-                  onMouseDown={e => e.preventDefault()}
-                  onClick={() => applyColor(item.color, false)}
-                  title={item.name}
-                  className={`w-[18px] h-[18px] rounded-full transition-transform cursor-pointer shadow-2xs hover:scale-125 flex items-center justify-center relative ${
-                    isSelected
-                      ? 'ring-2 ring-blue-600 ring-offset-1 scale-110 z-10 border-transparent shadow-xs'
-                      : 'border border-slate-200 hover:z-20 hover:border-slate-800'
-                  }`}
-                  style={{
-                    backgroundColor: item.color,
-                    boxShadow: item.color.toLowerCase() === '#ffffff' ? 'inset 0 0 0 1px rgba(0,0,0,0.15)' : undefined,
-                  }}
-                >
-                  {isSelected && (
-                    <Check
-                      size={10}
-                      className={`stroke-[3.5] ${isLightColor(item.color) ? 'text-slate-900' : 'text-white'}`}
-                    />
-                  )}
-                </button>
-              );
-            })
-          )}
-        </div>
-
-        {/* CUSTOM Section */}
-        <div className="pt-1.5 border-t border-slate-100 shrink-0">
-          <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-            CUSTOM
-          </div>
-          <div className="flex items-center gap-1 flex-wrap">
-            {customColors.map((hex, idx) => {
-              const isSelected = activeColor && normalizeHex(activeColor) === normalizeHex(hex);
-              return (
-                <button
-                  key={idx}
-                  type="button"
-                  onMouseDown={e => e.preventDefault()}
-                  onClick={() => applyColor(hex, false)}
-                  title={hex}
-                  className={`w-[18px] h-[18px] rounded-full transition-transform cursor-pointer shadow-2xs hover:scale-125 flex items-center justify-center relative ${
-                    isSelected
-                      ? 'ring-2 ring-blue-600 ring-offset-1 scale-110 z-10 border-transparent shadow-xs'
-                      : 'border border-slate-200 hover:border-slate-800'
-                  }`}
-                  style={{
-                    backgroundColor: hex,
-                    boxShadow: hex.toLowerCase() === '#ffffff' ? 'inset 0 0 0 1px rgba(0,0,0,0.15)' : undefined,
-                  }}
-                >
-                  {isSelected && (
-                    <Check
-                      size={10}
-                      className={`stroke-[3.5] ${isLightColor(hex) ? 'text-slate-900' : 'text-white'}`}
-                    />
-                  )}
-                </button>
-              );
-            })}
-
-            {/* Plus (+) Add Custom Color Button -> Opens Dedicated Custom Color Modal with Select Button */}
-            <button
-              type="button"
-              onMouseDown={e => e.preventDefault()}
-              onClick={() => setIsCustomModalOpen(true)}
-              title="Add custom color"
-              className="w-[18px] h-[18px] rounded-full border border-dashed border-slate-300 hover:border-primary flex items-center justify-center text-slate-400 hover:text-primary hover:scale-115 transition-all cursor-pointer"
-            >
-              <Plus size={10} />
-            </button>
-
-            {/* Pipette Eyedropper Button */}
-            <button
-              type="button"
-              onMouseDown={e => e.preventDefault()}
-              onClick={handleEyeDropper}
-              title="Pick color with eyedropper"
-              className="w-[18px] h-[18px] rounded-full border border-slate-200 hover:border-primary flex items-center justify-center text-slate-400 hover:text-primary hover:scale-115 transition-all cursor-pointer"
-            >
-              <Pipette size={10} />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Dedicated Custom Color Modal on '+' click */}
-      <CustomColorModal
-        isOpen={isCustomModalOpen}
-        onClose={() => setIsCustomModalOpen(false)}
-        currentColor={activeColor}
-        onSelect={color => {
-          addCustomColorAndApply(color, false);
-        }}
-        restoreSelection={restoreSelection}
-      />
-    </>
-  );
-};
 
 export default function EmailCenter() {
   const { currentUser } = useAuth();
@@ -1017,6 +315,26 @@ export default function EmailCenter() {
   const [isGeneratingAiTemplate, setIsGeneratingAiTemplate] = useState(false);
   const [isSavingTemplate, setIsSavingTemplate] = useState(false);
 
+  // Scope embedded CSS in template HTML so that :root, body, and html selectors do not leak into the CRM application
+  const scopeTemplateHtml = useCallback((html: string): string => {
+    if (!html || !html.includes('<style')) return html;
+    return html.replace(/<style\b([^>]*)>([\s\S]*?)<\/style>/gi, (match, attrs, css) => {
+      const scoped = css
+        .replace(/:root(\[[^\]]*\])?/gi, '.email-template-canvas')
+        .replace(/(^|[\s},;])body(?=[\s{,])/gi, '$1.email-template-canvas')
+        .replace(/(^|[\s},;])html(?=[\s{,])/gi, '$1.email-template-canvas');
+      return `<style${attrs}>${scoped}</style>`;
+    });
+  }, []);
+
+  const unscopeTemplateHtml = useCallback((html: string): string => {
+    if (!html || !html.includes('<style')) return html;
+    return html.replace(/<style\b([^>]*)>([\s\S]*?)<\/style>/gi, (match, attrs, css) => {
+      const unscoped = css.replace(/\.email-template-canvas/gi, ':root');
+      return `<style${attrs}>${unscoped}</style>`;
+    });
+  }, []);
+
   // Manual & Edit Template Builder State
   const [isManualTemplateModalOpen, setIsManualTemplateModalOpen] = useState(false);
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
@@ -1026,8 +344,24 @@ export default function EmailCenter() {
   const [manualTemplateCategory, setManualTemplateCategory] = useState('General');
   const [manualTemplateHtml, setManualTemplateHtml] = useState('');
   const [savingManualTemplate, setSavingManualTemplate] = useState(false);
+  const [isTemplateImageModalOpen, setIsTemplateImageModalOpen] = useState(false);
   const manualEditorRef = useRef<HTMLDivElement>(null);
   const manualLivePreviewRef = useRef<HTMLDivElement>(null);
+  const editorViewportRef = useRef<HTMLDivElement>(null);
+
+  // Canva-Style Image Manipulation in Manual Template Editor
+  const [selectedEditorImage, setSelectedEditorImage] = useState<HTMLImageElement | null>(null);
+  const [imageOverlayRect, setImageOverlayRect] = useState<{
+    top: number;
+    left: number;
+    width: number;
+    height: number;
+    containerWidth: number;
+    containerHeight: number;
+  } | null>(null);
+  const draggedEditorNodeRef = useRef<HTMLElement | null>(null);
+  const copiedTemplateImageHtmlRef = useRef<string | null>(null);
+  const [isImageShapePickerOpen, setIsImageShapePickerOpen] = useState(false);
 
   // Manual / Edit Template Content History Stack (Undo / Redo / Ctrl+Z support)
   const [manualTemplateHistory, setManualTemplateHistory] = useState<string[]>([]);
@@ -1035,21 +369,33 @@ export default function EmailCenter() {
   const debounceManualHistoryTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const handleOpenEditTemplate = (tpl: DbTemplate) => {
+    const rawContent = tpl.content || '';
+    const scopedContent = scopeTemplateHtml(rawContent);
     setEditingTemplateId(tpl._id);
     setManualTemplateName(tpl.name || '');
     setManualTemplateSubject(tpl.subject || '');
     setManualTemplateCategory(tpl.category || 'General');
-    setManualTemplateHtml(tpl.content || '');
+    setManualTemplateHtml(rawContent);
     setManualTemplateMode('editor');
-    setManualTemplateHistory([tpl.content || '']);
+    setManualTemplateHistory([scopedContent]);
     setManualTemplateHistoryIndex(0);
     setIsManualTemplateModalOpen(true);
     setTimeout(() => {
       if (manualEditorRef.current) {
-        manualEditorRef.current.innerHTML = tpl.content || '';
+        manualEditorRef.current.innerHTML = scopedContent;
       }
     }, 50);
   };
+
+  // Safety net: ensure manual editor DOM keeps its content in sync with state if empty
+  useEffect(() => {
+    if (isManualTemplateModalOpen && manualEditorRef.current && manualTemplateHtml) {
+      const scoped = scopeTemplateHtml(manualTemplateHtml);
+      if (!manualEditorRef.current.innerHTML.trim() && scoped.trim()) {
+        manualEditorRef.current.innerHTML = scoped;
+      }
+    }
+  }, [isManualTemplateModalOpen, manualTemplateHtml, scopeTemplateHtml]);
 
   // Direct Template Preview Modal State
   const [selectedTemplateForPreview, setSelectedTemplateForPreview] = useState<DbTemplate | null>(null);
@@ -2240,9 +1586,10 @@ export default function EmailCenter() {
 
   // Save or Update Manual / Edited Template to MongoDB
   const handleSaveManualTemplate = async () => {
-    const content = manualTemplateMode === 'html'
+    const rawContent = manualTemplateMode === 'html'
       ? manualTemplateHtml.trim()
       : (manualEditorRef.current?.innerHTML || '').trim();
+    const content = unscopeTemplateHtml(rawContent);
 
     if (!manualTemplateName.trim()) {
       toast.error('Please enter a template name.');
@@ -2635,9 +1982,9 @@ export default function EmailCenter() {
       const targetIdx = manualTemplateHistoryIndex - 1;
       const targetContent = manualTemplateHistory[targetIdx];
       if (typeof targetContent === 'string') {
-        setManualTemplateHtml(targetContent);
+        setManualTemplateHtml(unscopeTemplateHtml(targetContent));
         if (manualEditorRef.current) {
-          manualEditorRef.current.innerHTML = targetContent;
+          manualEditorRef.current.innerHTML = scopeTemplateHtml(targetContent);
         }
         setManualTemplateHistoryIndex(targetIdx);
         toast.info("Undo: Restored previous template content", { id: 'manual-undo-toast' });
@@ -2645,7 +1992,7 @@ export default function EmailCenter() {
     } else {
       toast.info("No earlier content changes to undo", { id: 'manual-undo-toast' });
     }
-  }, [manualTemplateHistory, manualTemplateHistoryIndex]);
+  }, [manualTemplateHistory, manualTemplateHistoryIndex, scopeTemplateHtml, unscopeTemplateHtml]);
 
   const handleManualTemplateRedo = useCallback(() => {
     if (debounceManualHistoryTimerRef.current) {
@@ -2655,9 +2002,9 @@ export default function EmailCenter() {
       const targetIdx = manualTemplateHistoryIndex + 1;
       const targetContent = manualTemplateHistory[targetIdx];
       if (typeof targetContent === 'string') {
-        setManualTemplateHtml(targetContent);
+        setManualTemplateHtml(unscopeTemplateHtml(targetContent));
         if (manualEditorRef.current) {
-          manualEditorRef.current.innerHTML = targetContent;
+          manualEditorRef.current.innerHTML = scopeTemplateHtml(targetContent);
         }
         setManualTemplateHistoryIndex(targetIdx);
         toast.info("Redo: Restored next template content", { id: 'manual-undo-toast' });
@@ -2665,7 +2012,663 @@ export default function EmailCenter() {
     } else {
       toast.info("No further changes to redo", { id: 'manual-undo-toast' });
     }
-  }, [manualTemplateHistory, manualTemplateHistoryIndex]);
+  }, [manualTemplateHistory, manualTemplateHistoryIndex, scopeTemplateHtml, unscopeTemplateHtml]);
+
+  // Insert image HTML into Manual Template Builder at saved cursor range or end of content
+  const handleInsertTemplateImage = useCallback((imageHtml: string) => {
+    manualEditorRef.current?.focus();
+    restoreSelectionRange();
+
+    let inserted = false;
+    try {
+      inserted = document.execCommand('insertHTML', false, imageHtml);
+    } catch {
+      inserted = false;
+    }
+
+    if (!inserted && manualEditorRef.current) {
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0 && manualEditorRef.current.contains(sel.anchorNode)) {
+        const range = sel.getRangeAt(0);
+        range.deleteContents();
+        const el = document.createElement('div');
+        el.innerHTML = imageHtml;
+        const frag = document.createDocumentFragment();
+        let node;
+        while ((node = el.firstChild)) {
+          frag.appendChild(node);
+        }
+        range.insertNode(frag);
+      } else {
+        manualEditorRef.current.innerHTML += imageHtml;
+      }
+    }
+
+    if (manualEditorRef.current) {
+      const newHtml = manualEditorRef.current.innerHTML || '';
+      setManualTemplateHtml(unscopeTemplateHtml(newHtml));
+      pushManualTemplateHistory(newHtml, false);
+    }
+    updateEditorActiveFormats();
+  }, [restoreSelectionRange, unscopeTemplateHtml, pushManualTemplateHistory, updateEditorActiveFormats]);
+
+  // Direct clipboard paste support for cut/copied images & screenshots
+  const handleTemplateEditorPaste = async (e: React.ClipboardEvent<HTMLDivElement>) => {
+    // 1. If an image was previously cut (Ctrl+X) or copied (Ctrl+C) within the editor
+    const htmlData = e.clipboardData?.getData('text/html') || '';
+    if (copiedTemplateImageHtmlRef.current && (htmlData.includes('<img') || !htmlData)) {
+      e.preventDefault();
+      document.execCommand('insertHTML', false, copiedTemplateImageHtmlRef.current);
+      if (manualEditorRef.current) {
+        const newHtml = manualEditorRef.current.innerHTML || '';
+        setManualTemplateHtml(unscopeTemplateHtml(newHtml));
+        pushManualTemplateHistory(newHtml, false);
+      }
+      toast.success('Image pasted at cursor position!');
+      return;
+    }
+
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.type.indexOf('image') !== -1) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (!file) return;
+
+        toast.info('Uploading pasted image to Cloudinary...', { id: 'paste-img-toast' });
+        try {
+          const formData = new FormData();
+          formData.append('image', file);
+
+          const res = await api.post('/media-assets/upload', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+          });
+
+          if (res.data?.success && res.data?.url) {
+            const imgUrl = res.data.url;
+            const imgHtml = `<div style="text-align: center; margin: 16px 0;"><img src="${imgUrl}" alt="Pasted Image" style="max-width: 100%; width: 400px; height: auto; border: 0; display: inline-block;" /></div>`;
+            handleInsertTemplateImage(imgHtml);
+            toast.success('Pasted image uploaded & inserted!', { id: 'paste-img-toast' });
+          } else {
+            throw new Error(res.data?.error || 'Failed to upload image');
+          }
+        } catch (err: any) {
+          const errMsg = err.response?.data?.error || err.message || 'Failed to upload pasted image';
+          toast.error(`Paste upload failed: ${errMsg}`, { id: 'paste-img-toast' });
+        }
+        return;
+      }
+    }
+  };
+
+  // Track start of dragging an internal element inside the template editor
+  const handleTemplateEditorDragStart = (e: React.DragEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    if (target && target.tagName === 'IMG') {
+      // Determine the container wrapper if the image is wrapped in a dedicated div/p with alignment
+      let nodeToMove: HTMLElement = target;
+      const parent = target.parentElement;
+      if (
+        parent &&
+        parent !== manualEditorRef.current &&
+        (parent.tagName === 'DIV' || parent.tagName === 'P') &&
+        parent.children.length === 1
+      ) {
+        nodeToMove = parent;
+      }
+
+      draggedEditorNodeRef.current = nodeToMove;
+      e.dataTransfer.setData('application/x-crm-editor-node', 'internal');
+      e.dataTransfer.setData('text/html', nodeToMove.outerHTML);
+      e.dataTransfer.effectAllowed = 'move';
+    }
+  };
+
+  const handleTemplateEditorDragEnd = () => {
+    draggedEditorNodeRef.current = null;
+  };
+
+  // Drag and drop image insertion or movement directly on the template editor canvas
+  const handleTemplateEditorDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    const isInternalMove =
+      draggedEditorNodeRef.current !== null ||
+      e.dataTransfer.getData('application/x-crm-editor-node') === 'internal';
+
+    // SCENARIO 1: Internal re-positioning of an existing image (MOVE - NO DUPLICATION)
+    if (isInternalMove && draggedEditorNodeRef.current) {
+      e.preventDefault();
+      const sourceNode = draggedEditorNodeRef.current;
+      const previousParent = sourceNode.parentElement;
+
+      // Locate target insertion range at drop point
+      let range: Range | null = null;
+      if (document.caretRangeFromPoint) {
+        range = document.caretRangeFromPoint(e.clientX, e.clientY);
+      } else if ((document as any).caretPositionFromPoint) {
+        const pos = (document as any).caretPositionFromPoint(e.clientX, e.clientY);
+        if (pos) {
+          range = document.createRange();
+          range.setStart(pos.offsetNode, pos.offset);
+          range.collapse(true);
+        }
+      }
+
+      // Check if dropped inside the editor and not on itself
+      if (range && manualEditorRef.current && manualEditorRef.current.contains(range.commonAncestorContainer)) {
+        // Prevent dropping inside itself
+        if (!sourceNode.contains(range.commonAncestorContainer)) {
+          // Atomically insert the existing node at the drop point
+          // insertNode automatically detaches sourceNode from its previous position!
+          range.insertNode(sourceNode);
+
+          // Clean up empty previous container if left behind
+          if (
+            previousParent &&
+            previousParent !== manualEditorRef.current &&
+            previousParent.parentNode &&
+            (!previousParent.innerText.trim() && !previousParent.querySelector('img'))
+          ) {
+            previousParent.remove();
+          }
+
+          // Select the moved image so resize handles align immediately
+          const movedImg = sourceNode.tagName === 'IMG' ? sourceNode : sourceNode.querySelector('img');
+          if (movedImg) {
+            setSelectedEditorImage(movedImg as HTMLImageElement);
+          }
+        }
+      } else if (manualEditorRef.current) {
+        // Fallback: append to end if range could not be resolved
+        manualEditorRef.current.appendChild(sourceNode);
+        if (
+          previousParent &&
+          previousParent !== manualEditorRef.current &&
+          previousParent.parentNode &&
+          (!previousParent.innerText.trim() && !previousParent.querySelector('img'))
+        ) {
+          previousParent.remove();
+        }
+      }
+
+      draggedEditorNodeRef.current = null;
+
+      if (manualEditorRef.current) {
+        const newHtml = manualEditorRef.current.innerHTML || '';
+        setManualTemplateHtml(unscopeTemplateHtml(newHtml));
+        pushManualTemplateHistory(newHtml, false);
+      }
+      toast.success("Image moved to new position!", { id: "move-img-toast" });
+      updateEditorActiveFormats();
+      return;
+    }
+
+    // SCENARIO 2: External image insertion (from Media & Image Assets modal or clipboard)
+    const htmlData = e.dataTransfer.getData('text/html');
+    const textData = e.dataTransfer.getData('text/plain');
+
+    if (htmlData || (textData && /^https?:\/\//i.test(textData.trim()))) {
+      e.preventDefault();
+
+      const imageHtmlToInsert =
+        htmlData ||
+        `<div style="text-align: center; margin: 16px 0;"><img src="${textData.trim()}" alt="Dropped Graphic" style="max-width: 100%; width: 320px; height: auto; border: 0; display: inline-block;" /></div>`;
+
+      manualEditorRef.current?.focus();
+
+      let range: Range | null = null;
+      if (document.caretRangeFromPoint) {
+        range = document.caretRangeFromPoint(e.clientX, e.clientY);
+      } else if ((document as any).caretPositionFromPoint) {
+        const pos = (document as any).caretPositionFromPoint(e.clientX, e.clientY);
+        if (pos) {
+          range = document.createRange();
+          range.setStart(pos.offsetNode, pos.offset);
+          range.collapse(true);
+        }
+      }
+
+      const sel = window.getSelection();
+      if (range && sel) {
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+
+      let inserted = false;
+      try {
+        inserted = document.execCommand('insertHTML', false, imageHtmlToInsert);
+      } catch {
+        inserted = false;
+      }
+
+      if (!inserted && manualEditorRef.current) {
+        if (range && manualEditorRef.current.contains(range.commonAncestorContainer)) {
+          range.deleteContents();
+          const el = document.createElement('div');
+          el.innerHTML = imageHtmlToInsert;
+          const frag = document.createDocumentFragment();
+          let node;
+          while ((node = el.firstChild)) {
+            frag.appendChild(node);
+          }
+          range.insertNode(frag);
+        } else {
+          manualEditorRef.current.innerHTML += imageHtmlToInsert;
+        }
+      }
+
+      if (manualEditorRef.current) {
+        const newHtml = manualEditorRef.current.innerHTML || '';
+        setManualTemplateHtml(unscopeTemplateHtml(newHtml));
+        pushManualTemplateHistory(newHtml, false);
+        setTimeout(() => {
+          if (manualEditorRef.current) {
+            const imgs = manualEditorRef.current.querySelectorAll('img');
+            if (imgs.length > 0) {
+              setSelectedEditorImage(imgs[imgs.length - 1] as HTMLImageElement);
+            }
+          }
+        }, 60);
+      }
+      setIsTemplateImageModalOpen(false);
+      toast.success("Image dropped into template!", { id: "drop-img-toast" });
+      updateEditorActiveFormats();
+    }
+  };
+
+  // Canva Image Resizer: Recalculate overlay bounding rectangle relative to editor viewport
+  const updateSelectedImageRect = useCallback(() => {
+    if (!selectedEditorImage) {
+      setImageOverlayRect(null);
+      return;
+    }
+    if (!selectedEditorImage.isConnected) {
+      setSelectedEditorImage(null);
+      setImageOverlayRect(null);
+      return;
+    }
+    const containerEl = editorViewportRef.current;
+    if (!containerEl) {
+      setImageOverlayRect(null);
+      return;
+    }
+
+    const containerRect = containerEl.getBoundingClientRect();
+    const imgRect = selectedEditorImage.getBoundingClientRect();
+
+    if (imgRect.width === 0 || imgRect.height === 0) {
+      setImageOverlayRect(null);
+      return;
+    }
+
+    // Hide if image is completely scrolled outside visible viewport of container
+    if (imgRect.bottom <= containerRect.top || imgRect.top >= containerRect.bottom) {
+      setImageOverlayRect(null);
+      return;
+    }
+
+    setImageOverlayRect({
+      top: imgRect.top - containerRect.top,
+      left: imgRect.left - containerRect.left,
+      width: imgRect.width,
+      height: imgRect.height,
+      containerWidth: containerRect.width,
+      containerHeight: containerRect.height,
+    });
+  }, [selectedEditorImage]);
+
+  // Click on image inside manual editor to select it
+  const handleManualEditorClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    if (target && target.tagName === 'IMG') {
+      e.stopPropagation();
+      setSelectedEditorImage(target as HTMLImageElement);
+    } else if (!target.closest('.canva-image-resizer-overlay')) {
+      setSelectedEditorImage(null);
+    }
+  };
+
+  // Image Resize Presets (Canva-style)
+  const handleResizeImagePreset = (size: number | '100%') => {
+    if (!selectedEditorImage) return;
+    if (size === '100%') {
+      selectedEditorImage.style.width = '100%';
+      selectedEditorImage.style.maxWidth = '100%';
+    } else {
+      selectedEditorImage.style.width = `${size}px`;
+      selectedEditorImage.style.maxWidth = '100%';
+    }
+    selectedEditorImage.style.height = 'auto';
+
+    if (manualEditorRef.current) {
+      const newHtml = manualEditorRef.current.innerHTML || '';
+      setManualTemplateHtml(unscopeTemplateHtml(newHtml));
+      pushManualTemplateHistory(newHtml, false);
+    }
+    setTimeout(updateSelectedImageRect, 30);
+  };
+
+  // Image Alignment (Left, Center, Right)
+  const handleAlignSelectedImage = (align: 'left' | 'center' | 'right') => {
+    if (!selectedEditorImage) return;
+    const parent = selectedEditorImage.parentElement;
+    if (parent && parent !== manualEditorRef.current && (parent.tagName === 'DIV' || parent.tagName === 'P')) {
+      parent.style.textAlign = align;
+    } else {
+      const wrapper = document.createElement('div');
+      wrapper.style.textAlign = align;
+      wrapper.style.margin = '16px 0';
+      selectedEditorImage.parentNode?.insertBefore(wrapper, selectedEditorImage);
+      wrapper.appendChild(selectedEditorImage);
+    }
+
+    if (manualEditorRef.current) {
+      const newHtml = manualEditorRef.current.innerHTML || '';
+      setManualTemplateHtml(unscopeTemplateHtml(newHtml));
+      pushManualTemplateHistory(newHtml, false);
+    }
+    setTimeout(updateSelectedImageRect, 30);
+  };
+
+  // Helper to get HTML representation of the selected image or its alignment wrapper
+  const getSelectedImageHtml = useCallback(() => {
+    if (!selectedEditorImage) return null;
+    let nodeToCopy: HTMLElement = selectedEditorImage;
+    const parent = selectedEditorImage.parentElement;
+    if (
+      parent &&
+      parent !== manualEditorRef.current &&
+      (parent.tagName === 'DIV' || parent.tagName === 'P') &&
+      parent.children.length === 1 &&
+      !parent.innerText.trim()
+    ) {
+      nodeToCopy = parent;
+    }
+    return {
+      html: nodeToCopy.outerHTML,
+      node: nodeToCopy,
+    };
+  }, [selectedEditorImage]);
+
+  // Copy selected image (Ctrl+C)
+  const handleCopySelectedImage = useCallback(() => {
+    const data = getSelectedImageHtml();
+    if (!data) return;
+
+    copiedTemplateImageHtmlRef.current = data.html;
+
+    try {
+      if (navigator.clipboard && window.ClipboardItem) {
+        const blobHtml = new Blob([data.html], { type: 'text/html' });
+        const blobText = new Blob([selectedEditorImage?.src || data.html], { type: 'text/plain' });
+        navigator.clipboard.write([
+          new ClipboardItem({
+            'text/html': blobHtml,
+            'text/plain': blobText,
+          }),
+        ]).catch(() => {
+          navigator.clipboard?.writeText?.(data.html);
+        });
+      } else if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(data.html);
+      }
+    } catch {
+      // Handled via copiedTemplateImageHtmlRef fallback
+    }
+
+    toast.info('Image copied! Click where you want it and press Ctrl+V to paste.', { id: 'img-cut-copy-toast' });
+  }, [getSelectedImageHtml, selectedEditorImage]);
+
+  // Cut selected image (Ctrl+X)
+  const handleCutSelectedImage = useCallback(() => {
+    const data = getSelectedImageHtml();
+    if (!data || !selectedEditorImage) return;
+
+    // 1. Copy to clipboard & ref
+    copiedTemplateImageHtmlRef.current = data.html;
+
+    try {
+      if (navigator.clipboard && window.ClipboardItem) {
+        const blobHtml = new Blob([data.html], { type: 'text/html' });
+        const blobText = new Blob([selectedEditorImage.src || data.html], { type: 'text/plain' });
+        navigator.clipboard.write([
+          new ClipboardItem({
+            'text/html': blobHtml,
+            'text/plain': blobText,
+          }),
+        ]).catch(() => {
+          navigator.clipboard?.writeText?.(data.html);
+        });
+      } else if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(data.html);
+      }
+    } catch {
+      // Handled via copiedTemplateImageHtmlRef fallback
+    }
+
+    // 2. Remove node from DOM
+    data.node.remove();
+    setSelectedEditorImage(null);
+    setImageOverlayRect(null);
+
+    // 3. Update template state & history
+    if (manualEditorRef.current) {
+      const newHtml = manualEditorRef.current.innerHTML || '';
+      setManualTemplateHtml(unscopeTemplateHtml(newHtml));
+      pushManualTemplateHistory(newHtml, false);
+    }
+
+    toast.info('Image cut! Click where you want it in the template and press Ctrl+V to paste.', { id: 'img-cut-copy-toast' });
+  }, [getSelectedImageHtml, selectedEditorImage, unscopeTemplateHtml, pushManualTemplateHistory]);
+
+  // Helper to determine current active shape of selectedEditorImage
+  const getCurrentImageShape = useCallback(() => {
+    if (!selectedEditorImage) return 'rectangle';
+    const br = selectedEditorImage.style.borderRadius;
+    if (br === '50%') return 'circle';
+    if (br === '9999px') return 'pill';
+    if (br === '28%') return 'squircle';
+    if (br === '16px') return 'rounded-lg';
+    if (br === '8px') return 'rounded-sm';
+    return 'rectangle';
+  }, [selectedEditorImage]);
+
+  // Apply Canva shape directly to selected image
+  const handleApplyImageShape = useCallback((shape: 'rectangle' | 'rounded-sm' | 'rounded-lg' | 'squircle' | 'circle' | 'pill') => {
+    if (!selectedEditorImage) return;
+
+    switch (shape) {
+      case 'rectangle':
+        selectedEditorImage.style.borderRadius = '0px';
+        selectedEditorImage.style.aspectRatio = '';
+        selectedEditorImage.style.objectFit = '';
+        break;
+      case 'rounded-sm':
+        selectedEditorImage.style.borderRadius = '8px';
+        selectedEditorImage.style.aspectRatio = '';
+        selectedEditorImage.style.objectFit = '';
+        break;
+      case 'rounded-lg':
+        selectedEditorImage.style.borderRadius = '16px';
+        selectedEditorImage.style.aspectRatio = '';
+        selectedEditorImage.style.objectFit = '';
+        break;
+      case 'squircle':
+        selectedEditorImage.style.borderRadius = '28%';
+        selectedEditorImage.style.aspectRatio = '1 / 1';
+        selectedEditorImage.style.objectFit = 'cover';
+        break;
+      case 'circle':
+        selectedEditorImage.style.borderRadius = '50%';
+        selectedEditorImage.style.aspectRatio = '1 / 1';
+        selectedEditorImage.style.objectFit = 'cover';
+        break;
+      case 'pill':
+        selectedEditorImage.style.borderRadius = '9999px';
+        selectedEditorImage.style.aspectRatio = '';
+        selectedEditorImage.style.objectFit = 'cover';
+        break;
+    }
+
+    setTimeout(updateSelectedImageRect, 30);
+
+    if (manualEditorRef.current) {
+      const newHtml = manualEditorRef.current.innerHTML || '';
+      setManualTemplateHtml(unscopeTemplateHtml(newHtml));
+      pushManualTemplateHistory(newHtml, false);
+    }
+
+    setIsImageShapePickerOpen(false);
+    toast.success(`Shape updated!`);
+  }, [selectedEditorImage, updateSelectedImageRect, unscopeTemplateHtml, pushManualTemplateHistory]);
+
+  // Delete selected image
+  const handleDeleteSelectedImage = useCallback(() => {
+    if (!selectedEditorImage) return;
+    const parent = selectedEditorImage.parentElement;
+    selectedEditorImage.remove();
+    if (parent && parent !== manualEditorRef.current && (!parent.innerText.trim() && !parent.querySelector('img'))) {
+      parent.remove();
+    }
+    setSelectedEditorImage(null);
+    setImageOverlayRect(null);
+    setIsImageShapePickerOpen(false);
+
+    if (manualEditorRef.current) {
+      const newHtml = manualEditorRef.current.innerHTML || '';
+      setManualTemplateHtml(unscopeTemplateHtml(newHtml));
+      pushManualTemplateHistory(newHtml, false);
+    }
+    toast.success('Image removed from template');
+  }, [selectedEditorImage, unscopeTemplateHtml, pushManualTemplateHistory]);
+
+  // Drag-to-resize handles
+  const handleStartDragResize = (handle: 'nw' | 'ne' | 'se' | 'sw' | 'e' | 'w', e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!selectedEditorImage) return;
+
+    const startX = e.clientX;
+    const startWidth = selectedEditorImage.getBoundingClientRect().width;
+    const editorWidth = manualEditorRef.current?.getBoundingClientRect().width || 800;
+    const maxWidth = Math.max(100, editorWidth - 40);
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      moveEvent.preventDefault();
+      const deltaX = moveEvent.clientX - startX;
+      let newWidth = startWidth;
+
+      if (handle === 'se' || handle === 'ne' || handle === 'e') {
+        newWidth = startWidth + deltaX;
+      } else if (handle === 'sw' || handle === 'nw' || handle === 'w') {
+        newWidth = startWidth - deltaX;
+      }
+
+      const clampedWidth = Math.max(40, Math.min(maxWidth, Math.round(newWidth)));
+      selectedEditorImage.style.width = `${clampedWidth}px`;
+      selectedEditorImage.style.maxWidth = '100%';
+      selectedEditorImage.style.height = 'auto';
+
+      updateSelectedImageRect();
+    };
+
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+
+      if (manualEditorRef.current) {
+        const newHtml = manualEditorRef.current.innerHTML || '';
+        setManualTemplateHtml(unscopeTemplateHtml(newHtml));
+        pushManualTemplateHistory(newHtml, false);
+      }
+      updateSelectedImageRect();
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
+
+  // Sync overlay position on selected image change, window resize, or editor scroll
+  useEffect(() => {
+    if (!selectedEditorImage) {
+      setImageOverlayRect(null);
+      setIsImageShapePickerOpen(false);
+      return;
+    }
+
+    updateSelectedImageRect();
+
+    const handleScrollOrResize = () => {
+      updateSelectedImageRect();
+    };
+
+    const editorEl = manualEditorRef.current;
+    if (editorEl) {
+      editorEl.addEventListener('scroll', handleScrollOrResize, { passive: true });
+    }
+    window.addEventListener('scroll', handleScrollOrResize, { passive: true });
+    window.addEventListener('resize', handleScrollOrResize, { passive: true });
+
+    // Click outside to deselect
+    const handleDocMouseDown = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (
+        target &&
+        !target.closest('.canva-image-resizer-overlay') &&
+        target !== selectedEditorImage
+      ) {
+        setSelectedEditorImage(null);
+        setIsImageShapePickerOpen(false);
+      }
+    };
+
+    // Keyboard delete / escape / cut (Ctrl+X) / copy (Ctrl+C)
+    const handleDocKeyDown = (e: KeyboardEvent) => {
+      const isCtrlOrCmd = e.ctrlKey || e.metaKey;
+
+      if (e.key === 'Escape') {
+        setSelectedEditorImage(null);
+      } else if (isCtrlOrCmd && e.key.toLowerCase() === 'x') {
+        const target = e.target as HTMLElement;
+        const isInputField = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || (target.isContentEditable && target !== manualEditorRef.current));
+        if (!isInputField && selectedEditorImage) {
+          e.preventDefault();
+          e.stopPropagation();
+          handleCutSelectedImage();
+        }
+      } else if (isCtrlOrCmd && e.key.toLowerCase() === 'c') {
+        const target = e.target as HTMLElement;
+        const isInputField = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || (target.isContentEditable && target !== manualEditorRef.current));
+        if (!isInputField && selectedEditorImage) {
+          e.preventDefault();
+          e.stopPropagation();
+          handleCopySelectedImage();
+        }
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        const target = e.target as HTMLElement;
+        const isInputField = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || (target.isContentEditable && target !== manualEditorRef.current));
+        if (!isInputField && selectedEditorImage) {
+          e.preventDefault();
+          handleDeleteSelectedImage();
+        }
+      }
+    };
+
+    document.addEventListener('mousedown', handleDocMouseDown);
+    document.addEventListener('keydown', handleDocKeyDown);
+
+    return () => {
+      if (editorEl) {
+        editorEl.removeEventListener('scroll', handleScrollOrResize);
+      }
+      window.removeEventListener('scroll', handleScrollOrResize);
+      window.removeEventListener('resize', handleScrollOrResize);
+      document.removeEventListener('mousedown', handleDocMouseDown);
+      document.removeEventListener('keydown', handleDocKeyDown);
+    };
+  }, [selectedEditorImage, updateSelectedImageRect, handleDeleteSelectedImage, handleCutSelectedImage, handleCopySelectedImage]);
 
   // Global Keyboard Listener for Undo (Ctrl+Z / Cmd+Z) and Redo (Ctrl+Y / Ctrl+Shift+Z)
   useEffect(() => {
@@ -2960,6 +2963,9 @@ export default function EmailCenter() {
     setManualTemplateMode('editor');
     setManualTemplateHistory([]);
     setManualTemplateHistoryIndex(-1);
+    setIsTemplateImageModalOpen(false);
+    setSelectedEditorImage(null);
+    setImageOverlayRect(null);
     if (debounceManualHistoryTimerRef.current) {
       clearTimeout(debounceManualHistoryTimerRef.current);
     }
@@ -4277,7 +4283,7 @@ export default function EmailCenter() {
                               <th className="p-3.5 align-middle text-center">Delivered</th>
                               <th className="p-3.5 align-middle text-center">Open Rate</th>
                               <th className="p-3.5 align-middle text-center">Click Rate</th>
-                              <th className="p-3.5 pr-5 align-middle text-right">Actions</th>
+                              <th className="p-3.5 align-middle text-center w-[160px] whitespace-nowrap">Actions</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-border/60">
@@ -4364,8 +4370,8 @@ export default function EmailCenter() {
                                     <span className="font-extrabold text-emerald-600 dark:text-emerald-400">{stats.clickRate}%</span>
                                     <span className="text-[10px] text-muted-foreground block font-medium">({stats.clickCount})</span>
                                   </td>
-                                  <td className="p-3.5 pr-5 text-right align-middle" onClick={e => e.stopPropagation()}>
-                                    <div className="flex items-center justify-end gap-1.5">
+                                  <td className="p-3.5 text-center align-middle whitespace-nowrap" onClick={e => e.stopPropagation()}>
+                                    <div className="flex items-center justify-center gap-1.5">
                                       <button
                                         type="button"
                                         onClick={() => {
@@ -4562,14 +4568,14 @@ export default function EmailCenter() {
                     /* FULL DATA TABLE VIEW FOR SEGMENTS */
                     <div className="border rounded-2xl overflow-hidden bg-card shadow-xs">
                       <div className="overflow-x-auto custom-scrollbar">
-                        <table className="w-full text-left text-xs border-collapse">
+                        <table className="w-full table-fixed text-left text-xs border-collapse min-w-[760px]">
                           <thead>
                             <tr className="border-b bg-muted/40 text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
-                              <th className="p-3.5 pl-5 align-middle">Segment Name</th>
-                              <th className="p-3.5 align-middle">Type</th>
-                              <th className="p-3.5 align-middle">Recipients</th>
-                              <th className="p-3.5 align-middle">Details</th>
-                              <th className="p-3.5 pr-5 align-middle text-right">Actions</th>
+                              <th className="p-3.5 pl-5 align-middle w-[35%] min-w-[220px]">Segment Name</th>
+                              <th className="p-3.5 align-middle w-[15%] min-w-[110px] whitespace-nowrap">Type</th>
+                              <th className="p-3.5 align-middle w-[16%] min-w-[120px] whitespace-nowrap">Recipients</th>
+                              <th className="p-3.5 align-middle w-[14%] min-w-[110px]">Details</th>
+                              <th className="p-3.5 align-middle text-center w-[20%] min-w-[190px] whitespace-nowrap">Actions</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-border/60">
@@ -4583,29 +4589,31 @@ export default function EmailCenter() {
                                 }}
                                 className="hover:bg-accent/30 transition-colors cursor-pointer group"
                               >
-                                <td className="p-3.5 pl-5 max-w-[220px] align-middle">
-                                  <span className="font-bold text-foreground block truncate group-hover:text-primary transition-colors">{seg.name}</span>
+                                <td className="p-3.5 pl-5 align-middle max-w-0 overflow-hidden">
+                                  <span className="font-bold text-foreground block truncate group-hover:text-primary transition-colors" title={seg.name}>{seg.name}</span>
                                   {seg.description && (
-                                    <span className="text-[11px] text-muted-foreground block truncate mt-0.5">{seg.description}</span>
+                                    <span className="text-[11px] text-muted-foreground block truncate mt-0.5" title={seg.description}>{seg.description}</span>
                                   )}
                                 </td>
-                                <td className="p-3.5 align-middle">
+                                <td className="p-3.5 align-middle whitespace-nowrap overflow-hidden">
                                   {getSegmentBadge(seg)}
                                 </td>
-                                <td className="p-3.5 align-middle">
-                                  <span className="font-bold text-foreground text-xs flex items-center gap-1.5">
-                                    <Users size={12} className="text-primary" /> {seg.contacts?.length || 0} Contacts
+                                <td className="p-3.5 align-middle whitespace-nowrap overflow-hidden">
+                                  <span className="font-bold text-foreground text-xs flex items-center gap-1.5 truncate">
+                                    <Users size={12} className="text-primary shrink-0" /> {seg.contacts?.length || 0} Contacts
                                   </span>
                                 </td>
-                                <td className="p-3.5 align-middle text-muted-foreground text-[11px]">
+                                <td className="p-3.5 align-middle text-muted-foreground text-[11px] max-w-0 overflow-hidden">
                                   {seg.type === "campaign" ? (
-                                    <span>Campaign: <strong className="text-foreground">{(typeof seg.filters?.campaignId === "object" && seg.filters?.campaignId?.name) ? seg.filters.campaignId.name : "Sales Leads"}</strong></span>
+                                    <span className="truncate block" title={(typeof seg.filters?.campaignId === "object" && seg.filters?.campaignId?.name) ? seg.filters.campaignId.name : "Sales Leads"}>
+                                      Campaign: <strong className="text-foreground">{(typeof seg.filters?.campaignId === "object" && seg.filters?.campaignId?.name) ? seg.filters.campaignId.name : "Sales Leads"}</strong>
+                                    </span>
                                   ) : (
-                                    <span>Recipient List</span>
+                                    <span className="truncate block">Recipient List</span>
                                   )}
                                 </td>
-                                <td className="p-3.5 pr-5 align-middle text-right" onClick={e => e.stopPropagation()}>
-                                  <div className="flex items-center justify-end gap-1.5">
+                                <td className="p-3.5 align-middle text-center whitespace-nowrap" onClick={e => e.stopPropagation()}>
+                                  <div className="flex items-center justify-center gap-1.5">
                                     <button
                                       type="button"
                                       onClick={() => handlePromptDeleteSegment(seg)}
@@ -4614,14 +4622,7 @@ export default function EmailCenter() {
                                     >
                                       <Trash2 size={13} />
                                     </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleOpenAddContactModal(seg._id)}
-                                      className="h-8 px-2.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
-                                      title="Add Contact(s) to this List"
-                                    >
-                                      <UserPlus size={12} /> Add Contact
-                                    </button>
+
                                     <button
                                       type="button"
                                       onClick={() => handleOpenEditSegment(seg)}
@@ -4688,17 +4689,7 @@ export default function EmailCenter() {
 
                           <div className="flex items-center justify-between gap-2 mt-4 pt-3 border-t border-border/60">
                             <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleOpenAddContactModal(seg._id);
-                                }}
-                                className="h-8 px-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 rounded-xl text-xs font-bold flex items-center gap-1 transition-all shadow-xs shrink-0 cursor-pointer"
-                                title="Add Contact(s) to this List"
-                              >
-                                <UserPlus size={12} /> Add
-                              </button>
+
                               <button
                                 type="button"
                                 onClick={(e) => {
@@ -4774,7 +4765,7 @@ export default function EmailCenter() {
                               <th className="p-3.5 align-middle">Subject</th>
                               <th className="p-3.5 align-middle">Type & Category</th>
                               <th className="p-3.5 align-middle">Created Date</th>
-                              <th className="p-3.5 pr-5 align-middle text-right">Actions</th>
+                              <th className="p-3.5 align-middle text-center w-[230px] whitespace-nowrap">Actions</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-border/60">
@@ -4802,8 +4793,8 @@ export default function EmailCenter() {
                                 <td className="p-3.5 text-[11px] text-muted-foreground align-middle">
                                   {tpl.createdAt ? new Date(tpl.createdAt).toLocaleDateString() : "-"}
                                 </td>
-                                <td className="p-3.5 pr-5 align-middle text-right" onClick={e => e.stopPropagation()}>
-                                  <div className="flex items-center justify-end gap-1.5">
+                                <td className="p-3.5 align-middle text-center whitespace-nowrap" onClick={e => e.stopPropagation()}>
+                                  <div className="flex items-center justify-center gap-1.5">
                                     <button
                                       type="button"
                                       onClick={() => {
@@ -5556,8 +5547,8 @@ export default function EmailCenter() {
                     {campaignForm.content.trim() ? (
                       <div className="w-full max-w-[600px] overflow-hidden rounded-xl bg-white shadow-sm border border-slate-200">
                         <div
-                          className="text-gray-900 leading-relaxed [&_table]:max-w-[600px] [&_table]:w-full [&_table]:mx-auto [&_table]:border-collapse"
-                          dangerouslySetInnerHTML={{ __html: campaignForm.content.replace(/\{\{name\}\}/gi, "John Doe") }}
+                          className="email-template-canvas text-gray-900 leading-relaxed [&_table]:max-w-[600px] [&_table]:w-full [&_table]:mx-auto [&_table]:border-collapse"
+                          dangerouslySetInnerHTML={{ __html: scopeTemplateHtml(campaignForm.content.replace(/\{\{name\}\}/gi, "John Doe")) }}
                         />
                       </div>
                     ) : (
@@ -10038,19 +10029,32 @@ export default function EmailCenter() {
       {/* ─────────────────────────────────────────────────────────────
           MANUAL TEMPLATE BUILDER MODAL
       ───────────────────────────────────────────────────────────── */}
-      <Dialog open={isManualTemplateModalOpen} onOpenChange={(open) => { if (!open) resetManualTemplateModalState(); setIsManualTemplateModalOpen(open); }}>
-        <DialogContent className="w-[96vw] max-w-6xl h-[90vh] max-h-[90vh] p-0 gap-0 !flex !flex-col overflow-hidden rounded-3xl border shadow-2xl bg-card">
+      <Dialog
+        open={isManualTemplateModalOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            if (isTemplateImageModalOpen) return;
+            resetManualTemplateModalState();
+            setIsManualTemplateModalOpen(false);
+          } else {
+            setIsManualTemplateModalOpen(true);
+          }
+        }}
+      >
+        <DialogContent
+          className="w-[96vw] max-w-6xl h-[94vh] max-h-[94vh] p-0 gap-0 !flex !flex-col overflow-hidden rounded-2xl border border-border shadow-2xl bg-white dark:bg-card"
+        >
           {/* Header */}
-          <DialogHeader className="flex flex-row items-center justify-between px-6 py-4 border-b shrink-0 bg-card">
-            <div className="flex items-center gap-2.5">
-              <div className="h-8 w-8 rounded-xl bg-primary/10 flex items-center justify-center">
-                <FileText size={16} className="text-primary" />
+          <DialogHeader className="flex flex-row items-center justify-between px-5 py-2.5 border-b shrink-0 bg-white dark:bg-card">
+            <div className="flex items-center gap-2">
+              <div className="h-7 w-7 rounded-lg bg-primary/10 flex items-center justify-center">
+                <FileText size={15} className="text-primary" />
               </div>
               <div>
                 <DialogTitle className="text-sm font-bold leading-tight">
                   {editingTemplateId ? "Edit Email Template" : "Create Email Template"}
                 </DialogTitle>
-                <DialogDescription className="text-[11px] text-muted-foreground mt-0.5">
+                <DialogDescription className="text-[10px] text-muted-foreground mt-0.5 hidden sm:block">
                   {editingTemplateId
                     ? "Update and refine your reusable email template layout and content."
                     : "Build a reusable email template to use in campaigns."
@@ -10065,7 +10069,7 @@ export default function EmailCenter() {
                 onClick={() => {
                   const currentContent = manualTemplateMode === 'html'
                     ? manualTemplateHtml
-                    : (manualEditorRef.current?.innerHTML || '');
+                    : unscopeTemplateHtml(manualEditorRef.current?.innerHTML || '');
                   setSelectedTemplateForPreview({
                     _id: 'temp-preview',
                     name: manualTemplateName || 'Template Preview',
@@ -10076,21 +10080,22 @@ export default function EmailCenter() {
                   setTemplatePreviewMode('visual');
                   setIsTemplatePreviewModalOpen(true);
                 }}
-                className="px-2.5 py-1.5 rounded-xl border text-xs font-bold text-primary hover:bg-primary/10 flex items-center gap-1.5 transition-colors cursor-pointer"
+                className="px-2 py-1 rounded-lg border text-xs font-bold text-primary hover:bg-primary/10 flex items-center gap-1.5 transition-colors cursor-pointer"
                 title="Open in Full Screen Flow Preview"
               >
-                <Maximize2 size={12} /> Full View / Flow
+                <Maximize2 size={11} /> Full View / Flow
               </button>
 
-              <div className="flex items-center bg-accent/60 border p-0.5 rounded-xl text-xs">
+              <div className="flex items-center bg-accent/60 border p-0.5 rounded-lg text-xs">
                 <button
                   type="button"
                   onClick={() => {
                     setManualTemplateMode('editor');
                     setTimeout(() => {
                       if (manualEditorRef.current) {
-                        if (manualTemplateHtml && manualEditorRef.current.innerHTML !== manualTemplateHtml) {
-                          manualEditorRef.current.innerHTML = manualTemplateHtml;
+                        const scopedContent = scopeTemplateHtml(manualTemplateHtml);
+                        if (manualEditorRef.current.innerHTML !== scopedContent) {
+                          manualEditorRef.current.innerHTML = scopedContent;
                         }
                         manualEditorRef.current.scrollTop = 0;
                       }
@@ -10099,7 +10104,7 @@ export default function EmailCenter() {
                       if (dialogEl) (dialogEl as HTMLElement).scrollTop = 0;
                     }, 0);
                   }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${manualTemplateMode === 'editor' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md font-bold transition-all cursor-pointer ${manualTemplateMode === 'editor' ? 'bg-card text-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground'
                     }`}
                 >
                   <PenLine size={11} /> Write Content
@@ -10108,7 +10113,7 @@ export default function EmailCenter() {
                   type="button"
                   onClick={() => {
                     if (manualEditorRef.current) {
-                      setManualTemplateHtml(manualEditorRef.current.innerHTML || '');
+                      setManualTemplateHtml(unscopeTemplateHtml(manualEditorRef.current.innerHTML || ''));
                     }
                     setManualTemplateMode('html');
                     setTimeout(() => {
@@ -10120,7 +10125,7 @@ export default function EmailCenter() {
                       if (dialogEl) (dialogEl as HTMLElement).scrollTop = 0;
                     }, 0);
                   }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${manualTemplateMode === 'html' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md font-bold transition-all cursor-pointer ${manualTemplateMode === 'html' ? 'bg-card text-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground'
                     }`}
                 >
                   <Code2 size={11} /> HTML Code
@@ -10131,40 +10136,40 @@ export default function EmailCenter() {
 
           {/* Body */}
           <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
-            {/* Meta Fields Row */}
-            <div className="grid grid-cols-3 gap-3 p-5 pb-3 border-b shrink-0 bg-card/50">
-              <div>
-                <label htmlFor="manual-template-name-input" className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide block mb-1.5 cursor-pointer">Template Name *</label>
+            {/* Meta Fields Row - Compact Sleek Bar */}
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5 px-5 py-2 border-b shrink-0 bg-slate-50/80 dark:bg-card/90 items-center">
+              <div className="md:col-span-4 flex items-center gap-2">
+                <label htmlFor="manual-template-name-input" className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider shrink-0 cursor-pointer">Name *</label>
                 <input
                   id="manual-template-name-input"
                   name="manual_template_name"
                   type="text"
-                  placeholder="e.g. Summer Camp Invite"
+                  placeholder="Template Name..."
                   value={manualTemplateName}
                   onChange={e => setManualTemplateName(e.target.value)}
-                  className="input-field h-8.5 text-xs w-full"
+                  className="input-field h-7.5 text-xs w-full px-2.5 bg-white dark:bg-background/60 shadow-2xs"
                 />
               </div>
-              <div>
-                <label htmlFor="manual-template-subject-input" className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide block mb-1.5 cursor-pointer">Email Subject *</label>
+              <div className="md:col-span-5 flex items-center gap-2">
+                <label htmlFor="manual-template-subject-input" className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider shrink-0 cursor-pointer">Subject *</label>
                 <input
                   id="manual-template-subject-input"
                   name="manual_template_subject"
                   type="text"
-                  placeholder="e.g. Join us for Summer Basketball Camp!"
+                  placeholder="Email Subject Line..."
                   value={manualTemplateSubject}
                   onChange={e => setManualTemplateSubject(e.target.value)}
-                  className="input-field h-8.5 text-xs w-full"
+                  className="input-field h-7.5 text-xs w-full px-2.5 bg-white dark:bg-background/60 shadow-2xs"
                 />
               </div>
-              <div>
-                <label htmlFor="manual-template-category-select" className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide block mb-1.5 cursor-pointer">Category</label>
+              <div className="md:col-span-3 flex items-center gap-2">
+                <label htmlFor="manual-template-category-select" className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider shrink-0 cursor-pointer">Category</label>
                 <select
                   id="manual-template-category-select"
                   name="manual_template_category"
                   value={manualTemplateCategory}
                   onChange={e => setManualTemplateCategory(e.target.value)}
-                  className="input-field h-8.5 text-xs w-full"
+                  className="input-field h-7.5 text-xs w-full px-2 bg-white dark:bg-background/60 shadow-2xs"
                 >
                   {["General", "Promotional", "Informational", "Follow-up", "Welcome", "Re-engagement", "Event"].map(c => (
                     <option key={c} value={c}>{c}</option>
@@ -10177,7 +10182,7 @@ export default function EmailCenter() {
             {manualTemplateMode === 'editor' ? (
               <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
                 {/* Formatting Toolbar */}
-                <div className="flex items-center gap-1 sm:gap-1.5 px-4 py-2 border-b bg-card shrink-0 flex-wrap relative">
+                <div className="flex items-center gap-1 sm:gap-1.5 px-4 py-1.5 border-b bg-white dark:bg-card shrink-0 flex-wrap relative">
                   {/* Group 1: History Undo / Redo */}
                   <div className="flex items-center bg-accent/40 border border-border/50 rounded-lg p-0.5">
                     <button
@@ -10186,9 +10191,9 @@ export default function EmailCenter() {
                       onClick={handleManualTemplateUndo}
                       disabled={manualTemplateHistoryIndex <= 0}
                       title="Undo (Ctrl+Z)"
-                      className="h-7 w-7 rounded-md flex items-center justify-center transition-colors cursor-pointer hover:bg-background text-muted-foreground hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="h-6.5 w-6.5 rounded-md flex items-center justify-center transition-colors cursor-pointer hover:bg-background text-muted-foreground hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      <RotateCcw size={12} />
+                      <RotateCcw size={11} />
                     </button>
                     <button
                       type="button"
@@ -10196,9 +10201,9 @@ export default function EmailCenter() {
                       onClick={handleManualTemplateRedo}
                       disabled={manualTemplateHistoryIndex >= manualTemplateHistory.length - 1}
                       title="Redo (Ctrl+Y)"
-                      className="h-7 w-7 rounded-md flex items-center justify-center transition-colors cursor-pointer hover:bg-background text-muted-foreground hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="h-6.5 w-6.5 rounded-md flex items-center justify-center transition-colors cursor-pointer hover:bg-background text-muted-foreground hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      <RotateCw size={12} />
+                      <RotateCw size={11} />
                     </button>
                   </div>
 
@@ -10452,7 +10457,7 @@ export default function EmailCenter() {
 
                   <div className="w-px h-5 bg-border mx-0.5" />
 
-                  {/* Group 8: Links */}
+                  {/* Group 8: Links & Images */}
                   <div className="flex items-center bg-accent/40 border border-border/50 rounded-lg p-0.5">
                     <button
                       type="button"
@@ -10468,6 +10473,22 @@ export default function EmailCenter() {
                       className="h-7 w-7 rounded-md hover:bg-background flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
                     >
                       <Link size={12} />
+                    </button>
+                    <button
+                      type="button"
+                      onMouseDown={e => {
+                        e.preventDefault();
+                        saveSelectionRange();
+                      }}
+                      onClick={() => {
+                        saveSelectionRange();
+                        setIsTemplateImageModalOpen(true);
+                      }}
+                      title="Insert Image / Logo (Cloudinary CDN)"
+                      className="h-7 px-2 rounded-md hover:bg-background flex items-center justify-center gap-1 text-muted-foreground hover:text-foreground transition-colors cursor-pointer text-xs font-medium"
+                    >
+                      <ImageIcon size={12} />
+                      <span className="hidden sm:inline text-[11px]">Image</span>
                     </button>
                   </div>
 
@@ -10499,25 +10520,345 @@ export default function EmailCenter() {
                   </div>
                 </div>
 
-                {/* ContentEditable Writing Area */}
+                {/* ContentEditable Viewport Container with overflow:hidden to strictly clip overlay */}
                 <div
-                  ref={manualEditorRef}
-                  contentEditable
-                  suppressContentEditableWarning
-                  onKeyUp={updateEditorActiveFormats}
-                  onMouseUp={updateEditorActiveFormats}
-                  onFocus={updateEditorActiveFormats}
-                  className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-5 text-sm text-foreground focus:outline-none custom-scrollbar leading-relaxed [&_h1]:text-2xl [&_h1]:font-extrabold [&_h1]:my-3 [&_h1]:text-foreground [&_h2]:text-xl [&_h2]:font-bold [&_h2]:my-2.5 [&_h2]:text-foreground [&_h3]:text-lg [&_h3]:font-bold [&_h3]:my-2 [&_h3]:text-foreground [&_p]:my-1.5 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-2 [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-2 [&_a]:text-primary [&_a]:underline"
-                  style={{ minHeight: 0 }}
-                  data-placeholder="Start writing your email content here... Use the toolbar above to format text, add headings, lists, and links."
-                  onInput={() => {
-                    if (manualEditorRef.current) {
-                      const newHtml = manualEditorRef.current.innerHTML || '';
-                      setManualTemplateHtml(newHtml);
-                      pushManualTemplateHistory(newHtml, false);
-                    }
-                  }}
-                />
+                  ref={editorViewportRef}
+                  className="relative flex-1 min-h-0 overflow-hidden flex flex-col bg-white dark:bg-card"
+                >
+                  <div
+                    ref={manualEditorRef}
+                    contentEditable
+                    suppressContentEditableWarning
+                    onClick={handleManualEditorClick}
+                    onDragStart={handleTemplateEditorDragStart}
+                    onDragEnd={handleTemplateEditorDragEnd}
+                    onKeyUp={updateEditorActiveFormats}
+                    onMouseUp={updateEditorActiveFormats}
+                    onFocus={updateEditorActiveFormats}
+                    onPaste={handleTemplateEditorPaste}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = draggedEditorNodeRef.current ? 'move' : 'copy';
+                    }}
+                    onDrop={handleTemplateEditorDrop}
+                    className="email-template-canvas flex-1 min-h-0 overflow-y-auto overscroll-contain p-5 text-sm text-foreground focus:outline-none custom-scrollbar leading-relaxed bg-white dark:bg-card [&_h1]:text-2xl [&_h1]:font-extrabold [&_h1]:my-3 [&_h1]:text-foreground [&_h2]:text-xl [&_h2]:font-bold [&_h2]:my-2.5 [&_h2]:text-foreground [&_h3]:text-lg [&_h3]:font-bold [&_h3]:my-2 [&_h3]:text-foreground [&_p]:my-1.5 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-2 [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-2 [&_a]:text-primary [&_a]:underline"
+                    style={{ minHeight: 0 }}
+                    data-placeholder="Start writing your email content here... Use the toolbar above to format text, add headings, lists, links, and images (or drag and drop images directly)."
+                    onInput={() => {
+                      if (manualEditorRef.current) {
+                        const newHtml = manualEditorRef.current.innerHTML || '';
+                        setManualTemplateHtml(unscopeTemplateHtml(newHtml));
+                        pushManualTemplateHistory(newHtml, false);
+                      }
+                    }}
+                  />
+
+                  {/* IN-CONTAINER CANVA RESIZER OVERLAY */}
+                  {/* Because this container has overflow:hidden, the overlay and handles CANNOT leak into footer or outside modal */}
+                  {isManualTemplateModalOpen && selectedEditorImage && imageOverlayRect && (
+                    <div className="canva-image-resizer-overlay absolute inset-0 pointer-events-none z-20">
+                      {/* Selection Border Outline */}
+                      <div
+                        style={{
+                          position: 'absolute',
+                          top: `${imageOverlayRect.top}px`,
+                          left: `${imageOverlayRect.left}px`,
+                          width: `${imageOverlayRect.width}px`,
+                          height: `${imageOverlayRect.height}px`,
+                          pointerEvents: 'none',
+                        }}
+                        className="border-2 border-primary rounded-xs ring-1 ring-white/90 shadow-md"
+                      />
+
+                      {/* 4 Corner Resize Handles */}
+                      <div
+                        onMouseDown={(e) => handleStartDragResize('nw', e)}
+                        style={{
+                          position: 'absolute',
+                          top: `${imageOverlayRect.top - 5}px`,
+                          left: `${imageOverlayRect.left - 5}px`,
+                          pointerEvents: 'auto',
+                          cursor: 'nwse-resize',
+                        }}
+                        className="h-3 w-3 rounded-full bg-white border-2 border-primary shadow-sm hover:scale-125 transition-transform"
+                        title="Drag to resize"
+                      />
+
+                      <div
+                        onMouseDown={(e) => handleStartDragResize('ne', e)}
+                        style={{
+                          position: 'absolute',
+                          top: `${imageOverlayRect.top - 5}px`,
+                          left: `${imageOverlayRect.left + imageOverlayRect.width - 7}px`,
+                          pointerEvents: 'auto',
+                          cursor: 'nesw-resize',
+                        }}
+                        className="h-3 w-3 rounded-full bg-white border-2 border-primary shadow-sm hover:scale-125 transition-transform"
+                        title="Drag to resize"
+                      />
+
+                      <div
+                        onMouseDown={(e) => handleStartDragResize('se', e)}
+                        style={{
+                          position: 'absolute',
+                          top: `${imageOverlayRect.top + imageOverlayRect.height - 7}px`,
+                          left: `${imageOverlayRect.left + imageOverlayRect.width - 7}px`,
+                          pointerEvents: 'auto',
+                          cursor: 'nwse-resize',
+                        }}
+                        className="h-3 w-3 rounded-full bg-white border-2 border-primary shadow-sm hover:scale-125 transition-transform"
+                        title="Drag to resize"
+                      />
+
+                      <div
+                        onMouseDown={(e) => handleStartDragResize('sw', e)}
+                        style={{
+                          position: 'absolute',
+                          top: `${imageOverlayRect.top + imageOverlayRect.height - 7}px`,
+                          left: `${imageOverlayRect.left - 5}px`,
+                          pointerEvents: 'auto',
+                          cursor: 'nesw-resize',
+                        }}
+                        className="h-3 w-3 rounded-full bg-white border-2 border-primary shadow-sm hover:scale-125 transition-transform"
+                        title="Drag to resize"
+                      />
+
+                      {/* 2 Edge Resize Handles */}
+                      <div
+                        onMouseDown={(e) => handleStartDragResize('w', e)}
+                        style={{
+                          position: 'absolute',
+                          top: `${imageOverlayRect.top + (imageOverlayRect.height / 2) - 8}px`,
+                          left: `${imageOverlayRect.left - 4}px`,
+                          pointerEvents: 'auto',
+                          cursor: 'ew-resize',
+                        }}
+                        className="h-4 w-2 rounded-xs bg-white border-2 border-primary shadow-sm hover:scale-125 transition-transform"
+                        title="Drag to resize width"
+                      />
+
+                      <div
+                        onMouseDown={(e) => handleStartDragResize('e', e)}
+                        style={{
+                          position: 'absolute',
+                          top: `${imageOverlayRect.top + (imageOverlayRect.height / 2) - 8}px`,
+                          left: `${imageOverlayRect.left + imageOverlayRect.width - 4}px`,
+                          pointerEvents: 'auto',
+                          cursor: 'ew-resize',
+                        }}
+                        className="h-4 w-2 rounded-xs bg-white border-2 border-primary shadow-sm hover:scale-125 transition-transform"
+                        title="Drag to resize width"
+                      />
+
+                      {/* Floating Canva Studio Action Bar (Clamped inside viewport) */}
+                      {(() => {
+                        const toolbarTop = imageOverlayRect.top > 50
+                          ? Math.max(8, imageOverlayRect.top - 44)
+                          : Math.min(imageOverlayRect.containerHeight - 48, imageOverlayRect.top + imageOverlayRect.height + 10);
+                        const toolbarLeft = Math.max(8, Math.min(imageOverlayRect.containerWidth - 520, imageOverlayRect.left + (imageOverlayRect.width / 2) - 260));
+                        const currentShape = getCurrentImageShape();
+                        const shapeDisplayNames: Record<string, string> = {
+                          'rectangle': 'Rectangle',
+                          'rounded-sm': 'Soft (8px)',
+                          'rounded-lg': 'Card (16px)',
+                          'squircle': 'Squircle',
+                          'circle': 'Circle',
+                          'pill': 'Pill'
+                        };
+
+                        return (
+                          <div
+                            style={{
+                              position: 'absolute',
+                              top: `${toolbarTop}px`,
+                              left: `${toolbarLeft}px`,
+                              pointerEvents: 'auto',
+                            }}
+                            className="bg-slate-900/95 text-white border border-slate-700/80 rounded-xl px-2.5 py-1.5 shadow-2xl flex items-center gap-1.5 backdrop-blur-md animate-in fade-in zoom-in-95 duration-100 z-30"
+                          >
+                            {/* Size Badge */}
+                            <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-white/10 text-white shrink-0">
+                              {Math.round(imageOverlayRect.width)}px
+                            </span>
+
+                            <div className="w-px h-4 bg-white/20 mx-0.5" />
+
+                            {/* Quick Presets */}
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleResizeImagePreset(160)}
+                                title="Logo Size (160px)"
+                                className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-white/5 hover:bg-white/20 transition-colors cursor-pointer"
+                              >
+                                160px
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleResizeImagePreset(320)}
+                                title="Medium (320px)"
+                                className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-white/5 hover:bg-white/20 transition-colors cursor-pointer"
+                              >
+                                320px
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleResizeImagePreset(480)}
+                                title="Large (480px)"
+                                className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-white/5 hover:bg-white/20 transition-colors cursor-pointer"
+                              >
+                                480px
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleResizeImagePreset('100%')}
+                                title="Full Width (100%)"
+                                className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-white/5 hover:bg-white/20 transition-colors cursor-pointer"
+                              >
+                                100%
+                              </button>
+                            </div>
+
+                            <div className="w-px h-4 bg-white/20 mx-0.5" />
+
+                            {/* Alignment Buttons */}
+                            <div className="flex items-center gap-0.5">
+                              <button
+                                type="button"
+                                onClick={() => handleAlignSelectedImage('left')}
+                                title="Align Left"
+                                className="p-1 rounded hover:bg-white/20 text-slate-200 hover:text-white transition-colors cursor-pointer"
+                              >
+                                <AlignLeft size={13} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleAlignSelectedImage('center')}
+                                title="Align Center"
+                                className="p-1 rounded hover:bg-white/20 text-slate-200 hover:text-white transition-colors cursor-pointer"
+                              >
+                                <AlignCenter size={13} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleAlignSelectedImage('right')}
+                                title="Align Right"
+                                className="p-1 rounded hover:bg-white/20 text-slate-200 hover:text-white transition-colors cursor-pointer"
+                              >
+                                <AlignRight size={13} />
+                              </button>
+                            </div>
+
+                            <div className="w-px h-4 bg-white/20 mx-0.5" />
+
+                            {/* Shape Selector Button & Popover */}
+                            <div className="relative">
+                              <button
+                                type="button"
+                                onClick={() => setIsImageShapePickerOpen(!isImageShapePickerOpen)}
+                                title="Change Image Shape (Rectangle, Soft, Card, Squircle, Circle, Pill)"
+                                className={`px-2 py-0.5 rounded text-[10px] font-medium flex items-center gap-1 transition-colors cursor-pointer ${
+                                  isImageShapePickerOpen ? 'bg-amber-400/20 text-amber-300 ring-1 ring-amber-400/30' : 'bg-white/10 hover:bg-white/20 text-white'
+                                }`}
+                              >
+                                <Shapes size={12} className="text-amber-400" />
+                                <span>{shapeDisplayNames[currentShape] || 'Shape'}</span>
+                                <ChevronDown size={10} className="opacity-70" />
+                              </button>
+
+                              {/* Shape Popover Menu - Solid Opaque Dark Theme matching Upper Bar */}
+                              {isImageShapePickerOpen && (
+                                <div
+                                  style={{ backgroundColor: '#0f172a', borderColor: '#334155' }}
+                                  className={`absolute left-1/2 -translate-x-1/2 ${
+                                    toolbarTop > 160 ? 'bottom-full mb-2' : 'top-full mt-2'
+                                  } w-56 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-2 z-50 text-white animate-in fade-in zoom-in-95 duration-100`}
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <div className="text-[10px] font-bold text-slate-300 uppercase tracking-wider px-2 py-1 mb-1.5 border-b border-slate-700/80 flex items-center justify-between bg-slate-800/60 rounded-t-lg">
+                                    <span className="flex items-center gap-1.5"><Shapes size={11} className="text-amber-400" /> Canva Shape</span>
+                                    <span className="text-[9px] text-amber-400 font-semibold px-1.5 py-0.5 rounded bg-amber-400/10">Instant</span>
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-1.5 p-0.5">
+                                    {[
+                                      { id: 'rectangle', label: 'Rectangle', icon: <div className="w-3.5 h-3 border-2 border-current rounded-none" /> },
+                                      { id: 'rounded-sm', label: 'Soft Curve', icon: <div className="w-3.5 h-3 border-2 border-current rounded-xs" /> },
+                                      { id: 'rounded-lg', label: 'Card Curve', icon: <div className="w-3.5 h-3 border-2 border-current rounded-[2.5px]" /> },
+                                      { id: 'squircle', label: 'Squircle', icon: <div className="w-3.5 h-3.5 border-2 border-current rounded-[28%]" /> },
+                                      { id: 'circle', label: 'Circle (1:1)', icon: <div className="w-3.5 h-3.5 border-2 border-current rounded-full" /> },
+                                      { id: 'pill', label: 'Pill Shape', icon: <div className="w-4 h-2.5 border-2 border-current rounded-full" /> },
+                                    ].map((item) => {
+                                      const isActive = currentShape === item.id;
+                                      return (
+                                        <button
+                                          key={item.id}
+                                          type="button"
+                                          onClick={() => handleApplyImageShape(item.id as any)}
+                                          className={`flex items-center gap-2 px-2 py-1.5 rounded-lg text-[10px] font-medium transition-all text-left cursor-pointer ${
+                                            isActive
+                                              ? 'bg-primary text-primary-foreground font-bold shadow-sm ring-1 ring-white/20'
+                                              : 'bg-slate-800/70 hover:bg-slate-700/90 text-slate-200 hover:text-white border border-slate-700/50'
+                                          }`}
+                                        >
+                                          <span className="shrink-0 text-current">{item.icon}</span>
+                                          <span className="truncate">{item.label}</span>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="w-px h-4 bg-white/20 mx-0.5" />
+
+                            {/* Cut Button (Ctrl+X) */}
+                            <button
+                              type="button"
+                              onClick={handleCutSelectedImage}
+                              title="Cut Image (Ctrl+X)"
+                              className="p-1 rounded hover:bg-white/20 text-slate-200 hover:text-white transition-colors cursor-pointer"
+                            >
+                              <Scissors size={13} />
+                            </button>
+
+                            {/* Copy Button (Ctrl+C) */}
+                            <button
+                              type="button"
+                              onClick={handleCopySelectedImage}
+                              title="Copy Image (Ctrl+C)"
+                              className="p-1 rounded hover:bg-white/20 text-slate-200 hover:text-white transition-colors cursor-pointer"
+                            >
+                              <Copy size={13} />
+                            </button>
+
+                            <div className="w-px h-4 bg-white/20 mx-0.5" />
+
+                            {/* Delete Button */}
+                            <button
+                              type="button"
+                              onClick={handleDeleteSelectedImage}
+                              title="Remove Image from Template (Del)"
+                              className="p-1 rounded hover:bg-red-500/30 text-red-400 hover:text-red-300 transition-colors cursor-pointer"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+
+                            {/* Deselect / Close button */}
+                            <button
+                              type="button"
+                              onClick={() => setSelectedEditorImage(null)}
+                              title="Deselect"
+                              className="p-1 rounded hover:bg-white/20 text-slate-400 hover:text-white transition-colors cursor-pointer"
+                            >
+                              <X size={13} />
+                            </button>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+                </div>
               </div>
             ) : (
               /* HTML Code Mode - Full Width Editor */
@@ -10587,8 +10928,8 @@ export default function EmailCenter() {
             )}
           </div>
 
-          {/* Footer */}
-          <div className="flex items-center justify-between px-5 py-3.5 border-t bg-card shrink-0">
+          {/* Footer - Compact Slim Bar */}
+          <div className="flex items-center justify-between px-5 py-2 border-t bg-white dark:bg-card shrink-0">
             <p className="text-[11px] text-muted-foreground">
               {manualTemplateMode === 'editor'
                 ? '📝 Mode: Rich Text Editor — Type your message and use {{name}} for recipient name.'
@@ -10602,7 +10943,7 @@ export default function EmailCenter() {
                   resetManualTemplateModalState();
                   setIsManualTemplateModalOpen(false);
                 }}
-                className="btn-secondary h-8.5 px-4 text-xs font-bold"
+                className="btn-secondary h-7.5 px-3.5 text-xs font-bold cursor-pointer"
               >
                 Cancel
               </button>
@@ -10610,7 +10951,7 @@ export default function EmailCenter() {
                 type="button"
                 onClick={handleSaveManualTemplate}
                 disabled={savingManualTemplate}
-                className="btn-primary h-8.5 px-4 text-xs font-bold flex items-center gap-1.5 disabled:opacity-60"
+                className="btn-primary h-7.5 px-4 text-xs font-bold flex items-center gap-1.5 disabled:opacity-60 cursor-pointer shadow-xs"
               >
                 {savingManualTemplate ? (
                   <><Loader2 size={12} className="animate-spin" /> Saving...</>
@@ -10620,12 +10961,19 @@ export default function EmailCenter() {
               </button>
             </div>
           </div>
+
+          {/* --- TEMPLATE IMAGE & LOGO INSERTER MODAL (IN-DIALOG OVERLAY) --- */}
+          <TemplateImageModal
+            isOpen={isTemplateImageModalOpen}
+            onClose={() => setIsTemplateImageModalOpen(false)}
+            onInsert={handleInsertTemplateImage}
+          />
         </DialogContent>
       </Dialog>
 
       {/* --- DIALOG 1B: FULLSCREEN CAMPAIGN EMAIL PREVIEW --- */}
       <Dialog open={isCampaignPreviewFullscreen} onOpenChange={setIsCampaignPreviewFullscreen}>
-        <DialogContent className="w-[96vw] max-w-5xl max-h-[94vh] overflow-y-auto custom-scrollbar p-6 flex flex-col dark:bg-card">
+        <DialogContent className="w-[96vw] max-w-5xl max-h-[94vh] overflow-y-auto custom-scrollbar p-6 flex flex-col bg-white dark:bg-card">
           <DialogHeader className="pb-3 border-b flex flex-row items-center justify-between">
             <DialogTitle className="text-base font-bold flex items-center gap-2">
               <span>👁️ Full Email Preview:</span>
@@ -10635,7 +10983,7 @@ export default function EmailCenter() {
           <div className="flex-1 bg-slate-100 dark:bg-slate-900/80 p-4 sm:p-8 rounded-2xl flex justify-center overflow-y-auto custom-scrollbar min-h-[500px]">
             <div className="w-full max-w-[620px] bg-white text-gray-900 rounded-xl shadow-md p-4 sm:p-6 border border-slate-200 self-start">
               {campaignForm.content ? (
-                <div dangerouslySetInnerHTML={{ __html: campaignForm.content.replace(/\{\{name\}\}/gi, "John Doe") }} />
+                <div className="email-template-canvas" dangerouslySetInnerHTML={{ __html: scopeTemplateHtml(campaignForm.content.replace(/\{\{name\}\}/gi, "John Doe")) }} />
               ) : (
                 <p className="text-center text-gray-400 py-16 text-xs">No template content to preview.</p>
               )}
@@ -10646,8 +10994,8 @@ export default function EmailCenter() {
 
       {/* --- DIALOG: DIRECT TEMPLATE PREVIEW & INSPECTOR MODAL --- */}
       <Dialog open={isTemplatePreviewModalOpen} onOpenChange={setIsTemplatePreviewModalOpen}>
-        <DialogContent className="w-[96vw] max-w-6xl max-h-[94vh] p-0 flex flex-col overflow-hidden dark:bg-card rounded-3xl shadow-2xl">
-          <DialogHeader className="p-4 px-6 border-b shrink-0 flex flex-row items-center justify-between bg-card relative">
+        <DialogContent className="w-[96vw] max-w-6xl max-h-[94vh] p-0 flex flex-col overflow-hidden bg-white dark:bg-card rounded-3xl shadow-2xl">
+          <DialogHeader className="p-4 px-6 border-b shrink-0 flex flex-row items-center justify-between bg-white dark:bg-card relative">
             <div className="text-left space-y-1 min-w-0 pr-8">
               <div className="flex items-center gap-2 flex-wrap">
                 <DialogTitle className="text-base font-extrabold text-foreground tracking-tight">
@@ -10688,10 +11036,10 @@ export default function EmailCenter() {
 
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-100/80 dark:bg-slate-950/60 custom-scrollbar" style={{ height: '78vh', minHeight: '520px' }}>
             {templatePreviewMode === 'visual' ? (
-              <div className="w-full max-w-[680px] mx-auto bg-white text-gray-900 rounded-2xl shadow-md border border-slate-200/80 p-6 sm:p-8 overflow-hidden leading-relaxed text-sm">
+              <div className="w-full max-w-[680px] mx-auto bg-white text-gray-900 rounded-2xl shadow-md border border-slate-200/80 p-6 sm:p-8 overflow-hidden leading-relaxed text-sm email-template-canvas">
                 <div
                   dangerouslySetInnerHTML={{
-                    __html: (selectedTemplateForPreview?.content || '').replace(/\{\{name\}\}/gi, 'John Doe')
+                    __html: scopeTemplateHtml((selectedTemplateForPreview?.content || '').replace(/\{\{name\}\}/gi, 'John Doe'))
                   }}
                 />
               </div>
@@ -10724,7 +11072,7 @@ export default function EmailCenter() {
             )}
           </div>
 
-          <DialogFooter className="p-3.5 px-6 border-t bg-card shrink-0 flex items-center justify-between gap-2">
+          <DialogFooter className="p-3.5 px-6 border-t bg-white dark:bg-card shrink-0 flex items-center justify-between gap-2">
             <p className="text-[11px] text-muted-foreground hidden sm:block">
               Dynamic placeholder <span className="font-mono bg-accent px-1.5 py-0.5 rounded text-primary">{'{{name}}'}</span> will be populated for each recipient.
             </p>
