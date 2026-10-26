@@ -406,7 +406,11 @@ export const EmailCenterProvider: React.FC<{ children: ReactNode }> = ({ childre
       await api.post("/emails/resubscribe", {
         leadId: conv._id,
         email: conv.email,
-        leadModel: conv.leadType === "ea_lead" ? "EALead" : "Lead"
+        leadModel: conv.leadType === "ea_lead" 
+          ? "EALead" 
+          : (conv.categoryTag?.toLowerCase().includes("marketing") || conv.categoryTag?.toLowerCase().includes("segment")
+              ? "MarketingContact" 
+              : "Lead")
       });
       toast.success(`Email consent restored for ${conv.name}!`);
       setSelectedConversation(prev => prev && prev._id === conv._id ? { ...prev, isConsent: true } : prev);

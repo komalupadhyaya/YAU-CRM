@@ -12,6 +12,8 @@ import RetellKnowledgeBase from '../models/retellKnowledgeBase.model.js';
 import dns from 'dns/promises';
 import mongoose from 'mongoose';
 import { resolveSegmentRecipients, resolveMultipleSegmentsRecipients } from './segments.controller.js';
+import EmailMarketingContact, { MarketingContact } from '../models/emailMarketingContact.model.js';
+import EmailSegment from '../models/emailSegment.model.js';
 
 // --- Existing google verify domain ---
 export const verifyEmailDomain = async (req, res) => {
@@ -518,7 +520,7 @@ export const unsubscribeLead = async (req, res, next) => {
         const isValidLeadId = leadId && mongoose.Types.ObjectId.isValid(leadId) && leadId !== 'direct';
 
         if (isValidLeadId) {
-            if (model === 'MarketingContact') {
+            if (model === 'MarketingContact' || model === 'EmailMarketingContact') {
                 const mc = await MarketingContact.findByIdAndUpdate(
                     leadId, 
                     { status: 'opted_out', isEmailConsent: false }, 
@@ -544,7 +546,6 @@ export const unsubscribeLead = async (req, res, next) => {
                 { $set: { status: 'opted_out', isEmailConsent: false } }
             );
 
-            const EmailSegment = mongoose.model('EmailSegment');
             await EmailSegment.updateMany(
                 { "contacts.email": emailToOptOut },
                 { $set: { "contacts.$.status": "opted_out" } }
@@ -779,6 +780,14 @@ export const getEmailConversations = async (req, res) => {
             });
         });
 
+        // Also track all MarketingContacts explicitly marked as opted-out
+        const optedOutMarketing = await MarketingContact.find({
+            $or: [{ status: 'opted_out' }, { isEmailConsent: false }]
+        }).select('email').lean();
+        optedOutMarketing.forEach(mc => {
+            if (mc.email) unsubscribedEmails.add(mc.email.toLowerCase().trim());
+        });
+
         // Gather EALeads
         const eaQuery = isPrivileged ? {} : { assigned_to: userId };
         const eaLeads = await EALead.find(eaQuery).lean();
@@ -956,19 +965,26 @@ export const resubscribeLead = async (req, res, next) => {
         const { leadId, email, leadModel } = req.body;
         const cleanEmail = email ? email.toLowerCase().trim() : '';
 
-        // 1. If valid leadId, update Lead or EALead
+        // 1. If valid leadId, update Lead, EALead, or MarketingContact
         if (leadId && mongoose.Types.ObjectId.isValid(leadId)) {
             if (leadModel === 'EALead') {
                 await EALead.findByIdAndUpdate(leadId, { isEmailConsent: true });
+            } else if (leadModel === 'MarketingContact' || leadModel === 'EmailMarketingContact') {
+                await MarketingContact.findByIdAndUpdate(leadId, { isEmailConsent: true, status: 'active' });
             } else {
-                await Lead.findByIdAndUpdate(leadId, { isEmailConsent: true });
+                const lead = await Lead.findByIdAndUpdate(leadId, { isEmailConsent: true });
+                if (!lead) {
+                    await MarketingContact.findByIdAndUpdate(leadId, { isEmailConsent: true, status: 'active' });
+                }
             }
         }
 
         // 2. Also search and update any matching Lead/EALead documents by email
         if (cleanEmail) {
-            await EALead.updateMany({ email: new RegExp(`^${cleanEmail}$`, 'i') }, { isEmailConsent: true });
-            const contacts = await Contact.find({ email: new RegExp(`^${cleanEmail}$`, 'i') });
+            const escapedEmail = cleanEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const emailRegex = new RegExp(`^${escapedEmail}$`, 'i');
+            await EALead.updateMany({ email: emailRegex }, { isEmailConsent: true });
+            const contacts = await Contact.find({ email: emailRegex });
             if (contacts.length > 0) {
                 const leadIds = contacts.map(c => c.lead_id);
                 await Lead.updateMany({ _id: { $in: leadIds } }, { isEmailConsent: true });
@@ -982,7 +998,6 @@ export const resubscribeLead = async (req, res, next) => {
                 { $set: { status: 'active', isEmailConsent: true } }
             );
 
-            const EmailSegment = mongoose.model('EmailSegment');
             await EmailSegment.updateMany(
                 { "contacts.email": cleanEmail },
                 { $set: { "contacts.$.status": "active" } }
