@@ -30,6 +30,7 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import api from "../../api/api";
+import { IsolatedEmailPreview } from "../common/IsolatedEmailPreview";
 
 interface Segment {
   _id: string;
@@ -704,10 +705,13 @@ export default function AiPersonalizedCampaignModal({
                         <span><strong>Template Name:</strong> {activeTemplate.name}</span>
                         <span><strong>Category:</strong> {activeTemplate.category || 'General'}</span>
                       </div>
-                      <div
-                        className="p-3 bg-white text-slate-900 rounded-lg overflow-y-auto max-h-48 text-xs border"
-                        dangerouslySetInnerHTML={{ __html: activeTemplate.content }}
-                      />
+                      <div className="p-2 bg-white rounded-lg overflow-hidden border">
+                        <IsolatedEmailPreview
+                          html={activeTemplate.content}
+                          maxHeight={192}
+                          className="w-full"
+                        />
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1002,8 +1006,13 @@ export default function AiPersonalizedCampaignModal({
 
                                 {(cardViewModes[draft.email] || 'visual') === 'visual' ? (
                                   <div className="border rounded-xl bg-slate-100 dark:bg-slate-900/60 p-4 sm:p-5 min-h-[280px] max-h-[440px] overflow-y-auto custom-scrollbar shadow-inner flex justify-center">
-                                    <div className="w-full max-w-[620px] bg-white text-gray-900 rounded-xl shadow-sm border border-slate-200 p-4 sm:p-6 self-start">
-                                      <div dangerouslySetInnerHTML={{ __html: draft.body }} />
+                                    <div className="w-full max-w-[620px] bg-white rounded-xl shadow-sm border border-slate-200 p-2 sm:p-4 self-start overflow-hidden">
+                                      <IsolatedEmailPreview
+                                        html={draft.body}
+                                        autoHeight={true}
+                                        minHeight={260}
+                                        className="w-full"
+                                      />
                                     </div>
                                   </div>
                                 ) : (
@@ -1251,8 +1260,13 @@ export default function AiPersonalizedCampaignModal({
           </div>
 
           <div className="flex-1 overflow-y-auto p-6 bg-slate-100 dark:bg-slate-900/60 flex justify-center custom-scrollbar">
-            <div className="w-full max-w-[640px] bg-white text-gray-900 rounded-2xl shadow-md border border-slate-200 p-6 self-start">
-              <div dangerouslySetInnerHTML={{ __html: fullViewDraft?.body || "" }} />
+            <div className="w-full max-w-[640px] bg-white rounded-2xl shadow-md border border-slate-200 p-4 sm:p-6 self-start overflow-hidden">
+              <IsolatedEmailPreview
+                html={fullViewDraft?.body || ""}
+                autoHeight={true}
+                minHeight={450}
+                className="w-full"
+              />
             </div>
           </div>
         </DialogContent>

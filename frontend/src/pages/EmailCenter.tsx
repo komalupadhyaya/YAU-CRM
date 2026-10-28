@@ -78,6 +78,7 @@ import {
   Image as ImageIcon
 } from "lucide-react";
 import { toast } from "sonner";
+import { IsolatedEmailPreview } from "../components/common/IsolatedEmailPreview";
 
 interface MarketingContactItem {
   _id: string;
@@ -5143,10 +5144,13 @@ export default function EmailCenter() {
                               </div>
 
                               {/* HTML Body / Content */}
-                              <div
-                                className="text-xs text-foreground/90 leading-relaxed border-t border-border/60 pt-2.5 max-h-72 overflow-y-auto custom-scrollbar bg-accent/10 rounded-xl p-3"
-                                dangerouslySetInnerHTML={{ __html: email.body }}
-                              />
+                              <div className="w-full border-t border-border/60 pt-2.5 overflow-hidden rounded-xl bg-accent/10 p-1">
+                                <IsolatedEmailPreview
+                                  html={email.body}
+                                  maxHeight={280}
+                                  className="w-full rounded-lg"
+                                />
+                              </div>
 
                               {/* Footer WhatsApp Checkmark Delivery Indicators */}
                               <div className="flex items-center justify-end gap-2 pt-1 border-t border-border/40">
@@ -5545,10 +5549,12 @@ export default function EmailCenter() {
                 {campaignEditorMode === "preview" && (
                   <div className="border rounded-2xl bg-slate-100/90 dark:bg-slate-900/60 p-4 sm:p-6 min-h-[420px] max-h-[560px] overflow-y-auto overflow-x-auto custom-scrollbar shadow-inner flex justify-center items-start">
                     {campaignForm.content.trim() ? (
-                      <div className="w-full max-w-[600px] overflow-hidden rounded-xl bg-white shadow-sm border border-slate-200">
-                        <div
-                          className="email-template-canvas text-gray-900 leading-relaxed [&_table]:max-w-[600px] [&_table]:w-full [&_table]:mx-auto [&_table]:border-collapse"
-                          dangerouslySetInnerHTML={{ __html: scopeTemplateHtml(campaignForm.content.replace(/\{\{name\}\}/gi, "John Doe")) }}
+                      <div className="w-full max-w-[600px] overflow-hidden rounded-xl bg-white shadow-sm border border-slate-200 p-2 sm:p-4">
+                        <IsolatedEmailPreview
+                          html={campaignForm.content.replace(/\{\{name\}\}/gi, "John Doe")}
+                          autoHeight={true}
+                          minHeight={380}
+                          className="w-full"
                         />
                       </div>
                     ) : (
@@ -9658,12 +9664,16 @@ export default function EmailCenter() {
                   <div className="flex flex-col min-h-full flex-1">
                     {/* Mode 1: Visual Live Preview */}
                     {previewTab === "visual" && (
-                      <div
-                        className="p-6 flex-1 text-foreground text-sm space-y-3 prose dark:prose-invert max-w-none custom-scrollbar overflow-y-auto [&_table]:max-w-[600px] [&_table]:w-full [&_table]:mx-auto [&_table]:border-collapse"
-                        dangerouslySetInnerHTML={{
-                          __html: aiDraftTemplate.content.replace(/\{\{name\}\}/gi, "John Doe")
-                        }}
-                      />
+                      <div className="p-4 flex-1 custom-scrollbar overflow-y-auto">
+                        <div className="max-w-[620px] mx-auto bg-white rounded-xl shadow-xs border border-slate-200 p-3 sm:p-5 overflow-hidden">
+                          <IsolatedEmailPreview
+                            html={aiDraftTemplate.content.replace(/\{\{name\}\}/gi, "John Doe")}
+                            autoHeight={true}
+                            minHeight={400}
+                            className="w-full"
+                          />
+                        </div>
+                      </div>
                     )}
 
                     {/* Mode 2: Write Content (Rich WYSIWYG Editor) */}
@@ -10981,9 +10991,14 @@ export default function EmailCenter() {
             </DialogTitle>
           </DialogHeader>
           <div className="flex-1 bg-slate-100 dark:bg-slate-900/80 p-4 sm:p-8 rounded-2xl flex justify-center overflow-y-auto custom-scrollbar min-h-[500px]">
-            <div className="w-full max-w-[620px] bg-white text-gray-900 rounded-xl shadow-md p-4 sm:p-6 border border-slate-200 self-start">
+            <div className="w-full max-w-[620px] bg-white rounded-xl shadow-md p-3 sm:p-5 border border-slate-200 self-start overflow-hidden">
               {campaignForm.content ? (
-                <div className="email-template-canvas" dangerouslySetInnerHTML={{ __html: scopeTemplateHtml(campaignForm.content.replace(/\{\{name\}\}/gi, "John Doe")) }} />
+                <IsolatedEmailPreview
+                  html={campaignForm.content.replace(/\{\{name\}\}/gi, "John Doe")}
+                  autoHeight={true}
+                  minHeight={450}
+                  className="w-full"
+                />
               ) : (
                 <p className="text-center text-gray-400 py-16 text-xs">No template content to preview.</p>
               )}
@@ -11036,11 +11051,12 @@ export default function EmailCenter() {
 
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-100/80 dark:bg-slate-950/60 custom-scrollbar" style={{ height: '78vh', minHeight: '520px' }}>
             {templatePreviewMode === 'visual' ? (
-              <div className="w-full max-w-[680px] mx-auto bg-white text-gray-900 rounded-2xl shadow-md border border-slate-200/80 p-6 sm:p-8 overflow-hidden leading-relaxed text-sm email-template-canvas">
-                <div
-                  dangerouslySetInnerHTML={{
-                    __html: scopeTemplateHtml((selectedTemplateForPreview?.content || '').replace(/\{\{name\}\}/gi, 'John Doe'))
-                  }}
+              <div className="w-full max-w-[680px] mx-auto bg-white rounded-2xl shadow-md border border-slate-200/80 p-3 sm:p-5 overflow-hidden">
+                <IsolatedEmailPreview
+                  html={(selectedTemplateForPreview?.content || '').replace(/\{\{name\}\}/gi, 'John Doe')}
+                  autoHeight={true}
+                  minHeight={500}
+                  className="w-full"
                 />
               </div>
             ) : (
