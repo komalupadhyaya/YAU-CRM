@@ -300,6 +300,87 @@ export default function MarketingContacts() {
     return "";
   }, [isAfterSchoolContact]);
 
+  // Helper: Resolve Student / Athlete Name from all possible contact / metadata structures
+  const getContactStudent = useCallback((contact: MarketingContact | null | undefined): string => {
+    if (!contact) return "";
+    const meta = contact.metadata || {};
+    if (contact.studentName && typeof contact.studentName === "string" && contact.studentName.trim()) {
+      return contact.studentName.trim();
+    }
+    if (typeof meta.studentName === "string" && meta.studentName.trim()) {
+      return meta.studentName.trim();
+    }
+    if (typeof meta.student_name === "string" && meta.student_name.trim()) {
+      return meta.student_name.trim();
+    }
+    if (typeof meta.childName === "string" && meta.childName.trim()) {
+      return meta.childName.trim();
+    }
+    if (typeof meta.athleteName === "string" && meta.athleteName.trim()) {
+      return meta.athleteName.trim();
+    }
+    if (Array.isArray(meta.students) && meta.students.length > 0) {
+      const names = meta.students
+        .map((s: any) => {
+          if (typeof s === "object" && s !== null) {
+            return s.student_name || s.studentName || s.name || s.fullName || "";
+          }
+          return typeof s === "string" ? s.trim() : "";
+        })
+        .filter(Boolean);
+      if (names.length > 0) return names.join(", ");
+    }
+    return "";
+  }, []);
+
+  // Helper: Format custom field values cleanly without raw JSON dumps
+  const formatCustomFieldVal = useCallback((key: string, val: any): string => {
+    if (val === null || val === undefined || val === "") return "None";
+    if (typeof val === "boolean") return val ? "Granted (Yes)" : "No";
+
+    const lowerKey = key.toLowerCase();
+
+    // Arrays (e.g. students, all_sports, additional_students)
+    if (Array.isArray(val)) {
+      if (val.length === 0) return "None";
+
+      // If it's a student array (e.g. students: [{ student_name: "Ahmad Coley", ... }])
+      if (lowerKey.includes("student")) {
+        const names = val
+          .map((item: any) => {
+            if (typeof item === "object" && item !== null) {
+              return item.student_name || item.studentName || item.name || item.fullName || null;
+            }
+            return typeof item === "string" ? item.trim() : String(item);
+          })
+          .filter(Boolean);
+        if (names.length > 0) return names.join(", ");
+        return "None";
+      }
+
+      // Other arrays (e.g. all_sports: ["Afterschool General"])
+      return val
+        .map((item: any) => {
+          if (typeof item === "object" && item !== null) {
+            if (item.name || item.title || item.label) return item.name || item.title || item.label;
+            return JSON.stringify(item);
+          }
+          return String(item);
+        })
+        .join(", ");
+    }
+
+    // Single object (e.g. student: { student_name: "Ahmad Coley" })
+    if (typeof val === "object") {
+      if (val.student_name || val.studentName || val.name || val.fullName) {
+        return val.student_name || val.studentName || val.name || val.fullName;
+      }
+      return JSON.stringify(val);
+    }
+
+    return String(val);
+  }, []);
+
   // Edit / Update Contact Form State
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [contactToEdit, setContactToEdit] = useState<MarketingContact | null>(null);
@@ -331,7 +412,7 @@ export default function MarketingContacts() {
       sport: contact.sport || meta.sportsInterest || meta.sport || "",
       gradeBand: contact.gradeBand || meta.grade || meta.gradeBand || "",
       planType: contact.planType || meta.planType || meta.plan || (isAfterSchoolContact(contact) ? "Free Plan" : ""),
-      studentName: contact.studentName || meta.studentName || meta.childName || "",
+      studentName: getContactStudent(contact),
       status: (contact.status === "opted_out" ? "opted_out" : "active")
     });
     setIsEditModalOpen(true);
@@ -553,12 +634,12 @@ export default function MarketingContacts() {
       const matchEmail = (c.email || "").toLowerCase().includes(q);
       const matchPhone = (c.phone || "").toLowerCase().includes(q);
       const matchSport = (c.sport || meta.sportsInterest || meta.sport || "").toLowerCase().includes(q);
-      const matchStudent = (c.studentName || meta.studentName || meta.childName || "").toLowerCase().includes(q);
+      const matchStudent = getContactStudent(c).toLowerCase().includes(q);
       const matchGrade = (c.gradeBand || meta.grade || meta.gradeBand || "").toLowerCase().includes(q);
       const matchPlan = getContactPlan(c).toLowerCase().includes(q);
       return matchName || matchEmail || matchPhone || matchSport || matchStudent || matchGrade || matchPlan;
     });
-  }, [activeDrillDownList, drillDownSearch, getContactPlan]);
+  }, [activeDrillDownList, drillDownSearch, getContactPlan, getContactStudent]);
 
   // Client-Side In-Memory Filtering (Zero network calls on filter/toggle)
   const filteredContacts = useMemo(() => {
@@ -606,7 +687,7 @@ export default function MarketingContacts() {
         const matchSchool = (contact.schoolName || contact.metadata?.schoolName || "").toLowerCase().includes(q);
         const matchLocation = (contact.locationName || contact.metadata?.locationName || "").toLowerCase().includes(q);
         const matchSport = (contact.sport || contact.metadata?.sportsInterest || "").toLowerCase().includes(q);
-        const matchStudent = (contact.studentName || contact.metadata?.studentName || "").toLowerCase().includes(q);
+        const matchStudent = getContactStudent(contact).toLowerCase().includes(q);
         const matchPlan = getContactPlan(contact).toLowerCase().includes(q);
 
         if (!matchName && !matchEmail && !matchPhone && !matchSource && !matchSchool && !matchLocation && !matchSport && !matchStudent && !matchPlan) {
@@ -616,7 +697,7 @@ export default function MarketingContacts() {
 
       return true;
     });
-  }, [contacts, sourceFilter, statusFilter, deduplicatedOnly, searchQuery, selectedListFilter, getAssignedListName, getContactPlan]);
+  }, [contacts, sourceFilter, statusFilter, deduplicatedOnly, searchQuery, selectedListFilter, getAssignedListName, getContactPlan, getContactStudent]);
 
   // Client-Side Sorting
   const sortedContacts = useMemo(() => {
@@ -755,7 +836,7 @@ export default function MarketingContacts() {
         c.sport || meta.sportsInterest || meta.sport || "",
         c.gradeBand || meta.grade || meta.gradeBand || "",
         getContactPlan(c),
-        c.studentName || meta.studentName || meta.childName || "",
+        getContactStudent(c),
         c.submissionCount || 1,
         c.lastRegisteredAt ? new Date(c.lastRegisteredAt).toLocaleString() : ""
       ];
@@ -1121,7 +1202,7 @@ export default function MarketingContacts() {
                             const sport = contact.sport || meta.sportsInterest || meta.sport || "";
                             const grade = contact.gradeBand || meta.grade || meta.gradeBand || "";
                             const plan = getContactPlan(contact);
-                            const student = contact.studentName || meta.studentName || meta.childName || "";
+                            const student = getContactStudent(contact);
 
                             return (
                               <tr
@@ -1823,7 +1904,7 @@ export default function MarketingContacts() {
                     const sport = contact.sport || meta.sportsInterest || meta.sport || "";
                     const grade = contact.gradeBand || meta.grade || meta.gradeBand || "";
                     const plan = getContactPlan(contact);
-                    const student = contact.studentName || meta.studentName || meta.childName || "";
+                    const student = getContactStudent(contact);
 
                     return (
                       <tr
@@ -2251,6 +2332,12 @@ export default function MarketingContacts() {
                   <span className="font-semibold text-foreground">{selectedContact?.parentName}</span>
                 </div>
                 <div className="flex items-baseline gap-1.5">
+                  <span className="font-bold text-muted-foreground shrink-0">Student / Athlete:</span>
+                  <span className="font-semibold text-foreground">
+                    {getContactStudent(selectedContact) || "Not specified"}
+                  </span>
+                </div>
+                <div className="flex items-baseline gap-1.5">
                   <span className="font-bold text-muted-foreground shrink-0">Email Address:</span>
                   <span className="font-semibold text-foreground break-all">{selectedContact?.email}</span>
                 </div>
@@ -2258,15 +2345,9 @@ export default function MarketingContacts() {
                   <span className="font-bold text-muted-foreground shrink-0">Phone Number:</span>
                   <span className="font-semibold text-foreground">{selectedContact?.phone || "None"}</span>
                 </div>
-                <div className="flex items-baseline gap-1.5">
+                <div className="flex items-baseline gap-1.5 col-span-1 sm:col-span-2">
                   <span className="font-bold text-muted-foreground shrink-0">Registration Source:</span>
                   <span className="font-semibold text-foreground">{selectedContact?.source || "App Registration"}</span>
-                </div>
-                <div className="flex items-baseline gap-1.5 col-span-1 sm:col-span-2">
-                  <span className="font-bold text-muted-foreground shrink-0">Assigned CRM List:</span>
-                  <span className="font-bold text-primary flex items-center gap-1">
-                    <Layers size={11} /> {selectedContact ? getAssignedListName(selectedContact) : "N/A"}
-                  </span>
                 </div>
               </div>
             </div>
@@ -2318,11 +2399,12 @@ export default function MarketingContacts() {
                   </span>
                 </div>
 
-                {/* Student / Athlete */}
-                <div className="flex items-baseline gap-1.5 p-2 rounded-lg bg-accent/15 border">
-                  <span className="font-bold text-muted-foreground shrink-0">Student / Athlete:</span>
-                  <span className="font-bold text-foreground">
-                    {selectedContact?.studentName || selectedContact?.metadata?.studentName || selectedContact?.metadata?.childName || "Not specified"}
+                {/* Assigned CRM List */}
+                <div className="flex items-baseline gap-1.5 p-2 rounded-lg bg-primary/10 border border-primary/20 col-span-1 sm:col-span-2">
+                  <span className="font-bold text-muted-foreground shrink-0">Assigned CRM List:</span>
+                  <span className="font-bold text-primary flex items-center gap-1.5 break-words">
+                    <Layers size={11} className="shrink-0" />
+                    <span>{selectedContact ? getAssignedListName(selectedContact) : "N/A"}</span>
                   </span>
                 </div>
               </div>
@@ -2425,13 +2507,7 @@ export default function MarketingContacts() {
                             <div key={key} className="flex items-baseline gap-1.5 p-2 rounded-lg bg-accent/15 border">
                               <span className="font-bold text-muted-foreground shrink-0">{label}:</span>
                               <span className="font-semibold text-foreground break-words">
-                                {typeof val === "boolean"
-                                  ? val ? "Granted (Yes)" : "No"
-                                  : val === null || val === undefined || val === ""
-                                  ? "None"
-                                  : typeof val === "object"
-                                  ? JSON.stringify(val)
-                                  : String(val)}
+                                {formatCustomFieldVal(key, val)}
                               </span>
                             </div>
                           );
@@ -2465,7 +2541,7 @@ export default function MarketingContacts() {
                           sport: selectedContact?.sport || selectedContact?.metadata?.sportsInterest || selectedContact?.metadata?.sport || null,
                           gradeBand: selectedContact?.gradeBand || selectedContact?.metadata?.grade || selectedContact?.metadata?.gradeBand || null,
                           planType: getContactPlan(selectedContact) || null,
-                          studentName: selectedContact?.studentName || selectedContact?.metadata?.studentName || selectedContact?.metadata?.childName || null
+                          studentName: getContactStudent(selectedContact) || null
                         },
                         status: selectedContact?.status || "subscribed",
                         consent: {
