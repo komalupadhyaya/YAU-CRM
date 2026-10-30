@@ -147,9 +147,15 @@ export async function runBackfill() {
         console.log(`Bulk updated ${contactBulkOps.length} contact schema fields in single batch.`);
     }
 
-    // 4. Flush existing automated registration segments so stale entries are cleared
+    // 4. Flush existing automated registration segments so stale entries are cleared (strictly excluding Legacy CC)
     await EmailSegment.updateMany(
-        { category: { $in: ['school', 'location', 'app_members', 'manual'] } },
+        {
+            category: { $in: ['school', 'location', 'app_members', 'manual', 'evening_activities', 'mobile_app', 'afterschool'] },
+            $and: [
+                { category: { $ne: 'legacy_cc' } },
+                { name: { $not: /Legacy CC/i } }
+            ]
+        },
         { $set: { contacts: [] } }
     );
 
@@ -180,14 +186,18 @@ export async function runBackfill() {
         console.log(`Bulk upserted ${segmentBulkOps.length} segment lists with contacts in single batch.`);
     }
 
-    // 6. Clean up any empty registration lists with 0 contacts
+    // 6. Clean up any empty registration lists with 0 contacts (strictly preserving Legacy CC lists)
     const cleaned = await EmailSegment.deleteMany({
         $or: [
             { contacts: { $size: 0 } },
             { contacts: { $exists: false } }
         ],
         type: { $ne: 'campaign' },
-        category: { $in: ['school', 'location', 'app_members', 'manual'] }
+        category: { $in: ['school', 'location', 'app_members', 'manual', 'evening_activities', 'mobile_app', 'afterschool'] },
+        $and: [
+            { category: { $ne: 'legacy_cc' } },
+            { name: { $not: /Legacy CC/i } }
+        ]
     });
     console.log(`Cleaned up ${cleaned.deletedCount || 0} empty 0-contact list(s) from database.`);
 

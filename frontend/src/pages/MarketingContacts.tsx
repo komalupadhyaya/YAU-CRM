@@ -183,7 +183,7 @@ export default function MarketingContacts() {
   const [copiedContactJson, setCopiedContactJson] = useState(false);
   const [isWebhookGuideOpen, setIsWebhookGuideOpen] = useState(false);
   const [copiedWebhookPayload, setCopiedWebhookPayload] = useState<string | null>(null);
-  const [webhookPayloadTab, setWebhookPayloadTab] = useState<"full" | "school" | "location" | "app">("full");
+  const [webhookPayloadTab, setWebhookPayloadTab] = useState<"full" | "school" | "location" | "app" | "add_student" | "update">("full");
 
   // Add Contact Form State
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -252,18 +252,21 @@ export default function MarketingContacts() {
     if (src.includes("manual")) {
       return "Manual CRM Entries";
     }
-    if (src.includes("mobile") || src.includes("app")) {
-      if (school) return `${school} - Mobile App`;
-      if (location) return `${location} - Mobile App`;
-      return "Free App Members";
+    // 1. Unified School List: Any contact with a school routes to the unified school list (e.g. "Brandywine Elementary")
+    if (school) {
+      return school;
+    }
+    // 2. After School without specific school fallback (matches backend routing standard)
+    if (src.includes("afterschool") || src.includes("school") || (contact.entryPoint || "").toLowerCase().includes("school")) {
+      return "General - After School";
     }
     if (src.includes("portal") || src.includes("web") || src.includes("evening") || (location && !school)) {
       return `${location || "General"} - Evening Activities`;
     }
-    if (src.includes("afterschool") || src.includes("school") || (school && !location)) {
-      return `${school || "General"} - After School`;
+    if (src.includes("mobile") || src.includes("app")) {
+      if (location) return `${location} - Mobile App`;
+      return "Free App Members";
     }
-    if (school) return `${school} - After School`;
     if (location) return `${location} - Evening Activities`;
     return "Free App Members";
   }, []);
@@ -273,19 +276,16 @@ export default function MarketingContacts() {
     if (!contact) return false;
     const src = (contact.source || "").toLowerCase();
     const entryPoint = (contact.entryPoint || "").toLowerCase();
-    const assignedList = getAssignedListName(contact).toLowerCase();
     const school = (contact.schoolName || contact.metadata?.schoolName || contact.metadata?.school || "").trim();
-    const location = (contact.locationName || contact.metadata?.locationName || contact.metadata?.location || "").trim();
 
     return (
       src.includes("afterschool") ||
       src.includes("school") ||
       entryPoint === "school" ||
       entryPoint.includes("afterschool") ||
-      assignedList.includes("after school") ||
-      (Boolean(school) && !location)
+      Boolean(school)
     );
-  }, [getAssignedListName]);
+  }, []);
 
   // Helper: Resolve Plan Type with default fallback to "Free Plan" for AfterSchool
   const getContactPlan = useCallback((contact: MarketingContact | null | undefined): string => {
@@ -537,11 +537,14 @@ export default function MarketingContacts() {
     contacts.forEach(contact => {
       const listName = getAssignedListName(contact);
       const lower = listName.toLowerCase();
+      const school = (contact.schoolName || contact.metadata?.schoolName || contact.metadata?.school || "").trim();
+      const isSchool = (Boolean(school) || lower.includes("after school") || isAfterSchoolContact(contact)) && !lower.includes("free app");
+
       if (lower.includes("manual") || (contact.source || "").toLowerCase().includes("manual")) {
         const key = "Manual CRM Entries";
         if (!manualListsMap.has(key)) manualListsMap.set(key, []);
         manualListsMap.get(key)!.push(contact);
-      } else if (lower.includes("after school")) {
+      } else if (isSchool) {
         if (!schoolListsMap.has(listName)) schoolListsMap.set(listName, []);
         schoolListsMap.get(listName)!.push(contact);
       } else if (lower.includes("evening activities")) {
@@ -558,7 +561,9 @@ export default function MarketingContacts() {
       .map(([name, listContacts]) => ({
         name,
         category: "school",
-        description: `Dedicated email list for After School parents at ${name.replace(" - After School", "")}`,
+        description: name === "General - After School"
+          ? "Dedicated email list for General After School parents"
+          : `Dedicated email list for After School parents at ${name.replace(" - After School", "")}`,
         contacts: listContacts,
         count: listContacts.length
       }))
@@ -1467,7 +1472,7 @@ export default function MarketingContacts() {
                         <tbody className="divide-y divide-border/60">
                           {filteredActiveLists.map(list => (
                             <tr
-                              key={list.name}
+                              key={`${list.category}-${list.name}`}
                               onClick={() => {
                                 setActiveDrillDownList(list);
                                 setDrillDownSearch("");
@@ -2765,6 +2770,24 @@ export default function MarketingContacts() {
                   >
                     📱 Mobile App
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setWebhookPayloadTab("add_student")}
+                    className={`px-2 py-1 rounded-md font-bold transition-colors cursor-pointer shrink-0 ${
+                      webhookPayloadTab === "add_student" ? "bg-card text-foreground shadow-2xs" : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    ➕ Add Student
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setWebhookPayloadTab("update")}
+                    className={`px-2 py-1 rounded-md font-bold transition-colors cursor-pointer shrink-0 ${
+                      webhookPayloadTab === "update" ? "bg-card text-foreground shadow-2xs" : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    🔄 Update Record
+                  </button>
                 </div>
 
                 <button
@@ -2815,8 +2838,27 @@ export default function MarketingContacts() {
                         email: "sam.wilson@example.com",
                         phone: "555-333-2222",
                         source: "Mobile App",
-                        schoolName: "Allenwood Elementary",
+                        schoolName: "Brandywine Elementary",
                         isEmailConsent: true
+                      },
+                      add_student: {
+                        action: "add_student",
+                        email: "sarah.connor@example.com",
+                        parentName: "Sarah Connor",
+                        student: {
+                          student_name: "Timmy Connor",
+                          grade: "2nd Grade",
+                          sport: "Soccer",
+                          schoolName: "Brandywine Elementary"
+                        }
+                      },
+                      update: {
+                        action: "update",
+                        email: "sarah.connor@example.com",
+                        schoolName: "Brandywine Elementary",
+                        locationName: "Brandywine Youth Pavilion",
+                        studentName: "John Connor, Timmy Connor",
+                        sport: "Basketball"
                       }
                     };
                     const payload = JSON.stringify(payloads[webhookPayloadTab], null, 2);
@@ -2837,19 +2879,18 @@ export default function MarketingContacts() {
   "parentName": "Sarah Connor",
   "email": "sarah.connor@example.com",
   "phone": "555-123-4567",
-  "source": "After School Registration", // "After School Registration" | "Evening Activities" | "Mobile App"
+  "source": "After School Registration",
   "schoolName": "Brandywine Elementary",
   "locationName": "Brandywine Youth Pavilion",
   "sport": "Track & Field",
   "gradeBand": "4th – 5th Grade",
   "planType": "Seasonal",
   "studentName": "John Connor",
-  "status": "active", // "active" | "opted_out"
+  "status": "active",
   "isEmailConsent": true,
   "metadata": {
     "smsConsent": true,
-    "shirtSize": "Youth Small",
-    "emergencyContact": "Uncle Bob (302-555-9988)"
+    "shirtSize": "Youth Small"
   }
 }` : webhookPayloadTab === "school" ? `{
   "parentName": "Sarah Connor",
@@ -2869,13 +2910,30 @@ export default function MarketingContacts() {
   "locationName": "Brandywine Youth Pavilion",
   "sport": "Basketball",
   "isEmailConsent": true
-}` : `{
+}` : webhookPayloadTab === "app" ? `{
   "parentName": "Sam Wilson",
   "email": "sam.wilson@example.com",
   "phone": "555-333-2222",
   "source": "Mobile App",
-  "schoolName": "Allenwood Elementary", // optional school association
+  "schoolName": "Brandywine Elementary",
   "isEmailConsent": true
+}` : webhookPayloadTab === "add_student" ? `{
+  "action": "add_student",
+  "email": "sarah.connor@example.com",
+  "parentName": "Sarah Connor",
+  "student": {
+    "student_name": "Timmy Connor",
+    "grade": "2nd Grade",
+    "sport": "Soccer",
+    "schoolName": "Brandywine Elementary"
+  }
+}` : `{
+  "action": "update",
+  "email": "sarah.connor@example.com",
+  "schoolName": "Brandywine Elementary",
+  "locationName": "Brandywine Youth Pavilion",
+  "studentName": "John Connor, Timmy Connor",
+  "sport": "Basketball"
 }`}
               </pre>
             </div>
